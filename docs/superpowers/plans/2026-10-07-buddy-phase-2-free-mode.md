@@ -6,7 +6,7 @@
 
 **Architecture:** A new Vercel project in `web/` (CommonJS Node functions + `firebase-admin`) holds the admin's switches and the users in Cloud Firestore (`config/free`, `users/{uid}`) and answers free requests with the server's key, using the same prompts and provider adapters as the app (`shared/`, copied into `web/shared/` by `npm run sync:web`). The Electron app gains Google sign-in for desktop apps (PKCE + loopback → Firebase `signInWithIdp`), a server client, a routing layer that picks the free or own-key route from the server's settings, sign-in and free-state UI in Welcome/Settings/panel, and an Admin window shown only to the admin.
 
-**Tech Stack:** Electron 44, plain JavaScript (CommonJS), `node --test`, ESLint 10; Vercel Node 22 functions; `firebase-admin` (Auth token checks + Firestore); Firebase Authentication REST (`accounts:signInWithIdp`, `securetoken`); Google OAuth 2.0 for installed apps; the Firestore emulator (firebase-tools, Java 17) for the database adapter's tests.
+**Tech Stack:** Electron 44, plain JavaScript (CommonJS), `node --test`, ESLint 10; Vercel Node 22 functions; `firebase-admin` (Auth token checks + Firestore); Firebase Authentication REST (`accounts:signInWithIdp`, `securetoken`); Google OAuth 2.0 for installed apps; the Firestore emulator (firebase-tools, Java 21 or newer) for the database adapter's tests.
 
 **Spec:** `docs/superpowers/specs/2026-10-07-buddy-phase-2-free-mode-design.md` (builds on `2026-10-06-buddy-v1-mac-design.md`).
 
@@ -33,6 +33,7 @@
 ```
 shared/prompts.js                 + MAX_TOKENS (1024), used by the app and the server
 tools/sync-web-shared.js          copies shared/ → web/shared/ (npm run sync:web)
+tools/test-firestore.sh           runs the emulator tests on Java 21 or newer (npm run test:firestore)
 web/                              the Vercel project (root directory of the deployment)
   package.json                    firebase-admin; Node 22
   vercel.json                     ask gets 60 s; no caching
@@ -1155,6 +1156,7 @@ git commit -m "feat(server): free mode's switches, the daily count and the API h
 - Create: `web/api/config.js`, `web/api/ask.js`, `web/api/admin/settings.js`, `web/api/admin/models.js`, `web/api/admin/users.js`
 - Create: `web/vercel.json`, `web/public/index.html`, `web/firestore.rules`, `web/README.md`
 - Create: `firebase.json`, `.firebaserc`
+- Create: `tools/test-firestore.sh` (runs the emulator tests; firebase-tools needs Java 21 or newer)
 - Create: `test/server-vercel.test.js`, `test/firestore/firestore-db.test.js`
 - Modify: `package.json` (scripts `test:firestore`, `deploy:server`)
 
@@ -1576,7 +1578,7 @@ Create `firebase.json` (repo root):
     "rules": "web/firestore.rules"
   },
   "emulators": {
-    "firestore": { "host": "127.0.0.1", "port": 8085 },
+    "firestore": { "host": "127.0.0.1", "port": 8185 },
     "ui": { "enabled": false },
     "singleProjectMode": true
   }
@@ -1593,10 +1595,24 @@ Create `.firebaserc` (repo root):
 }
 ```
 
-In `package.json` add to `"scripts"`:
+Create `tools/test-firestore.sh`:
+
+```sh
+#!/bin/sh
+# The Firestore emulator's tests (test/firestore/). firebase-tools needs Java 21 or newer; macOS may have an older
+# Java first on the PATH, so Homebrew's openjdk@21 goes first when it is installed.
+set -e
+if prefix=$(brew --prefix openjdk@21 2>/dev/null) && [ -x "$prefix/bin/java" ]; then
+  PATH="$prefix/bin:$PATH"
+  export PATH
+fi
+exec firebase emulators:exec --only firestore --project demo-buddy "node --test 'test/firestore/*.test.js'"
+```
+
+Make it executable (`chmod +x tools/test-firestore.sh`), then in `package.json` add to `"scripts"`:
 
 ```json
-    "test:firestore": "firebase emulators:exec --only firestore --project demo-buddy \"node --test 'test/firestore/*.test.js'\"",
+    "test:firestore": "sh tools/test-firestore.sh",
     "deploy:server": "npm run sync:web && vercel deploy --prod --cwd web",
 ```
 
@@ -1737,7 +1753,7 @@ Vercel functions that give Buddy its free mode: the admin's switches and the use
 ## Tests
 
     npm test                  # the handlers with fakes (from the repository root)
-    npm run test:firestore    # the Firestore adapter against the emulator (needs Java)
+    npm run test:firestore    # the Firestore adapter against the emulator (needs Java 21 or newer)
 
 ## Deploy
 
@@ -1754,7 +1770,7 @@ Run: `npm test` — Expected: lint clean, all tests pass.
 ```bash
 git add web/package.json web/package-lock.json web/lib/firestore-db.js web/lib/deps.js web/lib/vercel.js web/api \
   web/vercel.json web/public web/firestore.rules web/README.md firebase.json .firebaserc \
-  test/server-vercel.test.js test/firestore package.json
+  test/server-vercel.test.js test/firestore tools/test-firestore.sh package.json
 git commit -m "feat(server): Firestore storage, the Vercel routes, and the database rules"
 ```
 
@@ -5286,7 +5302,7 @@ in, with `cloud.json` at the repository root. It is not in git: copy `cloud.exam
 without it fails (`build/afterPack.js`).
 
     npm run sync:web         # after changing shared/: the server keeps a copy in web/shared
-    npm run test:firestore   # the server's database code against the Firestore emulator (needs Java)
+    npm run test:firestore   # the server's database code against the Firestore emulator (needs Java 21 or newer)
     npm run deploy:server    # deploy the server
 ```
 

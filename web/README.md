@@ -24,7 +24,7 @@ Vercel functions that give Buddy its free mode: the admin's switches and the use
 ## Tests
 
     npm test                  # the handlers with fakes (from the repository root)
-    npm run test:firestore    # the Firestore adapter against the emulator (needs Java)
+    npm run test:firestore    # the Firestore adapter against the emulator (needs Java 21 or newer)
 
 ## Deploy
 

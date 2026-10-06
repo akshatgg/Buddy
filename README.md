@@ -1,11 +1,12 @@
 # Buddy
 
-A small 3D buddy that floats on top of every app on your Mac and helps you
-write in English. It writes emails and messages for you, fixes your English and
+A small 3D buddy that floats on top of every app on your Mac or Windows PC and
+helps you write in English. It writes emails and messages for you, fixes your English and
 checks what you wrote, then pastes the answer straight back into Gmail,
 WhatsApp or wherever you were typing. Type to it in English, Hindi or Hinglish.
 
-Design: `docs/superpowers/specs/2026-10-06-buddy-v1-mac-design.md`
+Design: `docs/superpowers/specs/2026-10-06-buddy-v1-mac-design.md`, and for Windows
+`docs/superpowers/specs/2026-10-07-buddy-windows-design.md`
 
 ## Run it
 
@@ -48,14 +49,48 @@ Applications, or copy `release/mac-arm64/Buddy.app` there yourself.
 
 The app runs without Terminal and has no Dock icon; it lives in the menu bar.
 
+## On Windows
+
+Needs Windows 10 (version 1903 or later) or Windows 11, 64-bit, and Node 22 or later.
+The helper is built with the C# compiler that comes with Windows (.NET Framework 4.8),
+so nothing else has to be installed.
+
+    npm install
+    npm start          # builds the helper, bin\buddy-helper.exe, then starts Buddy
+
+To install it, build the installer on Windows:
+
+    npm run dist:win
+
+That makes `release\Buddy Setup <version>.exe`. Run it: it installs Buddy for you
+(no administrator needed) and opens it.
+
+- **The first open.** The installer is not signed, so Windows may say "Windows
+  protected your PC". Click **More info**, then **Run anyway**.
+- **No permissions.** Windows asks for none, so the Welcome goes from picking a
+  buddy straight to connecting an AI.
+- **The shortcut** is **Ctrl+Shift+Space** (on Windows, Alt+Space opens every
+  window's own menu).
+- **The menu** is the buddy's icon in the corner of the taskbar (it may be under the
+  ^ arrow). A left or a right click opens it.
+- **Always on.** As on the Mac, only the installed Buddy starts itself with Windows.
+- **Not on Windows:** Buddy does not read from or type into a terminal (Ctrl+C there
+  would stop what is running), and Windows does not let it type into an app that runs
+  as administrator. There the answer is copied instead: press Ctrl+V.
+- **Trying a build safely.** `BUDDY_USER_DATA` works the same way (in PowerShell):
+
+      $env:BUDDY_USER_DATA = "$env:TEMP\buddy-trial"
+      .\release\win-unpacked\Buddy.exe
+
 ## Tests
 
     npm test           # lint and unit tests
     npm run test:e2e   # starts the real app with fakes and runs test/e2e/checks
 
-The e2e briefly opens Buddy's windows on screen.
+The e2e briefly opens Buddy's windows on screen. Both run on the Mac and on Windows.
 
-`docs/manual-checklist.md` covers what only a person can check.
+`docs/manual-checklist.md` (Mac) and `docs/manual-checklist-windows.md` cover what
+only a person can check.
 
 ## Characters
 

@@ -55,29 +55,58 @@ function setMorph(name, value) {
   }
 }
 
-async function load() {
-  const { bytes } = await window.buddy.model();
-  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-  const gltf = await new Promise((resolve, reject) => new GLTFLoader().parse(buffer, '', resolve, reject));
-  if (rig) scene.remove(rig.scene);
-  const find = (name) => gltf.scene.getObjectByName(name);
+const CONTRACT_NODES = ['Root', 'Head', 'ArmL', 'ArmR', 'Face'];
+
+/** Pick out what the character contract promises. Returns null, after logging, if a node is missing. */
+function buildRig(gltf) {
+  const nodes = Object.fromEntries(CONTRACT_NODES.map((name) => [name, gltf.scene.getObjectByName(name)]));
+  const missing = CONTRACT_NODES.filter((name) => !nodes[name]);
+  if (missing.length) {
+    console.error(`[buddy] the model has no ${missing.join(', ')}`);
+    return null;
+  }
+  const { Root: root, Head: head, ArmL: armL, ArmR: armR, Face: face } = nodes;
   const faces = [];
-  find('Face').traverse((o) => {
+  face.traverse((o) => {
     if (o.isMesh && o.morphTargetDictionary) faces.push(o);
   });
-  scene.add(gltf.scene);
-  resize();
-  const root = find('Root');
-  const head = find('Head');
-  const armL = find('ArmL');
-  const armR = find('ArmR');
-  rig = {
+  return {
     scene: gltf.scene, root, head, armL, armR, faces,
-    height: frameCamera(gltf.scene),
+    height: 0, // set once the model is framed
     base: { rootY: root.position.y, head: head.rotation.clone(), armL: armL.rotation.z, armR: armR.rotation.z },
   };
-  mood = { ...mood, since: now() }; // a mood sent while loading starts now
-  window.__buddyReady = true;
+}
+
+/** Free the GPU memory of a model we are done with. (The buddy files have no skins or textures.) */
+function disposeModel(object) {
+  object.traverse((o) => {
+    if (!o.isMesh) return;
+    o.geometry.dispose();
+    for (const material of Array.isArray(o.material) ? o.material : [o.material]) material.dispose();
+  });
+}
+
+/** Load the current character. The old one stays on screen until the new one is complete. */
+async function load() {
+  window.__buddyReady = false;
+  try {
+    const { bytes } = await window.buddy.model();
+    const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const gltf = await new Promise((resolve, reject) => new GLTFLoader().parse(buffer, '', resolve, reject));
+    const next = buildRig(gltf);
+    if (!next) return; // keep the old model
+    if (rig) {
+      scene.remove(rig.scene);
+      disposeModel(rig.scene);
+    }
+    scene.add(next.scene);
+    resize();
+    next.height = frameCamera(next.scene);
+    rig = next;
+    mood = { ...mood, since: now() }; // a mood sent while loading starts now
+  } finally {
+    window.__buddyReady = rig !== null; // true once a model is on screen: the new one, or the old one if this failed
+  }
 }
 
 function render(t) {
@@ -155,15 +184,27 @@ canvas.addEventListener('pointermove', (e) => {
 
 canvas.addEventListener('pointerup', (e) => {
   if (!press) return;
+  const { moved } = press;
+  press = null; // first: releasing the capture fires lostpointercapture, which must find no press to end
   canvas.releasePointerCapture(e.pointerId);
-  if (press.moved) {
+  if (moved) {
     window.buddy.dragEnd();
     mood = { name: 'idle', since: now() };
   } else {
     window.buddy.click();
   }
-  press = null;
 });
+
+/** The pointer was taken away mid-press (cancelled, or the capture was lost): end any drag, and never click. */
+function abortPress() {
+  if (!press) return;
+  const { moved } = press;
+  press = null;
+  if (moved) window.buddy.dragEnd();
+  if (mood.name === 'wobble') mood = { name: 'idle', since: now() };
+}
+canvas.addEventListener('pointercancel', abortPress);
+canvas.addEventListener('lostpointercapture', abortPress);
 
 window.buddy.onMood((name) => {
   mood = { name, since: now() };

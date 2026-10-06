@@ -17,4 +17,24 @@ function getProvider(id) {
   return PROVIDERS[id];
 }
 
-module.exports = { PROVIDERS, PROVIDER_IDS, getProvider };
+/**
+ * The id of the provider a key belongs to, going by how the key starts; null when it starts like none of
+ * them, or is not text. The longest matching start wins, so "sk-ant-..." is Claude's and any other
+ * "sk-..." is OpenAI's, whichever of the two is listed first.
+ */
+function providerForKey(key) {
+  if (typeof key !== 'string') return null;
+  let owner = null;
+  let longest = 0;
+  for (const id of PROVIDER_IDS) {
+    for (const prefix of PROVIDERS[id].keyPrefixes) {
+      if (prefix.length > longest && key.startsWith(prefix)) {
+        owner = id;
+        longest = prefix.length;
+      }
+    }
+  }
+  return owner;
+}
+
+module.exports = { PROVIDERS, PROVIDER_IDS, getProvider, providerForKey };

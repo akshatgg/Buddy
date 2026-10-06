@@ -1,9 +1,9 @@
 'use strict';
 
 // End-to-end smoke test: starts the real app (src/main/main.js) with a fresh
-// settings folder and fakes for the parts that touch the system (the Mac
+// settings folder and fakes for the parts that touch the system (the native
 // helper, the clipboard, the global shortcut, the login item), then runs every
-// check in test/e2e/checks in order.
+// check in test/e2e/checks in order. It runs on the Mac and on Windows.
 //
 //   npm run test:e2e
 
@@ -44,7 +44,7 @@ const clipboard = {
   },
 };
 
-// Nor may it grab the person's real shortcut (⌥Space), which another app of theirs may be using. This one only
+// Nor may it grab the person's real shortcut (⌥Space, or Ctrl+Shift+Space on Windows), which another app of theirs may be using. This one only
 // records what the app registers; a check calls the handler to press it.
 const globalShortcut = {
   registered: new Map(), // accelerator -> handler
@@ -75,8 +75,11 @@ function finish(code) {
   if (finished) return; // the first exit code stands
   finished = true;
   fs.rmSync(userData, { recursive: true, force: true });
-  const sweep = 'while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; sleep 1; rm -rf "$2"';
-  spawn('/bin/sh', ['-c', sweep, 'sh', String(process.pid), userData], { detached: true, stdio: 'ignore' }).unref();
+  // Windows has no sh: there the few files Chromium writes last stay in the temporary folder.
+  if (process.platform !== 'win32') {
+    const sweep = 'while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; sleep 1; rm -rf "$2"';
+    spawn('/bin/sh', ['-c', sweep, 'sh', String(process.pid), userData], { detached: true, stdio: 'ignore' }).unref();
+  }
   app.exit(code);
 }
 

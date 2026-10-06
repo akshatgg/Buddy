@@ -153,8 +153,8 @@ func writeTemporary(_ text: String, to pb: NSPasteboard) {
     pb.setData(Data(), forType: transientType)
 }
 
-/// One line on stderr, which Buddy's main process passes on to its own log. It only ever holds
-/// codes and numbers, never any text that came from an app.
+/// One line on stderr, which Buddy's main process passes on to its own log. It holds codes, numbers
+/// and the system's own error descriptions, never any text that came from an app or from the person.
 func logLine(_ text: String) {
     FileHandle.standardError.write(Data("[buddy-helper] \(text)\n".utf8))
 }
@@ -323,7 +323,10 @@ func screenshot(_ args: [String: Any]) throws -> [String: Any] {
     switch box.value {
     case .success(let image): return ["image": image]
     case .failure(let error as HelperError): throw error
-    case .failure(let error): throw HelperError(code: "capture_failed", message: error.localizedDescription)
+    case .failure(let error):
+        // macOS's own wording is for the log; the person gets plain words.
+        logLine("the screenshot failed: \(error.localizedDescription)")
+        throw HelperError(code: "capture_failed", message: "Could not take the screenshot. Try again.")
     case nil: throw HelperError(code: "capture_failed", message: "No screenshot.")
     }
 }
@@ -359,7 +362,9 @@ func handle(_ msg: [String: Any]) {
     } catch let error as HelperError {
         send(["id": id, "ok": false, "error": ["code": error.code, "message": error.message]])
     } catch {
-        send(["id": id, "ok": false, "error": ["code": "failed", "message": error.localizedDescription]])
+        // macOS's own wording is for the log; the person gets plain words.
+        logLine("\(msg["cmd"] as? String ?? "a command") failed: \(error.localizedDescription)")
+        send(["id": id, "ok": false, "error": ["code": "failed", "message": "Something went wrong. Try again."]])
     }
 }
 

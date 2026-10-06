@@ -297,23 +297,24 @@ process, vanilla HTML/CSS/JS renderers, `node --test`, ESLint, electron-builder.
 macOS 14 or later (ScreenCaptureKit screenshot API).
 
 ```
-buddy/
-  app/
-    src/main/        main.js, windows (buddy, panel, settings, onboarding),
-                     tray, store, loginItem, shortcut, helper client,
-                     ai router, auth (Phase 2), config client (Phase 2)
-    src/renderer/    buddy/ (three.js scene, moods), panel/, settings/, onboarding/
-    src/native/      BuddyHelper.swift
-    assets/buddies/  *.glb, buddies.json
-  shared/            prompts, provider adapters, usage parsing, day key —
-                     used by app and server
-  web/               Vercel project: api/, admin dashboard, firestore.rules
-  art/               Blender sources + character build script, preview renders
+buddy/                 the Electron app lives at the root, as in Souffleur
+  src/main/            main process: windows (buddy, bubble, panel, settings,
+                       onboarding), tray, store, secrets, power (always on),
+                       shortcut, helper client, ai router, ipc/
+  src/preload/         one preload per kind of window
+  src/renderer/        buddy/ (three.js scene, moods), bubble/, panel/,
+                       settings/, onboarding/, common/
+  src/native/          BuddyHelper.swift
+  shared/              prompts, provider adapters, errors -- used by the app
+                       and (Phase 2) the server
+  assets/buddies/      *.glb, previews/, buddies.json
+  art/                 Blender character build script
+  web/                 (Phase 2) Vercel project: api/, admin dashboard,
+                       firestore.rules
   docs/
 ```
 
-How `shared/` gets into both the Electron build and the Vercel deployment is
-settled in the implementation plan.
+How `shared/` reaches the Vercel deployment is settled in the Phase 2 plan.
 
 ### Buddy window
 

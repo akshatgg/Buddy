@@ -1,0 +1,6 @@
+html, body { background: transparent; height: 100%; overflow: hidden; }
+body { display: flex; align-items: center; justify-content: center; padding: 4px; }
+#text {
+  margin: 0; padding: 8px 14px; border-radius: 16px; background: var(--card); border: 1px solid var(--line);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16); font-weight: 600; white-space: nowrap;
+}

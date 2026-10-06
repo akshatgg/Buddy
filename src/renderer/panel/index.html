@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'">
+  <link rel="stylesheet" href="../common/base.css">
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+<div class="panel">
+  <header>
+    <div><strong id="who">Buddy</strong> <span id="where" class="muted"></span></div>
+    <div>
+      <button id="settings" class="icon" type="button" title="Settings">⚙︎</button>
+      <button id="close" class="icon" type="button" title="Close (Esc)">✕</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button type="button" data-tab="write">Write for me</button>
+    <button type="button" data-tab="fix">Fix my English</button>
+    <button type="button" data-tab="check">Check screen</button>
+  </nav>
+
+  <p id="notice" class="notice" hidden></p>
+
+  <section id="tab-write" class="tab">
+    <textarea id="write-text" rows="4" placeholder="What should I write? e.g. boss ko mail, kal chutti chahiye"></textarea>
+    <div class="row">
+      <div class="tones">
+        <label><input type="radio" name="tone" value="formal" checked> Formal</label>
+        <label><input type="radio" name="tone" value="friendly"> Friendly</label>
+        <label><input type="radio" name="tone" value="short"> Short</label>
+      </div>
+      <button id="write-go" class="primary" type="button">Write</button>
+    </div>
+  </section>
+
+  <section id="tab-fix" class="tab" hidden>
+    <textarea id="fix-text" rows="5" placeholder="Select your text first, or paste it here"></textarea>
+    <div class="row">
+      <button id="fix-whole" type="button">Use the whole box</button>
+      <span class="spacer"></span>
+      <button id="fix-go" class="primary" type="button">Fix</button>
+    </div>
+  </section>
+
+  <section id="tab-check" class="tab" hidden>
+    <img id="shot" alt="Screenshot of your window" hidden>
+    <input id="check-q" type="text" placeholder="Ask something (optional), e.g. is this mail okay?">
+    <div class="row">
+      <button id="check-shot" type="button">New screenshot</button>
+      <span class="spacer"></span>
+      <button id="check-go" class="primary" type="button">Check</button>
+    </div>
+  </section>
+
+  <p id="busy" class="muted" hidden>Thinking…</p>
+  <p id="error" class="error" hidden></p>
+
+  <section id="result" hidden>
+    <p id="verdict" class="verdict" hidden></p>
+    <ul id="problems" hidden></ul>
+    <textarea id="result-text" rows="7"></textarea>
+    <div class="row">
+      <button id="insert" class="primary" type="button">Insert</button>
+      <button id="copy" type="button">Copy</button>
+      <span class="spacer"></span>
+      <button id="again" type="button">Try again</button>
+    </div>
+  </section>
+</div>
+<script src="panel.js"></script>
+</body>
+</html>

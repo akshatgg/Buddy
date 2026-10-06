@@ -246,7 +246,6 @@ func paste(_ args: [String: Any]) throws -> [String: Any] {
     if focusedIsSecure(pid) { throw HelperError(code: "secure_field", message: "I don't type into password fields.") }
 
     let pb = NSPasteboard.general
-    let before = pb.changeCount // before Buddy's own write below, which is what changes the clipboard here
     let saved = saveClipboard()
     writeTemporary(text, to: pb)
     if args["selectAll"] as? Bool == true {
@@ -257,7 +256,9 @@ func paste(_ args: [String: Any]) throws -> [String: Any] {
     // The target app reads the clipboard after it handles ⌘V; restoring too
     // early would paste the user's old clipboard instead.
     usleep(500_000)
-    if pb.changeCount != before { restoreClipboard(saved) }
+    // Always put it back: Buddy's own write above changed the clipboard (writeTemporary always bumps the
+    // change count), so a check for a changed count would always say yes.
+    restoreClipboard(saved)
     return ["via": via]
 }
 

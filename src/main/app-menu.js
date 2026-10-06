@@ -7,6 +7,9 @@
  *   - the Edit roles, so that cut, copy, paste, select all and undo work in the text boxes of the panel and Settings;
  *   - Cmd+W, which closes the focused Settings or Welcome window and nothing else;
  *   - no Cmd+Q: Buddy is quit only from the menu bar's "Quit".
+ *
+ * Windows gets no menu at all. There a menu shows as a bar inside the Settings and Welcome windows, the text boxes
+ * have their Ctrl keys without one, and with none there is no Ctrl+W or Ctrl+R to close or reload a window.
  */
 
 function buildAppMenuTemplate({ closeWindow }) {
@@ -34,7 +37,11 @@ function buildAppMenuTemplate({ closeWindow }) {
 }
 
 /** `windows` is the Settings and Welcome windows (settings-windows.js); Menu can be passed in so that tests need no Electron. */
-function installAppMenu({ windows, Menu = require('electron').Menu }) {
+function installAppMenu({ windows, Menu = require('electron').Menu, platform = process.platform }) {
+  if (platform === 'win32') {
+    Menu.setApplicationMenu(null);
+    return;
+  }
   const template = buildAppMenuTemplate({
     closeWindow(win) {
       if (win && !win.isDestroyed() && windows.owns(win.webContents)) win.close();

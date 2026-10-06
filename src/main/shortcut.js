@@ -3,16 +3,15 @@
 /**
  * The global shortcut that opens the panel from any app (⌥Space by default).
  * Changing it never leaves the user with none: if the new one is taken, the
- * old one is put back. It can also be let go while Buddy is turned off, and the
- * same one is taken again when Buddy is turned back on.
+ * old one is put back. It can also be let go while Buddy is turned off; turning
+ * Buddy back on registers the saved shortcut again (main.js reads it from the store).
  */
 
 function createShortcut({ globalShortcut, onPress }) {
   let current = null; // registered with the system right now
-  let remembered = null; // the last one registered, which unregister() lets go of but keeps in mind
 
   function tryRegister(accelerator) {
-    if (!accelerator) return false; // nothing to register: nothing was remembered yet
+    if (!accelerator) return false; // nothing to register (a blank setting)
     try {
       return globalShortcut.register(accelerator, onPress);
     } catch {
@@ -22,19 +21,18 @@ function createShortcut({ globalShortcut, onPress }) {
 
   return {
     current: () => current,
-    /** Registers `accelerator`; with none given, the one that unregister() let go of. */
-    register(accelerator = remembered) {
+    /** Registers `accelerator`. If that fails, the one that was registered stays. */
+    register(accelerator) {
       const previous = current;
       if (previous) globalShortcut.unregister(previous);
       if (tryRegister(accelerator)) {
         current = accelerator;
-        remembered = accelerator;
         return true;
       }
       if (previous) tryRegister(previous);
       return false;
     },
-    /** Gives the shortcut back to the system, so other apps can use it. register() with no argument takes it again. */
+    /** Gives the shortcut back to the system, so other apps can use it. */
     unregister() {
       if (!current) return;
       globalShortcut.unregister(current);

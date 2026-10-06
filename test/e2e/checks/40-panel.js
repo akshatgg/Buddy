@@ -68,6 +68,8 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
     await waitFor(() => opened.length > 0, 'Settings to open');
     assert.deepStrictEqual(opened, ['settings']);
     assert.strictEqual(panel.isVisible(), false, 'the panel steps aside');
+    // Let its page finish loading before it is closed again, so that closing it does not cut the load short.
+    await waitFor(() => settingsWindow.webContents.executeJavaScript("document.getElementById('size') !== null"), 'the Settings page to load');
   } finally {
     ctx.windows.open = open;
     ctx.actions.run = run;

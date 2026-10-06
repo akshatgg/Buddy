@@ -88,6 +88,9 @@ module.exports = {
     category: 'public.app-category.productivity',
     // arm64 only: the Swift helper is built for arm64 (see build:native in package.json).
     target: [{ target: 'dmg', arch: ['arm64'] }],
+    // The helper is built for macOS 14 (-target in build:native). An older Mac is told so when it opens Buddy,
+    // instead of running a Buddy whose helper cannot start.
+    minimumSystemVersion: '14.0',
     icon: 'build/icon.png',
 
     // null means "do not sign" — afterPack then applies a consistent ad-hoc

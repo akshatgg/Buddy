@@ -99,6 +99,7 @@ enum Key: CGKeyCode {
     case a = 0x00
     case c = 0x08
     case v = 0x09
+    case rightArrow = 0x7C // 124
 }
 
 func pressCommand(_ key: Key) {
@@ -109,6 +110,17 @@ func pressCommand(_ key: Key) {
     up?.flags = .maskCommand
     down?.post(tap: .cghidEventTap)
     up?.post(tap: .cghidEventTap)
+}
+
+/// A key on its own, with no modifiers, sent straight to the app `pid`.
+func pressKey(_ key: Key, toPid pid: pid_t) {
+    let source = CGEventSource(stateID: .combinedSessionState)
+    let down = CGEvent(keyboardEventSource: source, virtualKey: key.rawValue, keyDown: true)
+    let up = CGEvent(keyboardEventSource: source, virtualKey: key.rawValue, keyDown: false)
+    down?.flags = []
+    up?.flags = []
+    down?.postToPid(pid)
+    up?.postToPid(pid)
 }
 
 typealias SavedClipboard = [[(NSPasteboard.PasteboardType, Data)]]
@@ -198,7 +210,8 @@ func captureSelection(_ args: [String: Any]) throws -> [String: Any] {
     // new contents on the clipboard (the copy, or anyone else).
     let before = pb.changeCount
     let saved = saveClipboard()
-    if args["selectAll"] as? Bool == true {
+    let selectAll = args["selectAll"] as? Bool == true
+    if selectAll {
         pressCommand(.a)
         usleep(80_000)
     }
@@ -212,6 +225,9 @@ func captureSelection(_ args: [String: Any]) throws -> [String: Any] {
         }
         usleep(15_000)
     }
+    // "Use the whole box" left everything selected in the person's app. Collapse the selection, so that the
+    // first key they type does not replace their whole draft. Replace selects everything again before it pastes.
+    if selectAll { pressKey(.rightArrow, toPid: pid) }
     // Put the person's clipboard back only if it changed. A copy that copied nothing leaves it as it was, and
     // writing it again would add an entry to clipboard-history apps, read every type it holds into memory, and
     // could defeat a password manager that clears the clipboard only while it is unchanged.

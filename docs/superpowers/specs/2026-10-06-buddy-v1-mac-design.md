@@ -223,7 +223,8 @@ raw prompt — so the free key cannot be used as a general-purpose free AI.
 ### Own keys
 
 Stored encrypted with Electron `safeStorage` (Keychain-backed) in the app's user
-data folder. Sent only to the AI the key belongs to.
+data folder. Sent to one AI only: the one whose keys start the same way, or,
+when the key starts like none of them, the chosen one.
 
 A pasted key picks its own AI. This is done in the main process
 (`settings:save-key`), so there is one source of truth. After the usual checks on

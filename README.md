@@ -32,4 +32,5 @@ The buddies are built in Blender from `art/build_buddies.py`:
     npm run build:buddies
 
 Every `.glb` keeps the same contract (nodes Root, Head, ArmL, ArmR; mesh Face
-with morph targets blink, smile, mouthO), and `test/characters.test.js` checks it.
+with morph targets blink, smile, mouthO, eyeLUp, eyeRUp), and `test/characters.test.js`
+checks it.

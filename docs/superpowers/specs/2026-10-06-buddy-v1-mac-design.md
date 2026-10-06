@@ -96,13 +96,15 @@ buddy".
 
 ## 3. Characters
 
-- **6 at launch: 3 boys, 3 girls.** Cute, round, cartoon (chibi) 3D style,
-  about two heads tall, big glossy eyes, soft pastel colours. All built from one
-  shared base body; variety comes from hair, colours, outfits and accessories,
-  so more can be added later cheaply.
+- **6 at launch: 3 boys, 3 girls.** A small, cute robot in glossy cream plastic,
+  like a vinyl toy (the user's reference picture): a big bean-shaped head with a
+  dark face screen whose glowing eyes show the mood, ear discs, a small body with
+  a glowing chest triangle, stubby arms and dark feet. All built from one shared
+  base; variety comes from the glow colour and the piece on top of the head (a
+  leaf sprout, a bow, …), so more can be added later cheaply.
 - Phase 1 ships the first two (one boy, one girl); Phase 3 adds the other four.
-- Built in Blender (through the Blender MCP connection) from a Python script so
-  every character is reproducible. Sources and the script live in `art/`.
+- Built headless in Blender from a Python script so every character is
+  reproducible. Sources and the script live in `art/`.
 - Exported as `.glb`, each under 1 MB, no Draco compression.
 - Before integration, each character gets a preview render (front + turntable)
   for the user to approve.
@@ -116,7 +118,12 @@ Named nodes, animated by app code (no baked animation clips needed):
 | `Root` | float, bounce, wobble, breathing scale |
 | `Head` | look-at, head tilt (thinking) |
 | `ArmL`, `ArmR` | wave, happy |
-| `Face` mesh with morph targets `blink`, `smile`, `mouthO` | blink, sleep (blink = 1), happy, talking |
+| `Face` mesh with morph targets `blink`, `smile`, `mouthO`, `eyeLUp`, `eyeRUp` | blink, sleep (blink = 1), happy, talking, thinking |
+
+`eyeLUp` and `eyeRUp` each move one eye (the one on the viewer's left or right)
+up the screen. While thinking, the app drives them from −1 to 1 with `blink` at 1,
+so the eyes are glowing lines sweeping up and down. `blink` and `smile` reshape
+the same eyes, so the app never blinks while smiling.
 
 `assets/buddies/buddies.json` lists characters:
 `{ id, gender: "boy" | "girl", defaultName, file, accent }`.

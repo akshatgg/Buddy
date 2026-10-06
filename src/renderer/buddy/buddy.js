@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { fpsFor, floatOffset, createBlinker, lookAt, moodPose } from './moods.js';
+import { fpsFor, isActive, floatOffset, createBlinker, lookAt, moodPose } from './moods.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
@@ -22,10 +22,15 @@ const raycaster = new THREE.Raycaster();
 const blinker = createBlinker();
 const now = () => performance.now() / 1000;
 
+const LOOK_EPSILON = 0.002; // radians: a smaller turn of the head is not worth a frame
+const BLINK_LOOKAHEAD = 0.1; // seconds: draw at full rate this long before a blink starts
+
 let rig = null;
 let mood = { name: 'idle', since: now() };
 let cursor = { dx: 0, dy: 0 };
-let cursorMovedAt = -Infinity; // when the pointer last moved, in now() seconds
+let lastLook = { yaw: 0, pitch: 0 }; // the head's turn when it last changed by more than LOOK_EPSILON
+let lastLookChange = -Infinity; // when that was, in now() seconds
+let lastActive = now(); // the last time isActive() was true, in now() seconds
 let hovering = false;
 let press = null; // { x, y, moved } while the pointer is down on the buddy
 let timer = null; // the one pending frame; null while the loop is paused
@@ -127,14 +132,17 @@ function render(t) {
 
 /**
  * The frame loop: one timer, so the page wakes only when a frame is due (not at
- * the display's refresh rate) and can slow down while the buddy is just floating.
- * The next frame is scheduled before drawing this one, so drawing time does not
- * stretch the interval.
+ * the display's refresh rate), and slows down while little is happening (see
+ * fpsFor in moods.js). The next frame is scheduled before drawing this one, so
+ * drawing time does not stretch the interval.
  */
 function tick() {
-  const fps = fpsFor({ mood: mood.name, pressing: press !== null, sinceCursorMove: now() - cursorMovedAt });
+  const t = now();
+  const state = { mood: mood.name, pressing: press !== null, sinceLookChange: t - lastLookChange };
+  if (isActive(state)) lastActive = t;
+  const fps = fpsFor({ ...state, blinkSoon: blinker.soon(t, BLINK_LOOKAHEAD), sinceActive: t - lastActive });
   timer = setTimeout(tick, 1000 / fps);
-  if (rig) render(now());
+  if (rig) render(t);
 }
 
 function startLoop() {
@@ -211,7 +219,13 @@ window.buddy.onMood((name) => {
 });
 window.buddy.onCursor((point) => {
   cursor = point;
-  cursorMovedAt = now();
+  // The pointer moving is not the point; the head turning is. lookAt() stops
+  // changing once the pointer is far enough away, and then nothing needs drawing.
+  const look = lookAt(point.dx, point.dy);
+  if (Math.abs(look.yaw - lastLook.yaw) > LOOK_EPSILON || Math.abs(look.pitch - lastLook.pitch) > LOOK_EPSILON) {
+    lastLook = look;
+    lastLookChange = now();
+  }
 });
 window.buddy.onPause((paused) => {
   if (paused) stopLoop();

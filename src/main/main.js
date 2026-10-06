@@ -17,6 +17,7 @@ const { createBuddyWindow } = require('./buddy-window');
 const { createBubbleWindow } = require('./bubble-window');
 const { createPanelWindow } = require('./panel-window');
 const { createSettingsWindows } = require('./settings-windows');
+const { installAppMenu } = require('./app-menu');
 const { createActions } = require('./actions');
 const { createTray } = require('./tray');
 const { createPower, loginItemsFor } = require('./power');
@@ -61,6 +62,7 @@ async function start(options = {}) {
   const panel = createPanelWindow();
   const windows = createSettingsWindows({ app });
   const openSettings = () => windows.open('settings');
+  installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings and Welcome, and no Cmd+Q
 
   const actions = createActions({
     helper,

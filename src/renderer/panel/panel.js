@@ -163,8 +163,8 @@ for (const b of document.querySelectorAll('[data-tab]')) b.addEventListener('cli
 document.addEventListener('keydown', (e) => {
   if (e.isComposing) return; // Esc and Enter belong to the input method while it is composing (Hindi, Devanagari)
   if (e.key === 'Escape') window.buddy.close();
-  // ⌘↩ presses the current tab's main button.
-  if (e.key === 'Enter' && e.metaKey) $(`${currentTab}-go`).click();
+  // ⌘↩ (Ctrl+Enter on Windows) presses the current tab's main button.
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) $(`${currentTab}-go`).click();
 });
 
 window.buddy.onOpen((state) => {

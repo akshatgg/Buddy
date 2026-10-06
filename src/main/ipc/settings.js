@@ -15,8 +15,8 @@ const PERMISSION_PANES = {
   screenRecording: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
 };
 // An API key is printable ASCII with no spaces. Smart quotes, a zero-width space or a second
-// line that came along with the paste make the request fail on this Mac, and that failure
-// looks just like having no internet.
+// line that came along with the paste make the request fail, and that failure looks just
+// like having no internet.
 const KEY_SHAPE = /^[\x21-\x7e]+$/;
 
 /** True when `name` is one of the object's own names. "constructor" and "__proto__" are not. */
@@ -48,6 +48,7 @@ function checkPermission(which) {
 
 function registerSettingsIpc({
   ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, onFinishOnboarding, shell,
+  platform = process.platform,
 }) {
   const handle = guarded(ipcMain, (webContents) => windows.owns(webContents));
   // Finishing the Welcome is for the Welcome window only: the Settings window has no business doing it.
@@ -76,6 +77,8 @@ function registerSettingsIpc({
     delete settings.lastDisplayId;
     return {
       settings,
+      // 'darwin' or 'win32': the pages leave out what the system does not have (Windows asks for no permissions).
+      platform,
       buddyOn: power.isOn(),
       characters: characters.list,
       providers: PROVIDER_IDS.map((id) => ({

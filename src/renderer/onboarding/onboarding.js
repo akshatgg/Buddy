@@ -2,7 +2,10 @@
 /* global mountAiForm, renderBuddyGrid */
 
 const $ = (id) => document.getElementById(id);
-const STEPS = ['pick', 'accessibility', 'screen', 'ai'];
+const ALL_STEPS = ['pick', 'accessibility', 'screen', 'ai'];
+// Windows asks for no permissions, so its Welcome leaves out those two steps.
+const WINDOWS_STEPS = ['pick', 'ai'];
+let steps = ALL_STEPS; // until the settings say which system this is
 let step = 0;
 let snap = null;
 let chosen = null;
@@ -34,12 +37,10 @@ async function checkPermissions() {
 
 function go(n) {
   step = n;
-  STEPS.forEach((name, i) => {
-    $(`step-${name}`).hidden = i !== n;
-  });
+  for (const name of ALL_STEPS) $(`step-${name}`).hidden = name !== steps[n];
   $('back').hidden = n === 0;
-  $('next').textContent = n === STEPS.length - 1 ? 'Start my buddy' : 'Next';
-  if (STEPS[n] === 'accessibility' || STEPS[n] === 'screen') checkPermissions();
+  $('next').textContent = n === steps.length - 1 ? 'Start my buddy' : 'Next';
+  if (steps[n] === 'accessibility' || steps[n] === 'screen') checkPermissions();
 }
 
 async function allow(which, statusId) {
@@ -62,11 +63,11 @@ $('scr-open').addEventListener('click', () => allow('screenRecording', 'scr-stat
 $('acc-check').addEventListener('click', checkPermissions);
 $('scr-check').addEventListener('click', checkPermissions);
 window.addEventListener('focus', () => {
-  if (STEPS[step] === 'accessibility' || STEPS[step] === 'screen') checkPermissions();
+  if (steps[step] === 'accessibility' || steps[step] === 'screen') checkPermissions();
 });
 $('back').addEventListener('click', () => go(step - 1));
 $('next').addEventListener('click', async () => {
-  if (step < STEPS.length - 1) {
+  if (step < steps.length - 1) {
     go(step + 1);
     return;
   }
@@ -85,6 +86,10 @@ $('next').addEventListener('click', async () => {
   if (!snap.ok) {
     showLoadError(snap.error.message);
     return;
+  }
+  if (snap.platform === 'win32') {
+    steps = WINDOWS_STEPS;
+    go(Math.min(step, steps.length - 1)); // a step that was shown meanwhile may be one Windows has no use for
   }
   chosen = snap.settings.buddyId;
   renderBuddyGrid($('buddies'), snap.characters, chosen, pick);

@@ -5,6 +5,10 @@ const $ = (id) => document.getElementById(id);
 let snap = null;
 let gridBuilt = false;
 
+// Windows asks for no permissions, and its shortcuts are written with Ctrl.
+const onWindows = () => snap?.platform === 'win32';
+const WINDOWS_SHORTCUT_HINT = 'Press it in any app to open your buddy. For example: Ctrl+Shift+Space or Ctrl+Alt+B';
+
 function showStatus(id, text, kind) {
   $(id).textContent = text;
   $(id).className = kind;
@@ -29,10 +33,12 @@ function render() {
   $('name').value = snap.settings.buddyName;
   $('size').value = snap.settings.size;
   $('shortcut').value = snap.settings.shortcut;
+  if (onWindows()) $('shortcut-hint').textContent = WINDOWS_SHORTCUT_HINT;
+  $('permissions-card').hidden = onWindows();
   $('power').textContent = snap.buddyOn ? 'Turn off buddy' : 'Turn on buddy';
   showStatus(
     'power-status',
-    snap.buddyOn ? 'Your buddy is on, and comes back every time your Mac starts.' : 'Your buddy is off.',
+    snap.buddyOn ? `Your buddy is on, and comes back every time your ${onWindows() ? 'PC' : 'Mac'} starts.` : 'Your buddy is off.',
     'muted',
   );
 }
@@ -46,6 +52,7 @@ async function save(patch, statusId) {
 }
 
 async function renderPermissions() {
+  if (onWindows()) return;
   const r = await window.buddy.permissions();
   for (const which of ['accessibility', 'screenRecording']) {
     const granted = Boolean(r.ok && r[which]);

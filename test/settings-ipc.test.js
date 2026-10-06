@@ -40,7 +40,7 @@ const refused = (code, message) => ({ ok: false, error: { code, message } });
  * `realShortcut` replaces the fake shortcut. Provider calls are faked per test
  * with t.mock.method(PROVIDERS.anthropic, 'listModels', ...).
  */
-function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut } = {}) {
+function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut, platform } = {}) {
   const data = { ...structuredClone(DEFAULTS), ...stored };
   const store = {
     get: (key) => data[key],
@@ -100,6 +100,7 @@ function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = t
     },
     shell: { openExternal: async (url) => { opened.push(url); } },
     onFinishOnboarding: () => calls.push(['finished']),
+    platform,
   });
   const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
   const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
@@ -599,4 +600,10 @@ test('the Welcome window can use the other channels, as the Settings window can'
   assert.strictEqual((await s.callFromWelcome('settings:get')).ok, true);
   assert.strictEqual((await s.callFromWelcome('settings:set', { size: 'large' })).ok, true);
   assert.deepStrictEqual(await s.callFromWelcome('permissions:get'), { ok: true, accessibility: true, screenRecording: false });
+});
+
+test('settings:get says which system Buddy runs on, so the pages leave out what it does not have', async () => {
+  assert.strictEqual((await setup({ platform: 'win32' }).call('settings:get')).platform, 'win32');
+  assert.strictEqual((await setup({ platform: 'darwin' }).call('settings:get')).platform, 'darwin');
+  assert.strictEqual((await setup().call('settings:get')).platform, process.platform);
 });

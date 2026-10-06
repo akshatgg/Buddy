@@ -8,7 +8,15 @@
 const { app } = require('electron');
 const { start } = require('./main');
 
-start().catch((err) => {
+// For trying a build safely: with BUDDY_USER_DATA set, Buddy keeps its settings in that folder
+// instead of the real one, and its login item stays off (it never adds or removes one).
+const options = {};
+if (process.env.BUDDY_USER_DATA) {
+  app.setPath('userData', process.env.BUDDY_USER_DATA);
+  options.loginItems = { get: () => false, set: () => {} };
+}
+
+start(options).catch((err) => {
   console.error('[buddy] failed to start', err);
   app.exit(1);
 });

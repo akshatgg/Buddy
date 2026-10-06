@@ -74,6 +74,7 @@ function createBuddyWindow({ store, screen, animate = true }) {
     });
     contents.on('render-process-gone', (_event, details) => onCrash(details));
     contents.on('will-navigate', (event) => event.preventDefault());
+    contents.setWindowOpenHandler(() => ({ action: 'deny' })); // the page shows only its own content: no pop-ups either
     // A failure is reported by did-fail-load above; this only keeps it from going unhandled.
     win.loadFile(path.join(__dirname, '..', 'renderer', 'buddy', 'index.html')).catch(() => {});
   }

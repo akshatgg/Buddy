@@ -13,6 +13,8 @@
     "build:native": "mkdir -p bin && swiftc -O -target arm64-apple-macos14.0 src/native/BuddyHelper.swift -o bin/buddy-helper",
     "build:buddies": "/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python art/build_buddies.py -- --out assets/buddies",
     "build:icons": "node tools/make-tray-icon.js",
+    "build:icon": "mkdir -p art/out && /Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python art/render_icon.py -- --out art/out/robot.png && swift build/MakeIcon.swift art/out/robot.png build/icon.png",
+    "dist:mac": "npm run build:native && electron-builder --mac --config electron-builder.config.js --publish never",
     "lint": "eslint .",
     "test": "eslint . && node --test 'test/*.test.js' 'test/*.test.mjs'",
     "test:e2e": "electron test/e2e/smoke.js"
@@ -20,6 +22,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
     "eslint": "^10.12.0",
     "globals": "^17.13.0"
   },

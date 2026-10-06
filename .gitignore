@@ -4,3 +4,5 @@ dist/
 .DS_Store
 test/e2e/out/
 art/__pycache__/
+release/
+art/out/

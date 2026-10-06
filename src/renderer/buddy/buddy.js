@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
   BLINK_LOOKAHEAD, fpsFor, isActive, wakeDelay, floatOffset, createBlinker, lookAt, moodPose,
 } from './moods.js';
@@ -12,11 +13,27 @@ const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setClearColor(0x000000, 0);
+// Khronos PBR Neutral keeps the colours the model was made with (the cream stays cream, the
+// screen stays dark) and only rolls off highlights and glow. art/build_buddies.py renders the
+// previews with the same curve.
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100);
-scene.add(new THREE.HemisphereLight(0xffffff, 0xcfd8ff, 1.8));
-const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
+// Glossy plastic and glass need something to reflect: a soft studio room, prefiltered once
+// at start (a few milliseconds on the GPU) and only sampled after that. Tipped back a little,
+// so the room's front light shows as a reflection across the top of the face screen rather
+// than between the eyes.
+const pmrem = new THREE.PMREMGenerator(renderer);
+const room = new RoomEnvironment();
+scene.environment = pmrem.fromScene(room, 0.04).texture;
+scene.environmentRotation.x = -0.3;
+room.dispose();
+pmrem.dispose();
+// Soft, warm light on top of the room's.
+scene.add(new THREE.HemisphereLight(0xfff3e6, 0xd9cbbd, 0.5));
+const keyLight = new THREE.DirectionalLight(0xffeedd, 1.2);
 keyLight.position.set(1.5, 2.5, 4);
 scene.add(keyLight);
 

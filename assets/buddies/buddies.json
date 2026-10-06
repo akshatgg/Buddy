@@ -5,7 +5,7 @@
     "defaultName": "Aarav",
     "file": "boy-1.glb",
     "preview": "previews/boy-1.png",
-    "accent": "#3fb6a8"
+    "accent": "#ffb54c"
   },
   {
     "id": "girl-1",
@@ -13,6 +13,6 @@
     "defaultName": "Anaya",
     "file": "girl-1.glb",
     "preview": "previews/girl-1.png",
-    "accent": "#ff7a8a"
+    "accent": "#ff8fb1"
   }
 ]

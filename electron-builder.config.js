@@ -63,6 +63,14 @@ module.exports = {
     'shared/**/*',
     'assets/**/*',
     'package.json',
+    // Left out because nothing in the app reads them: the Swift source (it is built into bin/buddy-helper, which
+    // goes in as an extra resource below), and three's source, WebGPU and TSL builds and CommonJS stub. The buddy
+    // page uses only build/three.module.js, build/three.core.js and the examples file set below.
+    '!src/native/**',
+    '!node_modules/three/src/**',
+    '!node_modules/three/build/three.webgpu*.js',
+    '!node_modules/three/build/three.tsl.js',
+    '!node_modules/three/build/three.cjs',
     // electron-builder never copies an `examples` folder out of a package in node_modules, and
     // no pattern in this list can bring it back. The buddy page imports from three.js's examples
     // through its import map (src/renderer/buddy/index.html): the glTF loader and the studio

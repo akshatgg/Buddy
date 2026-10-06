@@ -56,8 +56,8 @@ function authUrl({ clientId, redirectUri, challenge, state }) {
 /**
  * Listen once on 127.0.0.1, on a port the system picks, for Google's answer to the sign-in with this `state`.
  * Resolves { redirectUri, code, stop } as soon as it listens: `code` is a promise of the authorization code, which
- * rejects when the person cancels on Google's page, after `waitMs`, when `signal` aborts, or on stop(). Anything
- * else that reaches the port gets a 404, and the wait goes on.
+ * rejects when the person cancels on Google's page, after `waitMs`, when `signal` aborts (at once, if it already
+ * has), or on stop(). Anything else that reaches the port gets a 404, and the wait goes on.
  */
 function listenForCode({ state, waitMs = WAIT_MS, signal }) {
   return new Promise((resolve, reject) => {
@@ -69,8 +69,13 @@ function listenForCode({ state, waitMs = WAIT_MS, signal }) {
     code.catch(() => {}); // the caller awaits it later; an early failure is not "unhandled" meanwhile
 
     const server = http.createServer((req, res) => {
-      const url = new URL(req.url, 'http://127.0.0.1');
-      if (done || url.pathname !== '/' || url.searchParams.get('state') !== state) {
+      let url = null;
+      try {
+        url = new URL(req.url, 'http://127.0.0.1');
+      } catch {
+        // A target that is no path at all (`//`, `///`): whoever sent it, it is not Google's answer.
+      }
+      if (done || !url || url.pathname !== '/' || url.searchParams.get('state') !== state) {
         res.writeHead(404, { 'content-type': 'text/plain', connection: 'close' }).end('Not found');
         return; // a favicon request or a stray visitor: keep waiting for Google
       }
@@ -95,9 +100,10 @@ function listenForCode({ state, waitMs = WAIT_MS, signal }) {
       reject(new BuddyError('sign_in_failed', "Couldn't start signing in. Try again."));
     });
     server.listen(0, '127.0.0.1', () => {
+      const redirectUri = `http://127.0.0.1:${server.address().port}`; // before onAbort() closes the server, which has no address then
       if (signal?.aborted) onAbort();
       else signal?.addEventListener('abort', onAbort, { once: true });
-      resolve({ redirectUri: `http://127.0.0.1:${server.address().port}`, code, stop: () => finish(cancelled()) });
+      resolve({ redirectUri, code, stop: () => finish(cancelled()) });
     });
   });
 }
@@ -202,4 +208,5 @@ async function refreshIdToken({ refreshToken, config, fetchImpl = fetch }) {
   return { idToken: body.id_token, refreshToken: body.refresh_token, expiresIn: Number(body.expires_in) || 3600 };
 }
 
-module.exports = { signInWithGoogle, refreshIdToken, listenForCode, makePkce, authUrl };
+// `cancelled` and `signedOut` are exported for account.js, so that a sign-in and a session end in the same words.
+module.exports = { signInWithGoogle, refreshIdToken, listenForCode, makePkce, authUrl, cancelled, signedOut };

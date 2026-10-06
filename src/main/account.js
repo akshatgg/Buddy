@@ -14,7 +14,8 @@ const { notSetUp } = require('./cloud-config');
 
 const RENEW_EARLY_MS = 5 * 60_000;
 
-const signedOut = () => new BuddyError('signed_out', 'Sign in to use Buddy.');
+const { cancelled, signedOut } = google;
+const noKeychain = () => new BuddyError('no_keychain', 'Your Mac keychain is not available, so Buddy cannot keep you signed in.');
 
 function createAccount({
   file, safeStorage, config, openBrowser,
@@ -40,13 +41,18 @@ function createAccount({
   }
 
   function changed() {
-    for (const fn of listeners) fn();
+    for (const fn of listeners) {
+      try {
+        fn();
+      } catch (err) {
+        // A broken listener must not undo a sign-in, hide why someone was signed out, or keep the others from hearing.
+        console.error(`[buddy] an account listener failed: ${err?.code || err?.name || 'error'}`);
+      }
+    }
   }
 
   function keep(user, refreshToken) {
-    if (!safeStorage.isEncryptionAvailable()) {
-      throw new BuddyError('no_keychain', 'Your Mac keychain is not available, so Buddy cannot keep you signed in.');
-    }
+    if (!safeStorage.isEncryptionAvailable()) throw noKeychain();
     const next = {
       uid: user.uid,
       email: user.email,
@@ -70,12 +76,13 @@ function createAccount({
   /** Sign in with Google in the browser. Starting again cancels a sign-in that is still waiting. */
   async function signIn() {
     if (!config) throw notSetUp();
+    if (!safeStorage.isEncryptionAvailable()) throw noKeychain(); // before a Google page opens, not after the person has picked an account
     signingIn?.abort();
     const mine = new AbortController();
     signingIn = mine;
     try {
       const r = await signInWithGoogle({ config, openBrowser, fetchImpl, signal: mine.signal });
-      if (mine.signal.aborted) throw new BuddyError('sign_in_cancelled', 'Sign-in was cancelled.');
+      if (mine.signal.aborted) throw cancelled();
       keep(r, r.refreshToken);
       token = { idToken: r.idToken, expiresAt: now() + r.expiresIn * 1000 };
       changed();

@@ -193,9 +193,68 @@ test('pressing Sign in again cancels the sign-in that is still waiting', async (
   assert.deepStrictEqual(await second, { uid: 'uid-2', email: 'b@x.com', name: 'B' });
 });
 
-test('no keychain: signing in fails, and nothing is kept', async (t) => {
+test('signing out right after pressing Sign in ends that sign-in, and nothing is kept', async (t) => {
+  const s = setup(t); // this Google ignores the signal and answers at once, so only the account itself can stop the sign-in
+  const pending = s.account.signIn();
+  s.account.signOut(); // in the same tick, before Google's answer is looked at
+  await assert.rejects(pending, { code: 'sign_in_cancelled', message: 'Sign-in was cancelled.' });
+  assert.strictEqual(s.account.isSignedIn(), false);
+  assert.strictEqual(fs.existsSync(s.file), false);
+  assert.strictEqual(s.changes(), 0);
+});
+
+test('a sign-in that finishes after the person signed out is thrown away', async (t) => {
+  let answer = null;
+  const s = setup(t, { signInWith: () => new Promise((resolve) => { answer = () => resolve(SIGNED_IN); }) }); // ignores the signal
+  const waiting = s.account.signIn();
+  s.account.signOut();
+  answer();
+  await assert.rejects(waiting, { code: 'sign_in_cancelled', message: 'Sign-in was cancelled.' });
+  assert.strictEqual(s.account.isSignedIn(), false);
+  assert.strictEqual(fs.existsSync(s.file), false, 'the late account was not kept');
+  assert.strictEqual(s.changes(), 0);
+});
+
+test('signing out cancels the sign-in that is still waiting for the browser', async (t) => {
+  const s = setup(t, {
+    signInWith: (options) => new Promise((resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(new BuddyError('sign_in_cancelled', 'Sign-in was cancelled.')));
+    }),
+  });
+  const waiting = s.account.signIn();
+  assert.strictEqual(s.signIns[0].signal.aborted, false);
+  s.account.signOut();
+  assert.strictEqual(s.signIns[0].signal.aborted, true, 'the wait for the browser was told to stop');
+  await assert.rejects(waiting, { code: 'sign_in_cancelled' });
+  assert.strictEqual(s.changes(), 0);
+});
+
+test('a refusal that comes after the person signed out and in as someone else does not sign the new person out', async (t) => {
+  const second = { idToken: 'id-2', refreshToken: 'refresh-2', expiresIn: HOUR, uid: 'uid-2', email: 'b@x.com', name: 'B' };
+  let refuse = null;
+  let signIns = 0;
+  const s = setup(t, {
+    signInWith: () => (++signIns === 1 ? SIGNED_IN : second),
+    refreshWith: () => new Promise((resolve, reject) => {
+      refuse = () => reject(new BuddyError('signed_out', 'Sign in to use Buddy.'));
+    }),
+  });
+  await s.account.signIn();
+  const renewing = s.account.idToken({ force: true });
+  s.account.signOut();
+  await s.account.signIn(); // as the second person
+  refuse();
+  await assert.rejects(renewing, { code: 'signed_out' });
+  assert.deepStrictEqual(s.account.user(), { uid: 'uid-2', email: 'b@x.com', name: 'B' });
+  assert.ok(fs.existsSync(s.file), 'the second account is still kept');
+  assert.strictEqual(s.changes(), 3, 'in, out, in: the late refusal changed nothing');
+  assert.strictEqual(await s.account.idToken(), 'id-2');
+});
+
+test('no keychain: signing in fails before any Google page opens, and nothing is kept', async (t) => {
   const s = setup(t, { safeStorage: fakeSafeStorage({ available: false }) });
   await assert.rejects(s.account.signIn(), { code: 'no_keychain', message: 'Your Mac keychain is not available, so Buddy cannot keep you signed in.' });
+  assert.strictEqual(s.signIns.length, 0, 'the browser was not even asked to open');
   assert.strictEqual(s.account.isSignedIn(), false);
   assert.strictEqual(fs.existsSync(s.file), false);
 });
@@ -204,4 +263,28 @@ test('a copy of Buddy with no cloud.json cannot sign in', async (t) => {
   const s = setup(t, { config: null });
   await assert.rejects(s.account.signIn(), { code: 'not_set_up', message: "This copy of Buddy isn't set up for sign-in." });
   assert.strictEqual(s.signIns.length, 0);
+});
+
+test('a listener that throws does not undo a sign-in, hide why someone was signed out, or stop the others', async (t) => {
+  const error = t.mock.method(console, 'error', () => {});
+  const s = setup(t, { refreshWith: () => { throw new BuddyError('signed_out', 'Sign in to use Buddy.'); } });
+  let heard = 0;
+  s.account.onChange(() => { throw Object.assign(new Error('a detail that must stay out of the log'), { code: 'EBROKEN' }); });
+  s.account.onChange(() => { throw new TypeError('another detail'); });
+  s.account.onChange(() => { heard += 1; });
+
+  assert.deepStrictEqual(await s.account.signIn(), { uid: 'uid-1', email: 'rahul@gmail.com', name: 'Rahul' });
+  assert.ok(fs.existsSync(s.file), 'the account was kept');
+  assert.strictEqual(heard, 1, 'the listener after the broken ones still heard');
+
+  await assert.rejects(s.account.idToken({ force: true }), { code: 'signed_out' }, 'the reason is the refusal, not the listener');
+  assert.strictEqual(s.account.isSignedIn(), false);
+  assert.strictEqual(heard, 2);
+
+  assert.deepStrictEqual(error.mock.calls.map((call) => call.arguments.join(' ')), [
+    '[buddy] an account listener failed: EBROKEN',
+    '[buddy] an account listener failed: TypeError',
+    '[buddy] an account listener failed: EBROKEN',
+    '[buddy] an account listener failed: TypeError',
+  ]);
 });

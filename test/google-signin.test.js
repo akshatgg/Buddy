@@ -3,7 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const crypto = require('node:crypto');
-const { signInWithGoogle, refreshIdToken, listenForCode, makePkce, authUrl } = require('../src/main/google-signin');
+const net = require('node:net');
+const { signInWithGoogle, refreshIdToken, listenForCode, makePkce, authUrl, cancelled, signedOut } = require('../src/main/google-signin');
 
 const CONFIG = { serverUrl: 'https://s.example', firebaseApiKey: 'fb-key', googleClientId: 'client-id', googleClientSecret: 'client-secret' };
 const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token';
@@ -21,6 +22,20 @@ function googleFetch(routes) {
     return { ok: status >= 200 && status < 300, status, json: async () => body };
   }
   return fetchImpl;
+}
+
+/** What the port answers to `GET target`, written byte for byte: fetch tidies up targets like `//` before it sends them. */
+function rawGet(redirectUri, target) {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(Number(new URL(redirectUri).port), '127.0.0.1');
+    let answer = '';
+    socket.setEncoding('utf8');
+    socket.setTimeout(2000, () => socket.destroy(new Error(`no answer to GET ${target}`)));
+    socket.on('data', (chunk) => { answer += chunk; });
+    socket.on('error', reject);
+    socket.on('close', () => resolve(answer));
+    socket.write(`GET ${target} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`);
+  });
 }
 
 /** What the person's browser does once they have picked their account: Google sends it back to Buddy's port. */
@@ -87,6 +102,26 @@ test("cancelling on Google's page, waiting too long, aborting or stopping ends t
   const stopped = await listenForCode({ state: 'st' });
   stopped.stop();
   await assert.rejects(stopped.code, { code: 'sign_in_cancelled' });
+});
+
+test('a request that is no path at all gets a 404 too, and the wait goes on', async (t) => {
+  const listening = await listenForCode({ state: 'st' });
+  t.after(() => listening.stop()); // a failing test must not leave the port open for five minutes
+  for (const target of ['//', '///', '//?state=st&code=nope']) {
+    assert.match(await rawGet(listening.redirectUri, target), /^HTTP\/1\.1 404 /, `GET ${target}`);
+  }
+  assert.strictEqual((await fetch(`${listening.redirectUri}/?state=st&code=the-code`)).status, 200);
+  assert.strictEqual(await listening.code, 'the-code');
+});
+
+test('a signal that has already been aborted ends the wait at once, and the port is let go', async (t) => {
+  const controller = new AbortController();
+  controller.abort();
+  const listening = await listenForCode({ state: 'st', signal: controller.signal });
+  t.after(() => listening.stop());
+  assert.match(listening.redirectUri, /^http:\/\/127\.0\.0\.1:\d+$/);
+  await assert.rejects(listening.code, { code: 'sign_in_cancelled', message: 'Sign-in was cancelled.' });
+  await assert.rejects(fetch(`${listening.redirectUri}/?state=st&code=x`), 'nothing listens any more');
 });
 
 test('the whole sign-in: the browser, the code, Google, then Firebase', async () => {
@@ -165,4 +200,20 @@ test('refresh: a refresh token Firebase no longer takes means signed out; other 
   await assert.rejects(refreshIdToken({ refreshToken: 'r', config: CONFIG, fetchImpl: answer(503, 'UNAVAILABLE') }),
     { code: 'auth_failed', message: "Couldn't check your sign-in. Try again." });
   await assert.rejects(refreshIdToken({ refreshToken: 'r', config: CONFIG, fetchImpl: googleFetch({}) }), { code: 'network' });
+});
+
+test('a call that Google or Firebase leaves unanswered for too long ends in plain words', async () => {
+  let given = null;
+  const unanswered = async (url, init) => {
+    given = init;
+    throw new DOMException('The operation was aborted due to timeout', 'TimeoutError'); // what AbortSignal.timeout makes fetch throw
+  };
+  await assert.rejects(refreshIdToken({ refreshToken: 'r', config: CONFIG, fetchImpl: unanswered }),
+    { code: 'timeout', message: 'Google took too long to answer. Try again.' });
+  assert.ok(given.signal instanceof AbortSignal, 'every call is given a deadline');
+});
+
+test('the errors that sign-in shares with the account are in plain words', () => {
+  assert.deepStrictEqual([cancelled().code, cancelled().message], ['sign_in_cancelled', 'Sign-in was cancelled.']);
+  assert.deepStrictEqual([signedOut().code, signedOut().message], ['signed_out', 'Sign in to use Buddy.']);
 });

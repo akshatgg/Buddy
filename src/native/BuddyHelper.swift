@@ -130,14 +130,37 @@ func restoreClipboard(_ saved: SavedClipboard) {
     if !items.isEmpty { pb.writeObjects(items) }
 }
 
-func focusedIsSecure() -> Bool {
-    let system = AXUIElementCreateSystemWide()
+/// One line on stderr, which Buddy's main process passes on to its own log. It only ever holds
+/// codes and numbers, never any text that came from an app.
+func logLine(_ text: String) {
+    FileHandle.standardError.write(Data("[buddy-helper] \(text)\n".utf8))
+}
+
+/// Is the field that has the keyboard focus in the app `pid` a password field?
+///
+/// This asks the app itself. The system-wide element is no use: on this Mac its focused-element
+/// lookup fails every time (kAXErrorCannotComplete, -25204), which left the old guard switched off.
+/// A role or a subrole of AXSecureTextField both count, whichever one an app reports.
+///
+/// When the focus cannot be determined (an app that does not answer Accessibility) this says so
+/// on stderr and answers false, so the read goes on: most apps refuse to copy out of a password
+/// field anyway, and refusing here would break Fix in every app that does not answer.
+func focusedIsSecure(_ pid: pid_t) -> Bool {
+    let app = AXUIElementCreateApplication(pid)
+    // A hung app must not keep the helper waiting longer than the JavaScript side does (5 s).
+    AXUIElementSetMessagingTimeout(app, 1.0)
     var focused: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(system, "AXFocusedUIElement" as CFString, &focused) == .success,
-          let element = focused else { return false }
-    var subrole: CFTypeRef?
-    AXUIElementCopyAttributeValue(element as! AXUIElement, "AXSubrole" as CFString, &subrole)
-    return (subrole as? String) == "AXSecureTextField"
+    let status = AXUIElementCopyAttributeValue(app, "AXFocusedUIElement" as CFString, &focused)
+    guard status == .success, let value = focused, CFGetTypeID(value) == AXUIElementGetTypeID() else {
+        logLine("could not tell which field has the focus (AX error \(status.rawValue)); going on")
+        return false
+    }
+    let element = value as! AXUIElement
+    return ["AXSubrole", "AXRole"].contains { name in
+        var attribute: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, name as CFString, &attribute)
+        return (attribute as? String) == "AXSecureTextField"
+    }
 }
 
 // MARK: - commands
@@ -157,7 +180,7 @@ func captureSelection(_ args: [String: Any]) throws -> [String: Any] {
     let pid = try pidArg(args)
     try needAccessibility()
     guard ensureFront(pid) != nil else { throw HelperError(code: "not_frontmost", message: "Could not switch back to that app.") }
-    if focusedIsSecure() { throw HelperError(code: "secure_field", message: "I don't read password fields.") }
+    if focusedIsSecure(pid) { throw HelperError(code: "secure_field", message: "I don't read password fields.") }
 
     let pb = NSPasteboard.general
     let saved = saveClipboard()
@@ -185,6 +208,9 @@ func paste(_ args: [String: Any]) throws -> [String: Any] {
     guard let text = args["text"] as? String else { throw HelperError(code: "bad_request", message: "text is required") }
     try needAccessibility()
     guard let via = ensureFront(pid) else { throw HelperError(code: "not_frontmost", message: "Could not switch back to that app.") }
+    // Buddy never types into a password field (and "Replace all" would wipe what is in it): the
+    // answer goes to the clipboard instead, which is what a paste that fails does.
+    if focusedIsSecure(pid) { throw HelperError(code: "secure_field", message: "I don't type into password fields.") }
 
     let pb = NSPasteboard.general
     let saved = saveClipboard()

@@ -1,5 +1,5 @@
-// Which app the person is in: the window in front, as Windows reports it changing, and bringing an app's window
-// back to the front before keys are sent to it.
+// Which app the person is in: the window in front, as Windows reports it changing, and bringing a window back to the
+// front before keys are sent to it.
 
 using System;
 using System.Collections.Generic;
@@ -21,11 +21,18 @@ namespace BuddyHelper
             "MultitaskingViewFrame", "TaskSwitcherWnd", "ForegroundStaging",
         };
 
-        // Terminals (Windows Terminal, the console, Git Bash, ConEmu, PuTTY): Ctrl+C there stops the running program
-        // when nothing is selected, and every line pasted into one runs.
+        // Terminals: Ctrl+C there stops the running program when nothing is selected, and every line pasted into one
+        // runs. Known by their window (Windows Terminal, the console, Git Bash, ConEmu, PuTTY) or by their program.
+        // Terminals inside other apps (VS Code's) are told by the focused field instead (FocusedField).
         static readonly HashSet<string> TerminalClasses = new HashSet<string>(StringComparer.Ordinal)
         {
             "CASCADIA_HOSTING_WINDOW_CLASS", "ConsoleWindowClass", "mintty", "VirtualConsoleClass", "PuTTY",
+        };
+        static readonly HashSet<string> TerminalPrograms = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "WindowsTerminal.exe", "OpenConsole.exe", "conhost.exe", "mintty.exe", "ConEmu.exe", "ConEmu64.exe",
+            "putty.exe", "kitty.exe", "alacritty.exe", "wezterm-gui.exe", "Tabby.exe", "Hyper.exe", "MobaXterm.exe",
+            "powershell_ise.exe",
         };
 
         static readonly object Lock = new object();
@@ -38,8 +45,9 @@ namespace BuddyHelper
         public static void Start()
         {
             onForeground = OnForeground;
-            Native.SetWinEventHook(Native.EVENT_SYSTEM_FOREGROUND, Native.EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, onForeground,
-                0, 0, Native.WINEVENT_OUTOFCONTEXT | Native.WINEVENT_SKIPOWNPROCESS);
+            IntPtr hook = Native.SetWinEventHook(Native.EVENT_SYSTEM_FOREGROUND, Native.EVENT_SYSTEM_FOREGROUND, IntPtr.Zero,
+                onForeground, 0, 0, Native.WINEVENT_OUTOFCONTEXT | Native.WINEVENT_SKIPOWNPROCESS);
+            if (hook == IntPtr.Zero) Program.Log("could not listen for the app in front; Buddy will only know the first one");
             Note(Native.GetForegroundWindow());
         }
 
@@ -88,11 +96,11 @@ namespace BuddyHelper
 
         public static bool IsTerminal(IntPtr window)
         {
-            return TerminalClasses.Contains(ClassOf(window));
+            return TerminalClasses.Contains(ClassOf(window)) || TerminalPrograms.Contains(Path.GetFileName(ProgramFile(PidOf(window))));
         }
 
         /// The window of `pid` to bring back or to capture: the last of its windows that was in front, while it is
-        /// still there, or else its first window on the screen.
+        /// still there, or else its first ordinary window on the screen.
         public static IntPtr WindowFor(int pid)
         {
             IntPtr window;
@@ -101,42 +109,44 @@ namespace BuddyHelper
             IntPtr found = IntPtr.Zero;
             Native.EnumWindows(delegate(IntPtr candidate, IntPtr unused)
             {
-                bool own = PidOf(candidate) == pid && Native.IsWindowVisible(candidate);
-                if (!own || Native.GetWindow(candidate, Native.GW_OWNER) != IntPtr.Zero) return true;
+                if (PidOf(candidate) != pid || !IsOrdinary(candidate)) return true;
                 found = candidate;
                 return false;
             }, IntPtr.Zero);
             return found;
         }
 
+        /// A window the person can be typing in: shown, not owned by another, not a tool window, not on another
+        /// virtual desktop (cloaked), and not part of the shell (explorer.exe runs the taskbar as well as folders).
+        static bool IsOrdinary(IntPtr window)
+        {
+            if (!Native.IsWindowVisible(window) || Native.GetWindow(window, Native.GW_OWNER) != IntPtr.Zero) return false;
+            if ((Native.GetWindowLong(window, Native.GWL_EXSTYLE) & Native.WS_EX_TOOLWINDOW) != 0) return false;
+            int cloaked;
+            if (Native.DwmGetWindowAttribute(window, Native.DWMWA_CLOAKED, out cloaked, 4) == 0 && cloaked != 0) return false;
+            return !ShellClasses.Contains(ClassOf(window));
+        }
+
         /// Bring `pid` to the front. Returns how it got there, or null when it could not.
         public static string EnsureFront(int pid)
         {
-            // The panel that Buddy has just hidden hands the focus back to the app below it, the person's, by itself.
-            if (WaitFront(pid, 250)) return "already";
+            Func<bool> arrived = delegate { return PidOf(Native.GetForegroundWindow()) == pid; };
+            // Already there, as when the person opened Buddy from it. A panel that Buddy hides keeps the front on
+            // Windows (it is hidden without activating another window), so there is little point waiting for more.
+            if (Wait(arrived, 50)) return "already";
             IntPtr window = WindowFor(pid);
-            if (window == IntPtr.Zero) return null;
-            if (Native.IsIconic(window)) Native.ShowWindow(window, Native.SW_RESTORE);
-            // Windows lets a program bring a window to the front only in a few cases, one of them being that it sent
-            // the last input event. An input event that does nothing is enough.
-            KeyInput.Nothing();
-            Native.SetForegroundWindow(window);
-            if (WaitFront(pid, 400)) return "activate";
-            // Second try: share the input of the thread in front, which also lets a window be brought forward.
-            uint unused;
-            uint front = Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out unused);
-            uint mine = Native.GetCurrentThreadId();
-            bool joined = front != 0 && front != mine && Native.AttachThreadInput(mine, front, true);
-            try
-            {
-                Native.BringWindowToTop(window);
-                Native.SetForegroundWindow(window);
-            }
-            finally
-            {
-                if (joined) Native.AttachThreadInput(mine, front, false);
-            }
-            return WaitFront(pid, 400) ? "attach" : null;
+            return window == IntPtr.Zero ? null : BringForward(window, arrived);
+        }
+
+        /// Bring one of Buddy's own windows (the panel) to the front, when Windows did not let Buddy do it.
+        public static string FocusOwnWindow(IntPtr window)
+        {
+            if (!Native.IsWindow(window) || PidOf(window) != Program.OwnerPid) throw new HelperError("bad_request", "not a window of Buddy's");
+            // Closed meanwhile: a hidden window must not be given the keyboard.
+            if (!Native.IsWindowVisible(window)) return "hidden";
+            Func<bool> arrived = delegate { return Native.GetForegroundWindow() == window; };
+            if (arrived()) return "already";
+            return BringForward(window, arrived);
         }
 
         /// Does `pid` run as administrator while Buddy does not? Windows then drops the keys Buddy sends it, without
@@ -147,12 +157,41 @@ namespace BuddyHelper
             return Elevated(pid) != false;
         }
 
-        static bool WaitFront(int pid, int milliseconds)
+        /// SetForegroundWindow, which Windows allows the program that sent the last input event: so one is sent
+        /// first, an input event that does nothing. Then, if needed, the same while sharing the input of the thread in
+        /// front. Nothing here waits on another app's window, so an app that hangs cannot hang the helper.
+        static string BringForward(IntPtr window, Func<bool> arrived)
+        {
+            if (Native.IsIconic(window)) Native.ShowWindowAsync(window, Native.SW_RESTORE);
+            KeyInput.Nothing();
+            Native.SetForegroundWindow(window);
+            if (Wait(arrived, 400)) return "activate";
+
+            IntPtr front = Native.GetForegroundWindow();
+            // Never with a thread that hangs: sharing its input would hang this one too.
+            if (front == IntPtr.Zero || Native.IsHungAppWindow(front)) return null;
+            uint unused;
+            uint frontThread = Native.GetWindowThreadProcessId(front, out unused);
+            uint mine = Native.GetCurrentThreadId();
+            bool joined = frontThread != 0 && frontThread != mine && Native.AttachThreadInput(mine, frontThread, true);
+            try
+            {
+                Native.SetWindowPos(window, Native.HWND_TOP, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_ASYNCWINDOWPOS);
+                Native.SetForegroundWindow(window);
+            }
+            finally
+            {
+                if (joined) Native.AttachThreadInput(mine, frontThread, false);
+            }
+            return Wait(arrived, 400) ? "attach" : null;
+        }
+
+        static bool Wait(Func<bool> arrived, int milliseconds)
         {
             DateTime until = DateTime.UtcNow.AddMilliseconds(milliseconds);
             while (true)
             {
-                if (PidOf(Native.GetForegroundWindow()) == pid) return true;
+                if (arrived()) return true;
                 if (DateTime.UtcNow >= until) return false;
                 Thread.Sleep(20);
             }
@@ -207,6 +246,7 @@ namespace BuddyHelper
         /// The full path of the program `pid` runs, or "".
         static string ProgramFile(int pid)
         {
+            if (pid <= 0) return "";
             IntPtr process = Native.OpenProcess(Native.PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)pid);
             if (process == IntPtr.Zero) return "";
             try

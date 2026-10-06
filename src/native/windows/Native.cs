@@ -19,7 +19,16 @@ namespace BuddyHelper
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool BringWindowToTop(IntPtr hWnd);
+        public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        public static readonly IntPtr HWND_TOP = IntPtr.Zero;
+        public const uint SWP_NOSIZE = 0x0001;
+        public const uint SWP_NOMOVE = 0x0002;
+        public const uint SWP_ASYNCWINDOWPOS = 0x4000; // the window's own thread does it: a hung one cannot hang the helper
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool IsHungAppWindow(IntPtr hwnd);
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -47,9 +56,10 @@ namespace BuddyHelper
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool IsIconic(IntPtr hWnd);
 
+        // Asynchronous: it does not wait for the window's thread, which may hang.
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
 
         public const int SW_RESTORE = 9;
 
@@ -57,6 +67,12 @@ namespace BuddyHelper
         public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
 
         public const uint GW_OWNER = 4;
+
+        [DllImport("user32.dll")]
+        public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+        public const int GWL_EXSTYLE = -20;
+        public const int WS_EX_TOOLWINDOW = 0x00000080;
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
@@ -157,9 +173,12 @@ namespace BuddyHelper
         public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        public static extern uint MapVirtualKey(uint uCode, uint uMapType);
+        public static extern uint MapVirtualKeyEx(uint uCode, uint uMapType, IntPtr dwhkl);
 
         public const uint MAPVK_VK_TO_VSC = 0;
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetKeyboardLayout(uint idThread);
 
         [DllImport("user32.dll")]
         public static extern short GetAsyncKeyState(int vKey);
@@ -192,6 +211,13 @@ namespace BuddyHelper
 
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         public static extern uint RegisterClipboardFormat(string lpszFormat);
+
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern int GetClipboardFormatName(uint format, StringBuilder lpszFormatName, int cchMaxCount);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool IsClipboardFormatAvailable(uint format);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern IntPtr GlobalAlloc(uint uFlags, UIntPtr dwBytes);
@@ -244,7 +270,11 @@ namespace BuddyHelper
         [DllImport("dwmapi.dll")]
         public static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);
 
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
+
         public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+        public const int DWMWA_CLOAKED = 14; // non-zero: the window is not shown (another virtual desktop, a suspended app)
 
         // ---- Screen scale
 

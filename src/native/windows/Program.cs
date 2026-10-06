@@ -7,9 +7,10 @@
 //            {"id": 1, "ok": false, "error": {"code": "...", "message": "..."}}
 //   event    {"event": "frontApp", "pid": 123, "bundleId": "chrome.exe", "name": "Google Chrome"}
 //
-// Commands run one at a time on a worker thread. The main thread runs the message loop: it receives the events
-// that say which app is in front, and it owns the window that Buddy's clipboard writes belong to, so both keep
-// being answered while a command waits. When stdin closes (Buddy quit) the helper exits.
+// Commands run one at a time on a worker thread, and lines go out through a writer thread. The main thread only
+// runs the message loop: it receives the events that say which app is in front, and it owns the window that
+// Buddy's clipboard writes belong to, so both are answered at once even while a command waits or a large reply
+// (a screenshot) is being written. When stdin closes (Buddy quit) the helper exits.
 //
 // Written in C# 5 for .NET Framework 4.8, so that the C# compiler that comes with Windows builds it
 // (tools/build-native.js): no string interpolation, no ?. and no => members. ASCII only, as that compiler reads
@@ -42,15 +43,17 @@ namespace BuddyHelper
         /// Buddy's main process, which owns all of Buddy's windows (0 when it was not given).
         public static int OwnerPid;
 
-        static readonly object OutLock = new object();
+        static readonly object SerializeLock = new object();
         static readonly JavaScriptSerializer Writer = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         static readonly BlockingCollection<Dictionary<string, object>> Work = new BlockingCollection<Dictionary<string, object>>();
-        static Stream stdout;
+        static readonly BlockingCollection<byte[]> Lines = new BlockingCollection<byte[]>();
 
         [STAThread]
         static void Main(string[] args)
         {
-            // Before any window exists: a failure in the message loop is logged, never shown in a dialog.
+            // Before anything makes a window: sizes and pictures in real pixels, and a failure in the message loop
+            // logged, never shown in a dialog.
+            Native.BecomeDpiAware();
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += delegate(object sender, ThreadExceptionEventArgs e)
             {
@@ -60,13 +63,12 @@ namespace BuddyHelper
             {
                 Log("stopped: " + Describe(e.ExceptionObject as Exception));
             };
-            Native.BecomeDpiAware();
             OwnerPid = OwnerPidFrom(args);
-            stdout = Console.OpenStandardOutput();
 
+            Background(WriteLines);
             ClipboardStore.Start();
             Front.Start();
-            SecureField.Warm();
+            FocusedField.Warm();
             Background(ReadRequests);
             Background(DoWork);
             Application.Run();
@@ -113,6 +115,18 @@ namespace BuddyHelper
             foreach (Dictionary<string, object> request in Work.GetConsumingEnumerable()) Handle(request);
         }
 
+        /// A broken pipe is not an error to .NET's console streams: when Buddy is gone, stdin closes and the helper
+        /// exits (ReadRequests).
+        static void WriteLines()
+        {
+            Stream stdout = Console.OpenStandardOutput();
+            foreach (byte[] line in Lines.GetConsumingEnumerable())
+            {
+                stdout.Write(line, 0, line.Length);
+                stdout.Flush();
+            }
+        }
+
         static void Handle(Dictionary<string, object> request)
         {
             object id = Get(request, "id");
@@ -146,6 +160,12 @@ namespace BuddyHelper
                     case "screenshot":
                         result = Commands.Screenshot(args);
                         break;
+                    case "activate":
+                        result = Commands.Activate(args);
+                        break;
+                    case "focusWindow":
+                        result = Commands.FocusWindow(args);
+                        break;
                     default:
                         throw new HelperError("bad_request", "unknown command");
                 }
@@ -178,21 +198,13 @@ namespace BuddyHelper
             return map;
         }
 
-        /// One JSON line on stdout. Events (from the main thread) and replies (from the worker) never interleave.
+        /// One JSON line for stdout, from any thread, in the order they are sent: the writer thread writes it, so
+        /// nobody here waits for Buddy to read it.
         public static void Send(Dictionary<string, object> message)
         {
-            lock (OutLock)
+            lock (SerializeLock)
             {
-                byte[] line = Encoding.UTF8.GetBytes(Writer.Serialize(message) + "\n");
-                try
-                {
-                    stdout.Write(line, 0, line.Length);
-                    stdout.Flush();
-                }
-                catch (IOException)
-                {
-                    Environment.Exit(0); // Buddy is gone
-                }
+                Lines.Add(Encoding.UTF8.GetBytes(Writer.Serialize(message) + "\n"));
             }
         }
 

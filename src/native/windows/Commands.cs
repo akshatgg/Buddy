@@ -1,5 +1,7 @@
 // The commands that touch the person's app: read their selection, paste an answer, take a screenshot. They follow
-// captureSelection, paste and screenshot in src/native/BuddyHelper.swift, with Ctrl where the Mac has Command.
+// captureSelection, paste and screenshot in src/native/BuddyHelper.swift, with Ctrl where the Mac has Command. Two
+// more are for Windows only (src/main/actions.js): activate, which hands the keyboard back to the person's app when
+// the panel closes, and focusWindow, which brings the panel forward when it opens.
 
 using System;
 using System.Collections.Generic;
@@ -29,24 +31,29 @@ namespace BuddyHelper
             try
             {
                 if (Front.EnsureFront(pid) == null) throw new HelperError("not_frontmost", "Could not switch back to that app.");
+                FieldKind field = FocusedField.Read();
                 // In a terminal Ctrl+C stops the running program when nothing is selected, so it is never sent there:
                 // the panel opens with nothing read.
-                if (Front.IsTerminal(Native.GetForegroundWindow()))
+                if (Front.IsTerminal(Native.GetForegroundWindow()) || field.Terminal)
                 {
                     if (selectAll) throw new HelperError("terminal", "I can't read a terminal. Copy your text and paste it here.");
                     return Program.Obj("text", "");
                 }
-                if (SecureField.FocusedIsPassword()) throw new HelperError("secure_field", "I don't read password fields.");
+                // Windows would drop the keys without a word, and the box would look empty.
+                if (Front.RunsAboveUs(pid)) throw new HelperError("elevated", "That app runs as administrator, so I can't read from it.");
+                if (field.Password) throw new HelperError("secure_field", "I don't read password fields.");
 
                 // The count comes first, before anything is saved or copied: if it has moved by the end, something put
                 // new contents on the clipboard (the copy, or anyone else).
                 uint before = ClipboardStore.Sequence();
                 List<SavedFormat> saved = ClipboardStore.Save();
+                bool selectedAll = false;
                 try
                 {
                     if (selectAll)
                     {
                         KeyInput.PressCtrl(KeyInput.A);
+                        selectedAll = true;
                         Thread.Sleep(80);
                     }
                     KeyInput.PressCtrl(KeyInput.C);
@@ -56,7 +63,7 @@ namespace BuddyHelper
                 {
                     // "Use the whole box" left everything selected in the person's app. Collapse the selection, so that
                     // the first key they type does not replace their whole draft. Replace selects everything again.
-                    if (selectAll) KeyInput.Press(KeyInput.Right);
+                    if (selectedAll) KeyInput.Press(KeyInput.Right);
                     // Put the person's clipboard back only if it changed. A copy that copied nothing leaves it as it
                     // was, and writing it again would add an entry to the clipboard history for nothing.
                     if (ClipboardStore.Sequence() != before) PutBack(saved);
@@ -65,9 +72,15 @@ namespace BuddyHelper
             }
             finally
             {
-                // The keys above make this helper the program that sent the last input, which Windows lets bring a
-                // window to the front. Buddy's panel opens next: let Buddy do that.
-                if (Program.OwnerPid > 0) Native.AllowSetForegroundWindow((uint)Program.OwnerPid);
+                // Buddy's panel opens next. Windows lets only the program that sent the last input event bring a
+                // window to the front and hand that on, and takes it back at the person's next key: once their keys
+                // are up, send one that does nothing, then hand it to Buddy.
+                if (Program.OwnerPid > 0)
+                {
+                    KeyInput.WaitForKeysUp(1000);
+                    KeyInput.Nothing();
+                    Native.AllowSetForegroundWindow((uint)Program.OwnerPid);
+                }
             }
         }
 
@@ -82,9 +95,10 @@ namespace BuddyHelper
             // a paste that fails does: a terminal runs every line it is given, Windows drops the keys sent to an app
             // that runs as administrator without a word, and Buddy never types into a password field (and "Replace
             // all" would wipe what is in it).
-            if (Front.IsTerminal(Native.GetForegroundWindow())) throw new HelperError("terminal", "I don't type into terminals.");
+            FieldKind field = FocusedField.Read();
+            if (Front.IsTerminal(Native.GetForegroundWindow()) || field.Terminal) throw new HelperError("terminal", "I don't type into terminals.");
             if (Front.RunsAboveUs(pid)) throw new HelperError("elevated", "That app runs as administrator, so I can't type into it.");
-            if (SecureField.FocusedIsPassword()) throw new HelperError("secure_field", "I don't type into password fields.");
+            if (field.Password) throw new HelperError("secure_field", "I don't type into password fields.");
 
             List<SavedFormat> saved = ClipboardStore.Save();
             try
@@ -134,13 +148,41 @@ namespace BuddyHelper
             }
         }
 
+        /// The panel has closed: give the keyboard back to the app it was opened from. Windows leaves it with the
+        /// hidden panel, so the person's keys would go nowhere until they clicked their app.
+        public static Dictionary<string, object> Activate(Dictionary<string, object> args)
+        {
+            string via = Front.EnsureFront(PidArg(args));
+            if (via == null) throw new HelperError("not_frontmost", "Could not switch back to that app.");
+            return Program.Obj("via", via);
+        }
+
+        /// The panel has opened: make sure it has the keyboard. If Windows did not let Buddy take the front, the
+        /// person's keys would still go to their app, where their text is selected (and Ctrl+Enter sends a mail).
+        public static Dictionary<string, object> FocusWindow(Dictionary<string, object> args)
+        {
+            object handle = Program.Get(args, "hwnd");
+            long value;
+            if (handle is int) value = (int)handle;
+            else if (handle is long) value = (long)handle;
+            else throw new HelperError("bad_request", "hwnd is required");
+            string via = Front.FocusOwnWindow(new IntPtr(value));
+            if (via == null) throw new HelperError("not_frontmost", "Could not bring the panel forward.");
+            return Program.Obj("via", via);
+        }
+
         /// The text the copy put on the clipboard, waiting up to 300 ms for it; "" when the clipboard did not change.
         static string CopiedText(uint before)
         {
             DateTime until = DateTime.UtcNow.AddMilliseconds(300);
             while (DateTime.UtcNow < until)
             {
-                if (ClipboardStore.Sequence() != before) return ClipboardStore.ReadText();
+                if (ClipboardStore.Sequence() != before)
+                {
+                    // A password manager's copy (put back right after, as anything copied here is) is never read.
+                    if (ClipboardStore.HoldsSecret()) throw new HelperError("secure_field", "I don't read passwords.");
+                    return ClipboardStore.ReadText();
+                }
                 Thread.Sleep(15);
             }
             return "";

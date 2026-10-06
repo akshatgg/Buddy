@@ -46,7 +46,7 @@ async function errorFromResponse(res, label) {
   if (status === 404 || /model.*(not found|does not exist|not supported)/i.test(text)) {
     return new BuddyError('bad_model', "This model isn't available for your key. Pick another in Settings.");
   }
-  return new BuddyError('upstream', `${label} had a problem (${status}). Try again in a moment.`);
+  return new BuddyError('upstream', `${label} had a problem. Try again in a moment.`); // the status is in the log, not here
 }
 
 /** A request given a deadline (AbortSignal.timeout) ran out of time: that is not the internet being down. */

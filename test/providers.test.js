@@ -157,7 +157,7 @@ test('an unexpected provider error is shown as plain words, never as the provide
       getProvider('anthropic').complete({ ...ASK, model: 'm', fetchImpl: fakeFetch(500, body) }),
       (err) => {
         assert.strictEqual(err.code, 'upstream');
-        assert.strictEqual(err.message, 'Claude had a problem (500). Try again in a moment.');
+        assert.strictEqual(err.message, 'Claude had a problem. Try again in a moment.', 'plain words: no status number, no response');
         return true;
       },
       JSON.stringify(body),

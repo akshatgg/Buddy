@@ -15,8 +15,10 @@ const SLEEPY_MS = 5000;
 const EMPTY_BOX = 'That box looks empty.';
 const UNREADABLE = "I couldn't read your selection — select it again or paste it here.";
 
-function createActions({ helper, ai, clipboard, store, ui, later = setTimeout }) {
+function createActions({ helper, ai, clipboard, store, ui, later = setTimeout, cancelLater = clearTimeout }) {
   let session = { app: null, selection: '', wholeBox: false };
+  let opening = null; // the open() in progress, if any
+  let sleepy = null; // the pending "back to idle" timer after a network error, if any
 
   /** What the panel opens with: the buddy's name, the app it came from, the text, and the tab and notice to show. */
   function panelState({ selection, tab, notice }) {
@@ -29,7 +31,7 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout })
     };
   }
 
-  async function open() {
+  async function openPanel() {
     const app = helper.lastApp;
     let selection = '';
     let notice = '';
@@ -50,6 +52,16 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout })
     }
     session = { app, selection, wholeBox: false };
     await ui.showPanel(panelState({ selection, tab: selection ? 'fix' : 'write', notice }));
+  }
+
+  /** One opening at a time: asking again while the selection is still being read joins the one in progress. */
+  function open() {
+    if (!opening) {
+      opening = openPanel().finally(() => {
+        opening = null;
+      });
+    }
+    return opening;
   }
 
   async function toggle() {
@@ -87,6 +99,10 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout })
   }
 
   async function run(action, input) {
+    if (sleepy !== null) {
+      cancelLater(sleepy); // it would flip a busy or happy buddy back to idle
+      sleepy = null;
+    }
     ui.mood('thinking');
     try {
       const out = await ai.ask(action, input);
@@ -95,7 +111,10 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout })
     } catch (err) {
       if (err.code === 'network') {
         ui.mood('sleepy');
-        later(() => ui.mood('idle'), SLEEPY_MS);
+        sleepy = later(() => {
+          sleepy = null;
+          ui.mood('idle');
+        }, SLEEPY_MS);
       } else {
         ui.mood('idle');
       }

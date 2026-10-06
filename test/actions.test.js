@@ -38,15 +38,21 @@ function setup({ lastApp = { pid: 7, name: 'Google Chrome' }, replies = {}, ask 
     },
   };
   const timers = [];
+  const cancelled = [];
   const actions = createActions({
     helper,
     clipboard,
     ui,
     store: { get: (key) => ({ buddyName: 'Aarav' })[key] },
     ai: { ask: ask || (async (action) => ({ text: `answer for ${action}` })) },
-    later: (fn, ms) => timers.push({ fn, ms }),
+    later: (fn, ms) => {
+      const timer = { fn, ms };
+      timers.push(timer);
+      return timer;
+    },
+    cancelLater: (timer) => cancelled.push(timer),
   });
-  return { actions, log, clipboard, timers, setJustClosed: (v) => { justClosed = v; } };
+  return { actions, log, clipboard, timers, cancelled, setJustClosed: (v) => { justClosed = v; } };
 }
 
 const failure = (code, message = code) => Object.assign(new Error(message), { code });
@@ -72,6 +78,44 @@ test('with no app known it opens without asking the helper', async () => {
   await s.actions.open();
   assert.strictEqual(entries(s.log, 'helper').length, 0);
   assert.strictEqual(entries(s.log, 'showPanel')[0][1].appName, '');
+});
+
+test('opening again while the selection is still being read joins that opening', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const s = setup({ replies: { captureSelection: async () => { await gate; return { text: 'me go home' }; } } });
+  const first = s.actions.open();
+  const second = s.actions.open();
+  assert.strictEqual(second, first);
+  release();
+  await first;
+  assert.strictEqual(entries(s.log, 'helper').length, 1);
+  assert.strictEqual(entries(s.log, 'showPanel').length, 1);
+
+  await s.actions.open(); // the first one is over, so this is a new opening
+  assert.strictEqual(entries(s.log, 'helper').length, 2);
+  assert.strictEqual(entries(s.log, 'showPanel').length, 2);
+});
+
+test('an opening that fails does not block the next one', async () => {
+  let broken = true;
+  const actions = createActions({
+    helper: { lastApp: null, call: async () => ({}) },
+    clipboard: {},
+    store: { get: () => undefined },
+    ai: {},
+    ui: {
+      showPanel: async () => { if (broken) throw new Error('no window'); },
+      hidePanel() {},
+      isPanelVisible: () => false,
+      panelJustClosed: () => false,
+      bubble() {},
+      mood() {},
+    },
+  });
+  await assert.rejects(actions.open(), { message: 'no window' });
+  broken = false;
+  await actions.open();
 });
 
 test('a password field is not read, and the panel says so', async () => {
@@ -201,6 +245,18 @@ test('other errors put the buddy back to idle', async () => {
   const s = setup({ ask: async () => { throw failure('bad_key'); } });
   await assert.rejects(s.actions.run('fix', { text: 'x' }), { code: 'bad_key' });
   assert.deepStrictEqual(entries(s.log, 'mood').map((e) => e[1]), ['thinking', 'idle']);
+});
+
+test('a new request cancels the pending "sleepy, then idle" timer', async () => {
+  let offline = true;
+  const s = setup({ ask: async () => { if (offline) throw failure('network'); return { text: 'ok' }; } });
+  await assert.rejects(s.actions.run('fix', { text: 'x' }), { code: 'network' });
+  assert.strictEqual(s.timers.length, 1);
+  assert.strictEqual(s.cancelled.length, 0);
+  offline = false;
+  await s.actions.run('fix', { text: 'x' });
+  assert.strictEqual(s.cancelled.length, 1);
+  assert.strictEqual(s.cancelled[0], s.timers[0]);
 });
 
 test('insert closes the panel and pastes at the cursor in the app it came from', async () => {

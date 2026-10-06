@@ -2,7 +2,7 @@
 
 /** A handler (web/lib/handlers.js) as a Vercel function: (req, res) with Vercel's helpers. */
 
-const { handle } = require('./handlers');
+const { handle, kindOf } = require('./handlers');
 
 const SERVER_PROBLEM = { error: { code: 'server', message: "Buddy's server had a problem. Try again." } };
 
@@ -18,7 +18,8 @@ function toVercel(handler, makeDeps = () => require('./deps').realDeps()) {
     try {
       out = await handle(handler, { method: req.method, headers: req.headers, body, query: req.query }, makeDeps());
     } catch (err) {
-      console.error(`[api] could not start: ${err?.message}`);
+      // Only the kind: the message of a startup failure can quote the service account key.
+      console.error(`[api] could not start: ${kindOf(err)}`);
       out = { status: 500, body: SERVER_PROBLEM };
     }
     res.setHeader('Cache-Control', 'no-store');

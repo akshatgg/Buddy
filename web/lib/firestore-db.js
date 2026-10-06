@@ -9,6 +9,15 @@
  *   users/{uid}     email, name, joined, lastActive, blocked, usedDay, usedCount
  */
 
+/**
+ * Whether Firestore can have a document with this id. A uid from Firebase Auth always can; one typed into a request
+ * may not: it must not be empty or hold a "/" (a leading or trailing one would be read as the person without it), be
+ * "." or "..", look like "__x__" (reserved), or be broken text such as a lone surrogate. The handler already keeps a
+ * uid to 128 characters, far below Firestore's limit of 1500 bytes.
+ */
+const isUsableId = (uid) => typeof uid === 'string' && uid !== '' && !uid.includes('/') && uid !== '.' && uid !== '..' &&
+  !/^__.*__$/.test(uid) && uid.isWellFormed();
+
 function createFirestoreDb(firestore) {
   const configDoc = firestore.collection('config').doc('free');
   const users = firestore.collection('users');
@@ -91,8 +100,10 @@ function createFirestoreDb(firestore) {
       return snap.docs.map((doc) => fromData(doc.id, doc.data()));
     },
 
-    /** Block or unblock a person; null when there is nobody with that uid. */
+    /** Block or unblock a person; null when there is nobody with that uid, or no uid that Firestore could have. */
     async setBlocked(uid, blocked) {
+      // Asked of a uid that cannot exist, users.doc() throws or Firestore refuses: a 500 for what is a "not found".
+      if (!isUsableId(uid)) return null;
       const ref = users.doc(uid);
       return firestore.runTransaction(async (tx) => {
         const snap = await tx.get(ref);

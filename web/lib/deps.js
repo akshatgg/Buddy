@@ -9,11 +9,20 @@
  *   ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY   any of them
  *
  * Made once per warm instance. firebase-admin is loaded only here, so the tests never need it.
+ *
+ * A service account key that is missing or broken stops the server with an error that has a `code`
+ * (no_service_account, bad_service_account) and a fixed message, never the value: the messages of JSON.parse and of
+ * firebase-admin can quote it, private key included. The log carries the code only (web/lib/vercel.js).
  */
 
 const { createFirestoreDb } = require('./firestore-db');
 
 const KEY_ENV = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', gemini: 'GEMINI_API_KEY', groq: 'GROQ_API_KEY' };
+
+const isPlainObject = (value) => Object.prototype.toString.call(value) === '[object Object]';
+const startupError = (code, message) => Object.assign(new Error(message), { code });
+const notSet = () => startupError('no_service_account', 'FIREBASE_SERVICE_ACCOUNT is not set');
+const notAKey = () => startupError('bad_service_account', 'FIREBASE_SERVICE_ACCOUNT is not a service account key');
 
 /** The server's AI keys: { providerId: key } for each one that is set. */
 function adminKeysFrom(env) {
@@ -25,15 +34,42 @@ function adminKeysFrom(env) {
   return keys;
 }
 
+/**
+ * The service account key from the environment: parsed, and checked for the two fields every key has. This happens
+ * before firebase-admin is loaded, so a value that is not a key never reaches it (given a string, its cert() takes it
+ * for a file name and quotes it in its error).
+ */
+function serviceAccountFrom(env) {
+  const raw = env.FIREBASE_SERVICE_ACCOUNT;
+  if (!raw) throw notSet();
+  let key;
+  try {
+    key = JSON.parse(raw);
+  } catch {
+    throw notAKey();
+  }
+  if (!isPlainObject(key) || typeof key.client_email !== 'string' || typeof key.private_key !== 'string') throw notAKey();
+  return key;
+}
+
+/** firebase-admin's credential for `key` (`cert` is its function). Whatever cert() throws becomes the same plain error. */
+function credentialFrom(cert, key) {
+  try {
+    return cert(key);
+  } catch {
+    throw notAKey();
+  }
+}
+
 let deps = null;
 
 function realDeps(env = process.env) {
   if (deps) return deps;
-  if (!env.FIREBASE_SERVICE_ACCOUNT) throw new Error('FIREBASE_SERVICE_ACCOUNT is not set');
+  const key = serviceAccountFrom(env);
   const { initializeApp, cert, getApps } = require('firebase-admin/app');
   const { getAuth } = require('firebase-admin/auth');
   const { getFirestore } = require('firebase-admin/firestore');
-  const app = getApps()[0] || initializeApp({ credential: cert(JSON.parse(env.FIREBASE_SERVICE_ACCOUNT)) });
+  const app = getApps()[0] || initializeApp({ credential: credentialFrom(cert, key) });
   const auth = getAuth(app);
   deps = {
     async verifyToken(idToken) {
@@ -49,4 +85,4 @@ function realDeps(env = process.env) {
   return deps;
 }
 
-module.exports = { realDeps, adminKeysFrom };
+module.exports = { realDeps, adminKeysFrom, credentialFrom };

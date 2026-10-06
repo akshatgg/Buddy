@@ -84,6 +84,17 @@ test('a blocked person is not counted; setBlocked answers the person, or null fo
   assert.strictEqual(await db.setBlocked('nobody', true), null);
 });
 
+test('setBlocked answers null, not an error, for an id that Firestore cannot have', async () => {
+  await db.ensureUser({ uid: 'a', email: 'a@x.com', name: 'A', now: NOW });
+  // "a/b", "a//b" and "" make users.doc() throw; "." and ".." and "__x__" are refused by Firestore itself; a lone
+  // surrogate is not text; and "/a" and "a/" would be read as the person "a".
+  for (const uid of ['a/b', 'a//b', '', '.', '..', '__x__', '\uD800', '/a', 'a/']) {
+    assert.strictEqual(await db.setBlocked(uid, true), null, JSON.stringify(uid));
+  }
+  const [stored] = await db.listUsers({ limit: 10 });
+  assert.strictEqual(stored.blocked, false, 'nobody was blocked on the way');
+});
+
 test('listUsers: the most recently active first, those who never asked last, up to the limit', async () => {
   await db.ensureUser({ uid: 'never', email: 'n@x.com', name: 'N', now: NOW });
   await db.countRequest({ uid: 'early', email: 'e@x.com', name: 'E', day: TODAY, now: NOW, limit: null });

@@ -1753,7 +1753,7 @@ Vercel functions that give Buddy its free mode: the admin's switches and the use
 ## Tests
 
     npm test                  # the handlers with fakes (from the repository root)
-    npm run test:firestore    # the Firestore adapter against the emulator (needs Java 21 or newer)
+    npm run test:firestore    # the Firestore adapter against the emulator (needs the Firebase CLI (firebase) and Java 21 or newer)
 
 ## Deploy
 
@@ -5302,7 +5302,7 @@ in, with `cloud.json` at the repository root. It is not in git: copy `cloud.exam
 without it fails (`build/afterPack.js`).
 
     npm run sync:web         # after changing shared/: the server keeps a copy in web/shared
-    npm run test:firestore   # the server's database code against the Firestore emulator (needs Java 21 or newer)
+    npm run test:firestore   # the server's database code against the Firestore emulator (needs the Firebase CLI (firebase) and Java 21 or newer)
     npm run deploy:server    # deploy the server
 ```
 

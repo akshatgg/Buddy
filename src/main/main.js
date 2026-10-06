@@ -19,7 +19,7 @@ const { createPanelWindow } = require('./panel-window');
 const { createSettingsWindows } = require('./settings-windows');
 const { createActions } = require('./actions');
 const { createTray } = require('./tray');
-const { createPower, electronLoginItems } = require('./power');
+const { createPower, loginItemsFor } = require('./power');
 const { createShortcut } = require('./shortcut');
 const { registerBuddyIpc } = require('./ipc/buddy');
 const { registerPanelIpc } = require('./ipc/panel');
@@ -87,7 +87,8 @@ async function start(options = {}) {
   let tray = null;
   const power = createPower({
     store,
-    loginItems: options.loginItems || electronLoginItems(app),
+    // None in a development run, which would register Electron.app; the end-to-end test passes its own.
+    loginItems: options.loginItems || loginItemsFor(app),
     onChange(on) {
       if (on) {
         takeShortcut();

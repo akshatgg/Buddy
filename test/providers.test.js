@@ -17,6 +17,17 @@ test('the four providers are registered in order', () => {
   assert.throws(() => getProvider('nope'), { code: 'bad_request' });
 });
 
+test('getProvider knows the registered ids only, not names every object has', () => {
+  for (const id of PROVIDER_IDS) assert.strictEqual(getProvider(id), PROVIDERS[id]);
+  const notProviders = [
+    'constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf', '', 'Anthropic', ' anthropic',
+    undefined, null, 1, true, ['anthropic'], { id: 'anthropic' },
+  ];
+  for (const bad of notProviders) {
+    assert.throws(() => getProvider(bad), { code: 'bad_request' }, `getProvider(${JSON.stringify(bad)})`);
+  }
+});
+
 test('claude: builds a Messages request and reads text and usage', async () => {
   const fetchImpl = fakeFetch(200, {
     model: 'claude-haiku-4-5-20251001',

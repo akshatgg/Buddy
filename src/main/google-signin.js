@@ -75,7 +75,9 @@ function listenForCode({ state, waitMs = WAIT_MS, signal }) {
       } catch {
         // A target that is no path at all (`//`, `///`): whoever sent it, it is not Google's answer.
       }
-      if (done || !url || url.pathname !== '/' || url.searchParams.get('state') !== state) {
+      // Only a request for this host, for `/`, with this sign-in's state is Google's answer. (Against a base URL, a target
+      // like `//other.example/` would be read as the `/` of another host.)
+      if (done || !url || url.hostname !== '127.0.0.1' || url.pathname !== '/' || url.searchParams.get('state') !== state) {
         res.writeHead(404, { 'content-type': 'text/plain', connection: 'close' }).end('Not found');
         return; // a favicon request or a stray visitor: keep waiting for Google
       }
@@ -185,6 +187,9 @@ async function signInWithGoogle({ config, openBrowser, fetchImpl = fetch, waitMs
   const { verifier, challenge } = makePkce();
   const state = crypto.randomBytes(16).toString('base64url');
   const listening = await listenForCode({ state, waitMs, signal });
+  // Cancelled before the port was even listening: the listener has let go of it already (an aborted signal closes it),
+  // and nobody waits for an answer, so no page is opened.
+  if (signal?.aborted) throw cancelled();
   try {
     await openBrowser(authUrl({ clientId: config.googleClientId, redirectUri: listening.redirectUri, challenge, state }));
   } catch {

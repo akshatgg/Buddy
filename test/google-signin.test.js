@@ -114,6 +114,16 @@ test('a request that is no path at all gets a 404 too, and the wait goes on', as
   assert.strictEqual(await listening.code, 'the-code');
 });
 
+test('a request that names another host gets a 404 even with the right state, and the wait goes on', async (t) => {
+  const listening = await listenForCode({ state: 'st' });
+  t.after(() => listening.stop());
+  for (const target of ['//other.example/?state=st&code=nope', 'http://other.example/?state=st&code=nope']) {
+    assert.match(await rawGet(listening.redirectUri, target), /^HTTP\/1\.1 404 /, `GET ${target}`);
+  }
+  assert.strictEqual((await fetch(`${listening.redirectUri}/?state=st&code=the-code`)).status, 200);
+  assert.strictEqual(await listening.code, 'the-code');
+});
+
 test('a signal that has already been aborted ends the wait at once, and the port is let go', async (t) => {
   const controller = new AbortController();
   controller.abort();
@@ -164,6 +174,16 @@ test('Google or Firebase turning the sign-in down, or no internet, ends it in pl
     [FIREBASE_IDP]: { status: 400, body: { error: { message: 'INVALID_IDP_RESPONSE' } } },
   });
   await assert.rejects(signInWithGoogle({ config: CONFIG, openBrowser: browserThatSignsIn(), fetchImpl: noFirebase }), { code: 'sign_in_failed' });
+});
+
+test('a sign-in that was cancelled before it began opens no Google page', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let opened = 0;
+  const openBrowser = async () => { opened += 1; };
+  await assert.rejects(signInWithGoogle({ config: CONFIG, openBrowser, fetchImpl: googleFetch({}), signal: controller.signal }),
+    { code: 'sign_in_cancelled', message: 'Sign-in was cancelled.' });
+  assert.strictEqual(opened, 0, 'no page was opened for a sign-in nobody is waiting for');
 });
 
 test('a browser that cannot be opened ends the sign-in, and the port is let go', async () => {

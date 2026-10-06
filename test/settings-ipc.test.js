@@ -1,0 +1,486 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert');
+const { BuddyError } = require('../shared/errors');
+const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
+const { DEFAULTS } = require('../src/main/store');
+const { chooseModel, registerSettingsIpc } = require('../src/main/ipc/settings');
+
+test('keeps the model the user picked when the key can use it', () => {
+  assert.strictEqual(chooseModel(['a', 'b'], ['b'], 'a'), 'a');
+});
+
+test('otherwise uses the provider default when the key has it', () => {
+  assert.strictEqual(chooseModel(['a', 'b'], ['b'], 'gone'), 'b');
+});
+
+test('otherwise the first model the key can use', () => {
+  assert.strictEqual(chooseModel(['a', 'c'], ['b'], null), 'a');
+});
+
+// ---- the handlers, with fakes for everything that touches the system ----
+
+const CHARACTERS = [
+  { id: 'boy-1', defaultName: 'Aarav' },
+  { id: 'girl-1', defaultName: 'Anaya' },
+];
+const CLAUDE = PROVIDERS.anthropic;
+const STRAY_KEY = "That doesn't look like an API key. Copy only the key and paste it again.";
+const FAILED = { ok: false, error: { code: 'failed', message: 'Something went wrong. Try again.' } };
+const refused = (code, message) => ({ ok: false, error: { code, message } });
+
+/**
+ * registerSettingsIpc with fakes. `registered` is the shortcut that is
+ * registered right now (null: none, as when it failed at launch); `taken` are
+ * shortcuts another app owns. Provider calls are faked per test with
+ * t.mock.method(PROVIDERS.anthropic, 'listModels', ...).
+ */
+function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = true } = {}) {
+  const data = { ...structuredClone(DEFAULTS), ...stored };
+  const store = {
+    get: (key) => data[key],
+    all: () => structuredClone(data),
+    set(patch) {
+      Object.assign(data, patch);
+      return structuredClone(data);
+    },
+  };
+  const keys = {};
+  const secrets = {
+    has: (id) => Object.hasOwn(keys, id),
+    set(id, key) {
+      if (!keychain) throw new BuddyError('no_keychain', 'Your Mac keychain is not available, so the key cannot be saved safely.');
+      keys[id] = key;
+    },
+    clear(id) {
+      delete keys[id];
+    },
+  };
+  const calls = [];
+  const opened = [];
+  let current = registered;
+  let on = false;
+  const handlers = {};
+  registerSettingsIpc({
+    ipcMain: { handle: (channel, fn) => { handlers[channel] = fn; } },
+    windows: { owns: (webContents) => webContents === 'ours' },
+    store,
+    secrets,
+    ai: { listModels: async (id) => [`${id}-live`] },
+    characters: { list: CHARACTERS, get: (id) => CHARACTERS.find((c) => c.id === id) || CHARACTERS[0] },
+    helper: {
+      call: async (cmd) => {
+        calls.push(['helper', cmd]);
+        return { accessibility: true, screenRecording: false };
+      },
+    },
+    buddy: { resize: () => calls.push(['resize']), reloadModel: () => calls.push(['reloadModel']) },
+    power: { isOn: () => on, setOn: (value) => { on = value; calls.push(['setOn', value]); } },
+    shortcut: {
+      current: () => current,
+      register(accelerator) {
+        calls.push(['register', accelerator]);
+        if (taken.includes(accelerator)) return false;
+        current = accelerator;
+        return true;
+      },
+    },
+    shell: { openExternal: async (url) => { opened.push(url); } },
+    onFinishOnboarding: () => calls.push(['finished']),
+  });
+  const call = (channel, ...args) => handlers[channel]({ sender: 'ours' }, ...args);
+  return { call, handlers, store, keys, calls, opened, shortcutNow: () => current };
+}
+
+test('settings:get answers the settings without positions or lastDisplayId, the buddies and the providers', async () => {
+  const s = setup({ stored: { positions: { 1: { x: 1, y: 2 } }, lastDisplayId: 7, size: 'large' } });
+  s.keys.openai = 'k';
+  const r = await s.call('settings:get');
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.settings.size, 'large');
+  assert.ok(!('positions' in r.settings) && !('lastDisplayId' in r.settings));
+  assert.deepStrictEqual(s.store.get('positions'), { 1: { x: 1, y: 2 } }, 'the store itself is untouched');
+  assert.strictEqual(r.buddyOn, false);
+  assert.deepStrictEqual(r.characters, CHARACTERS);
+  assert.deepStrictEqual(r.providers.map((p) => [p.id, p.hasKey]), [
+    ['anthropic', false], ['openai', true], ['gemini', false], ['groq', false],
+  ]);
+  for (const p of r.providers) assert.deepStrictEqual(Object.keys(p).sort(), ['fallbackModels', 'hasKey', 'id', 'keyUrl', 'label']);
+});
+
+test('a page that is not the Settings or Welcome window gets nothing and changes nothing', async () => {
+  const s = setup();
+  for (const channel of Object.keys(s.handlers)) {
+    const r = await s.handlers[channel]({ sender: 'someone else' }, { size: 'large' });
+    assert.deepStrictEqual(r, refused('not_allowed', 'Not allowed.'), channel);
+  }
+  assert.deepStrictEqual(s.calls, []);
+  assert.deepStrictEqual(s.opened, []);
+  assert.strictEqual(s.store.get('size'), 'medium');
+});
+
+// ---- API keys ----
+
+test('save-key: a key with stray characters is refused before the provider is asked', async (t) => {
+  const listModels = t.mock.method(CLAUDE, 'listModels', async () => ['claude-x']);
+  const s = setup();
+  const strays = [
+    '“sk-ant-abc”', // smart quotes
+    'sk-ant-abc​', // a zero-width space on the end
+    '​sk-ant-abc',
+    'sk-ant-abc…',
+    'sk-ant-abc\nsk-ant-def', // two lines pasted together
+    'sk-ant abc',
+    'sk-ant-é',
+    'sk-\tant-abc',
+  ];
+  for (const key of strays) {
+    assert.deepStrictEqual(await s.call('settings:save-key', 'anthropic', key), refused('bad_key', STRAY_KEY), JSON.stringify(key));
+  }
+  assert.strictEqual(listModels.mock.callCount(), 0);
+  assert.deepStrictEqual(s.keys, {});
+  assert.deepStrictEqual(s.store.get('models'), {});
+});
+
+test('save-key: nothing, blanks and things that are not text ask for a key', async (t) => {
+  const listModels = t.mock.method(CLAUDE, 'listModels', async () => []);
+  const s = setup();
+  for (const key of ['', '   \n', null, undefined, 42, {}, ['sk-ant-abc']]) {
+    const r = await s.call('settings:save-key', 'anthropic', key);
+    assert.deepStrictEqual(r, refused('bad_request', 'Paste your key first.'), JSON.stringify(key));
+  }
+  assert.strictEqual(listModels.mock.callCount(), 0);
+  assert.deepStrictEqual(s.keys, {});
+});
+
+test('save-key: a key the provider rejects is refused and not kept', async (t) => {
+  t.mock.method(CLAUDE, 'listModels', async () => {
+    throw new BuddyError('bad_key', 'Your Claude (Anthropic) key was rejected. Check it in Settings.');
+  });
+  const s = setup();
+  const r = await s.call('settings:save-key', 'anthropic', 'sk-ant-wrong');
+  assert.deepStrictEqual(r, refused('bad_key', 'Your Claude (Anthropic) key was rejected. Check it in Settings.'));
+  assert.deepStrictEqual(s.keys, {});
+  assert.deepStrictEqual(s.store.get('models'), {});
+});
+
+test('save-key: with no internet the key is kept, and the answer says it was not checked', async (t) => {
+  t.mock.method(CLAUDE, 'listModels', async () => {
+    throw new BuddyError('network', "Couldn't reach Claude (Anthropic). Check your internet.");
+  });
+  const s = setup();
+  const r = await s.call('settings:save-key', 'anthropic', '  sk-ant-abc \n');
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.verified, false);
+  assert.strictEqual(s.keys.anthropic, 'sk-ant-abc', 'saved without the spaces around it');
+  assert.deepStrictEqual(r.models, CLAUDE.fallbackModels);
+  assert.strictEqual(r.settings.models.anthropic, CLAUDE.fallbackModels[0]);
+  assert.strictEqual(r.providers.find((p) => p.id === 'anthropic').hasKey, true);
+});
+
+test('save-key: a key the provider accepts is kept, verified, with a model the key can use', async (t) => {
+  const listModels = t.mock.method(CLAUDE, 'listModels', async () => ['claude-sonnet-5-5', 'claude-opus-5-5']);
+  const s = setup();
+  const r = await s.call('settings:save-key', 'anthropic', 'sk-ant-abc');
+  assert.deepStrictEqual(listModels.mock.calls[0].arguments, [{ apiKey: 'sk-ant-abc' }]);
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.verified, true);
+  assert.strictEqual(s.keys.anthropic, 'sk-ant-abc');
+  assert.deepStrictEqual(r.models, ['claude-sonnet-5-5', 'claude-opus-5-5']);
+  // The provider's own default is not on this key's list, so the first model the key can use is chosen.
+  assert.strictEqual(r.settings.models.anthropic, 'claude-sonnet-5-5');
+  assert.strictEqual(s.store.get('models').anthropic, 'claude-sonnet-5-5');
+});
+
+test('save-key: a working key keeps the model the user already picked, and other providers are left alone', async (t) => {
+  t.mock.method(CLAUDE, 'listModels', async () => ['claude-sonnet-5-5', 'claude-opus-5-5']);
+  const s = setup({ stored: { models: { anthropic: 'claude-opus-5-5', openai: 'gpt-4.1' } } });
+  const r = await s.call('settings:save-key', 'anthropic', 'sk-ant-abc');
+  assert.deepStrictEqual(r.settings.models, { anthropic: 'claude-opus-5-5', openai: 'gpt-4.1' });
+});
+
+test('save-key: a working key that lists no models is verified and uses the fallback list', async (t) => {
+  t.mock.method(CLAUDE, 'listModels', async () => []);
+  const s = setup();
+  const r = await s.call('settings:save-key', 'anthropic', 'sk-ant-abc');
+  assert.strictEqual(r.verified, true);
+  assert.deepStrictEqual(r.models, CLAUDE.fallbackModels);
+});
+
+test('save-key: an unexpected failure is not mistaken for being offline', async (t) => {
+  const logged = t.mock.method(console, 'error', () => {});
+  t.mock.method(CLAUDE, 'listModels', async () => {
+    throw new TypeError('x is not a function');
+  });
+  const s = setup();
+  assert.deepStrictEqual(await s.call('settings:save-key', 'anthropic', 'sk-ant-abc'), FAILED);
+  assert.strictEqual(logged.mock.callCount(), 1);
+  assert.deepStrictEqual(s.keys, {});
+});
+
+test('save-key: without a keychain the key is not saved and no model is chosen', async (t) => {
+  t.mock.method(CLAUDE, 'listModels', async () => ['claude-sonnet-5-5']);
+  const s = setup({ keychain: false });
+  const r = await s.call('settings:save-key', 'anthropic', 'sk-ant-abc');
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.error.code, 'no_keychain');
+  assert.deepStrictEqual(s.store.get('models'), {});
+});
+
+test('keys and models: only real provider names are accepted', async () => {
+  const s = setup();
+  for (const id of ['constructor', '__proto__', 'toString', 'nope', undefined, null, ['anthropic']]) {
+    for (const [channel, args] of [
+      ['settings:save-key', [id, 'sk-ant-abc']],
+      ['settings:clear-key', [id]],
+      ['settings:models', [id]],
+    ]) {
+      const r = await s.call(channel, ...args);
+      assert.strictEqual(r.ok, false, `${channel} ${JSON.stringify(id)}`);
+      assert.strictEqual(r.error.code, 'bad_request', `${channel} ${JSON.stringify(id)}`);
+    }
+  }
+  assert.deepStrictEqual(s.keys, {});
+});
+
+test('clear-key forgets the key; models answers the list for a provider', async () => {
+  const s = setup();
+  s.keys.openai = 'k';
+  const cleared = await s.call('settings:clear-key', 'openai');
+  assert.strictEqual(cleared.providers.find((p) => p.id === 'openai').hasKey, false);
+  assert.deepStrictEqual(await s.call('settings:models', 'openai'), { ok: true, models: ['openai-live'] });
+});
+
+// ---- opening pages ----
+
+test('open-url opens the providers key pages and nothing else', async () => {
+  const s = setup();
+  const keyUrls = PROVIDER_IDS.map((id) => PROVIDERS[id].keyUrl);
+  for (const url of keyUrls) assert.deepStrictEqual(await s.call('settings:open-url', url), { ok: true });
+  assert.deepStrictEqual(s.opened, keyUrls);
+  const others = [
+    'https://evil.example/',
+    'file:///etc/passwd',
+    'x-apple.systempreferences:com.apple.preference.security',
+    `${keyUrls[0]}#frag`,
+    `${keyUrls[0]} `,
+    '',
+    null,
+    undefined,
+    [keyUrls[0]],
+    { toString: () => keyUrls[0] },
+  ];
+  for (const url of others) {
+    assert.deepStrictEqual(await s.call('settings:open-url', url), refused('not_allowed', 'Not allowed.'), JSON.stringify(url));
+  }
+  assert.deepStrictEqual(s.opened, keyUrls, 'nothing else was opened');
+});
+
+test('permissions: the two real names ask the helper and open their System Settings page', async () => {
+  const s = setup();
+  assert.deepStrictEqual(await s.call('permissions:get'), { ok: true, accessibility: true, screenRecording: false });
+  await s.call('permissions:request', 'accessibility');
+  await s.call('permissions:request', 'screenRecording');
+  assert.deepStrictEqual(s.calls, [['helper', 'permissions'], ['helper', 'requestAccessibility'], ['helper', 'requestScreenRecording']]);
+  await s.call('permissions:open', 'accessibility');
+  await s.call('permissions:open', 'screenRecording');
+  assert.deepStrictEqual(s.opened, [
+    'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
+    'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+  ]);
+});
+
+test('permissions: any other name is refused by request and by open, and reaches neither the helper nor System Settings', async () => {
+  const s = setup();
+  for (const which of ['constructor', '__proto__', 'toString', 'banana', '', undefined, null, ['accessibility']]) {
+    for (const channel of ['permissions:request', 'permissions:open']) {
+      const r = await s.call(channel, which);
+      assert.deepStrictEqual(r, refused('bad_request', 'Unknown permission.'), `${channel} ${JSON.stringify(which)}`);
+    }
+  }
+  assert.deepStrictEqual(s.calls, []);
+  assert.deepStrictEqual(s.opened, []);
+});
+
+test('buddy-on turns the buddy on or off and answers how it now stands', async () => {
+  const s = setup();
+  assert.strictEqual((await s.call('settings:buddy-on', true)).buddyOn, true);
+  assert.strictEqual((await s.call('settings:buddy-on', 0)).buddyOn, false);
+  assert.deepStrictEqual(s.calls, [['setOn', true], ['setOn', false]]);
+});
+
+// ---- settings:set ----
+
+test('set: a size must be one of the three, not a name every object has', async () => {
+  const s = setup();
+  const before = s.store.all();
+  for (const size of ['huge', 'constructor', '__proto__', 'toString', 'hasOwnProperty', '', ['small'], null, undefined, 48, {}]) {
+    assert.deepStrictEqual(await s.call('settings:set', { size }), refused('bad_request', 'Unknown size.'), JSON.stringify(size));
+  }
+  assert.deepStrictEqual(s.store.all(), before);
+  assert.deepStrictEqual(s.calls, []);
+});
+
+test('set: a new size is saved and resizes the buddy once; the same size does nothing more', async () => {
+  const s = setup();
+  const r = await s.call('settings:set', { size: 'large' });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.settings.size, 'large');
+  await s.call('settings:set', { size: 'large' });
+  assert.deepStrictEqual(s.calls, [['resize']]);
+});
+
+test('set: a buddy must be one of the characters, and a new one reloads the model', async () => {
+  const s = setup();
+  const before = s.store.all();
+  for (const buddyId of ['nope', 'constructor', '__proto__', '', ['girl-1'], null, undefined]) {
+    assert.deepStrictEqual(await s.call('settings:set', { buddyId }), refused('bad_request', 'Unknown buddy.'), JSON.stringify(buddyId));
+  }
+  assert.deepStrictEqual(s.store.all(), before);
+  assert.strictEqual((await s.call('settings:set', { buddyId: 'girl-1' })).settings.buddyId, 'girl-1');
+  await s.call('settings:set', { buddyId: 'girl-1' });
+  assert.deepStrictEqual(s.calls, [['reloadModel']]);
+});
+
+test('set: a provider must be a real one', async () => {
+  const s = setup();
+  const before = s.store.all();
+  for (const provider of ['nope', 'constructor', '__proto__', 'toString', '', undefined, null, ['groq'], 1]) {
+    const r = await s.call('settings:set', { provider });
+    assert.strictEqual(r.ok, false, JSON.stringify(provider));
+    assert.strictEqual(r.error.code, 'bad_request', JSON.stringify(provider));
+  }
+  assert.deepStrictEqual(s.store.all(), before);
+  assert.strictEqual((await s.call('settings:set', { provider: 'groq' })).settings.provider, 'groq');
+});
+
+test('set: models must be { providerId: model name } for real providers', async () => {
+  const s = setup();
+  const before = s.store.all();
+  const bad = [
+    null, [], 'anthropic', 5, { nope: 'm' }, { constructor: 'm' }, { anthropic: '' }, { anthropic: '   ' },
+    { anthropic: 5 }, { anthropic: null }, { anthropic: ['m'] }, { anthropic: 'm', nope: 'x' },
+    JSON.parse('{"__proto__":"m"}'), JSON.parse('{"anthropic":"m","__proto__":{"x":1}}'),
+  ];
+  for (const models of bad) {
+    const r = await s.call('settings:set', { models });
+    assert.deepStrictEqual(r, refused('bad_request', 'Those model choices are not valid.'), JSON.stringify(models));
+  }
+  assert.deepStrictEqual(s.store.all(), before);
+  const good = { anthropic: 'claude-sonnet-5-5', groq: 'llama-3.3-70b-versatile' };
+  const r = await s.call('settings:set', { models: good });
+  assert.deepStrictEqual(r.settings.models, good);
+  assert.notStrictEqual(s.store.get('models'), good, 'what is stored is a copy');
+  assert.deepStrictEqual((await s.call('settings:set', { models: {} })).settings.models, {});
+});
+
+test('set: the patch must be an object; with no patch at all nothing changes', async () => {
+  const s = setup();
+  const before = s.store.all();
+  for (const patch of [null, 'size', 5, true, [], [{ size: 'large' }]]) {
+    assert.deepStrictEqual(await s.call('settings:set', patch), refused('bad_request', 'Those settings are not valid.'), JSON.stringify(patch));
+  }
+  assert.deepStrictEqual(s.store.all(), before);
+  assert.strictEqual((await s.call('settings:set')).ok, true);
+  assert.deepStrictEqual(s.store.all(), before);
+});
+
+test('set: only the settings a page may change are taken from a patch, and __proto__ is not one of them', async () => {
+  const s = setup();
+  const patch = JSON.parse(
+    '{"__proto__":{"size":"small"},"onboarded":true,"positions":{"1":{"x":1,"y":1}},"buddyOn":true,"lastDisplayId":3,"buddyName":"Zed"}',
+  );
+  assert.strictEqual((await s.call('settings:set', patch)).ok, true);
+  assert.strictEqual(s.store.get('buddyName'), 'Zed');
+  assert.strictEqual(s.store.get('onboarded'), false);
+  assert.deepStrictEqual(s.store.get('positions'), {});
+  assert.strictEqual(s.store.get('buddyOn'), false);
+  assert.strictEqual(s.store.get('lastDisplayId'), null);
+  assert.strictEqual(s.store.get('size'), 'medium');
+  assert.strictEqual(({}).size, undefined, 'Object.prototype was not touched');
+});
+
+test('set: a shortcut that cannot be registered changes nothing at all', async () => {
+  const s = setup({ taken: ['Command+Q'] });
+  const before = s.store.all();
+  const r = await s.call('settings:set', { shortcut: 'Command+Q', size: 'large', buddyId: 'girl-1', buddyName: 'Zed' });
+  assert.deepStrictEqual(r, refused('shortcut_taken', '"Command+Q" can\'t be used. Try another one.'));
+  assert.deepStrictEqual(s.store.all(), before);
+  assert.deepStrictEqual(s.calls, [['register', 'Command+Q']], 'no resize and no model reload');
+  assert.strictEqual(s.shortcutNow(), 'Alt+Space');
+});
+
+test('set: the shortcut is saved trimmed, and the trimmed text is what gets registered', async () => {
+  const s = setup();
+  const r = await s.call('settings:set', { shortcut: '  CommandOrControl+Shift+B \n' });
+  assert.strictEqual(r.settings.shortcut, 'CommandOrControl+Shift+B');
+  assert.strictEqual(s.store.get('shortcut'), 'CommandOrControl+Shift+B');
+  assert.deepStrictEqual(s.calls, [['register', 'CommandOrControl+Shift+B']]);
+});
+
+test('set: a shortcut that is registered already is not registered again', async () => {
+  const s = setup({ registered: 'Alt+Space' });
+  assert.strictEqual((await s.call('settings:set', { shortcut: ' Alt+Space ' })).ok, true);
+  assert.deepStrictEqual(s.calls, []);
+  assert.strictEqual(s.store.get('shortcut'), 'Alt+Space');
+});
+
+test('set: saving the stored shortcut again registers it if it failed to register at launch', async () => {
+  const s = setup({ stored: { shortcut: 'Alt+Space' }, registered: null });
+  assert.strictEqual((await s.call('settings:set', { shortcut: 'Alt+Space' })).ok, true);
+  assert.deepStrictEqual(s.calls, [['register', 'Alt+Space']]);
+  assert.strictEqual(s.shortcutNow(), 'Alt+Space');
+
+  const stillTaken = setup({ stored: { shortcut: 'Alt+Space' }, registered: null, taken: ['Alt+Space'] });
+  const r = await stillTaken.call('settings:set', { shortcut: 'Alt+Space' });
+  assert.deepStrictEqual(r, refused('shortcut_taken', '"Alt+Space" can\'t be used. Try another one.'));
+});
+
+test("set: a blank name falls back to the buddy's own name, as the Welcome window does", async () => {
+  const s = setup({ stored: { buddyId: 'girl-1', buddyName: 'Pixie' } });
+  assert.strictEqual((await s.call('settings:set', { buddyName: '   ' })).settings.buddyName, 'Anaya');
+  assert.strictEqual((await s.call('settings:set', { buddyName: null })).settings.buddyName, 'Anaya');
+  // The buddy picked in the same patch is the one whose name it falls back to.
+  assert.strictEqual((await s.call('settings:set', { buddyId: 'boy-1', buddyName: '' })).settings.buddyName, 'Aarav');
+});
+
+test('set: a name is trimmed and cut to 24 characters', async () => {
+  const s = setup();
+  assert.strictEqual((await s.call('settings:set', { buddyName: '  Hello World  ' })).settings.buddyName, 'Hello World');
+  assert.strictEqual((await s.call('settings:set', { buddyName: 'n'.repeat(40) })).settings.buddyName, 'n'.repeat(24));
+});
+
+// ---- the Welcome window ----
+
+test('onboarding:finish keeps a real choice and otherwise falls back to the first buddy and its own name', async () => {
+  const s = setup();
+  assert.deepStrictEqual(await s.call('onboarding:finish', { buddyId: 'girl-1', buddyName: '  Pixie  ' }), { ok: true });
+  assert.deepStrictEqual([s.store.get('buddyId'), s.store.get('buddyName'), s.store.get('onboarded')], ['girl-1', 'Pixie', true]);
+  assert.deepStrictEqual(s.calls, [['finished']]);
+
+  const blank = setup();
+  await blank.call('onboarding:finish', { buddyId: 'girl-1', buddyName: '   ' });
+  assert.strictEqual(blank.store.get('buddyName'), 'Anaya');
+
+  const unknown = setup();
+  await unknown.call('onboarding:finish', { buddyId: 'nope', buddyName: '' });
+  assert.deepStrictEqual([unknown.store.get('buddyId'), unknown.store.get('buddyName')], ['boy-1', 'Aarav']);
+
+  const none = setup();
+  assert.deepStrictEqual(await none.call('onboarding:finish'), { ok: true });
+  assert.deepStrictEqual([none.store.get('buddyId'), none.store.get('buddyName'), none.store.get('onboarded')], ['boy-1', 'Aarav', true]);
+
+  const long = setup();
+  await long.call('onboarding:finish', { buddyName: ` ${'n'.repeat(40)} ` });
+  assert.strictEqual(long.store.get('buddyName'), 'n'.repeat(24));
+});
+
+test('onboarding:finish refuses a choice that is not an object, and finishes nothing', async () => {
+  const s = setup();
+  for (const choice of [null, 'girl-1', 5, [], [{ buddyId: 'girl-1' }]]) {
+    assert.deepStrictEqual(await s.call('onboarding:finish', choice), refused('bad_request', 'Those choices are not valid.'), JSON.stringify(choice));
+  }
+  assert.strictEqual(s.store.get('onboarded'), false);
+  assert.deepStrictEqual(s.calls, []);
+});

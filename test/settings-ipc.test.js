@@ -38,9 +38,14 @@ const refused = (code, message) => ({ ok: false, error: { code, message } });
  * registered right now (null: none, as when it failed at launch, or while Buddy is
  * off); `taken` are shortcuts another app owns; `buddyOn` is whether Buddy is on.
  * `realShortcut` replaces the fake shortcut. Provider calls are faked per test
- * with t.mock.method(PROVIDERS.anthropic, 'listModels', ...).
+ * with t.mock.method(PROVIDERS.anthropic, 'listModels', ...). `signedIn` is whether someone is signed in; `free` is
+ * the server's free-mode settings as the app last got them; `signInFails` and `cloudFails` make signing in or
+ * fetching those settings fail.
  */
-function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut } = {}) {
+function setup({
+  stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut,
+  signedIn = true, free = null, signInFails = null, cloudFails = null,
+} = {}) {
   const data = { ...structuredClone(DEFAULTS), ...stored };
   const store = {
     get: (key) => data[key],
@@ -66,6 +71,29 @@ function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = t
   let current = registered;
   let on = buddyOn;
   const handlers = {};
+  let signed = signedIn;
+  const account = {
+    isSignedIn: () => signed,
+    user: () => (signed ? { uid: 'u1', email: 'rahul@gmail.com', name: 'Rahul' } : null),
+    async signIn() {
+      calls.push(['signIn']);
+      if (signInFails) throw signInFails;
+      signed = true;
+      return { uid: 'u1', email: 'rahul@gmail.com', name: 'Rahul' };
+    },
+    signOut() {
+      calls.push(['signOut']);
+      signed = false;
+    },
+  };
+  const cloud = {
+    last: () => free,
+    async settings(options) {
+      calls.push(['cloudSettings', options]);
+      if (cloudFails) throw cloudFails;
+      return free;
+    },
+  };
   registerSettingsIpc({
     ipcMain: { handle: (channel, fn) => { handlers[channel] = fn; } },
     windows: {
@@ -100,6 +128,9 @@ function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = t
     },
     shell: { openExternal: async (url) => { opened.push(url); } },
     onFinishOnboarding: () => calls.push(['finished']),
+    account,
+    cloud,
+    canSignIn: true,
   });
   const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
   const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
@@ -599,4 +630,71 @@ test('the Welcome window can use the other channels, as the Settings window can'
   assert.strictEqual((await s.callFromWelcome('settings:get')).ok, true);
   assert.strictEqual((await s.callFromWelcome('settings:set', { size: 'large' })).ok, true);
   assert.deepStrictEqual(await s.callFromWelcome('permissions:get'), { ok: true, accessibility: true, screenRecording: false });
+});
+
+// ---- signing in and free mode (Phase 2) ----
+
+const UNLIMITED = { freeOn: true, limitMode: 'unlimited', limit: null, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false };
+
+test('settings:get: who is signed in, whether this copy can sign in, and what the AI section shows', async () => {
+  const s = setup({ free: UNLIMITED, stored: { cloud: UNLIMITED } });
+  const r = await s.call('settings:get');
+  assert.deepStrictEqual(r.account, { signedIn: true, email: 'rahul@gmail.com', name: 'Rahul' });
+  assert.strictEqual(r.canSignIn, true);
+  assert.deepStrictEqual(r.ai, { note: 'Free AI is on. No key needed.', showForm: false });
+  assert.ok(!('cloud' in r.settings), 'the kept server settings are not page settings');
+
+  const out = await setup({ signedIn: false, free: UNLIMITED }).call('settings:get');
+  assert.deepStrictEqual(out.account, { signedIn: false });
+  assert.deepStrictEqual(out.ai, { note: '', showForm: true }, 'signed out, no free settings apply');
+});
+
+test('account:sign-in signs in, fetches the free settings, and answers the new state', async () => {
+  const s = setup({ signedIn: false });
+  const r = await s.call('account:sign-in');
+  assert.strictEqual(r.ok, true);
+  assert.deepStrictEqual(r.account, { signedIn: true, email: 'rahul@gmail.com', name: 'Rahul' });
+  assert.deepStrictEqual(s.calls.filter(([name]) => ['signIn', 'cloudSettings'].includes(name)), [['signIn'], ['cloudSettings', { force: true }]]);
+});
+
+test('account:sign-in that fails says why, and fetches nothing', async () => {
+  const s = setup({ signedIn: false, signInFails: new BuddyError('sign_in_failed', "Google didn't sign you in. Try again.") });
+  assert.deepStrictEqual(await s.call('account:sign-in'), refused('sign_in_failed', "Google didn't sign you in. Try again."));
+  assert.ok(!s.calls.some(([name]) => name === 'cloudSettings'));
+});
+
+test('account:sign-in still answers when the free settings cannot be fetched', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const s = setup({ signedIn: false, cloudFails: new BuddyError('server', "Buddy's server had a problem. Try again.") });
+  const r = await s.call('account:sign-in');
+  assert.deepStrictEqual([r.ok, r.account.signedIn], [true, true]);
+});
+
+test('account:sign-out signs out and answers the signed-out state', async () => {
+  const s = setup();
+  const r = await s.call('account:sign-out');
+  assert.deepStrictEqual([r.ok, r.account], [true, { signedIn: false }]);
+  assert.ok(s.calls.some(([name]) => name === 'signOut'));
+});
+
+test('settings:refresh fetches the free settings for someone signed in, and never fails the page', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const s = setup();
+  assert.strictEqual((await s.call('settings:refresh')).ok, true);
+  assert.deepStrictEqual(s.calls.filter(([name]) => name === 'cloudSettings'), [['cloudSettings', { force: true }]]);
+
+  const out = setup({ signedIn: false });
+  await out.call('settings:refresh');
+  assert.ok(!out.calls.some(([name]) => name === 'cloudSettings'), 'nobody to fetch them for');
+
+  const failing = setup({ cloudFails: new BuddyError('server', "Buddy's server had a problem. Try again.") });
+  assert.strictEqual((await failing.call('settings:refresh')).ok, true);
+});
+
+test('onboarding:finish wants someone signed in, and finishes nothing otherwise', async () => {
+  const s = setup({ signedIn: false });
+  assert.deepStrictEqual(await s.callFromWelcome('onboarding:finish', { buddyId: 'girl-1', buddyName: 'Pixie' }),
+    refused('signed_out', 'Sign in with Google first.'));
+  assert.strictEqual(s.store.get('onboarded'), false);
+  assert.ok(!s.calls.some(([name]) => name === 'finished'));
 });

@@ -2,8 +2,8 @@
 
 // End-to-end smoke test: starts the real app (src/main/main.js) with a fresh
 // settings folder and fakes for the parts that touch the system (the Mac
-// helper, the clipboard, the global shortcut, the login item), then runs every
-// check in test/e2e/checks in order.
+// helper, the clipboard, the global shortcut, the login item, the Google
+// account and Buddy's server), then runs every check in test/e2e/checks in order.
 //
 //   npm run test:e2e
 
@@ -14,6 +14,7 @@ const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { BuddyError } = require('../../shared/errors');
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-e2e-'));
 app.setPath('userData', userData);
@@ -60,7 +61,61 @@ const globalShortcut = {
   },
 };
 
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Nor may it sign in to Google or call Buddy's server: the app gets this account and this server. A check changes
+// cloud.free to see the app follow the admin's switches, and signs out and in again.
+const account = {
+  signedIn: true,
+  listeners: [],
+  isSignedIn() {
+    return this.signedIn;
+  },
+  user() {
+    return this.signedIn ? { uid: 'e2e-user', email: 'e2e@example.com', name: 'E2E Tester' } : null;
+  },
+  async signIn() {
+    this.signedIn = true;
+    for (const fn of this.listeners) fn();
+    return this.user();
+  },
+  signOut() {
+    this.signedIn = false;
+    for (const fn of this.listeners) fn();
+  },
+  async idToken() {
+    if (!this.signedIn) throw new BuddyError('signed_out', 'Sign in to use Buddy.');
+    return 'e2e-token';
+  },
+  onChange(fn) {
+    this.listeners.push(fn);
+  },
+};
+
+const cloud = {
+  free: { freeOn: false, limitMode: 'daily', limit: 30, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false },
+  asks: [],
+  listeners: [],
+  last() {
+    return account.signedIn ? this.free : null;
+  },
+  async settings() {
+    return this.last();
+  },
+  forget() {
+    for (const fn of this.listeners) fn();
+  },
+  async ask(action, input) {
+    this.asks.push({ action, input });
+    return { text: 'A free answer', model: 'free-model' };
+  },
+  onChange(fn) {
+    this.listeners.push(fn);
+  },
+};
+
+// cloud.json's values: the account and the server above are what use them, so they only make Buddy "set up".
+const cloudConfig = { serverUrl: 'https://e2e.invalid', firebaseApiKey: 'e2e', googleClientId: 'e2e', googleClientSecret: 'e2e' };
+
+const delay =(ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const WATCHDOG_MS = 120_000;
 
@@ -104,6 +159,9 @@ async function waitFor(fn, what, ms = 8000) {
       helper,
       clipboard,
       globalShortcut,
+      account,
+      cloud,
+      cloudConfig,
       loginItems: { get: () => false, set: (on) => loginCalls.push(on) },
     });
     Object.assign(ctx, { helper, clipboard, globalShortcut, loginCalls });

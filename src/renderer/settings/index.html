@@ -9,6 +9,16 @@
 <body>
 <main>
   <section class="card">
+    <h2>Account</h2>
+    <p id="account-line"></p>
+    <div class="row">
+      <button id="sign-in" class="primary" type="button" hidden>Sign in with Google</button>
+      <button id="sign-out" type="button" hidden>Sign out</button>
+    </div>
+    <p id="account-status" class="muted"></p>
+  </section>
+
+  <section class="card">
     <h2>Your buddy</h2>
     <div id="buddies" class="buddies"></div>
     <p id="buddy-status" class="muted"></p>
@@ -36,6 +46,7 @@
 
   <section class="card">
     <h2>AI</h2>
+    <p id="ai-note" class="muted" hidden></p>
     <div id="ai"></div>
   </section>
 

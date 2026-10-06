@@ -18,7 +18,27 @@ function showLoadError(message) {
   document.querySelector('main').replaceChildren(p);
 }
 
+/** Who is signed in, and the button that changes it. */
+function renderAccount() {
+  const { account, canSignIn } = snap;
+  let line = 'Sign in with Google to use your buddy.';
+  if (account.signedIn) line = account.name ? `Signed in as ${account.name} (${account.email})` : `Signed in as ${account.email}`;
+  else if (!canSignIn) line = "This copy of Buddy isn't set up for sign-in.";
+  $('account-line').textContent = line;
+  $('sign-in').hidden = account.signedIn || !canSignIn;
+  $('sign-out').hidden = !account.signedIn;
+}
+
+/** What free mode means for this person, and whether they need the key form. */
+function renderAi() {
+  $('ai-note').textContent = snap.ai.note;
+  $('ai-note').hidden = !snap.ai.note;
+  $('ai').hidden = !snap.ai.showForm;
+}
+
 function render() {
+  renderAccount();
+  renderAi();
   if (gridBuilt) {
     // Only move the check: rebuilding the radio buttons would drop the keyboard focus that is on one of them.
     for (const radio of $('buddies').querySelectorAll('input')) radio.checked = radio.value === snap.settings.buddyId;
@@ -55,6 +75,28 @@ async function renderPermissions() {
   showStatus('perm-status', r.ok ? '' : r.error.message, r.ok ? 'muted' : 'error');
 }
 
+$('sign-in').addEventListener('click', async () => {
+  showStatus('account-status', 'Finish signing in in your browser…', 'muted');
+  const r = await window.buddy.signIn();
+  if (r.ok) {
+    snap = r;
+    render();
+    showStatus('account-status', 'Signed in ✓', 'good');
+  } else if (r.error.code !== 'sign_in_cancelled') {
+    // Cancelled means the button was pressed again: the newer sign-in speaks for itself.
+    showStatus('account-status', r.error.message, 'error');
+  }
+});
+$('sign-out').addEventListener('click', async () => {
+  const r = await window.buddy.signOut();
+  if (!r.ok) {
+    showStatus('account-status', r.error.message, 'error');
+    return;
+  }
+  snap = r;
+  render();
+  showStatus('account-status', 'Signed out.', 'muted');
+});
 $('name').addEventListener('change', () => save({ buddyName: $('name').value }, 'name-status'));
 $('size').addEventListener('change', () => save({ size: $('size').value }, 'size-status'));
 $('shortcut-save').addEventListener('click', () => save({ shortcut: $('shortcut').value.trim() }, 'shortcut-status'));
@@ -87,4 +129,10 @@ window.addEventListener('focus', renderPermissions);
   render();
   await renderPermissions();
   await mountAiForm($('ai'));
+  // The admin may have changed free mode since the app last asked.
+  const fresh = await window.buddy.refresh();
+  if (fresh.ok) {
+    snap = fresh;
+    render();
+  }
 })();

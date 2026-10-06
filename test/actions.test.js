@@ -149,6 +149,21 @@ test('a password field and a missing permission are explained, not logged as pro
   assert.strictEqual(warn.mock.callCount(), 0);
 });
 
+test('on Windows, an app run as administrator and keys still held are explained in their own words, not logged as problems', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  for (const [code, message] of [
+    ['elevated', "That app runs as administrator, so I can't read from it."],
+    ['keys_held', 'Let go of the keys, then try again.'],
+  ]) {
+    const s = setup({ replies: { captureSelection: failure(code, message) } });
+    await s.actions.open();
+    const shown = entries(s.log, 'showPanel')[0][1];
+    assert.strictEqual(shown.notice, message, code);
+    assert.strictEqual(shown.tab, 'write', code);
+  }
+  assert.strictEqual(warn.mock.callCount(), 0);
+});
+
 test('when the selection cannot be read for any other reason, the panel says so on the Fix tab and the cause is logged', async (t) => {
   const warn = t.mock.method(console, 'warn', () => {});
   const s = setup({ replies: { captureSelection: failure('timeout', 'The Mac helper took too long.') } });

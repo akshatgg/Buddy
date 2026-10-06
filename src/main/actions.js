@@ -16,6 +16,9 @@ const COPIED = `Copied — press ${platform.pasteKeys}`;
 const SLEEPY_MS = 5000;
 const EMPTY_BOX = 'That box looks empty.';
 const UNREADABLE = "I couldn't read your selection — select it again or paste it here.";
+// Reasons the selection was not read whose own words tell the person what is going on: a password field, and on
+// Windows an app run as administrator or keys still held down.
+const EXPLAINED = new Set(['secure_field', 'elevated', 'keys_held']);
 
 /**
  * `helperMovesFocus` and `newline` are the system's (platform.js); tests pass either system's. On Windows `ui` also
@@ -62,7 +65,7 @@ function createActions({
         selection = r.text || '';
         if (selection) tab = 'fix';
       } catch (err) {
-        if (err.code === 'secure_field') {
+        if (EXPLAINED.has(err.code)) {
           notice = err.message;
         } else if (err.code === 'no_accessibility') {
           notice = 'Allow Accessibility in Settings so I can read and paste your text.';

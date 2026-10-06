@@ -28,8 +28,8 @@ for (const c of characters.list) {
     const names = gltf.nodes.map((n) => n.name);
     for (const name of ['Root', 'Head', 'ArmL', 'ArmR', 'Face']) assert.ok(names.includes(name), `has node ${name}`);
     const face = gltf.meshes[gltf.nodes.find((n) => n.name === 'Face').mesh];
-    assert.deepStrictEqual(face.extras.targetNames, ['blink', 'smile', 'mouthO']);
-    assert.ok((face.weights || [0, 0, 0]).every((w) => w === 0), 'every morph target starts at rest');
+    assert.deepStrictEqual(face.extras.targetNames, ['blink', 'smile', 'mouthO', 'eyeLUp', 'eyeRUp']);
+    assert.ok((face.weights || face.extras.targetNames.map(() => 0)).every((w) => w === 0), 'every morph target starts at rest');
   });
 }
 

@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import {
-  FPS, IDLE_FPS, REST_FPS, BLINK_LOOKAHEAD, fpsFor, isActive, wakeDelay, floatOffset, createBlinker, lookAt, moodPose,
+  FPS, IDLE_FPS, REST_FPS, BLINK_LOOKAHEAD, SWEEP_HZ, SWEEP_LAG,
+  fpsFor, isActive, wakeDelay, floatOffset, createBlinker, blinkWeight, lookAt, moodPose,
 } from '../src/renderer/buddy/moods.js';
 
 // A buddy with nothing going on, and nothing for a long time.
@@ -174,4 +175,67 @@ test('sleepy closes the eyes and stays', () => {
 test('thinking tilts the head; unknown moods rest', () => {
   assert.ok(moodPose('thinking', 0).headTilt > 0.1);
   assert.strictEqual(moodPose('confused', 1).headTilt, 0);
+});
+
+test('thinking shows the eyes as lines, and no mouth', () => {
+  for (const since of [0, 0.4, 7]) {
+    assert.strictEqual(moodPose('thinking', since).eyesClosed, true, `eyes are lines at ${since} s`);
+    assert.strictEqual(moodPose('thinking', since).mouthO, 0, `no mouth at ${since} s`);
+  }
+});
+
+test('thinking sweeps the eye lines up and down 1.2 times a second', () => {
+  assert.strictEqual(SWEEP_HZ, 1.2);
+  assert.strictEqual(SWEEP_LAG, 0.6);
+  const cycle = 1 / SWEEP_HZ;
+  assert.ok(Math.abs(moodPose('thinking', cycle / 4).eyeL - 1) < 1e-9, 'the left line is at the top a quarter cycle in');
+  assert.ok(Math.abs(moodPose('thinking', (3 * cycle) / 4).eyeL + 1) < 1e-9, 'and at the bottom three quarters in');
+  assert.ok(Math.abs(moodPose('thinking', 0).eyeL) < 1e-9, 'it starts from the middle');
+});
+
+test('while thinking the right eye line trails the left one', () => {
+  const behind = SWEEP_LAG / (2 * Math.PI * SWEEP_HZ); // seconds
+  for (const since of [0.1, 0.37, 0.8, 2.3, 5.05]) {
+    const now = moodPose('thinking', since);
+    assert.ok(Math.abs(now.eyeR - moodPose('thinking', since - behind).eyeL) < 1e-9, `the right line is where the left was, at ${since} s`);
+  }
+  const top = moodPose('thinking', 1 / SWEEP_HZ / 4);
+  assert.ok(top.eyeR < top.eyeL, 'when the left line reaches the top, the right one is still on its way up');
+  assert.ok(top.eyeR > 0.5, 'but not far behind');
+});
+
+test('the eye lines rest in place when not thinking', () => {
+  for (const [mood, since] of [['idle', 3], ['happy', 0.5], ['wave', 0.9], ['sleepy', 10], ['wobble', 0.2]]) {
+    const p = moodPose(mood, since);
+    assert.strictEqual(p.eyeL, 0, `${mood}: eyeL`);
+    assert.strictEqual(p.eyeR, 0, `${mood}: eyeR`);
+  }
+});
+
+test('a pose that shuts the eyes gives a blink weight of 1, whatever the blinker says', () => {
+  for (const [mood, since] of [['sleepy', 0], ['sleepy', 10], ['thinking', 0], ['thinking', 0.4], ['thinking', 7]]) {
+    const pose = moodPose(mood, since);
+    for (const blink of [0, 0.5, 1]) {
+      assert.strictEqual(blinkWeight(pose, blink), 1, `${mood} at ${since} s, blink ${blink}`);
+    }
+  }
+  assert.strictEqual(blinkWeight({ eyesClosed: true, smile: 1 }, 0), 1, 'shut eyes win over a smile');
+});
+
+test('the happy "∩" eyes never blink: while smiling the blink weight is 0, even in mid-blink', () => {
+  // The blink and the smile both reshape the same eye, and on top of each other they tear it.
+  for (const [mood, times] of [['happy', [0, 0.2, 0.6, 1, 1.19]], ['wave', [0, 0.3, 0.9, 1.5, 1.79]]]) {
+    for (const since of times) {
+      const pose = moodPose(mood, since);
+      assert.ok(pose.smile > 0, `${mood} at ${since} s is smiling`);
+      for (const blink of [0, 0.5, 1]) {
+        assert.strictEqual(blinkWeight(pose, blink), 0, `${mood} at ${since} s, blink ${blink}`);
+      }
+    }
+  }
+});
+
+test('an idle pose passes the blinker through', () => {
+  const pose = moodPose('idle', 100);
+  for (const blink of [0, 0.4, 1]) assert.strictEqual(blinkWeight(pose, blink), blink, `blink ${blink}`);
 });

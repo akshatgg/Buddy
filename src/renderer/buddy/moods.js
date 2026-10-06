@@ -82,20 +82,43 @@ export function createBlinker(random = Math.random) {
   };
 }
 
+/**
+ * How shut the eyes are, 0 (open) to 1 (shut): fully shut when the pose closes them, else
+ * the blinker's value, except while smiling. The blink and the smile both reshape the same
+ * eye, and on top of each other they tear it, so the happy "∩" eyes never blink.
+ */
+export function blinkWeight({ eyesClosed, smile }, blink) {
+  if (eyesClosed) return 1;
+  return smile > 0 ? 0 : blink;
+}
+
 /** Turn the head toward the pointer, dx/dy in screen points from the buddy's centre. */
 export function lookAt(dx, dy) {
   return { yaw: clamp(dx / 600, -0.45, 0.45), pitch: clamp(dy / 500, -0.2, 0.25) };
 }
 
+// Thinking: each eye is a glowing line (the blink shape) sweeping up and down the screen
+// SWEEP_HZ times a second, the right line SWEEP_LAG radians behind the left, so together
+// they read as one line sweeping across, like a scanner. eyeL and eyeR run from -1 (down)
+// to 1 (up).
+export const SWEEP_HZ = 1.2;
+export const SWEEP_LAG = 0.6;
+
 const REST = Object.freeze({
-  lift: 0, scaleX: 1, scaleY: 1, headTilt: 0, armL: 0, armR: 0, smile: 0, mouthO: 0, eyesClosed: false, done: false,
+  lift: 0, scaleX: 1, scaleY: 1, headTilt: 0, armL: 0, armR: 0, smile: 0, mouthO: 0, eyesClosed: false,
+  eyeL: 0, eyeR: 0, done: false,
 });
 
 /** The pose for a mood, `since` seconds after it started. `done` means: go back to idle. */
 export function moodPose(name, since) {
   switch (name) {
-    case 'thinking':
-      return { ...REST, headTilt: 0.18 + 0.04 * Math.sin(since * 2), armR: 0.6, mouthO: 0.3 };
+    case 'thinking': {
+      const sweep = 2 * Math.PI * SWEEP_HZ * since;
+      return {
+        ...REST, headTilt: 0.18 + 0.04 * Math.sin(since * 2), armR: 0.6,
+        eyesClosed: true, eyeL: Math.sin(sweep), eyeR: Math.sin(sweep - SWEEP_LAG),
+      };
+    }
     case 'happy': {
       const length = 1.2;
       const fade = 1 - Math.min(since / length, 1);

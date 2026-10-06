@@ -11,13 +11,18 @@ let image = null; // the latest screenshot, base64 JPEG
 let currentTab = 'write';
 let generation = 0; // counts how often the panel has been opened; an answer to a request from an earlier opening is stale
 
+// Errors whose fix is in Settings: no key yet, a key that was refused, an account out of credit. They come
+// with an "Open Settings" button. (The code is the one the main process sent along with the message.)
+const SETTINGS_ERRORS = ['no_key', 'bad_key', 'no_credit'];
+
 function show(el, visible) {
   el.hidden = !visible;
 }
 
-function showError(message) {
+function showError(message, code) {
   $('error').textContent = message || '';
   show($('error'), Boolean(message));
+  show($('error-settings'), Boolean(message) && SETTINGS_ERRORS.includes(code));
 }
 
 function reset() {
@@ -111,7 +116,7 @@ async function run(action, input) {
   if (mine !== generation) return; // the panel was opened again meanwhile: this answer belongs to the earlier opening
   busy(false);
   if (!r.ok) {
-    showError(r.error.message);
+    showError(r.error.message, r.error.code);
     return;
   }
   showResult(action, r.result);
@@ -151,6 +156,7 @@ $('again').addEventListener('click', () => {
 });
 $('close').addEventListener('click', () => window.buddy.close());
 $('settings').addEventListener('click', () => window.buddy.openSettings());
+$('error-settings').addEventListener('click', () => window.buddy.openSettings());
 for (const b of document.querySelectorAll('[data-tab]')) b.addEventListener('click', () => setTab(b.dataset.tab));
 
 document.addEventListener('keydown', (e) => {

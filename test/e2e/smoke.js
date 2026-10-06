@@ -74,13 +74,19 @@ let finished = false;
 function finish(code) {
   if (finished) return; // the first exit code stands
   finished = true;
-  fs.rmSync(userData, { recursive: true, force: true });
-  // Windows has no sh: there the few files Chromium writes last stay in the temporary folder.
-  if (process.platform !== 'win32') {
-    const sweep = 'while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; sleep 1; rm -rf "$2"';
-    spawn('/bin/sh', ['-c', sweep, 'sh', String(process.pid), userData], { detached: true, stdio: 'ignore' }).unref();
+  try {
+    fs.rmSync(userData, { recursive: true, force: true });
+    // Windows has no sh: there the few files Chromium writes last stay in the temporary folder.
+    if (process.platform !== 'win32') {
+      const sweep = 'while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; sleep 1; rm -rf "$2"';
+      spawn('/bin/sh', ['-c', sweep, 'sh', String(process.pid), userData], { detached: true, stdio: 'ignore' }).unref();
+    }
+  } catch (err) {
+    // Windows does not let go of files Electron still holds open (EBUSY): they stay in the temporary folder.
+    console.warn(`e2e: could not remove ${userData} yet (${err.code})`);
+  } finally {
+    app.exit(code); // whatever happened above: a run that cannot exit would leave the buddy on screen
   }
-  app.exit(code);
 }
 
 // A check that hangs must fail the run, not leave a buddy floating on screen.

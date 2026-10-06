@@ -219,7 +219,20 @@ test('a pose that shuts the eyes gives a blink weight of 1, whatever the blinker
       assert.strictEqual(blinkWeight(pose, blink), 1, `${mood} at ${since} s, blink ${blink}`);
     }
   }
-  assert.strictEqual(blinkWeight({ eyesClosed: true, smile: 1 }, 0), 1, 'shut eyes win over a smile');
+});
+
+// The blink and the smile both reshape the same eye, and on top of each other they tear it (see blinkWeight). So no pose
+// may ask for both, whatever the mood and however long it has lasted. 'confused' is not a mood: it rests.
+const MOODS = ['idle', 'thinking', 'happy', 'wave', 'sleepy', 'wobble', 'confused'];
+
+test('no mood, at any time in its first 10 seconds, both smiles and shuts the eyes', () => {
+  for (const name of MOODS) {
+    for (let hundredths = 0; hundredths <= 1000; hundredths += 1) {
+      const since = hundredths / 100;
+      const pose = moodPose(name, since);
+      assert.ok(!(pose.smile > 0 && pose.eyesClosed), `${name} at ${since} s smiles and shuts the eyes`);
+    }
+  }
 });
 
 test('the happy "∩" eyes never blink: while smiling the blink weight is 0, even in mid-blink', () => {

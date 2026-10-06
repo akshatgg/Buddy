@@ -22,9 +22,9 @@ renderer.toneMappingExposure = 1;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100);
 // Glossy plastic and glass need something to reflect: a soft studio room, prefiltered once
-// at start (a few milliseconds on the GPU) and only sampled after that. Tipped back a little,
-// so the room's front light shows as a reflection across the top of the face screen rather
-// than between the eyes.
+// per GPU context (a few milliseconds on the GPU: at start, and again when a lost context is
+// restored, see below) and only sampled after that. Tipped back a little, so the room's front
+// light shows as a reflection across the top of the face screen rather than between the eyes.
 function buildEnvironment() {
   const pmrem = new THREE.PMREMGenerator(renderer);
   const room = new RoomEnvironment();

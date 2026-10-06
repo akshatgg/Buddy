@@ -9,9 +9,9 @@ const { Helper } = require('../src/main/helper');
 /** Stands in for child_process.spawn: each child records what it was sent. */
 function fakeSpawn() {
   const children = [];
-  function spawnImpl(bin, args) {
+  function spawnImpl(bin, args, options) {
     const child = new EventEmitter();
-    Object.assign(child, { bin, args, stdin: new PassThrough(), stdout: new PassThrough(), written: [] });
+    Object.assign(child, { bin, args, options, stdin: new PassThrough(), stdout: new PassThrough(), written: [] });
     child.stdin.on('data', (d) => {
       for (const line of d.toString().trim().split('\n')) child.written.push(JSON.parse(line));
     });
@@ -119,4 +119,24 @@ test('a helper that keeps crashing is restarted more slowly each time', async ()
   spawnImpl.children[1].emit('exit', 1);
   assert.strictEqual(helper.nextRestartMs, 20);
   helper.stop();
+});
+
+test('the helper starts without a console window of its own (Windows would open one for it)', () => {
+  const { helper, child } = started();
+  assert.strictEqual(child.options.windowsHide, true);
+  helper.stop();
+});
+
+test('its failures are told in words that fit the Mac and Windows alike', async () => {
+  const idle = new Helper({ binPath: 'b', spawnImpl: fakeSpawn() });
+  await assert.rejects(idle.call('ping'), { code: 'helper_down', message: "Buddy's helper is not running." });
+
+  const { helper, child } = started({ timeouts: { default: 10 } });
+  await assert.rejects(helper.call('ping'), { code: 'timeout', message: "Buddy's helper took too long." });
+  const failing = helper.call('ping');
+  child.reply({ id: 2, ok: false });
+  await assert.rejects(failing, { code: 'failed', message: "Buddy's helper failed." });
+  const waiting = helper.call('ping');
+  helper.stop();
+  await assert.rejects(waiting, { code: 'helper_exit', message: "Buddy's helper stopped. Try again." });
 });

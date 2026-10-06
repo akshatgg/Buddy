@@ -13,6 +13,7 @@ const { BuddyError } = require('../../shared/errors');
 const COPIED = 'Copied — press ⌘V';
 const SLEEPY_MS = 5000;
 const EMPTY_BOX = 'That box looks empty.';
+const UNREADABLE = "I couldn't read your selection — select it again or paste it here.";
 
 function createActions({ helper, ai, clipboard, store, ui, later = setTimeout }) {
   let session = { app: null, selection: '', wholeBox: false };
@@ -37,8 +38,14 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout })
         const r = await helper.call('captureSelection', { pid: app.pid, selectAll: false });
         selection = r.text || '';
       } catch (err) {
-        if (err.code === 'secure_field') notice = err.message;
-        if (err.code === 'no_accessibility') notice = 'Allow Accessibility in Settings so I can read and paste your text.';
+        if (err.code === 'secure_field') {
+          notice = err.message;
+        } else if (err.code === 'no_accessibility') {
+          notice = 'Allow Accessibility in Settings so I can read and paste your text.';
+        } else {
+          console.warn('[buddy] could not read the selection:', err.code);
+          notice = UNREADABLE;
+        }
       }
     }
     session = { app, selection, wholeBox: false };
@@ -109,8 +116,9 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout })
       try {
         await helper.call('paste', { pid: session.app.pid, text, selectAll });
         return { pasted: true };
-      } catch {
+      } catch (err) {
         // Could not paste: fall back to the clipboard below.
+        console.warn('[buddy] paste failed, copied instead:', err.code);
       }
     }
     clipboard.writeText(text);

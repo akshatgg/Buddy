@@ -80,6 +80,34 @@ test('a password field is not read, and the panel says so', async () => {
   assert.strictEqual(entries(s.log, 'showPanel')[0][1].notice, "I don't read password fields.");
 });
 
+test('a password field and a missing permission are explained, not logged as problems', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const cases = [
+    ['secure_field', "I don't read password fields.", "I don't read password fields."],
+    [
+      'no_accessibility',
+      'Buddy needs Accessibility permission. Open Settings (⚙︎) to allow it.',
+      'Allow Accessibility in Settings so I can read and paste your text.',
+    ],
+  ];
+  for (const [code, message, notice] of cases) {
+    const s = setup({ replies: { captureSelection: failure(code, message) } });
+    await s.actions.open();
+    assert.strictEqual(entries(s.log, 'showPanel')[0][1].notice, notice);
+  }
+  assert.strictEqual(warn.mock.callCount(), 0);
+});
+
+test('when the selection cannot be read for any other reason, the panel says so and the cause is logged', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const s = setup({ replies: { captureSelection: failure('timeout', 'The Mac helper took too long.') } });
+  await s.actions.open();
+  const shown = entries(s.log, 'showPanel')[0][1];
+  assert.strictEqual(shown.notice, "I couldn't read your selection — select it again or paste it here.");
+  assert.strictEqual(shown.tab, 'write');
+  assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments), [['[buddy] could not read the selection:', 'timeout']]);
+});
+
 test('toggle closes an open panel, and a panel that just closed stays closed', async () => {
   const s = setup();
   await s.actions.toggle();
@@ -190,12 +218,21 @@ test('replaceAll selects the whole box first', async () => {
   assert.strictEqual(entries(s.log, 'helper').at(-1)[2].selectAll, true);
 });
 
-test('when pasting fails, the answer goes to the clipboard', async () => {
+test('when pasting fails, the answer goes to the clipboard', async (t) => {
+  t.mock.method(console, 'warn', () => {});
   const s = setup({ replies: { paste: failure('not_frontmost') } });
   await s.actions.open();
   assert.deepStrictEqual(await s.actions.insert('Hello', 'insert'), { copied: true });
   assert.strictEqual(s.clipboard.text, 'Hello');
   assert.deepStrictEqual(entries(s.log, 'bubble')[0], ['bubble', COPIED]);
+});
+
+test('a failed paste is logged with its cause before the clipboard takes over', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const s = setup({ replies: { paste: failure('not_frontmost') } });
+  await s.actions.open();
+  await s.actions.insert('Hello', 'insert');
+  assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments), [['[buddy] paste failed, copied instead:', 'not_frontmost']]);
 });
 
 test('copy puts it on the clipboard and says so', () => {

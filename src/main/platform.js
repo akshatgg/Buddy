@@ -18,6 +18,11 @@ function forPlatform(platform) {
     pasteKeys: windows ? 'Ctrl+V' : '⌘V',
     // The native helper in bin/: Swift on the Mac (src/native/BuddyHelper.swift), C# on Windows (src/native/windows).
     helperFile: windows ? 'buddy-helper.exe' : 'buddy-helper',
+    // macOS hands the keyboard to the panel when it opens and back to the app below when it closes. Windows does
+    // neither reliably (it decides which program may take the front), so there the helper moves it (actions.js).
+    helperMovesFocus: windows,
+    // Line breaks in what Buddy puts on the clipboard: every Windows app understands \r\n, not all of them \n.
+    newline: windows ? '\r\n' : '\n',
   };
 }
 

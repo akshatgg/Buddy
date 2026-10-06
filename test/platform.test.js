@@ -15,6 +15,8 @@ test('on the Mac: panels, ⌥Space, ⌘V and the Swift helper', () => {
     defaultShortcut: 'Alt+Space',
     pasteKeys: '⌘V',
     helperFile: 'buddy-helper',
+    helperMovesFocus: false,
+    newline: '\n',
   });
 });
 
@@ -25,6 +27,8 @@ test('on Windows: tool windows, Ctrl+Shift+Space, Ctrl+V and the C# helper', () 
     defaultShortcut: 'Ctrl+Shift+Space',
     pasteKeys: 'Ctrl+V',
     helperFile: 'buddy-helper.exe',
+    helperMovesFocus: true,
+    newline: '\r\n',
   });
 });
 

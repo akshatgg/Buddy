@@ -88,3 +88,12 @@ test('the gear and the Open Settings button share one way to Settings: the panel
   s.listeners['panel:open-settings']({ sender: { name: 'someone else' } });
   assert.deepStrictEqual(s.calls, ['hide', 'openSettings'], 'and only for the panel page');
 });
+
+test('Esc and the close button close the panel through actions.dismiss, which on Windows also hands the keyboard back', () => {
+  const dismissed = [];
+  const s = setup({ dismiss: async () => dismissed.push('dismiss') });
+  s.listeners['panel:close'](s.fromPanel);
+  s.listeners['panel:close']({ sender: { name: 'someone else' } });
+  assert.deepStrictEqual(dismissed, ['dismiss'], 'only for the panel page');
+  assert.deepStrictEqual(s.calls, [], 'and not by hiding the window behind its back');
+});

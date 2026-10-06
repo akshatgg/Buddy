@@ -15,7 +15,8 @@ function registerPanelIpc({ ipcMain, panel, actions, openSettings }) {
   handle('panel:copy', (text) => actions.copy(String(text || '')));
 
   ipcMain.on('panel:close', (event) => {
-    if (fromPanel(event.sender)) panel.hide();
+    // Through actions, which on Windows also hands the keyboard back to the app the panel was opened from.
+    if (fromPanel(event.sender)) actions.dismiss().catch((err) => console.error('[buddy] could not close the panel', err));
   });
   ipcMain.on('panel:open-settings', (event) => {
     if (!fromPanel(event.sender)) return;

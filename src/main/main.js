@@ -33,6 +33,13 @@ function helperPath() {
     : path.join(__dirname, '..', '..', 'bin', helperFile);
 }
 
+/** A window's handle as a number (on Windows, its HWND), or null when there is no window. */
+function windowHandle(win) {
+  if (!win || win.isDestroyed()) return null;
+  const handle = win.getNativeWindowHandle();
+  return handle.length >= 8 ? Number(handle.readBigUInt64LE(0)) : handle.readUInt32LE(0);
+}
+
 async function start(options = {}) {
   if (options.singleInstance !== false && !app.requestSingleInstanceLock()) {
     app.quit();
@@ -79,6 +86,7 @@ async function start(options = {}) {
       hidePanel: () => panel.hide(),
       isPanelVisible: () => panel.isVisible(),
       panelJustClosed: () => panel.justClosed(),
+      panelWindowHandle: () => windowHandle(panel.window()), // for the helper on Windows (actions.js)
       bubble: (text) => bubble.say(text, buddy.bounds(), buddy.display().workArea),
       mood: (name) => buddy.mood(name),
     },

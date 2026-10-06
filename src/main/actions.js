@@ -10,18 +10,35 @@
 
 const { BuddyError } = require('../../shared/errors');
 const { AI_TIMEOUT_MS } = require('./ai');
-const { pasteKeys } = require('./platform');
+const platform = require('./platform');
 
-const COPIED = `Copied — press ${pasteKeys}`;
+const COPIED = `Copied — press ${platform.pasteKeys}`;
 const SLEEPY_MS = 5000;
 const EMPTY_BOX = 'That box looks empty.';
 const UNREADABLE = "I couldn't read your selection — select it again or paste it here.";
 
-function createActions({ helper, ai, clipboard, store, ui, later = setTimeout, cancelLater = clearTimeout }) {
+/**
+ * `helperMovesFocus` and `newline` are the system's (platform.js); tests pass either system's. On Windows `ui` also
+ * has panelWindowHandle(): the panel window's handle, for the helper to bring it forward.
+ */
+function createActions({
+  helper,
+  ai,
+  clipboard,
+  store,
+  ui,
+  later = setTimeout,
+  cancelLater = clearTimeout,
+  helperMovesFocus = platform.helperMovesFocus,
+  newline = platform.newline,
+}) {
   let session = { app: null, selection: '', wholeBox: false };
   let opening = null; // the open() in progress, if any
   let capturing = false; // wholeBox() is reading the app, with the panel hidden on purpose
   let sleepy = null; // the pending "back to idle" timer after a network error, if any
+
+  /** Text as it goes on the clipboard, with the system's line breaks. */
+  const forClipboard = (text) => (newline === '\n' ? text : text.replace(/\r?\n/g, newline));
 
   /** What the panel opens with: the buddy's name, the app it came from, the text, and the tab and notice to show. */
   function panelState({ selection, tab, notice }) {
@@ -57,7 +74,37 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout, c
       }
     }
     session = { app, selection, wholeBox: false };
-    await ui.showPanel(panelState({ selection, tab, notice }));
+    await showPanel(panelState({ selection, tab, notice }));
+  }
+
+  /**
+   * Show the panel. On Windows it may open without the keyboard, which then stays in the person's app, where their
+   * text is still selected: the helper, which Windows lets bring a window to the front, brings the panel forward.
+   */
+  async function showPanel(state) {
+    await ui.showPanel(state);
+    if (!helperMovesFocus) return;
+    const hwnd = ui.panelWindowHandle();
+    if (hwnd === null) return;
+    try {
+      await helper.call('focusWindow', { hwnd });
+    } catch (err) {
+      console.warn('[buddy] could not bring the panel forward:', err.code);
+    }
+  }
+
+  /**
+   * Close the panel: Esc, its close button, the shortcut, or a click on the buddy. macOS gives the keyboard back to
+   * the app below by itself; Windows leaves it with the hidden panel, so there the helper brings that app back.
+   */
+  async function dismiss() {
+    ui.hidePanel();
+    if (!helperMovesFocus || !session.app) return;
+    try {
+      await helper.call('activate', { pid: session.app.pid });
+    } catch (err) {
+      console.warn('[buddy] could not switch back to the app:', err.code);
+    }
   }
 
   /** One opening at a time: asking again while the selection is still being read joins the one in progress. */
@@ -72,10 +119,11 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout, c
 
   async function toggle() {
     if (capturing) return; // the panel is hidden on purpose while the box is read, and comes back by itself
-    if (ui.isPanelVisible() || ui.panelJustClosed()) {
-      ui.hidePanel();
+    if (ui.isPanelVisible()) {
+      await dismiss();
       return;
     }
+    if (ui.panelJustClosed()) return; // the click that closed it (on the Mac, by taking its focus) must not reopen it
     await open();
   }
 
@@ -112,7 +160,7 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout, c
       state = panelState({ selection: before, tab: 'fix', notice: err.message });
       throw err;
     } finally {
-      await ui.showPanel(state);
+      await showPanel(state);
     }
   }
 
@@ -159,18 +207,18 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout, c
       }
     }
     // Electron's clipboard writes are asynchronous: say "copied" only once the text is there.
-    await clipboard.writeText(text);
+    await clipboard.writeText(forClipboard(text));
     ui.bubble(COPIED);
     return { copied: true };
   }
 
   async function copy(text) {
-    await clipboard.writeText(text);
+    await clipboard.writeText(forClipboard(text));
     ui.bubble('Copied');
     return { copied: true };
   }
 
-  return { open, toggle, wholeBox, run, screenshot, insert, copy, session: () => session };
+  return { open, toggle, dismiss, wholeBox, run, screenshot, insert, copy, session: () => session };
 }
 
 module.exports = { createActions, COPIED, SLEEPY_MS };

@@ -37,6 +37,7 @@ shared/providers/anthropic.js        Claude adapter
 shared/providers/openai-compatible.js  OpenAI + Groq adapters
 shared/providers/gemini.js           Gemini adapter
 shared/providers/index.js            PROVIDERS, PROVIDER_IDS, getProvider()
+src/main/index.js                    entry point (package.json "main"): calls start()
 src/main/main.js                     start(options) -> ctx; app lifecycle
 src/main/store.js                    settings.json
 src/main/secrets.js                  keys.json, safeStorage-encrypted
@@ -93,7 +94,7 @@ docs/manual-checklist.md
   "productName": "Buddy",
   "version": "0.1.0",
   "description": "A small floating buddy that writes and fixes English in any app",
-  "main": "src/main/main.js",
+  "main": "src/main/index.js",
   "type": "commonjs",
   "private": true,
   "author": "akshatgg",
@@ -2839,7 +2840,7 @@ git commit -m "feat: window placement and the buddy's float, blink and moods"
 ### Task 8: The floating buddy window
 
 **Files:**
-- Create: `src/main/buddy-window.js`, `src/main/ipc/buddy.js`, `src/main/main.js`
+- Create: `src/main/buddy-window.js`, `src/main/ipc/buddy.js`, `src/main/main.js`, `src/main/index.js`
 - Create: `src/preload/buddy.js`
 - Create: `src/renderer/buddy/index.html`, `src/renderer/buddy/buddy.js`
 - Test: `test/e2e/smoke.js`, `test/e2e/checks/10-buddy.js`
@@ -3412,13 +3413,25 @@ async function start(options = {}) {
 }
 
 module.exports = { start };
+```
 
-if (require.main === module) {
-  start().catch((err) => {
-    console.error('[buddy] failed to start', err);
-    app.exit(1);
-  });
-}
+`src/main/index.js` (the app's entry point, `"main"` in package.json):
+
+```js
+'use strict';
+
+// The app's entry point (package.json "main"). It is kept apart from main.js
+// so the end-to-end test can require main.js and call start() itself with
+// fakes. A "was I required or run?" check in main.js is not reliable: under
+// `electron .` Electron imports the app as an ES module, and in a packaged
+// app it loads it with module.parent set.
+const { app } = require('electron');
+const { start } = require('./main');
+
+start().catch((err) => {
+  console.error('[buddy] failed to start', err);
+  app.exit(1);
+});
 ```
 
 - [ ] **Step 6: Run the end-to-end test and the unit tests**
@@ -3934,13 +3947,6 @@ async function start(options = {}) {
 }
 
 module.exports = { start };
-
-if (require.main === module) {
-  start().catch((err) => {
-    console.error('[buddy] failed to start', err);
-    app.exit(1);
-  });
-}
 ```
 
 - [ ] **Step 7: Run all the tests**
@@ -4936,13 +4942,6 @@ async function start(options = {}) {
 }
 
 module.exports = { start };
-
-if (require.main === module) {
-  start().catch((err) => {
-    console.error('[buddy] failed to start', err);
-    app.exit(1);
-  });
-}
 ```
 
 - [ ] **Step 9: Run all the tests**
@@ -5955,13 +5954,6 @@ async function start(options = {}) {
 }
 
 module.exports = { start };
-
-if (require.main === module) {
-  start().catch((err) => {
-    console.error('[buddy] failed to start', err);
-    app.exit(1);
-  });
-}
 ```
 
 - [ ] **Step 7: Run all the tests**

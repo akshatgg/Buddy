@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
-  BLINK_LOOKAHEAD, fpsFor, isActive, wakeDelay, floatOffset, createBlinker, lookAt, moodPose,
+  BLINK_LOOKAHEAD, fpsFor, isActive, wakeDelay, floatOffset, createBlinker, blinkWeight, lookAt, moodPose,
 } from './moods.js';
 
 const canvas = document.getElementById('c');
@@ -143,7 +143,7 @@ function render(t) {
   rig.head.rotation.set(base.head.x + look.pitch, base.head.y + look.yaw, base.head.z + pose.headTilt);
   rig.armL.rotation.z = base.armL + pose.armL;
   rig.armR.rotation.z = base.armR - pose.armR;
-  setMorph('blink', pose.eyesClosed ? 1 : blinker.value(t));
+  setMorph('blink', blinkWeight(pose, blinker.value(t)));
   setMorph('smile', pose.smile);
   setMorph('mouthO', pose.mouthO);
   setMorph('eyeLUp', pose.eyeL);

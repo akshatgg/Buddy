@@ -82,6 +82,16 @@ export function createBlinker(random = Math.random) {
   };
 }
 
+/**
+ * How shut the eyes are, 0 (open) to 1 (shut): fully shut when the pose closes them, else
+ * the blinker's value, except while smiling. The blink and the smile both reshape the same
+ * eye, and on top of each other they tear it, so the happy "∩" eyes never blink.
+ */
+export function blinkWeight({ eyesClosed, smile }, blink) {
+  if (eyesClosed) return 1;
+  return smile > 0 ? 0 : blink;
+}
+
 /** Turn the head toward the pointer, dx/dy in screen points from the buddy's centre. */
 export function lookAt(dx, dy) {
   return { yaw: clamp(dx / 600, -0.45, 0.45), pitch: clamp(dy / 500, -0.2, 0.25) };

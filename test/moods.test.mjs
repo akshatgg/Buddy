@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert';
 import {
   FPS, IDLE_FPS, REST_FPS, BLINK_LOOKAHEAD, SWEEP_HZ, SWEEP_LAG,
-  fpsFor, isActive, wakeDelay, floatOffset, createBlinker, lookAt, moodPose,
+  fpsFor, isActive, wakeDelay, floatOffset, createBlinker, blinkWeight, lookAt, moodPose,
 } from '../src/renderer/buddy/moods.js';
 
 // A buddy with nothing going on, and nothing for a long time.
@@ -210,4 +210,32 @@ test('the eye lines rest in place when not thinking', () => {
     assert.strictEqual(p.eyeL, 0, `${mood}: eyeL`);
     assert.strictEqual(p.eyeR, 0, `${mood}: eyeR`);
   }
+});
+
+test('a pose that shuts the eyes gives a blink weight of 1, whatever the blinker says', () => {
+  for (const [mood, since] of [['sleepy', 0], ['sleepy', 10], ['thinking', 0], ['thinking', 0.4], ['thinking', 7]]) {
+    const pose = moodPose(mood, since);
+    for (const blink of [0, 0.5, 1]) {
+      assert.strictEqual(blinkWeight(pose, blink), 1, `${mood} at ${since} s, blink ${blink}`);
+    }
+  }
+  assert.strictEqual(blinkWeight({ eyesClosed: true, smile: 1 }, 0), 1, 'shut eyes win over a smile');
+});
+
+test('the happy "∩" eyes never blink: while smiling the blink weight is 0, even in mid-blink', () => {
+  // The blink and the smile both reshape the same eye, and on top of each other they tear it.
+  for (const [mood, times] of [['happy', [0, 0.2, 0.6, 1, 1.19]], ['wave', [0, 0.3, 0.9, 1.5, 1.79]]]) {
+    for (const since of times) {
+      const pose = moodPose(mood, since);
+      assert.ok(pose.smile > 0, `${mood} at ${since} s is smiling`);
+      for (const blink of [0, 0.5, 1]) {
+        assert.strictEqual(blinkWeight(pose, blink), 0, `${mood} at ${since} s, blink ${blink}`);
+      }
+    }
+  }
+});
+
+test('an idle pose passes the blinker through', () => {
+  const pose = moodPose('idle', 100);
+  for (const blink of [0, 0.4, 1]) assert.strictEqual(blinkWeight(pose, blink), blink, `blink ${blink}`);
 });

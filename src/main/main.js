@@ -57,7 +57,8 @@ async function start(options = {}) {
   const actions = createActions({
     helper,
     ai,
-    clipboard,
+    // The end-to-end test passes its own, so that it never reads or overwrites the person's real clipboard.
+    clipboard: options.clipboard || clipboard,
     store,
     ui: {
       showPanel: (state) => panel.show(state, buddy.bounds(), buddy.display().workArea),

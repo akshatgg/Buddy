@@ -2,7 +2,8 @@
 
 // End-to-end smoke test: starts the real app (src/main/main.js) with a fresh
 // settings folder and fakes for the parts that touch the system (the Mac
-// helper, the login item), then runs every check in test/e2e/checks in order.
+// helper, the clipboard, the login item), then runs every check in
+// test/e2e/checks in order.
 //
 //   npm run test:e2e
 
@@ -32,6 +33,16 @@ const helper = Object.assign(new EventEmitter(), {
     throw err;
   },
 });
+
+// The test must never read or overwrite the person's real clipboard, so the app gets this one. Like Electron's
+// (from Electron 44), readText and writeText answer promises.
+let clipboardText = '';
+const clipboard = {
+  readText: async () => clipboardText,
+  writeText: async (text) => {
+    clipboardText = text;
+  },
+};
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -75,9 +86,10 @@ async function waitFor(fn, what, ms = 8000) {
       singleInstance: false,
       animate: false,
       helper,
+      clipboard,
       loginItems: { get: () => false, set: (on) => loginCalls.push(on) },
     });
-    Object.assign(ctx, { helper, loginCalls });
+    Object.assign(ctx, { helper, clipboard, loginCalls });
     const dir = path.join(__dirname, 'checks');
     for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js')).sort()) {
       await require(path.join(dir, file))(ctx, { assert, delay, waitFor });

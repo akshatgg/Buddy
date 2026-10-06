@@ -8,6 +8,7 @@
 
 const { app } = require('electron');
 const assert = require('node:assert');
+const { spawn } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -34,6 +35,30 @@ const helper = Object.assign(new EventEmitter(), {
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const WATCHDOG_MS = 120_000;
+
+let finished = false;
+
+/**
+ * Remove the temporary settings folder and exit. Chromium writes a few profile
+ * files into it while it shuts down, after this function has returned, so a
+ * small helper that outlives us removes the folder once more.
+ */
+function finish(code) {
+  if (finished) return; // the first exit code stands
+  finished = true;
+  fs.rmSync(userData, { recursive: true, force: true });
+  const sweep = 'while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; sleep 1; rm -rf "$2"';
+  spawn('/bin/sh', ['-c', sweep, 'sh', String(process.pid), userData], { detached: true, stdio: 'ignore' }).unref();
+  app.exit(code);
+}
+
+// A check that hangs must fail the run, not leave a buddy floating on screen.
+setTimeout(() => {
+  console.error('e2e failed: timed out');
+  finish(1);
+}, WATCHDOG_MS);
+
 async function waitFor(fn, what, ms = 8000) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
@@ -59,9 +84,9 @@ async function waitFor(fn, what, ms = 8000) {
       console.log(`ok - ${file}`);
     }
     console.log('e2e: all checks passed');
-    app.exit(0);
+    finish(0);
   } catch (err) {
     console.error('e2e failed:', err);
-    app.exit(1);
+    finish(1);
   }
 })();

@@ -22,7 +22,7 @@
 - Buddy sizes Small 48 / Medium 64 / Large 88 pt; default shortcut ⌥Space (`Alt+Space`).
 - Rendering capped at 30 fps and paused when the buddy is hidden or the screen is locked.
 - Never read password fields (`AXSecureTextField`).
-- Character `.glb` contract: nodes `Root`, `Head`, `ArmL`, `ArmR`; mesh `Face` with morph targets `blink`, `smile`, `mouthO`; each file under 1 MB.
+- Character `.glb` contract: nodes `Root`, `Head`, `ArmL`, `ArmR`; mesh `Face` with morph targets `blink`, `smile`, `mouthO`, `eyeLUp`, `eyeRUp` (in that order); each file under 1 MB.
 - User-facing error messages are plain words, ready to show as they are (they come from `BuddyError.message`).
 - Commit after every task.
 

@@ -2,8 +2,8 @@
 
 // End-to-end smoke test: starts the real app (src/main/main.js) with a fresh
 // settings folder and fakes for the parts that touch the system (the Mac
-// helper, the clipboard, the login item), then runs every check in
-// test/e2e/checks in order.
+// helper, the clipboard, the global shortcut, the login item), then runs every
+// check in test/e2e/checks in order.
 //
 //   npm run test:e2e
 
@@ -41,6 +41,22 @@ const clipboard = {
   readText: async () => clipboardText,
   writeText: async (text) => {
     clipboardText = text;
+  },
+};
+
+// Nor may it grab the person's real shortcut (⌥Space), which another app of theirs may be using. This one only
+// records what the app registers; a check calls the handler to press it.
+const globalShortcut = {
+  registered: new Map(), // accelerator -> handler
+  register(accelerator, handler) {
+    this.registered.set(accelerator, handler);
+    return true;
+  },
+  unregister(accelerator) {
+    this.registered.delete(accelerator);
+  },
+  unregisterAll() {
+    this.registered.clear();
   },
 };
 
@@ -87,9 +103,10 @@ async function waitFor(fn, what, ms = 8000) {
       animate: false,
       helper,
       clipboard,
+      globalShortcut,
       loginItems: { get: () => false, set: (on) => loginCalls.push(on) },
     });
-    Object.assign(ctx, { helper, clipboard, loginCalls });
+    Object.assign(ctx, { helper, clipboard, globalShortcut, loginCalls });
     const dir = path.join(__dirname, 'checks');
     for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js')).sort()) {
       await require(path.join(dir, file))(ctx, { assert, delay, waitFor });

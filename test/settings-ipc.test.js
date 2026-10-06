@@ -5,6 +5,7 @@ const assert = require('node:assert');
 const { BuddyError } = require('../shared/errors');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
 const { DEFAULTS } = require('../src/main/store');
+const { createShortcut } = require('../src/main/shortcut');
 const { chooseModel, registerSettingsIpc } = require('../src/main/ipc/settings');
 
 test('keeps the model the user picked when the key can use it', () => {
@@ -26,17 +27,20 @@ const CHARACTERS = [
   { id: 'girl-1', defaultName: 'Anaya' },
 ];
 const CLAUDE = PROVIDERS.anthropic;
+const SETTINGS_PAGE = 'ours';
+const WELCOME_PAGE = 'welcome';
 const STRAY_KEY = "That doesn't look like an API key. Copy only the key and paste it again.";
 const FAILED = { ok: false, error: { code: 'failed', message: 'Something went wrong. Try again.' } };
 const refused = (code, message) => ({ ok: false, error: { code, message } });
 
 /**
  * registerSettingsIpc with fakes. `registered` is the shortcut that is
- * registered right now (null: none, as when it failed at launch); `taken` are
- * shortcuts another app owns. Provider calls are faked per test with
- * t.mock.method(PROVIDERS.anthropic, 'listModels', ...).
+ * registered right now (null: none, as when it failed at launch, or while Buddy is
+ * off); `taken` are shortcuts another app owns; `buddyOn` is whether Buddy is on.
+ * `realShortcut` replaces the fake shortcut. Provider calls are faked per test
+ * with t.mock.method(PROVIDERS.anthropic, 'listModels', ...).
  */
-function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = true } = {}) {
+function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut } = {}) {
   const data = { ...structuredClone(DEFAULTS), ...stored };
   const store = {
     get: (key) => data[key],
@@ -60,14 +64,18 @@ function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = t
   const calls = [];
   const opened = [];
   let current = registered;
-  let on = false;
+  let on = buddyOn;
   const handlers = {};
   registerSettingsIpc({
     ipcMain: { handle: (channel, fn) => { handlers[channel] = fn; } },
-    windows: { owns: (webContents) => webContents === 'ours' },
+    windows: {
+      // 'ours' is the Settings window's page and 'welcome' the Welcome window's. owns(page, kind) asks about one kind.
+      owns: (webContents, kind) => (kind === undefined ? [SETTINGS_PAGE, WELCOME_PAGE].includes(webContents)
+        : webContents === (kind === 'onboarding' ? WELCOME_PAGE : SETTINGS_PAGE)),
+    },
     store,
     secrets,
-    ai: { listModels: async (id) => [`${id}-live`] },
+    ai: { listModels: async (id, options) => { calls.push(['listModels', id, options]); return [`${id}-live`]; } },
     characters: { list: CHARACTERS, get: (id) => CHARACTERS.find((c) => c.id === id) || CHARACTERS[0] },
     helper: {
       call: async (cmd) => {
@@ -77,7 +85,7 @@ function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = t
     },
     buddy: { resize: () => calls.push(['resize']), reloadModel: () => calls.push(['reloadModel']) },
     power: { isOn: () => on, setOn: (value) => { on = value; calls.push(['setOn', value]); } },
-    shortcut: {
+    shortcut: realShortcut || {
       current: () => current,
       register(accelerator) {
         calls.push(['register', accelerator]);
@@ -85,12 +93,17 @@ function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = t
         current = accelerator;
         return true;
       },
+      unregister() {
+        calls.push(['unregister']);
+        current = null;
+      },
     },
     shell: { openExternal: async (url) => { opened.push(url); } },
     onFinishOnboarding: () => calls.push(['finished']),
   });
-  const call = (channel, ...args) => handlers[channel]({ sender: 'ours' }, ...args);
-  return { call, handlers, store, keys, calls, opened, shortcutNow: () => current };
+  const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
+  const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
+  return { call, callFromWelcome, handlers, store, keys, calls, opened, shortcutNow: () => current };
 }
 
 test('settings:get answers the settings without positions or lastDisplayId, the buddies and the providers', async () => {
@@ -180,10 +193,12 @@ test('save-key: with no internet the key is kept, and the answer says it was not
 });
 
 test('save-key: a key the provider accepts is kept, verified, with a model the key can use', async (t) => {
+  const timeout = t.mock.method(AbortSignal, 'timeout', () => 'the 60 s signal');
   const listModels = t.mock.method(CLAUDE, 'listModels', async () => ['claude-sonnet-5-5', 'claude-opus-5-5']);
   const s = setup();
   const r = await s.call('settings:save-key', 'anthropic', 'sk-ant-abc');
-  assert.deepStrictEqual(listModels.mock.calls[0].arguments, [{ apiKey: 'sk-ant-abc' }]);
+  assert.deepStrictEqual(listModels.mock.calls[0].arguments, [{ apiKey: 'sk-ant-abc', signal: 'the 60 s signal' }]);
+  assert.deepStrictEqual(timeout.mock.calls.map((c) => c.arguments), [[60_000]], 'the check is given 60 seconds');
   assert.strictEqual(r.ok, true);
   assert.strictEqual(r.verified, true);
   assert.strictEqual(s.keys.anthropic, 'sk-ant-abc');
@@ -206,6 +221,17 @@ test('save-key: a working key that lists no models is verified and uses the fall
   const r = await s.call('settings:save-key', 'anthropic', 'sk-ant-abc');
   assert.strictEqual(r.verified, true);
   assert.deepStrictEqual(r.models, CLAUDE.fallbackModels);
+});
+
+test('save-key: a check that takes too long is refused in plain words, and the key is not kept', async (t) => {
+  t.mock.method(CLAUDE, 'listModels', async () => {
+    throw new BuddyError('timeout', 'Claude took too long to answer. Try again.');
+  });
+  const s = setup();
+  const r = await s.call('settings:save-key', 'anthropic', 'sk-ant-abc');
+  assert.deepStrictEqual(r, refused('timeout', 'Claude took too long to answer. Try again.'));
+  assert.deepStrictEqual(s.keys, {}, 'it was not "no internet", so it is not saved as unchecked');
+  assert.deepStrictEqual(s.store.get('models'), {});
 });
 
 test('save-key: an unexpected failure is not mistaken for being offline', async (t) => {
@@ -244,12 +270,14 @@ test('keys and models: only real provider names are accepted', async () => {
   assert.deepStrictEqual(s.keys, {});
 });
 
-test('clear-key forgets the key; models answers the list for a provider', async () => {
+test('clear-key forgets the key; models answers the list for a provider', async (t) => {
+  t.mock.method(AbortSignal, 'timeout', () => 'the 60 s signal');
   const s = setup();
   s.keys.openai = 'k';
   const cleared = await s.call('settings:clear-key', 'openai');
   assert.strictEqual(cleared.providers.find((p) => p.id === 'openai').hasKey, false);
   assert.deepStrictEqual(await s.call('settings:models', 'openai'), { ok: true, models: ['openai-live'] });
+  assert.deepStrictEqual(s.calls, [['listModels', 'openai', { signal: 'the 60 s signal' }]], 'the list is given 60 seconds too');
 });
 
 // ---- opening pages ----
@@ -402,7 +430,7 @@ test('set: only the settings a page may change are taken from a patch, and __pro
 });
 
 test('set: a shortcut that cannot be registered changes nothing at all', async () => {
-  const s = setup({ taken: ['Command+Q'] });
+  const s = setup({ taken: ['Command+Q'], buddyOn: true });
   const before = s.store.all();
   const r = await s.call('settings:set', { shortcut: 'Command+Q', size: 'large', buddyId: 'girl-1', buddyName: 'Zed' });
   assert.deepStrictEqual(r, refused('shortcut_taken', '"Command+Q" can\'t be used. Try another one.'));
@@ -412,7 +440,7 @@ test('set: a shortcut that cannot be registered changes nothing at all', async (
 });
 
 test('set: the shortcut is saved trimmed, and the trimmed text is what gets registered', async () => {
-  const s = setup();
+  const s = setup({ buddyOn: true });
   const r = await s.call('settings:set', { shortcut: '  CommandOrControl+Shift+B \n' });
   assert.strictEqual(r.settings.shortcut, 'CommandOrControl+Shift+B');
   assert.strictEqual(s.store.get('shortcut'), 'CommandOrControl+Shift+B');
@@ -420,21 +448,89 @@ test('set: the shortcut is saved trimmed, and the trimmed text is what gets regi
 });
 
 test('set: a shortcut that is registered already is not registered again', async () => {
-  const s = setup({ registered: 'Alt+Space' });
+  const s = setup({ registered: 'Alt+Space', buddyOn: true });
   assert.strictEqual((await s.call('settings:set', { shortcut: ' Alt+Space ' })).ok, true);
   assert.deepStrictEqual(s.calls, []);
   assert.strictEqual(s.store.get('shortcut'), 'Alt+Space');
 });
 
 test('set: saving the stored shortcut again registers it if it failed to register at launch', async () => {
-  const s = setup({ stored: { shortcut: 'Alt+Space' }, registered: null });
+  const s = setup({ stored: { shortcut: 'Alt+Space' }, registered: null, buddyOn: true });
   assert.strictEqual((await s.call('settings:set', { shortcut: 'Alt+Space' })).ok, true);
   assert.deepStrictEqual(s.calls, [['register', 'Alt+Space']]);
   assert.strictEqual(s.shortcutNow(), 'Alt+Space');
 
-  const stillTaken = setup({ stored: { shortcut: 'Alt+Space' }, registered: null, taken: ['Alt+Space'] });
+  const stillTaken = setup({ stored: { shortcut: 'Alt+Space' }, registered: null, taken: ['Alt+Space'], buddyOn: true });
   const r = await stillTaken.call('settings:set', { shortcut: 'Alt+Space' });
   assert.deepStrictEqual(r, refused('shortcut_taken', '"Alt+Space" can\'t be used. Try another one.'));
+});
+
+// While Buddy is off its shortcut is let go. Changing it in Settings still tells the user when the new one is
+// taken, but only checks it (registers it, then lets it go at once): it is taken for real when Buddy is turned on.
+
+test('set: while Buddy is off a new shortcut is saved and checked, then left unregistered', async () => {
+  const s = setup({ registered: null });
+  const r = await s.call('settings:set', { shortcut: ' CommandOrControl+Shift+B ' });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.settings.shortcut, 'CommandOrControl+Shift+B', 'the reply is the usual snapshot');
+  assert.strictEqual(r.buddyOn, false);
+  assert.strictEqual(s.store.get('shortcut'), 'CommandOrControl+Shift+B');
+  assert.deepStrictEqual(s.calls, [['register', 'CommandOrControl+Shift+B'], ['unregister']], 'registered to see that it is free, then let go');
+  assert.strictEqual(s.shortcutNow(), null);
+});
+
+test('set: while Buddy is off a shortcut that is taken is still refused, and nothing changes', async () => {
+  const s = setup({ registered: null, taken: ['Command+Q'] });
+  const before = s.store.all();
+  const r = await s.call('settings:set', { shortcut: 'Command+Q', size: 'large' });
+  assert.deepStrictEqual(r, refused('shortcut_taken', '"Command+Q" can\'t be used. Try another one.'));
+  assert.deepStrictEqual(s.store.all(), before);
+  assert.deepStrictEqual(s.calls, [['register', 'Command+Q']], 'no resize either');
+  assert.strictEqual(s.shortcutNow(), null);
+});
+
+test('set: while Buddy is off, saving the shortcut that is already saved checks it again and lets it go', async () => {
+  const s = setup({ stored: { shortcut: 'Alt+Space' }, registered: null });
+  assert.strictEqual((await s.call('settings:set', { shortcut: 'Alt+Space' })).ok, true);
+  assert.deepStrictEqual(s.calls, [['register', 'Alt+Space'], ['unregister']]);
+  assert.strictEqual(s.shortcutNow(), null);
+
+  const taken = setup({ stored: { shortcut: 'Alt+Space' }, registered: null, taken: ['Alt+Space'] });
+  const r = await taken.call('settings:set', { shortcut: 'Alt+Space' });
+  assert.deepStrictEqual(r, refused('shortcut_taken', '"Alt+Space" can\'t be used. Try another one.'));
+});
+
+test('set: other settings changed while Buddy is off do not touch the shortcut at all', async () => {
+  const s = setup({ registered: null });
+  assert.strictEqual((await s.call('settings:set', { size: 'large', buddyName: 'Zed' })).ok, true);
+  assert.deepStrictEqual(s.calls, [['resize']]);
+});
+
+test('set: with the real shortcut object, one changed while Buddy is off is taken only when Buddy is turned on', async () => {
+  const system = new Map(); // what the system has registered: accelerator -> handler
+  const globalShortcut = {
+    register(accelerator, fn) {
+      if (accelerator === 'Command+Q') return false; // another app has it
+      system.set(accelerator, fn);
+      return true;
+    },
+    unregister: (accelerator) => system.delete(accelerator),
+  };
+  const shortcut = createShortcut({ globalShortcut, onPress: () => {} });
+  shortcut.register('Alt+Space');
+  shortcut.unregister(); // Buddy was turned off
+  const s = setup({ realShortcut: shortcut });
+
+  assert.strictEqual((await s.call('settings:set', { shortcut: 'CommandOrControl+Shift+B' })).ok, true);
+  assert.deepStrictEqual([...system.keys()], [], 'nothing is registered while Buddy is off');
+  const taken = await s.call('settings:set', { shortcut: 'Command+Q' });
+  assert.strictEqual(taken.error.code, 'shortcut_taken');
+  assert.deepStrictEqual([...system.keys()], [], 'and a refused one registers nothing either');
+  assert.strictEqual(s.store.get('shortcut'), 'CommandOrControl+Shift+B');
+
+  // Buddy is turned on: main.js registers what is saved.
+  assert.strictEqual(shortcut.register(s.store.get('shortcut')), true);
+  assert.deepStrictEqual([...system.keys()], ['CommandOrControl+Shift+B']);
 });
 
 test("set: a blank name falls back to the buddy's own name, as the Welcome window does", async () => {
@@ -455,32 +551,52 @@ test('set: a name is trimmed and cut to 24 characters', async () => {
 
 test('onboarding:finish keeps a real choice and otherwise falls back to the first buddy and its own name', async () => {
   const s = setup();
-  assert.deepStrictEqual(await s.call('onboarding:finish', { buddyId: 'girl-1', buddyName: '  Pixie  ' }), { ok: true });
+  assert.deepStrictEqual(await s.callFromWelcome('onboarding:finish', { buddyId: 'girl-1', buddyName: '  Pixie  ' }), { ok: true });
   assert.deepStrictEqual([s.store.get('buddyId'), s.store.get('buddyName'), s.store.get('onboarded')], ['girl-1', 'Pixie', true]);
   assert.deepStrictEqual(s.calls, [['finished']]);
 
   const blank = setup();
-  await blank.call('onboarding:finish', { buddyId: 'girl-1', buddyName: '   ' });
+  await blank.callFromWelcome('onboarding:finish', { buddyId: 'girl-1', buddyName: '   ' });
   assert.strictEqual(blank.store.get('buddyName'), 'Anaya');
 
   const unknown = setup();
-  await unknown.call('onboarding:finish', { buddyId: 'nope', buddyName: '' });
+  await unknown.callFromWelcome('onboarding:finish', { buddyId: 'nope', buddyName: '' });
   assert.deepStrictEqual([unknown.store.get('buddyId'), unknown.store.get('buddyName')], ['boy-1', 'Aarav']);
 
   const none = setup();
-  assert.deepStrictEqual(await none.call('onboarding:finish'), { ok: true });
+  assert.deepStrictEqual(await none.callFromWelcome('onboarding:finish'), { ok: true });
   assert.deepStrictEqual([none.store.get('buddyId'), none.store.get('buddyName'), none.store.get('onboarded')], ['boy-1', 'Aarav', true]);
 
   const long = setup();
-  await long.call('onboarding:finish', { buddyName: ` ${'n'.repeat(40)} ` });
+  await long.callFromWelcome('onboarding:finish', { buddyName: ` ${'n'.repeat(40)} ` });
   assert.strictEqual(long.store.get('buddyName'), 'n'.repeat(24));
 });
 
 test('onboarding:finish refuses a choice that is not an object, and finishes nothing', async () => {
   const s = setup();
   for (const choice of [null, 'girl-1', 5, [], [{ buddyId: 'girl-1' }]]) {
-    assert.deepStrictEqual(await s.call('onboarding:finish', choice), refused('bad_request', 'Those choices are not valid.'), JSON.stringify(choice));
+    assert.deepStrictEqual(await s.callFromWelcome('onboarding:finish', choice), refused('bad_request', 'Those choices are not valid.'), JSON.stringify(choice));
   }
   assert.strictEqual(s.store.get('onboarded'), false);
   assert.deepStrictEqual(s.calls, []);
+});
+
+test('onboarding:finish is accepted from the Welcome window only: the Settings window cannot finish the Welcome', async () => {
+  const s = setup();
+  const refusedOutright = refused('not_allowed', 'Not allowed.');
+  assert.deepStrictEqual(await s.call('onboarding:finish', { buddyId: 'girl-1', buddyName: 'Pixie' }), refusedOutright);
+  assert.deepStrictEqual(await s.call('onboarding:finish'), refusedOutright);
+  assert.strictEqual(s.store.get('onboarded'), false, 'nothing was saved');
+  assert.strictEqual(s.store.get('buddyId'), 'boy-1');
+  assert.deepStrictEqual(s.calls, [], 'and nothing was finished: the Welcome stays open, the buddy stays off');
+
+  assert.deepStrictEqual(await s.callFromWelcome('onboarding:finish', { buddyId: 'girl-1', buddyName: 'Pixie' }), { ok: true });
+  assert.deepStrictEqual(s.calls, [['finished']]);
+});
+
+test('the Welcome window can use the other channels, as the Settings window can', async () => {
+  const s = setup();
+  assert.strictEqual((await s.callFromWelcome('settings:get')).ok, true);
+  assert.strictEqual((await s.callFromWelcome('settings:set', { size: 'large' })).ok, true);
+  assert.deepStrictEqual(await s.callFromWelcome('permissions:get'), { ok: true, accessibility: true, screenRecording: false });
 });

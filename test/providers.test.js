@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { fakeFetch, offlineFetch } = require('./helpers/fake-fetch');
+const { BuddyError } = require('../shared/errors');
 const { PROVIDERS, PROVIDER_IDS, getProvider } = require('../shared/providers');
 
 const ASK = { apiKey: 'k-123', system: 'SYS', user: 'USER', image: null, maxTokens: 1024 };
@@ -119,6 +120,7 @@ test('gemini: builds generateContent, skips thoughts, counts thoughts as output'
 });
 
 test('errors are turned into codes with messages for the user', async (t) => {
+  t.mock.method(console, 'warn', () => {});
   const cases = [
     [401, { error: { message: 'invalid x-api-key' } }, 'bad_key'],
     [403, { error: { message: 'forbidden' } }, 'bad_key'],
@@ -138,11 +140,140 @@ test('errors are turned into codes with messages for the user', async (t) => {
   }
 });
 
+// What a person is shown is plain words. A provider's own wording stays out of it: it can be long, in JSON, or
+// echo the text the person sent. The status and the kind of error go to the log, and nothing else of the answer.
+const SECRET_TEXT = 'me go home yesterday, my password is hunter2';
+
+test('an unexpected provider error is shown as plain words, never as the provider\'s response', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const bodies = [
+    { error: { type: 'api_error', message: `Internal failure while handling: ${SECRET_TEXT}` } },
+    `<html>502 Bad Gateway ${SECRET_TEXT}</html>`,
+    { message: SECRET_TEXT },
+    '',
+  ];
+  for (const body of bodies) {
+    await assert.rejects(
+      getProvider('anthropic').complete({ ...ASK, model: 'm', fetchImpl: fakeFetch(500, body) }),
+      (err) => {
+        assert.strictEqual(err.code, 'upstream');
+        assert.strictEqual(err.message, 'Claude had a problem. Try again in a moment.', 'plain words: no status number, no response');
+        return true;
+      },
+      JSON.stringify(body),
+    );
+  }
+});
+
+test('the other provider errors keep their fixed messages too', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const cases = [
+    [401, { error: { message: SECRET_TEXT } }, 'Your OpenAI key was rejected. Check it in Settings.'],
+    [402, SECRET_TEXT, 'Your OpenAI account is out of credit.'],
+    [429, { error: { message: SECRET_TEXT } }, 'OpenAI is busy right now. Try again in a minute.'],
+    [404, { error: { message: SECRET_TEXT } }, "This model isn't available for your key. Pick another in Settings."],
+  ];
+  for (const [status, body, message] of cases) {
+    await assert.rejects(
+      getProvider('openai').complete({ ...ASK, model: 'm', fetchImpl: fakeFetch(status, body) }),
+      { message },
+      String(status),
+    );
+  }
+});
+
+test('the status and the kind of error are logged, and never any text from the response', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const cases = [
+    ['anthropic', 529, { type: 'error', error: { type: 'overloaded_error', message: `Overloaded. ${SECRET_TEXT}` } }, 'Claude answered 529 (overloaded_error)'],
+    ['openai', 400, { error: { type: 'invalid_request_error', message: SECRET_TEXT, code: 'bad_value' } }, 'OpenAI answered 400 (invalid_request_error)'],
+    ['gemini', 400, { error: { code: 400, status: 'INVALID_ARGUMENT', message: SECRET_TEXT } }, 'Gemini answered 400 (INVALID_ARGUMENT)'],
+    ['groq', 500, `plain text ${SECRET_TEXT}`, 'Groq answered 500'],
+    ['groq', 503, { message: SECRET_TEXT }, 'Groq answered 503'],
+    ['anthropic', 500, '', 'Claude answered 500'],
+  ];
+  for (const [id, status, body, line] of cases) {
+    warn.mock.resetCalls();
+    await assert.rejects(getProvider(id).complete({ ...ASK, model: 'm', fetchImpl: fakeFetch(status, body) }));
+    assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments), [[`[buddy] ${line}`]], `${id} ${status}`);
+  }
+});
+
+test('a kind of error that is not a short identifier is not logged, since it could carry text', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  for (const type of [SECRET_TEXT, 'x'.repeat(65), 'has space', 'quote"d', '', 42, null, ['overloaded_error']]) {
+    warn.mock.resetCalls();
+    const body = { error: { type, message: 'm' } };
+    await assert.rejects(getProvider('anthropic').complete({ ...ASK, model: 'm', fetchImpl: fakeFetch(500, body) }));
+    assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments), [['[buddy] Claude answered 500']], JSON.stringify(type));
+  }
+});
+
 test('no network becomes a network error', async () => {
   await assert.rejects(
     getProvider('openai').complete({ ...ASK, model: 'm', fetchImpl: offlineFetch() }),
     { code: 'network', message: "Couldn't reach OpenAI. Check your internet." },
   );
+});
+
+/** A fetch that never answers, and gives up with the signal's reason when the signal fires, as Node's does. */
+function hangingFetch(_url, { signal }) {
+  return new Promise((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(signal.reason));
+  });
+}
+
+/** AbortSignal.timeout's timer does not keep Node running, so a test that waits for one needs something that does. */
+async function keepingNodeAlive(run) {
+  const keepAlive = setInterval(() => {}, 10);
+  try {
+    return await run();
+  } finally {
+    clearInterval(keepAlive);
+  }
+}
+
+test('a request that takes too long is a timeout in plain words, not "no internet"', () => keepingNodeAlive(async () => {
+  const labels = { anthropic: 'Claude', openai: 'OpenAI', gemini: 'Gemini', groq: 'Groq' };
+  for (const id of PROVIDER_IDS) {
+    const signal = AbortSignal.timeout(10);
+    await assert.rejects(
+      getProvider(id).complete({ ...ASK, model: 'm', fetchImpl: hangingFetch, signal }),
+      { name: 'BuddyError', code: 'timeout', message: `${labels[id]} took too long to answer. Try again.` },
+      id,
+    );
+  }
+}));
+
+test('asking for the list of models can time out the same way', () => keepingNodeAlive(async () => {
+  for (const id of PROVIDER_IDS) {
+    await assert.rejects(
+      getProvider(id).listModels({ apiKey: 'k', fetchImpl: hangingFetch, signal: AbortSignal.timeout(10) }),
+      { code: 'timeout' },
+      id,
+    );
+  }
+}));
+
+test('a timeout while the answer is still being read is a timeout too', async () => {
+  const slowBody = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => {
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    },
+  });
+  await assert.rejects(
+    getProvider('openai').complete({ ...ASK, model: 'm', fetchImpl: slowBody }),
+    { code: 'timeout', message: 'OpenAI took too long to answer. Try again.' },
+  );
+});
+
+test('a request that is cancelled is still passed through as an abort, not turned into a Buddy error', async () => {
+  const controller = new AbortController();
+  const asking = getProvider('anthropic').complete({ ...ASK, model: 'm', fetchImpl: hangingFetch, signal: controller.signal });
+  controller.abort();
+  await assert.rejects(asking, (err) => err.name === 'AbortError' && !(err instanceof BuddyError));
 });
 
 test('an empty answer is an error, not an empty paste', async () => {

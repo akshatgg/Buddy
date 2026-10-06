@@ -25,3 +25,4 @@ header { display: flex; align-items: center; justify-content: space-between; }
 .verdict.problems { color: var(--error); }
 #problems { margin: 0; padding-left: 18px; }
 #busy, #error { margin: 0; }
+#error-settings { align-self: flex-start; }

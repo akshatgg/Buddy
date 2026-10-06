@@ -119,6 +119,22 @@ test('owns() says yes only for the pages of its own live windows', () => {
   assert.strictEqual(windows.owns(win.webContents), false);
 });
 
+test('owns() can be asked about one kind of window: the Settings page is not the Welcome page', () => {
+  const { windows } = setup();
+  const settings = windows.open('settings');
+  const welcome = windows.open('onboarding');
+  assert.strictEqual(windows.owns(settings.webContents, 'settings'), true);
+  assert.strictEqual(windows.owns(settings.webContents, 'onboarding'), false);
+  assert.strictEqual(windows.owns(welcome.webContents, 'onboarding'), true);
+  assert.strictEqual(windows.owns(welcome.webContents, 'settings'), false);
+  assert.strictEqual(windows.owns(welcome.webContents), true, 'with no kind, either one');
+  assert.strictEqual(windows.owns(settings.webContents), true);
+  assert.strictEqual(windows.owns({}, 'onboarding'), false);
+  assert.strictEqual(windows.owns(welcome.webContents, 'constructor'), false, 'only the kinds there are');
+  windows.close('onboarding');
+  assert.strictEqual(windows.owns(welcome.webContents, 'onboarding'), false, 'a closed window owns nothing');
+});
+
 test('a page cannot navigate away or open other windows', () => {
   const { windows } = setup();
   const win = windows.open('settings');

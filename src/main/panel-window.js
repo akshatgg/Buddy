@@ -71,6 +71,7 @@ function createPanelWindow() {
     w.on('closed', () => forget(w));
     const contents = w.webContents;
     contents.on('will-navigate', (event) => event.preventDefault());
+    contents.setWindowOpenHandler(() => ({ action: 'deny' })); // the page shows only its own content: no pop-ups either
     contents.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
       console.error('[buddy] the panel page failed to load:', code, description);
       // A cancelled load or a failure in a sub-frame leaves the page as it was: only a real failure drops the window.

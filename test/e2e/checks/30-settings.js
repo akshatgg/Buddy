@@ -19,4 +19,6 @@ module.exports = async function settingsCheck(ctx, { assert, waitFor }) {
   const perms = await win.webContents.executeJavaScript('window.buddy.permissions()');
   assert.deepStrictEqual(perms, { ok: true, accessibility: true, screenRecording: true });
   win.close();
+  // A window that is closing still counts as open, so wait for it to be gone: the next check may open Settings again.
+  await waitFor(() => win.isDestroyed(), 'the Settings window to close');
 };

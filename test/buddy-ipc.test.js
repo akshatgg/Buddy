@@ -16,7 +16,13 @@ function setup() {
     beginDrag: (p) => calls.push(['beginDrag', p]),
     dragTo: (p) => calls.push(['dragTo', p]),
   };
-  registerBuddyIpc({ ipcMain: { on: register, handle: register }, buddy, characters: {}, store: { get: () => 'boy-1' }, onClick() {} });
+  registerBuddyIpc({
+    ipcMain: { on: register, handle: register },
+    buddy,
+    characters: {},
+    store: { get: () => 'boy-1' },
+    onClick: () => calls.push(['click']),
+  });
   return { handlers, calls, fromPage: { sender: page }, fromElsewhere: { sender: {} } };
 }
 
@@ -42,4 +48,12 @@ test('only the buddy page may send drag messages', () => {
   handlers['buddy:drag-start'](fromElsewhere, { x: 1, y: 2 });
   handlers['buddy:drag-move'](fromElsewhere, { x: 1, y: 2 });
   assert.deepStrictEqual(calls, []);
+});
+
+test('a click on the buddy calls onClick, and only the buddy page may send one', () => {
+  const { handlers, calls, fromPage, fromElsewhere } = setup();
+  handlers['buddy:click'](fromElsewhere);
+  assert.deepStrictEqual(calls, []);
+  handlers['buddy:click'](fromPage);
+  assert.deepStrictEqual(calls, [['click']]);
 });

@@ -99,6 +99,7 @@ enum Key: CGKeyCode {
     case a = 0x00
     case c = 0x08
     case v = 0x09
+    case rightArrow = 0x7C // 124
 }
 
 func pressCommand(_ key: Key) {
@@ -109,6 +110,17 @@ func pressCommand(_ key: Key) {
     up?.flags = .maskCommand
     down?.post(tap: .cghidEventTap)
     up?.post(tap: .cghidEventTap)
+}
+
+/// A key on its own, with no modifiers, sent straight to the app `pid`.
+func pressKey(_ key: Key, toPid pid: pid_t) {
+    let source = CGEventSource(stateID: .combinedSessionState)
+    let down = CGEvent(keyboardEventSource: source, virtualKey: key.rawValue, keyDown: true)
+    let up = CGEvent(keyboardEventSource: source, virtualKey: key.rawValue, keyDown: false)
+    down?.flags = []
+    up?.flags = []
+    down?.postToPid(pid)
+    up?.postToPid(pid)
 }
 
 typealias SavedClipboard = [[(NSPasteboard.PasteboardType, Data)]]
@@ -130,14 +142,48 @@ func restoreClipboard(_ saved: SavedClipboard) {
     if !items.isEmpty { pb.writeObjects(items) }
 }
 
-func focusedIsSecure() -> Bool {
-    let system = AXUIElementCreateSystemWide()
+// Clipboard-history apps skip a clipboard that carries this type (see nspasteboard.org): it says the
+// contents are only there for a moment.
+let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
+
+/// Buddy's own temporary write: the text that is about to be pasted, marked as transient.
+func writeTemporary(_ text: String, to pb: NSPasteboard) {
+    pb.declareTypes([.string, transientType], owner: nil)
+    pb.setString(text, forType: .string)
+    pb.setData(Data(), forType: transientType)
+}
+
+/// One line on stderr, which Buddy's main process passes on to its own log. It holds codes, numbers
+/// and the system's own error descriptions, never any text that came from an app or from the person.
+func logLine(_ text: String) {
+    FileHandle.standardError.write(Data("[buddy-helper] \(text)\n".utf8))
+}
+
+/// Is the field that has the keyboard focus in the app `pid` a password field?
+///
+/// This asks the app itself. The system-wide element is no use: on this Mac its focused-element
+/// lookup fails every time (kAXErrorCannotComplete, -25204), which left the old guard switched off.
+/// A role or a subrole of AXSecureTextField both count, whichever one an app reports.
+///
+/// When the focus cannot be determined (an app that does not answer Accessibility) this says so
+/// on stderr and answers false, so the read goes on: most apps refuse to copy out of a password
+/// field anyway, and refusing here would break Fix in every app that does not answer.
+func focusedIsSecure(_ pid: pid_t) -> Bool {
+    let app = AXUIElementCreateApplication(pid)
+    // A hung app must not keep the helper waiting longer than the JavaScript side does (5 s).
+    AXUIElementSetMessagingTimeout(app, 1.0)
     var focused: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(system, "AXFocusedUIElement" as CFString, &focused) == .success,
-          let element = focused else { return false }
-    var subrole: CFTypeRef?
-    AXUIElementCopyAttributeValue(element as! AXUIElement, "AXSubrole" as CFString, &subrole)
-    return (subrole as? String) == "AXSecureTextField"
+    let status = AXUIElementCopyAttributeValue(app, "AXFocusedUIElement" as CFString, &focused)
+    guard status == .success, let value = focused, CFGetTypeID(value) == AXUIElementGetTypeID() else {
+        logLine("could not tell which field has the focus (AX error \(status.rawValue)); going on")
+        return false
+    }
+    let element = value as! AXUIElement
+    return ["AXSubrole", "AXRole"].contains { name in
+        var attribute: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, name as CFString, &attribute)
+        return (attribute as? String) == "AXSecureTextField"
+    }
 }
 
 // MARK: - commands
@@ -157,12 +203,15 @@ func captureSelection(_ args: [String: Any]) throws -> [String: Any] {
     let pid = try pidArg(args)
     try needAccessibility()
     guard ensureFront(pid) != nil else { throw HelperError(code: "not_frontmost", message: "Could not switch back to that app.") }
-    if focusedIsSecure() { throw HelperError(code: "secure_field", message: "I don't read password fields.") }
+    if focusedIsSecure(pid) { throw HelperError(code: "secure_field", message: "I don't read password fields.") }
 
     let pb = NSPasteboard.general
-    let saved = saveClipboard()
+    // The count comes first, before anything is saved or copied: if it has moved by the end, something put
+    // new contents on the clipboard (the copy, or anyone else).
     let before = pb.changeCount
-    if args["selectAll"] as? Bool == true {
+    let saved = saveClipboard()
+    let selectAll = args["selectAll"] as? Bool == true
+    if selectAll {
         pressCommand(.a)
         usleep(80_000)
     }
@@ -176,7 +225,13 @@ func captureSelection(_ args: [String: Any]) throws -> [String: Any] {
         }
         usleep(15_000)
     }
-    restoreClipboard(saved)
+    // "Use the whole box" left everything selected in the person's app. Collapse the selection, so that the
+    // first key they type does not replace their whole draft. Replace selects everything again before it pastes.
+    if selectAll { pressKey(.rightArrow, toPid: pid) }
+    // Put the person's clipboard back only if it changed. A copy that copied nothing leaves it as it was, and
+    // writing it again would add an entry to clipboard-history apps, read every type it holds into memory, and
+    // could defeat a password manager that clears the clipboard only while it is unchanged.
+    if pb.changeCount != before { restoreClipboard(saved) }
     return ["text": text]
 }
 
@@ -185,11 +240,14 @@ func paste(_ args: [String: Any]) throws -> [String: Any] {
     guard let text = args["text"] as? String else { throw HelperError(code: "bad_request", message: "text is required") }
     try needAccessibility()
     guard let via = ensureFront(pid) else { throw HelperError(code: "not_frontmost", message: "Could not switch back to that app.") }
+    // Buddy never types into a password field (and "Replace all" would wipe what is in it): the
+    // answer goes to the clipboard instead, which is what a paste that fails does.
+    if focusedIsSecure(pid) { throw HelperError(code: "secure_field", message: "I don't type into password fields.") }
 
     let pb = NSPasteboard.general
+    let before = pb.changeCount // before Buddy's own write below, which is what changes the clipboard here
     let saved = saveClipboard()
-    pb.clearContents()
-    pb.setString(text, forType: .string)
+    writeTemporary(text, to: pb)
     if args["selectAll"] as? Bool == true {
         pressCommand(.a)
         usleep(80_000)
@@ -198,7 +256,7 @@ func paste(_ args: [String: Any]) throws -> [String: Any] {
     // The target app reads the clipboard after it handles ⌘V; restoring too
     // early would paste the user's old clipboard instead.
     usleep(500_000)
-    restoreClipboard(saved)
+    if pb.changeCount != before { restoreClipboard(saved) }
     return ["via": via]
 }
 
@@ -265,7 +323,10 @@ func screenshot(_ args: [String: Any]) throws -> [String: Any] {
     switch box.value {
     case .success(let image): return ["image": image]
     case .failure(let error as HelperError): throw error
-    case .failure(let error): throw HelperError(code: "capture_failed", message: error.localizedDescription)
+    case .failure(let error):
+        // macOS's own wording is for the log; the person gets plain words.
+        logLine("the screenshot failed: \(error.localizedDescription)")
+        throw HelperError(code: "capture_failed", message: "Could not take the screenshot. Try again.")
     case nil: throw HelperError(code: "capture_failed", message: "No screenshot.")
     }
 }
@@ -301,7 +362,9 @@ func handle(_ msg: [String: Any]) {
     } catch let error as HelperError {
         send(["id": id, "ok": false, "error": ["code": error.code, "message": error.message]])
     } catch {
-        send(["id": id, "ok": false, "error": ["code": "failed", "message": error.localizedDescription]])
+        // macOS's own wording is for the log; the person gets plain words.
+        logLine("\(msg["cmd"] as? String ?? "a command") failed: \(error.localizedDescription)")
+        send(["id": id, "ok": false, "error": ["code": "failed", "message": "Something went wrong. Try again."]])
     }
 }
 

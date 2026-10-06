@@ -4,6 +4,7 @@
 
 const { BuddyError } = require('../../../shared/errors');
 const { PROVIDERS, PROVIDER_IDS, getProvider } = require('../../../shared/providers');
+const { AI_TIMEOUT_MS } = require('../ai');
 const { SIZES } = require('../geometry');
 const { guarded } = require('./result');
 
@@ -49,9 +50,25 @@ function registerSettingsIpc({
   ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, onFinishOnboarding, shell,
 }) {
   const handle = guarded(ipcMain, (webContents) => windows.owns(webContents));
+  // Finishing the Welcome is for the Welcome window only: the Settings window has no business doing it.
+  const handleWelcome = guarded(ipcMain, (webContents) => windows.owns(webContents, 'onboarding'));
   // Electron is loaded only when a page asks to open something, so these handlers can be
   // tested in plain Node by passing a `shell` of their own.
   const openExternal = (url) => (shell || require('electron').shell).openExternal(url);
+
+  /**
+   * Take `accelerator` as the shortcut; false when it cannot be used. While Buddy is on it is
+   * compared with the shortcut that is registered now, not the saved one, so saving again retries
+   * one that failed at launch. While Buddy is off its shortcut is let go: the new one is only
+   * checked (registered, then let go at once), so the user still hears when it is taken. It is
+   * registered for real when Buddy is turned on.
+   */
+  function useShortcut(accelerator) {
+    if (power.isOn()) return accelerator === shortcut.current() || shortcut.register(accelerator);
+    if (!shortcut.register(accelerator)) return false;
+    shortcut.unregister();
+    return true;
+  }
 
   function snapshot() {
     const settings = store.all();
@@ -88,11 +105,10 @@ function registerSettingsIpc({
       changes.buddyName = name || characters.get(changes.buddyId ?? store.get('buddyId')).defaultName;
     }
     // Last, so that a refused patch changes nothing: registering a shortcut is the one step
-    // that throwing afterwards would not undo. It is compared with the shortcut that is
-    // registered now, not the saved one, so saving again retries one that failed at launch.
+    // that throwing afterwards would not undo.
     if (Object.hasOwn(changes, 'shortcut')) {
       changes.shortcut = String(changes.shortcut).trim();
-      if (changes.shortcut !== shortcut.current() && !shortcut.register(changes.shortcut)) {
+      if (!useShortcut(changes.shortcut)) {
         throw new BuddyError('shortcut_taken', `"${changes.shortcut}" can't be used. Try another one.`);
       }
     }
@@ -112,7 +128,7 @@ function registerSettingsIpc({
     }
     let live = null;
     try {
-      live = await provider.listModels({ apiKey });
+      live = await provider.listModels({ apiKey, signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
     } catch (err) {
       // A wrong key is refused; being offline is not the key's fault.
       if (err.code !== 'network') throw err;
@@ -133,7 +149,7 @@ function registerSettingsIpc({
 
   handle('settings:models', async (providerId) => {
     getProvider(providerId);
-    return { models: await ai.listModels(providerId) };
+    return { models: await ai.listModels(providerId, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) }) };
   });
 
   handle('settings:buddy-on', (on) => {
@@ -156,7 +172,7 @@ function registerSettingsIpc({
     await openExternal(url);
   });
 
-  handle('onboarding:finish', (choice = {}) => {
+  handleWelcome('onboarding:finish', (choice = {}) => {
     if (!isPlainObject(choice)) throw new BuddyError('bad_request', 'Those choices are not valid.');
     const buddyId = characters.list.some((c) => c.id === choice.buddyId) ? choice.buddyId : characters.list[0].id;
     const buddyName = String(choice.buddyName || '').trim().slice(0, NAME_MAX) || characters.get(buddyId).defaultName;

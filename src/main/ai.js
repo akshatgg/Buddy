@@ -11,6 +11,8 @@ const prompts = require('../../shared/prompts');
 const providerRegistry = require('../../shared/providers');
 
 const MAX_TOKENS = 1024;
+// How long a person waits for the AI (an answer, or a check of their key) before it is given up on.
+const AI_TIMEOUT_MS = 60_000;
 
 function createAi({ store, secrets, providers = providerRegistry, fetchImpl }) {
   function modelFor(providerId) {
@@ -33,15 +35,15 @@ function createAi({ store, secrets, providers = providerRegistry, fetchImpl }) {
   }
 
   /** Models for a provider: the live list for the saved key, else the fallback list. */
-  async function listModels(providerId) {
+  async function listModels(providerId, { signal } = {}) {
     const provider = providers.getProvider(providerId);
     const apiKey = secrets.get(providerId);
     if (!apiKey) return provider.fallbackModels;
-    const live = await provider.listModels({ apiKey, fetchImpl });
+    const live = await provider.listModels({ apiKey, fetchImpl, signal });
     return live.length ? live : provider.fallbackModels;
   }
 
   return { ask, listModels, modelFor };
 }
 
-module.exports = { createAi, MAX_TOKENS };
+module.exports = { createAi, MAX_TOKENS, AI_TIMEOUT_MS };

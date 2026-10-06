@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { createAi, MAX_TOKENS } = require('../src/main/ai');
+const { createAi, MAX_TOKENS, AI_TIMEOUT_MS } = require('../src/main/ai');
 
 function setup({ key = 'k-1', model, vision = true, answer = 'Fixed text', live = ['m-live'] } = {}) {
   const calls = [];
@@ -13,7 +13,8 @@ function setup({ key = 'k-1', model, vision = true, answer = 'Fixed text', live 
       calls.push(opts);
       return { text: answer, model: opts.model, usage: { inputTokens: 1, outputTokens: 2 } };
     },
-    async listModels() {
+    async listModels(opts) {
+      calls.push({ listModels: opts });
       return live;
     },
   };
@@ -70,4 +71,23 @@ test('listModels: the live list with a key, the fallback list without', async ()
   assert.deepStrictEqual(await setup().ai.listModels('openai'), ['m-live']);
   assert.deepStrictEqual(await setup({ key: null }).ai.listModels('openai'), ['m-default', 'm-other']);
   assert.deepStrictEqual(await setup({ live: [] }).ai.listModels('openai'), ['m-default', 'm-other']);
+});
+
+test('requests to the AI get 60 seconds', () => {
+  assert.strictEqual(AI_TIMEOUT_MS, 60_000);
+});
+
+test('ask passes the signal it is given on to the provider', async () => {
+  const { ai, calls } = setup();
+  const signal = AbortSignal.timeout(AI_TIMEOUT_MS);
+  await ai.ask('fix', { text: 'me go home' }, { signal });
+  assert.strictEqual(calls[0].signal, signal);
+});
+
+test('listModels passes the signal it is given on to the provider', async () => {
+  const { ai, calls } = setup();
+  const signal = AbortSignal.timeout(AI_TIMEOUT_MS);
+  await ai.listModels('openai', { signal });
+  assert.strictEqual(calls[0].listModels.signal, signal);
+  assert.strictEqual(calls[0].listModels.apiKey, 'k-1');
 });

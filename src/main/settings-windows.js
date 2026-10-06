@@ -56,8 +56,11 @@ function createSettingsWindows({ app, BrowserWindow = require('electron').Browse
     close(kind) {
       if (alive(windows[kind])) windows[kind].close();
     },
-    owns(webContents) {
-      return Object.values(windows).some((win) => alive(win) && win.webContents === webContents);
+    /** Is this page one of these windows' own? With a `kind` ('settings' or 'onboarding'), only that kind counts. */
+    owns(webContents, kind) {
+      return Object.entries(windows).some(
+        ([name, win]) => (kind === undefined || name === kind) && alive(win) && win.webContents === webContents,
+      );
     },
   };
 }

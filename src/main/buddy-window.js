@@ -18,7 +18,7 @@ const CURSOR_MS = 66; // about 15 updates a second is plenty for a head turn
 const MAX_CRASHES = 3; // this many page crashes within CRASH_WINDOW_MS and we stop reloading it
 const CRASH_WINDOW_MS = 60_000;
 
-function createBuddyWindow({ store, screen, animate = true }) {
+function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {} }) {
   let win = null;
   let loaded = false; // the page has finished loading, so it can take messages
   let pendingMood = null; // the latest mood sent while the page was not loaded
@@ -74,6 +74,7 @@ function createBuddyWindow({ store, screen, animate = true }) {
     });
     contents.on('render-process-gone', (_event, details) => onCrash(details));
     contents.on('will-navigate', (event) => event.preventDefault());
+    contents.setWindowOpenHandler(() => ({ action: 'deny' })); // the page shows only its own content: no pop-ups either
     // A failure is reported by did-fail-load above; this only keeps it from going unhandled.
     win.loadFile(path.join(__dirname, '..', 'renderer', 'buddy', 'index.html')).catch(() => {});
   }
@@ -115,6 +116,7 @@ function createBuddyWindow({ store, screen, animate = true }) {
     paused = false;
     pendingMood = null;
     crashes = []; // a window made by a later show() gets its own reloads
+    onGiveUp(); // the menu bar menu still offers "Hide buddy" until it is told
   }
 
   /**

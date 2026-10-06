@@ -47,7 +47,8 @@ const answer = (body) => ({ status: 200, body });
 const hasKeyIn = (deps) => (id) => typeof deps.adminKeys?.[id] === 'string' && deps.adminKeys[id] !== '';
 /**
  * What kind of failure `err` is: its code, else its name. Only this is ever logged, never its message, because a
- * message can quote what the person sent.
+ * message can quote what the person sent (or, for a server that cannot start, the service account key).
+ * web/lib/vercel.js logs its startup failures the same way.
  */
 const kindOf = (err) => err?.code || err?.name || 'error';
 
@@ -253,4 +254,4 @@ async function handle(handler, req, deps) {
   }
 }
 
-module.exports = { config, ask, adminSettings, adminModels, adminUsers, handle, STATUS, ASK_TIMEOUT_MS };
+module.exports = { config, ask, adminSettings, adminModels, adminUsers, handle, kindOf, STATUS, ASK_TIMEOUT_MS };

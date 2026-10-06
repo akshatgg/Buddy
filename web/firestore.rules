@@ -1,0 +1,11 @@
+rules_version = '2';
+
+// Only Buddy's server reads and writes this database, with the Admin SDK, which these rules do not apply to.
+// Apps and browsers get nothing.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

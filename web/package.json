@@ -1,0 +1,13 @@
+{
+  "name": "buddy-server",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Buddy's server: free mode, the admin's switches and the users list (Vercel functions + Firestore).",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.5.0"
+  }
+}

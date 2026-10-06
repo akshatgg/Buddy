@@ -1,0 +1,109 @@
+'use strict';
+
+/**
+ * Talks to bin/buddy-helper (src/native/BuddyHelper.swift), the small Swift
+ * program that does what Electron can't: copy the user's selection, paste an
+ * answer back into the app they were in, and screenshot that app's window.
+ *
+ * One JSON object per line each way. Requests carry an id and replies echo it.
+ * Lines without an id are events: `frontApp` says which app the user is in,
+ * kept here as `lastApp`, because by the time the panel opens Buddy itself may
+ * be in front.
+ */
+
+const { spawn } = require('node:child_process');
+const { EventEmitter } = require('node:events');
+const readline = require('node:readline');
+const { BuddyError } = require('../../shared/errors');
+
+const DEFAULT_TIMEOUTS = { screenshot: 10_000, default: 5_000 };
+const MAX_RESTART_MS = 30_000;
+
+class Helper extends EventEmitter {
+  constructor({ binPath, ownerPid = process.pid, spawnImpl = spawn, restartMs = 1000, timeouts = DEFAULT_TIMEOUTS }) {
+    super();
+    this.binPath = binPath;
+    this.ownerPid = ownerPid;
+    this.spawnImpl = spawnImpl;
+    this.restartMs = restartMs;
+    this.nextRestartMs = restartMs;
+    this.timeouts = timeouts;
+    this.child = null;
+    this.nextId = 1;
+    this.pending = new Map();
+    this.lastApp = null;
+    this.stopped = false;
+    this.restartTimer = null;
+  }
+
+  start() {
+    this.stopped = false;
+    const child = this.spawnImpl(this.binPath, ['--owner-pid', String(this.ownerPid)], {
+      stdio: ['pipe', 'pipe', 'inherit'],
+    });
+    this.child = child;
+    readline.createInterface({ input: child.stdout }).on('line', (line) => this.onLine(line));
+    child.on('error', (err) => console.error('[buddy] helper failed:', err.message));
+    child.on('exit', () => this.onExit(child));
+  }
+
+  stop() {
+    this.stopped = true;
+    clearTimeout(this.restartTimer);
+    if (this.child) {
+      this.child.stdin.end();
+      this.child.kill();
+    }
+  }
+
+  call(cmd, args = {}) {
+    if (!this.child || !this.child.stdin.writable) {
+      return Promise.reject(new BuddyError('helper_down', "Buddy's Mac helper is not running."));
+    }
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new BuddyError('timeout', 'The Mac helper took too long.'));
+      }, this.timeouts[cmd] || this.timeouts.default);
+      this.pending.set(id, { resolve, reject, timer });
+      this.child.stdin.write(`${JSON.stringify({ id, cmd, args })}\n`);
+    });
+  }
+
+  onLine(line) {
+    let msg;
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      return;
+    }
+    this.nextRestartMs = this.restartMs; // it is talking, so it started fine
+    if (msg.event) {
+      if (msg.event === 'frontApp') this.lastApp = { pid: msg.pid, bundleId: msg.bundleId, name: msg.name };
+      this.emit(msg.event, msg);
+      return;
+    }
+    const waiting = this.pending.get(msg.id);
+    if (!waiting) return;
+    this.pending.delete(msg.id);
+    clearTimeout(waiting.timer);
+    if (msg.ok) waiting.resolve(msg.result || {});
+    else waiting.reject(new BuddyError(msg.error?.code || 'failed', msg.error?.message || 'The Mac helper failed.'));
+  }
+
+  onExit(child) {
+    if (child !== this.child) return;
+    this.child = null;
+    for (const [id, waiting] of this.pending) {
+      clearTimeout(waiting.timer);
+      waiting.reject(new BuddyError('helper_exit', 'The Mac helper stopped. Try again.'));
+      this.pending.delete(id);
+    }
+    if (this.stopped) return;
+    this.restartTimer = setTimeout(() => this.start(), this.nextRestartMs);
+    this.nextRestartMs = Math.min(this.nextRestartMs * 2, MAX_RESTART_MS);
+  }
+}
+
+module.exports = { Helper };

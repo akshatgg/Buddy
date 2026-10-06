@@ -11,7 +11,7 @@ const rules = {
 };
 
 module.exports = [
-  { ignores: ['node_modules/', 'bin/', 'dist/', 'assets/', 'art/', 'test/e2e/out/', '.*/**'] },
+  { ignores: ['node_modules/', 'bin/', 'dist/', 'release/', 'assets/', 'art/', 'test/e2e/out/', '.*/**'] },
   js.configs.recommended,
   {
     // Main process, preloads, shared code, tools and tests: CommonJS on Node.

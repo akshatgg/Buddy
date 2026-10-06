@@ -13,6 +13,11 @@ export const FPS = 30;
 export const IDLE_FPS = 15;
 export const REST_FPS = 6;
 
+// A blink is drawn at the full rate from its first frame. At rest frames are
+// 1 / REST_FPS apart, so look that far ahead: the frame before a blink starts
+// always sees it coming (see blinker.soon).
+export const BLINK_LOOKAHEAD = 1 / REST_FPS;
+
 const LOOK_SECONDS = 1; // the head turning counts as something happening for this long
 const SETTLE_SECONDS = 10; // how long the settling rate lasts before the rest rate
 
@@ -32,6 +37,16 @@ export function isActive({ mood, pressing, sinceLookChange }) {
 export function fpsFor({ mood, pressing, sinceLookChange, blinkSoon, sinceActive }) {
   if (blinkSoon || isActive({ mood, pressing, sinceLookChange })) return FPS;
   return sinceActive < SETTLE_SECONDS ? IDLE_FPS : REST_FPS;
+}
+
+/**
+ * Seconds to wait before drawing when something just needed the full rate
+ * (a mood, a press, a head turn), so that a frame scheduled for later at the
+ * idle or rest rate is not waited out. Draws at once, unless the last frame was
+ * less than one full-rate frame ago: the page never draws faster than FPS.
+ */
+export function wakeDelay(sinceLastFrame) {
+  return Math.max(0, 1 / FPS - sinceLastFrame);
 }
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));

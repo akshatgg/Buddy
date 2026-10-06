@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import {
-  FPS, IDLE_FPS, REST_FPS, fpsFor, isActive, floatOffset, createBlinker, lookAt, moodPose,
+  FPS, IDLE_FPS, REST_FPS, BLINK_LOOKAHEAD, fpsFor, isActive, wakeDelay, floatOffset, createBlinker, lookAt, moodPose,
 } from '../src/renderer/buddy/moods.js';
 
 // A buddy with nothing going on, and nothing for a long time.
@@ -55,6 +55,40 @@ test('active means a mood, a press or a head turn in the last second; a blink do
   assert.strictEqual(isActive({ ...calm, pressing: true }), true);
   assert.strictEqual(isActive({ ...calm, sinceLookChange: 0.99 }), true);
   assert.strictEqual(isActive({ ...calm, sinceLookChange: 1 }), false);
+});
+
+test('the blink lookahead is one rest frame, so the frame before a blink always sees it coming', () => {
+  assert.strictEqual(BLINK_LOOKAHEAD, 1 / REST_FPS);
+});
+
+test('at rest every blink is drawn at the full rate from its first frame', () => {
+  // The page's loop: ask for the rate (blinker.soon), schedule the next frame at it, then draw (blinker.value).
+  // Timers are never early, so try them on time and a few ms late. The blink starts at every phase of the rest frames.
+  for (const lateness of [0, 0.003]) {
+    for (let offset = 0; offset < 1 / REST_FPS; offset += 0.005) {
+      const start = 2 + offset;
+      const blinker = createBlinker(() => (start - 2) / 3);
+      const frames = []; // the times of the frames drawn from the start of the blink to its end
+      for (let t = 0; t < start + 0.3; ) {
+        const fps = fpsFor({ ...resting, blinkSoon: blinker.soon(t, BLINK_LOOKAHEAD) });
+        if (t >= start && t < start + 0.16) frames.push(t);
+        blinker.value(t);
+        t += 1 / fps + lateness;
+      }
+      const why = `blink at ${start.toFixed(3)} s, timers ${lateness * 1000} ms late: frames ${frames.map((t) => ((t - start) * 1000).toFixed(0))} ms into it`;
+      assert.ok(frames.length >= 4, why);
+      assert.ok(frames[0] - start <= 1 / FPS + lateness + 1e-9, `the first frame comes within one full-rate frame: ${why}`);
+      frames.slice(1).forEach((t, i) => assert.ok(t - frames[i] <= 1 / FPS + lateness + 1e-9, `no slow frame inside it: ${why}`));
+    }
+  }
+});
+
+test('waking draws at once, but never sooner than the full rate allows', () => {
+  assert.strictEqual(wakeDelay(Infinity), 0, 'nothing drawn yet');
+  assert.strictEqual(wakeDelay(1), 0, 'the last frame was long ago: draw now');
+  assert.strictEqual(wakeDelay(1 / FPS), 0);
+  assert.ok(Math.abs(wakeDelay(0.01) - (1 / FPS - 0.01)) < 1e-12, 'a frame was just drawn: wait out the rest of its 1/30 s');
+  assert.ok(Math.abs(wakeDelay(0) - 1 / FPS) < 1e-12);
 });
 
 test('floats on a 3 second sine', () => {

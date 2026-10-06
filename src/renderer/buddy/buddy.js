@@ -4,7 +4,9 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { fpsFor, isActive, floatOffset, createBlinker, lookAt, moodPose } from './moods.js';
+import {
+  BLINK_LOOKAHEAD, fpsFor, isActive, wakeDelay, floatOffset, createBlinker, lookAt, moodPose,
+} from './moods.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
@@ -23,7 +25,6 @@ const blinker = createBlinker();
 const now = () => performance.now() / 1000;
 
 const LOOK_EPSILON = 0.002; // radians: a smaller turn of the head is not worth a frame
-const BLINK_LOOKAHEAD = 0.1; // seconds: draw at full rate this long before a blink starts
 
 let rig = null;
 let mood = { name: 'idle', since: now() };
@@ -34,6 +35,7 @@ let lastActive = now(); // the last time isActive() was true, in now() seconds
 let hovering = false;
 let press = null; // { x, y, moved } while the pointer is down on the buddy
 let timer = null; // the one pending frame; null while the loop is paused
+let lastTick = -Infinity; // when the last frame was drawn, in now() seconds
 
 function resize() {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -138,6 +140,7 @@ function render(t) {
  */
 function tick() {
   const t = now();
+  lastTick = t;
   const state = { mood: mood.name, pressing: press !== null, sinceLookChange: t - lastLookChange };
   if (isActive(state)) lastActive = t;
   const fps = fpsFor({ ...state, blinkSoon: blinker.soon(t, BLINK_LOOKAHEAD), sinceActive: t - lastActive });
@@ -152,6 +155,17 @@ function startLoop() {
 function stopLoop() {
   clearTimeout(timer);
   timer = null;
+}
+
+/**
+ * Something needs the full rate (a mood, a press, a head turn): do not wait out
+ * a slow frame that is already scheduled. Replace it with one at the soonest the
+ * full rate allows, so there is still a single timer. Does nothing while paused.
+ */
+function wake() {
+  if (timer === null) return;
+  clearTimeout(timer);
+  timer = setTimeout(tick, wakeDelay(now() - lastTick) * 1000);
 }
 
 function overBuddy(clientX, clientY) {
@@ -180,6 +194,7 @@ canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
   press = { x: e.screenX, y: e.screenY, moved: false };
   window.buddy.dragStart({ x: e.screenX, y: e.screenY });
+  wake();
 });
 
 canvas.addEventListener('pointermove', (e) => {
@@ -216,6 +231,7 @@ canvas.addEventListener('lostpointercapture', abortPress);
 
 window.buddy.onMood((name) => {
   mood = { name, since: now() };
+  wake();
 });
 window.buddy.onCursor((point) => {
   cursor = point;
@@ -225,6 +241,7 @@ window.buddy.onCursor((point) => {
   if (Math.abs(look.yaw - lastLook.yaw) > LOOK_EPSILON || Math.abs(look.pitch - lastLook.pitch) > LOOK_EPSILON) {
     lastLook = look;
     lastLookChange = now();
+    wake();
   }
 });
 window.buddy.onPause((paused) => {

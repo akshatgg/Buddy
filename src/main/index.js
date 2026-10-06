@@ -5,6 +5,8 @@
 // fakes. A "was I required or run?" check in main.js is not reliable: under
 // `electron .` Electron imports the app as an ES module, and in a packaged
 // app it loads it with module.parent set.
+const fs = require('node:fs');
+const path = require('node:path');
 const { app } = require('electron');
 const { start } = require('./main');
 
@@ -12,7 +14,10 @@ const { start } = require('./main');
 // instead of the real one, and its login item stays off (it never adds or removes one).
 const options = {};
 if (process.env.BUDDY_USER_DATA) {
-  app.setPath('userData', process.env.BUDDY_USER_DATA);
+  // app.setPath refuses a relative path ("Path must be absolute"), and its documentation asks for a folder that exists.
+  const dir = path.resolve(process.env.BUDDY_USER_DATA);
+  fs.mkdirSync(dir, { recursive: true });
+  app.setPath('userData', dir);
   options.loginItems = { get: () => false, set: () => {} };
 }
 

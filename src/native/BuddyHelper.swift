@@ -55,7 +55,8 @@ func appInfo(_ app: NSRunningApplication) -> [String: Any] {
 }
 
 func noteFront(_ app: NSRunningApplication?) {
-    guard let app else { return }
+    // An app that is still launching has no process id yet (it reads -1): it is neither tracked nor reported.
+    guard let app, app.processIdentifier > 0 else { return }
     frontLock.lock()
     currentFront = app.processIdentifier
     frontLock.unlock()

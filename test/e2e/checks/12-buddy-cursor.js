@@ -7,6 +7,7 @@ const { screen } = require('electron');
 // even if the pointer is still: otherwise the head faces forward until the pointer next moves.
 module.exports = async function cursorCheck(ctx, { assert, delay, waitFor }) {
   const wc = ctx.buddy.window().webContents;
+  await waitFor(() => wc.executeJavaScript('window.__buddyReady === true').catch(() => false), 'the buddy page');
   const sent = [];
   const send = wc.send;
   const getCursorScreenPoint = screen.getCursorScreenPoint;

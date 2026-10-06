@@ -80,7 +80,7 @@ function createBuddyWindow({ store, screen, animate = true }) {
 
   /** Every load starts a page that knows nothing: not the pointer, not whether to animate, not the mood. */
   function onLoaded() {
-    if (win.isDestroyed()) return;
+    if (!win || win.isDestroyed()) return;
     loaded = true;
     lastCursor = null; // what was sent while it loaded was dropped, so send the pointer again even if it is still
     win.setIgnoreMouseEvents(true, { forward: true }); // a fresh page starts without hover
@@ -92,17 +92,29 @@ function createBuddyWindow({ store, screen, animate = true }) {
   }
 
   function onCrash(details) {
-    if (win.isDestroyed()) return;
+    if (!win || win.isDestroyed()) return;
     loaded = false;
     win.setIgnoreMouseEvents(true, { forward: true }); // a dead page cannot report that the pointer left
     console.error('[buddy] the page crashed:', details.reason);
     const now = Date.now();
     crashes = [...crashes.filter((t) => now - t < CRASH_WINDOW_MS), now];
-    if (crashes.length < MAX_CRASHES) {
-      win.reload();
-    } else {
-      console.error(`[buddy] the page crashed ${MAX_CRASHES} times within a minute; not reloading it again`);
-    }
+    if (crashes.length < MAX_CRASHES) win.reload();
+    else giveUp();
+  }
+
+  /**
+   * The page keeps crashing: stop reloading it and drop the window. Left in place it would be a blank patch that
+   * still reports isVisible(), so the menu bar would offer "Hide buddy"; with no window, the next show() starts afresh.
+   */
+  function giveUp() {
+    console.error(`[buddy] the page crashed ${MAX_CRASHES} times within a minute; not reloading it again`);
+    stopCursor();
+    win.destroy();
+    win = null;
+    loaded = false;
+    paused = false;
+    pendingMood = null;
+    crashes = []; // a window made by a later show() gets its own reloads
   }
 
   /**

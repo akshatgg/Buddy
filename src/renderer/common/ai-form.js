@@ -2,8 +2,10 @@
 /* exported mountAiForm */
 
 /**
- * The AI form (provider, API key, model), used by Settings and the Welcome
- * window. The key box never shows a saved key; it only takes a new one.
+ * The AI form (which AI, API key, model), used by Settings and the Welcome
+ * window. All four AIs are shown at once as choices, so nobody has to open a
+ * list to find out which ones Buddy works with. The key box never shows a
+ * saved key; it only takes a new one.
  */
 async function mountAiForm(root) {
   const el = (tag, props = {}, children = []) => {
@@ -12,7 +14,7 @@ async function mountAiForm(root) {
     return node;
   };
 
-  const provider = el('select', { id: 'ai-provider' });
+  const choices = el('div', { className: 'ai-choices' });
   const key = el('input', { id: 'ai-key', type: 'password', placeholder: 'Paste your API key', autocomplete: 'off' });
   const saveKey = el('button', { type: 'button', textContent: 'Save key' });
   const getKey = el('a', { href: '#', textContent: 'Get a key' });
@@ -21,8 +23,7 @@ async function mountAiForm(root) {
   const refresh = el('button', { type: 'button', textContent: 'Refresh' });
 
   root.replaceChildren(
-    el('label', { htmlFor: 'ai-provider', textContent: 'Provider' }),
-    provider,
+    el('fieldset', {}, [el('legend', { textContent: 'Which AI do you have a key for?' }), choices]),
     el('label', { htmlFor: 'ai-key', textContent: 'API key' }),
     el('div', { className: 'row' }, [key, saveKey]),
     el('p', { className: 'row' }, [status, el('span', { className: 'spacer' }), getKey]),
@@ -36,6 +37,15 @@ async function mountAiForm(root) {
     return;
   }
   const current = () => snap.providers.find((p) => p.id === snap.settings.provider);
+
+  // The choices are made once, and render() only moves the check: making them again would drop the keyboard
+  // focus that is on one of them, and the arrow keys would stop after the first press.
+  const radios = snap.providers.map((p) => {
+    const radio = el('input', { type: 'radio', name: 'ai-provider', value: p.id });
+    radio.addEventListener('change', () => pick(p.id));
+    choices.append(el('label', { className: 'ai-choice' }, [radio, el('span', { textContent: p.label })]));
+    return radio;
+  });
 
   function setStatus(text, kind = 'muted') {
     status.textContent = text;
@@ -58,6 +68,7 @@ async function mountAiForm(root) {
     fillModels(p.fallbackModels);
     if (!p.hasKey) return;
     const r = await window.buddy.models(p.id);
+    if (p.id !== snap.settings.provider) return; // another AI was chosen while this one was loading
     if (r.ok) {
       fillModels(r.models);
       showKeyStatus(); // a refresh that works clears the error an earlier one left
@@ -68,40 +79,43 @@ async function mountAiForm(root) {
 
   function render() {
     const p = current();
-    provider.replaceChildren(...snap.providers.map((x) => el('option', {
-      value: x.id, textContent: x.label, selected: x.id === p.id,
-    })));
+    for (const radio of radios) radio.checked = radio.value === p.id;
     key.value = '';
+    key.placeholder = `Paste your ${p.label} key`;
     showKeyStatus();
   }
 
-  provider.addEventListener('change', async () => {
-    const r = await window.buddy.set({ provider: provider.value });
+  async function pick(id) {
+    const r = await window.buddy.set({ provider: id });
     if (!r.ok) {
-      render(); // back to the provider that is saved
+      render(); // back to the AI that is saved
       setStatus(r.error.message, 'error');
       return;
     }
     snap = r;
     render();
     await loadModels();
-  });
+  }
 
   saveKey.addEventListener('click', async () => {
     setStatus('Checking your key…');
-    const r = await window.buddy.saveKey(provider.value, key.value);
+    const r = await window.buddy.saveKey(current().id, key.value);
     if (!r.ok) {
       setStatus(r.error.message, 'error');
       return;
     }
     snap = r;
     render();
-    if (!r.verified) setStatus("Key saved — I couldn't check it (no internet)");
     fillModels(r.models);
+    // The key was for another AI than the one that was chosen: it was kept there, and Buddy switched to it.
+    const { label } = current();
+    const switched = r.switchedFrom ? `That's a ${label} key, so I switched to ${label}. ` : '';
+    if (!r.verified) setStatus(`${switched}Key saved — I couldn't check it (no internet)`);
+    else if (switched) setStatus(`${switched}Key saved ✓`, 'good');
   });
 
   model.addEventListener('change', async () => {
-    const r = await window.buddy.set({ models: { ...snap.settings.models, [provider.value]: model.value } });
+    const r = await window.buddy.set({ models: { ...snap.settings.models, [current().id]: model.value } });
     if (r.ok) {
       snap = r;
       if (status.className === 'error') showKeyStatus(); // an earlier error no longer applies

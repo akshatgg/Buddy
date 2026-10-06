@@ -35,12 +35,3 @@ async function start(options = {}) {
 }
 
 module.exports = { start };
-
-// Under `electron .` require.main is Electron's own stub, not this module, so
-// test for "nobody required me" instead (the e2e test and unit tests do).
-if (!module.parent) {
-  start().catch((err) => {
-    console.error('[buddy] failed to start', err);
-    app.exit(1);
-  });
-}

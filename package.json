@@ -3,7 +3,7 @@
   "productName": "Buddy",
   "version": "0.1.0",
   "description": "A small floating buddy that writes and fixes English in any app",
-  "main": "src/main/main.js",
+  "main": "src/main/index.js",
   "type": "commonjs",
   "private": true,
   "author": "akshatgg",

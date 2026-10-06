@@ -98,6 +98,62 @@ test('"Use the whole box" selects all, and Replace then replaces all', async () 
   assert.deepStrictEqual(entries(s.log, 'helper').at(-1), ['helper', 'paste', { pid: 7, text: 'fixed', selectAll: true }]);
 });
 
+// The panel holds the keyboard focus, so the helper's ⌘A and ⌘C would land in the panel itself.
+// The panel steps aside while the box is read, and comes back either way.
+const steps = (log, from) => log.slice(from).map((e) => (e[0] === 'helper' ? e[1] : e[0]));
+
+test('"Use the whole box" hides the panel while it reads the app, then shows it again with the text', async () => {
+  const s = setup({ replies: { captureSelection: (args) => ({ text: args.selectAll ? 'whole text' : 'me go' }) } });
+  await s.actions.open();
+  const from = s.log.length;
+  assert.deepStrictEqual(await s.actions.wholeBox(), { text: 'whole text' });
+  assert.deepStrictEqual(steps(s.log, from), ['hidePanel', 'captureSelection', 'showPanel']);
+  assert.deepStrictEqual(s.log[from + 1], ['helper', 'captureSelection', { pid: 7, selectAll: true }]);
+  assert.deepStrictEqual(s.log[from + 2][1], {
+    buddyName: 'Aarav', appName: 'Google Chrome', selection: 'whole text', tab: 'fix', notice: '',
+  });
+  assert.strictEqual(s.actions.session().wholeBox, true);
+});
+
+test('when the whole box cannot be read, the panel comes back with the reason, and Replace stays on the selection', async () => {
+  const s = setup({
+    replies: {
+      captureSelection: (args) => {
+        if (args.selectAll) throw failure('secure_field', "I don't read password fields.");
+        return { text: 'me go home' };
+      },
+    },
+  });
+  await s.actions.open();
+  const from = s.log.length;
+  await assert.rejects(s.actions.wholeBox(), { code: 'secure_field' });
+  assert.deepStrictEqual(steps(s.log, from), ['hidePanel', 'captureSelection', 'showPanel']);
+  assert.deepStrictEqual(s.log[from + 2][1], {
+    buddyName: 'Aarav', appName: 'Google Chrome', selection: 'me go home', tab: 'fix', notice: "I don't read password fields.",
+  });
+  assert.strictEqual(s.actions.session().wholeBox, false);
+  assert.strictEqual(s.actions.session().selection, 'me go home');
+  await s.actions.insert('fixed', 'replace');
+  assert.strictEqual(entries(s.log, 'helper').at(-1)[2].selectAll, false);
+});
+
+test('an empty box comes back as an empty box, with a notice', async () => {
+  const s = setup({ replies: { captureSelection: { text: '' } } });
+  await s.actions.open();
+  assert.deepStrictEqual(await s.actions.wholeBox(), { text: '' });
+  assert.deepStrictEqual(entries(s.log, 'showPanel').at(-1)[1], {
+    buddyName: 'Aarav', appName: 'Google Chrome', selection: '', tab: 'fix', notice: 'That box looks empty.',
+  });
+});
+
+test('with no app known, "Use the whole box" leaves the panel alone', async () => {
+  const s = setup({ lastApp: null });
+  await s.actions.open();
+  const from = s.log.length;
+  await assert.rejects(s.actions.wholeBox(), { code: 'no_app' });
+  assert.deepStrictEqual(steps(s.log, from), []);
+});
+
 test('run shows thinking, then happy', async () => {
   const s = setup();
   assert.deepStrictEqual(await s.actions.run('write', { instruction: 'x' }), { text: 'answer for write' });

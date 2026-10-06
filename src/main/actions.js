@@ -4,16 +4,29 @@
  * What happens when the user works with the panel, in the order the Mac needs:
  * grab their selection before the panel takes the screen, run the AI, and put
  * the answer back into the app they came from -- or on the clipboard when
- * that is not possible.
+ * that is not possible. The panel holds the keyboard focus while it is open, so
+ * it steps aside whenever the helper has to read from or type into that app.
  */
 
 const { BuddyError } = require('../../shared/errors');
 
 const COPIED = 'Copied — press ⌘V';
 const SLEEPY_MS = 5000;
+const EMPTY_BOX = 'That box looks empty.';
 
 function createActions({ helper, ai, clipboard, store, ui, later = setTimeout }) {
   let session = { app: null, selection: '', wholeBox: false };
+
+  /** What the panel opens with: the buddy's name, the app it came from, the text, and the tab and notice to show. */
+  function panelState({ selection, tab, notice }) {
+    return {
+      buddyName: store.get('buddyName') || 'Buddy',
+      appName: session.app?.name || '',
+      selection,
+      tab,
+      notice,
+    };
+  }
 
   async function open() {
     const app = helper.lastApp;
@@ -29,13 +42,7 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout })
       }
     }
     session = { app, selection, wholeBox: false };
-    await ui.showPanel({
-      buddyName: store.get('buddyName') || 'Buddy',
-      appName: app?.name || '',
-      selection,
-      tab: selection ? 'fix' : 'write',
-      notice,
-    });
+    await ui.showPanel(panelState({ selection, tab: selection ? 'fix' : 'write', notice }));
   }
 
   async function toggle() {
@@ -46,11 +53,30 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout })
     await open();
   }
 
+  /**
+   * Read everything in the box the user was writing in. The panel has the keyboard
+   * focus, so the helper's ⌘A and ⌘C would land in the panel itself (and bringing the
+   * app forward would blur it): it is hidden while the box is read, and shown again
+   * either way, with the text or with the reason it could not be read.
+   */
   async function wholeBox() {
-    if (!session.app) throw new BuddyError('no_app', 'Click in the box you are writing in, then open me again.');
-    const r = await helper.call('captureSelection', { pid: session.app.pid, selectAll: true });
-    session = { ...session, selection: r.text || '', wholeBox: true };
-    return { text: session.selection };
+    const app = session.app;
+    if (!app) throw new BuddyError('no_app', 'Click in the box you are writing in, then open me again.');
+    const before = session.selection;
+    ui.hidePanel();
+    let state;
+    try {
+      const r = await helper.call('captureSelection', { pid: app.pid, selectAll: true });
+      const text = r.text || '';
+      session = { ...session, selection: text, wholeBox: true };
+      state = panelState({ selection: text, tab: 'fix', notice: text ? '' : EMPTY_BOX });
+      return { text };
+    } catch (err) {
+      state = panelState({ selection: before, tab: 'fix', notice: err.message });
+      throw err;
+    } finally {
+      await ui.showPanel(state);
+    }
   }
 
   async function run(action, input) {

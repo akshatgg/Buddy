@@ -119,6 +119,7 @@ test('gemini: builds generateContent, skips thoughts, counts thoughts as output'
 });
 
 test('errors are turned into codes with messages for the user', async (t) => {
+  t.mock.method(console, 'warn', () => {});
   const cases = [
     [401, { error: { message: 'invalid x-api-key' } }, 'bad_key'],
     [403, { error: { message: 'forbidden' } }, 'bad_key'],
@@ -135,6 +136,75 @@ test('errors are turned into codes with messages for the user', async (t) => {
         (err) => err.code === code && typeof err.message === 'string' && err.message.length > 0,
       );
     });
+  }
+});
+
+// What a person is shown is plain words. A provider's own wording stays out of it: it can be long, in JSON, or
+// echo the text the person sent. The status and the kind of error go to the log, and nothing else of the answer.
+const SECRET_TEXT = 'me go home yesterday, my password is hunter2';
+
+test('an unexpected provider error is shown as plain words, never as the provider\'s response', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const bodies = [
+    { error: { type: 'api_error', message: `Internal failure while handling: ${SECRET_TEXT}` } },
+    `<html>502 Bad Gateway ${SECRET_TEXT}</html>`,
+    { message: SECRET_TEXT },
+    '',
+  ];
+  for (const body of bodies) {
+    await assert.rejects(
+      getProvider('anthropic').complete({ ...ASK, model: 'm', fetchImpl: fakeFetch(500, body) }),
+      (err) => {
+        assert.strictEqual(err.code, 'upstream');
+        assert.strictEqual(err.message, 'Claude had a problem (500). Try again in a moment.');
+        return true;
+      },
+      JSON.stringify(body),
+    );
+  }
+});
+
+test('the other provider errors keep their fixed messages too', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const cases = [
+    [401, { error: { message: SECRET_TEXT } }, 'Your OpenAI key was rejected. Check it in Settings.'],
+    [402, SECRET_TEXT, 'Your OpenAI account is out of credit.'],
+    [429, { error: { message: SECRET_TEXT } }, 'OpenAI is busy right now. Try again in a minute.'],
+    [404, { error: { message: SECRET_TEXT } }, "This model isn't available for your key. Pick another in Settings."],
+  ];
+  for (const [status, body, message] of cases) {
+    await assert.rejects(
+      getProvider('openai').complete({ ...ASK, model: 'm', fetchImpl: fakeFetch(status, body) }),
+      { message },
+      String(status),
+    );
+  }
+});
+
+test('the status and the kind of error are logged, and never any text from the response', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const cases = [
+    ['anthropic', 529, { type: 'error', error: { type: 'overloaded_error', message: `Overloaded. ${SECRET_TEXT}` } }, 'Claude answered 529 (overloaded_error)'],
+    ['openai', 400, { error: { type: 'invalid_request_error', message: SECRET_TEXT, code: 'bad_value' } }, 'OpenAI answered 400 (invalid_request_error)'],
+    ['gemini', 400, { error: { code: 400, status: 'INVALID_ARGUMENT', message: SECRET_TEXT } }, 'Gemini answered 400 (INVALID_ARGUMENT)'],
+    ['groq', 500, `plain text ${SECRET_TEXT}`, 'Groq answered 500'],
+    ['groq', 503, { message: SECRET_TEXT }, 'Groq answered 503'],
+    ['anthropic', 500, '', 'Claude answered 500'],
+  ];
+  for (const [id, status, body, line] of cases) {
+    warn.mock.resetCalls();
+    await assert.rejects(getProvider(id).complete({ ...ASK, model: 'm', fetchImpl: fakeFetch(status, body) }));
+    assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments), [[`[buddy] ${line}`]], `${id} ${status}`);
+  }
+});
+
+test('a kind of error that is not a short identifier is not logged, since it could carry text', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  for (const type of [SECRET_TEXT, 'x'.repeat(65), 'has space', 'quote"d', '', 42, null, ['overloaded_error']]) {
+    warn.mock.resetCalls();
+    const body = { error: { type, message: 'm' } };
+    await assert.rejects(getProvider('anthropic').complete({ ...ASK, model: 'm', fetchImpl: fakeFetch(500, body) }));
+    assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments), [['[buddy] Claude answered 500']], JSON.stringify(type));
   }
 });
 

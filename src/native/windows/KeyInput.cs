@@ -63,9 +63,16 @@ namespace BuddyHelper
             // 0x01 to 0x07 are the mouse buttons (and Ctrl+Break); 0xFF is no key.
             for (int vk = 0x08; vk <= 0xFE; vk++)
             {
-                if ((Native.GetAsyncKeyState(vk) & 0x8000) != 0) return true;
+                if (!IsInputMethodKey(vk) && (Native.GetAsyncKeyState(vk) & 0x8000) != 0) return true;
             }
             return false;
+        }
+
+        /// The keys of input methods (Japanese, Korean, Chinese and the like), which can read as down for as long as
+        /// their mode is on: 0x15 to 0x1F (Esc, 0x1B, aside), 0xE5, 0xE7 and 0xF0 to 0xF6.
+        static bool IsInputMethodKey(int vk)
+        {
+            return (vk >= 0x15 && vk <= 0x1F && vk != 0x1B) || vk == 0xE5 || vk == 0xE7 || (vk >= 0xF0 && vk <= 0xF6);
         }
 
         /// The keyboard layout of the app in front, which the keys are for: the scan codes follow it (they matter to

@@ -148,19 +148,19 @@ namespace BuddyHelper
             }
         }
 
-        /// Whether what is on the clipboard is marked secret, as password managers mark what they copy. KeePass, for
-        /// one, copies the selected entry's password on Ctrl+C, though no password field has the focus.
-        public static bool HoldsSecret()
-        {
-            return Native.IsClipboardFormatAvailable(ExcludeFromMonitors) || Native.IsClipboardFormatAvailable(ViewerIgnore);
-        }
-
-        /// The text on the clipboard, or "" when there is none.
-        public static string ReadText()
+        /// The text an app has just copied, or "" when there is none. What a password manager copies is never read:
+        /// KeePass, for one, copies the selected entry's password on Ctrl+C, though no password field has the focus.
+        /// Its marks are looked for only once Buddy has the clipboard open, so once the app that copied has closed it:
+        /// the count that says something was copied goes up while the app is still adding formats, marks included.
+        public static string ReadCopiedText()
         {
             Open();
             try
             {
+                if (Native.IsClipboardFormatAvailable(ExcludeFromMonitors) || Native.IsClipboardFormatAvailable(ViewerIgnore))
+                {
+                    throw new HelperError("secure_field", "I don't read passwords.");
+                }
                 IntPtr data = Native.GetClipboardData(UnicodeText);
                 if (data == IntPtr.Zero) return "";
                 byte[] bytes = Read(data);

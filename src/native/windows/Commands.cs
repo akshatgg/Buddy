@@ -177,12 +177,8 @@ namespace BuddyHelper
             DateTime until = DateTime.UtcNow.AddMilliseconds(300);
             while (DateTime.UtcNow < until)
             {
-                if (ClipboardStore.Sequence() != before)
-                {
-                    // A password manager's copy (put back right after, as anything copied here is) is never read.
-                    if (ClipboardStore.HoldsSecret()) throw new HelperError("secure_field", "I don't read passwords.");
-                    return ClipboardStore.ReadText();
-                }
+                // A password manager's copy is refused there, and put back right after, as anything copied here is.
+                if (ClipboardStore.Sequence() != before) return ClipboardStore.ReadCopiedText();
                 Thread.Sleep(15);
             }
             return "";

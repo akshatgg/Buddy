@@ -3,6 +3,7 @@
 
 const $ = (id) => document.getElementById(id);
 let snap = null;
+let gridBuilt = false;
 
 function showStatus(id, text, kind) {
   $(id).textContent = text;
@@ -18,7 +19,13 @@ function showLoadError(message) {
 }
 
 function render() {
-  renderBuddyGrid($('buddies'), snap.characters, snap.settings.buddyId, (c) => save({ buddyId: c.id }, 'buddy-status'));
+  if (gridBuilt) {
+    // Only move the check: rebuilding the radio buttons would drop the keyboard focus that is on one of them.
+    for (const radio of $('buddies').querySelectorAll('input')) radio.checked = radio.value === snap.settings.buddyId;
+  } else {
+    renderBuddyGrid($('buddies'), snap.characters, snap.settings.buddyId, (c) => save({ buddyId: c.id }, 'buddy-status'));
+    gridBuilt = true;
+  }
   $('name').value = snap.settings.buddyName;
   $('size').value = snap.settings.size;
   $('shortcut').value = snap.settings.shortcut;

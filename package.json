@@ -18,6 +18,8 @@
     "dist:mac": "npm run build:native && electron-builder --mac --config electron-builder.config.js --publish never",
     "lint": "eslint .",
     "test": "eslint . && node --test 'test/*.test.js' 'test/*.test.mjs'",
+    "test:firestore": "firebase emulators:exec --only firestore --project demo-buddy \"node --test 'test/firestore/*.test.js'\"",
+    "deploy:server": "npm run sync:web && vercel deploy --prod --cwd web",
     "test:e2e": "electron test/e2e/smoke.js"
   },
   "devDependencies": {

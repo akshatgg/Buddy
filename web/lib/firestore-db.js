@@ -1,0 +1,107 @@
+'use strict';
+
+/**
+ * Buddy's data in Cloud Firestore, behind the methods the handlers use (web/lib/handlers.js). `firestore` is a
+ * Firestore instance from firebase-admin. Dates go in as JS Dates (Firestore keeps them as timestamps) and come
+ * back out as JS Dates.
+ *
+ *   config/free     the admin's switches
+ *   users/{uid}     email, name, joined, lastActive, blocked, usedDay, usedCount
+ */
+
+function createFirestoreDb(firestore) {
+  const configDoc = firestore.collection('config').doc('free');
+  const users = firestore.collection('users');
+
+  const toDate = (value) => (value && typeof value.toDate === 'function' ? value.toDate() : null);
+  const fresh = ({ email, name, now }) => ({ email, name, joined: now, lastActive: null, blocked: false, usedDay: '', usedCount: 0 });
+
+  function fromData(uid, d) {
+    return {
+      uid,
+      email: typeof d.email === 'string' ? d.email : '',
+      name: typeof d.name === 'string' ? d.name : '',
+      joined: toDate(d.joined),
+      lastActive: toDate(d.lastActive),
+      blocked: d.blocked === true,
+      usedDay: typeof d.usedDay === 'string' ? d.usedDay : '',
+      usedCount: Number.isInteger(d.usedCount) ? d.usedCount : 0,
+    };
+  }
+
+  return {
+    async getConfig() {
+      const snap = await configDoc.get();
+      return snap.exists ? snap.data() : null;
+    },
+
+    async setConfig(config) {
+      await configDoc.set(config);
+    },
+
+    /** The person, added on their first call; their email and name follow their Google account. */
+    async ensureUser({ uid, email, name, now }) {
+      const ref = users.doc(uid);
+      return firestore.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) {
+          const doc = fresh({ email, name, now });
+          tx.set(ref, doc);
+          return { uid, ...doc };
+        }
+        const d = snap.data();
+        if (d.email !== email || d.name !== name) tx.update(ref, { email, name });
+        return { ...fromData(uid, d), email, name };
+      });
+    },
+
+    /**
+     * Count one free request on `day`, in a transaction, so that requests made at the same moment cannot slip past
+     * the limit. `limit` is null for unlimited.
+     */
+    async countRequest({ uid, email, name, day, now, limit }) {
+      const ref = users.doc(uid);
+      return firestore.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        const d = snap.exists ? snap.data() : fresh({ email, name, now });
+        if (d.blocked === true) return { ok: false, reason: 'blocked' };
+        const used = d.usedDay === day && Number.isInteger(d.usedCount) ? d.usedCount : 0;
+        if (limit !== null && used >= limit) return { ok: false, reason: 'limit', usedCount: used };
+        const change = { email, name, usedDay: day, usedCount: used + 1, lastActive: now };
+        if (snap.exists) tx.update(ref, change);
+        else tx.set(ref, { ...d, ...change });
+        return { ok: true, usedCount: used + 1 };
+      });
+    },
+
+    /** Give back a request the AI could not answer, if it still counts towards `day`. */
+    async refundRequest({ uid, day }) {
+      const ref = users.doc(uid);
+      await firestore.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) return;
+        const d = snap.data();
+        if (d.usedDay === day && Number.isInteger(d.usedCount) && d.usedCount > 0) tx.update(ref, { usedCount: d.usedCount - 1 });
+      });
+    },
+
+    /** Up to `limit` people, the most recently active first (those who never asked anything last). */
+    async listUsers({ limit }) {
+      const snap = await users.orderBy('lastActive', 'desc').limit(limit).get();
+      return snap.docs.map((doc) => fromData(doc.id, doc.data()));
+    },
+
+    /** Block or unblock a person; null when there is nobody with that uid. */
+    async setBlocked(uid, blocked) {
+      const ref = users.doc(uid);
+      return firestore.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) return null;
+        tx.update(ref, { blocked });
+        return { ...fromData(uid, snap.data()), blocked };
+      });
+    },
+  };
+}
+
+module.exports = { createFirestoreDb };

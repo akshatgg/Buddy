@@ -82,6 +82,7 @@ function createBuddyWindow({ store, screen, animate = true }) {
   function onLoaded() {
     if (win.isDestroyed()) return;
     loaded = true;
+    lastCursor = null; // what was sent while it loaded was dropped, so send the pointer again even if it is still
     win.setIgnoreMouseEvents(true, { forward: true }); // a fresh page starts without hover
     send('buddy:pause', paused);
     if (pendingMood !== null) {

@@ -1,5 +1,6 @@
 'use strict';
 const { execFileSync, spawnSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const asar = require('@electron/asar');
 
@@ -10,6 +11,33 @@ const REQUIRED_IN_ASAR = [
   'node_modules/three/examples/jsm/loaders/GLTFLoader.js',
   'node_modules/three/examples/jsm/environments/RoomEnvironment.js',
 ];
+
+/** Fails the build when the app.asar at `asarPath` lacks the three.js files the buddy page needs. */
+function requireThreeFiles(asarPath) {
+  const missing = missingFromAsar(asarPath);
+  if (missing.length > 0) {
+    throw new Error(
+      `app.asar is missing ${missing.join(' and ')}, so the installed Buddy would show no robot. ` +
+      "The file set for three.js's examples in electron-builder.config.js is what brings them in."
+    );
+  }
+  console.log('  • app.asar holds the three.js loader and environment');
+}
+
+/**
+ * The Windows package (release/win-unpacked): the same check of app.asar, and the C# helper in resources\bin.
+ * Without the helper Buddy would install and run, with no way to copy, paste or see the screen. Nothing is signed:
+ * Buddy has no Windows code-signing certificate yet, so SmartScreen asks once ("More info", then "Run anyway").
+ */
+function checkWindowsPackage(appOutDir) {
+  const resources = path.join(appOutDir, 'resources');
+  requireThreeFiles(path.join(resources, 'app.asar'));
+  const helper = path.join(resources, 'bin', 'buddy-helper.exe');
+  if (!fs.existsSync(helper)) {
+    throw new Error(`${helper} is missing. Build it on Windows with \`npm run build:native\` (\`npm run dist:win\` does that first).`);
+  }
+  console.log('  • resources\\bin holds buddy-helper.exe');
+}
 
 /** The names in `required` that the asar at `asarPath` does not hold. */
 function missingFromAsar(asarPath, required = REQUIRED_IN_ASAR) {
@@ -56,20 +84,17 @@ function missingFromAsar(asarPath, required = REQUIRED_IN_ASAR) {
  * when they are missing.
  */
 exports.default = async function afterPack(context) {
+  if (context.electronPlatformName === 'win32') {
+    checkWindowsPackage(context.appOutDir);
+    return;
+  }
   if (context.electronPlatformName !== 'darwin') return;
 
   const appName = `${context.packager.appInfo.productFilename}.app`;
   const appPath = path.join(context.appOutDir, appName);
 
   // However the bundle is signed: an app.asar without three.js's loader would install, open and show nothing.
-  const missing = missingFromAsar(path.join(appPath, 'Contents', 'Resources', 'app.asar'));
-  if (missing.length > 0) {
-    throw new Error(
-      `app.asar is missing ${missing.join(' and ')}, so the installed Buddy would show no robot. ` +
-      "The file set for three.js's examples in electron-builder.config.js is what brings them in."
-    );
-  }
-  console.log('  • app.asar holds the three.js loader and environment');
+  requireThreeFiles(path.join(appPath, 'Contents', 'Resources', 'app.asar'));
 
   // With a certificate electron-builder signs the bundle itself, after this hook.
   if (context.packager.platformSpecificBuildOptions.identity !== null) return;

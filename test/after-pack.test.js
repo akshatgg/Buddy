@@ -6,7 +6,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const asar = require('@electron/asar');
-const { missingFromAsar, REQUIRED_IN_ASAR } = require('../build/afterPack');
+const afterPack = require('../build/afterPack');
+
+const { missingFromAsar, REQUIRED_IN_ASAR } = afterPack;
 
 /** An app.asar holding `files` (names relative to the app folder, each with some text), made in a temp folder. */
 async function makeAsar(t, files) {
@@ -49,4 +51,30 @@ test('only the exact path counts, not a longer name or the same name somewhere e
     'src/node_modules/three/examples/jsm/environments/RoomEnvironment.js',
   ]);
   assert.deepStrictEqual(missingFromAsar(archive), REQUIRED_IN_ASAR);
+});
+
+/** A Windows package folder as electron-builder leaves it: resources\\app.asar holding `files`, and the helper if `helper`. */
+async function windowsPackage(t, { files, helper }) {
+  const archive = await makeAsar(t, files);
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-win-unpacked-'));
+  t.after(() => fs.rmSync(out, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(out, 'resources', 'bin'), { recursive: true });
+  fs.copyFileSync(archive, path.join(out, 'resources', 'app.asar'));
+  if (helper) fs.writeFileSync(path.join(out, 'resources', 'bin', 'buddy-helper.exe'), 'MZ');
+  return { appOutDir: out, electronPlatformName: 'win32' };
+}
+
+test('a Windows package with the three.js files and the helper passes', async (t) => {
+  const context = await windowsPackage(t, { files: ['package.json', ...REQUIRED_IN_ASAR], helper: true });
+  await assert.doesNotReject(afterPack.default(context));
+});
+
+test('a Windows package without the helper fails the build: Buddy could not copy, paste or see the screen', async (t) => {
+  const context = await windowsPackage(t, { files: ['package.json', ...REQUIRED_IN_ASAR], helper: false });
+  await assert.rejects(afterPack.default(context), /buddy-helper\.exe/);
+});
+
+test('a Windows package without the three.js files fails the build: the buddy would not show', async (t) => {
+  const context = await windowsPackage(t, { files: ['package.json'], helper: true });
+  await assert.rejects(afterPack.default(context), /GLTFLoader\.js/);
 });

@@ -6,6 +6,9 @@ Buddy.app (`npm run dist:mac`, then "Install on your Mac" in the README), and us
 a real API key. Accessibility and Screen Recording go to Buddy, not to your
 terminal.
 
+## Connect an AI
+- [ ] Welcome → Connect an AI shows all four AIs; paste a Gemini key while Claude is chosen → Save key switches to Google Gemini and lists Gemini models.
+
 ## Paste-back
 - [ ] TextEdit: select `i am go to market yesterday`, click the buddy → Fix tab shows it → Fix → Replace replaces it.
 - [ ] TextEdit, empty line: ⌥Space → Write → `boss ko mail likho kal chutti chahiye` → Write → Insert puts the email at the cursor.

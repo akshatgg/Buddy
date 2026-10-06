@@ -94,6 +94,14 @@ Buddy (change character, rename, size), shortcut, AI (only when free mode is
 OFF: provider, API key, model), account (signed-in email, sign out), "Turn off
 buddy".
 
+The AI form (it is also the "Connect an AI" step of the Welcome window) shows
+all four AIs at once, as choices under "Which AI do you have a key for?", not in
+a closed list: nobody has to open a menu to find out that Buddy works with the
+AI their key is for. The chosen one has the accent border, and the key box says
+which one it is waiting for ("Paste your Google Gemini key"). A pasted key
+picks its own AI: Save key sees from how the key starts which AI it is for and
+switches to that one, saying so in plain words (see Own keys).
+
 ## 3. Characters
 
 - **6 at launch: 3 boys, 3 girls.** A small, cute robot in glossy cream plastic,
@@ -189,6 +197,10 @@ maxTokens }) → { text, usage: { inputTokens, outputTokens }, model }`:
   (lesson from Souffleur: hardcoded lists rot). Anthropic fallback:
   `claude-haiku-4-5-20251001`, `claude-sonnet-5-5`. Other fallbacks are
   checked against provider docs at implementation time.
+- Each provider says how its keys begin (`keyPrefixes`: `sk-ant-` Claude, `sk-`
+  OpenAI, `AIza` Gemini, `gsk_` Groq), and `providerForKey(key)` names the
+  provider a key belongs to; the longest matching start wins, so `sk-ant-…` is
+  Claude's and any other `sk-…` is OpenAI's. See Own keys.
 - Each model is marked vision-capable or not. Check screen with a non-vision
   model shows: "This model can't read screenshots. Pick another in Settings."
 - Non-streaming in v1 (answers are short).
@@ -211,7 +223,22 @@ raw prompt — so the free key cannot be used as a general-purpose free AI.
 ### Own keys
 
 Stored encrypted with Electron `safeStorage` (Keychain-backed) in the app's user
-data folder. Sent only to the chosen provider.
+data folder. Sent only to the AI the key belongs to.
+
+A pasted key picks its own AI. This is done in the main process
+(`settings:save-key`), so there is one source of truth. After the usual checks on
+the key's shape:
+
+- If the key starts the way another AI's keys do, not the chosen one's, it is
+  that AI's key: it is checked with that AI, saved under it, that AI's model is
+  chosen, and it becomes the chosen AI. The answer carries `switchedFrom` (the
+  AI that was chosen), and the form says "That's a Google Gemini key, so I
+  switched to Google Gemini. Key saved ✓".
+- A key that starts like none of them is checked with the chosen AI, as before.
+- All of this happens only once the key is kept. A key that is refused, or whose
+  check times out, changes nothing: no key is saved and the chosen AI stays.
+  With no internet the key is kept unchecked and the AI is still switched ("…
+  Key saved — I couldn't check it (no internet)").
 
 ## 6. Server, data and admin dashboard (Phase 2)
 

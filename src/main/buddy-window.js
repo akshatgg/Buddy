@@ -62,7 +62,10 @@ function createBuddyWindow({ store, screen, animate = true }) {
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     win.setIgnoreMouseEvents(true, { forward: true });
     const contents = win.webContents;
-    contents.on('did-start-loading', () => {
+    // did-navigate fires when a navigation commits (the first load, a reload), so the old page is gone and the
+    // new one is not ready. did-start-loading would also fire for a navigation that is refused (will-navigate
+    // below), which is followed by no did-finish-load: loaded would then stay false and drop every message.
+    contents.on('did-navigate', () => {
       loaded = false;
     });
     contents.on('did-finish-load', onLoaded);

@@ -171,6 +171,7 @@ func logLine(_ text: String) {
 func focusedIsSecure(_ pid: pid_t) -> Bool {
     let app = AXUIElementCreateApplication(pid)
     // A hung app must not keep the helper waiting longer than the JavaScript side does (5 s).
+    // Kept next to the read it guards, although the process-wide timeout set at startup covers it too.
     AXUIElementSetMessagingTimeout(app, 1.0)
     var focused: CFTypeRef?
     let status = AXUIElementCopyAttributeValue(app, "AXFocusedUIElement" as CFString, &focused)
@@ -369,6 +370,11 @@ func handle(_ msg: [String: Any]) {
 }
 
 // MARK: - start
+
+// One setting for the whole process: no Accessibility call, on any element, waits more than a second for an app
+// that does not answer. A timeout set on one element reaches only that element, not the ones read from it
+// (the focused field's role, say) or a new element for the same app (ensureFront's).
+AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1.0)
 
 let work = DispatchQueue(label: "buddy.helper.work")
 

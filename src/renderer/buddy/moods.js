@@ -4,11 +4,11 @@
 
 // How often the page draws. The cost is mostly a fixed price per frame, whatever
 // is on it, so the buddy draws as seldom as it can without looking jerky:
-//   FPS       30  while something is happening (a mood, a press, the head turning
-//                 to follow the pointer) and around each blink, so those are smooth;
-//   IDLE_FPS  15  for the 10 s after that, so it settles gently;
-//   REST_FPS   6  once nothing has happened for a while: only the slow float and
-//                 the occasional blink are left.
+//   FPS       30  a mood, a press or a drag, and around each blink: what has to look smooth;
+//   IDLE_FPS  15  the head following the pointer, until 10 s after it last turned, and the 10 s
+//                 after a mood or a press: slower is fine for a head that is only turning;
+//   REST_FPS   6  nothing has happened for 10 s: only the slow float and the occasional
+//                 blink are left.
 export const FPS = 30;
 export const IDLE_FPS = 15;
 export const REST_FPS = 6;
@@ -18,32 +18,32 @@ export const REST_FPS = 6;
 // always sees it coming (see blinker.soon).
 export const BLINK_LOOKAHEAD = 1 / REST_FPS;
 
-const LOOK_SECONDS = 1; // the head turning counts as something happening for this long
-const SETTLE_SECONDS = 10; // how long the settling rate lasts before the rest rate
+const SETTLE_SECONDS = 10; // how long the settling rate lasts, before the rest rate
 
 /**
- * Is the buddy doing something that needs the full rate? A mood, a press or a
- * drag, or the head turning (`sinceLookChange`, seconds since it last did).
- * A blink does not count: it is brief, and foreseen by blinker.soon().
+ * Does the buddy need the full rate? A mood, or a press or a drag. A blink is not
+ * counted: it is brief, and foreseen by blinker.soon(). Nor is the head turning:
+ * following the pointer looks fine at the settling rate.
  */
-export function isActive({ mood, pressing, sinceLookChange }) {
-  return mood !== 'idle' || pressing || sinceLookChange < LOOK_SECONDS;
+export function isActive({ mood, pressing }) {
+  return mood !== 'idle' || pressing;
 }
 
 /**
- * How many frames a second to draw. `blinkSoon` is blinker.soon(); `sinceActive`
- * is seconds since isActive() was last true.
+ * How many frames a second to draw. `blinkSoon` is blinker.soon(); `sinceLookChange`
+ * is seconds since the head last turned; `sinceActive` is seconds since isActive()
+ * was last true.
  */
 export function fpsFor({ mood, pressing, sinceLookChange, blinkSoon, sinceActive }) {
-  if (blinkSoon || isActive({ mood, pressing, sinceLookChange })) return FPS;
-  return sinceActive < SETTLE_SECONDS ? IDLE_FPS : REST_FPS;
+  if (blinkSoon || isActive({ mood, pressing })) return FPS;
+  return sinceLookChange < SETTLE_SECONDS || sinceActive < SETTLE_SECONDS ? IDLE_FPS : REST_FPS;
 }
 
 /**
- * Seconds to wait before drawing when something just needed the full rate
- * (a mood, a press, a head turn), so that a frame scheduled for later at the
- * idle or rest rate is not waited out. Draws at once, unless the last frame was
- * less than one full-rate frame ago: the page never draws faster than FPS.
+ * Seconds to wait before drawing when something has just happened (a mood, a
+ * press, a head turn), so that a frame already scheduled for later at the idle
+ * or rest rate is not waited out. Draws at once, unless the last frame was less
+ * than one full-rate frame ago: the page never draws faster than FPS.
  */
 export function wakeDelay(sinceLastFrame) {
   return Math.max(0, 1 / FPS - sinceLastFrame);

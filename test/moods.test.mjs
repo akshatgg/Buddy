@@ -7,7 +7,7 @@ import {
 // A buddy with nothing going on, and nothing for a long time.
 const resting = { mood: 'idle', pressing: false, sinceLookChange: Infinity, blinkSoon: false, sinceActive: Infinity };
 
-test('three frame rates: 30 when busy, 15 while settling, 6 at rest', () => {
+test('three frame rates: 30 for a mood, a press or a blink; 15 while settling; 6 at rest', () => {
   assert.strictEqual(FPS, 30);
   assert.strictEqual(IDLE_FPS, 15);
   assert.strictEqual(REST_FPS, 6);
@@ -24,37 +24,43 @@ test('full rate while the pointer is pressed or dragging', () => {
   assert.strictEqual(fpsFor({ ...resting, pressing: true }), 30);
 });
 
-test('full rate for a second after the head last turned', () => {
-  assert.strictEqual(fpsFor({ ...resting, sinceLookChange: 0 }), 30);
-  assert.strictEqual(fpsFor({ ...resting, sinceLookChange: 0.99 }), 30);
-  assert.strictEqual(fpsFor({ ...resting, sinceLookChange: 1 }), 6, 'a second on it is no longer a reason');
-});
-
 test('full rate around a blink, even at rest', () => {
   assert.strictEqual(fpsFor({ ...resting, blinkSoon: true }), 30);
 });
 
-test('15 fps for ten seconds after the last busy moment, then 6', () => {
+test('the head following the pointer runs at 15 fps, not 30, until ten seconds after it last turned', () => {
+  assert.strictEqual(fpsFor({ ...resting, sinceLookChange: 0 }), 15);
+  assert.strictEqual(fpsFor({ ...resting, sinceLookChange: 0.5 }), 15, 'not a reason for the full rate');
+  assert.strictEqual(fpsFor({ ...resting, sinceLookChange: 9.99 }), 15);
+  assert.strictEqual(fpsFor({ ...resting, sinceLookChange: 10 }), 6);
+});
+
+test('15 fps for ten seconds after the last mood or press, then 6', () => {
   assert.strictEqual(fpsFor({ ...resting, sinceActive: 0 }), 15);
   assert.strictEqual(fpsFor({ ...resting, sinceActive: 9.99 }), 15);
   assert.strictEqual(fpsFor({ ...resting, sinceActive: 10 }), 6);
   assert.strictEqual(fpsFor({ ...resting, sinceActive: Infinity }), 6);
 });
 
-test('a reason for the full rate beats the settling and rest rates', () => {
-  assert.strictEqual(fpsFor({ ...resting, sinceActive: 3, pressing: true }), 30);
-  assert.strictEqual(fpsFor({ ...resting, sinceActive: 3, mood: 'happy' }), 30);
-  assert.strictEqual(fpsFor({ ...resting, sinceActive: 3, sinceLookChange: 0.5 }), 30);
-  assert.strictEqual(fpsFor({ ...resting, sinceActive: 30, blinkSoon: true }), 30);
+test('either a recent head turn or a recent mood keeps it at 15 fps', () => {
+  assert.strictEqual(fpsFor({ ...resting, sinceLookChange: 50, sinceActive: 3 }), 15);
+  assert.strictEqual(fpsFor({ ...resting, sinceLookChange: 3, sinceActive: 50 }), 15);
+  assert.strictEqual(fpsFor({ ...resting, sinceLookChange: 50, sinceActive: 50 }), 6);
 });
 
-test('active means a mood, a press or a head turn in the last second; a blink does not count', () => {
-  const calm = { mood: 'idle', pressing: false, sinceLookChange: 5 };
+test('a reason for the full rate beats the settling and rest rates', () => {
+  assert.strictEqual(fpsFor({ ...resting, sinceActive: 3, sinceLookChange: 0, pressing: true }), 30);
+  assert.strictEqual(fpsFor({ ...resting, sinceActive: 3, sinceLookChange: 0, mood: 'happy' }), 30);
+  assert.strictEqual(fpsFor({ ...resting, sinceActive: 30, sinceLookChange: 30, blinkSoon: true }), 30);
+});
+
+test('active means a mood or a press; a blink and a head turn do not count', () => {
+  const calm = { mood: 'idle', pressing: false };
   assert.strictEqual(isActive(calm), false);
   assert.strictEqual(isActive({ ...calm, mood: 'happy' }), true);
   assert.strictEqual(isActive({ ...calm, pressing: true }), true);
-  assert.strictEqual(isActive({ ...calm, sinceLookChange: 0.99 }), true);
-  assert.strictEqual(isActive({ ...calm, sinceLookChange: 1 }), false);
+  assert.strictEqual(isActive({ ...calm, sinceLookChange: 0 }), false, 'the head turning is not');
+  assert.strictEqual(isActive({ ...calm, blinkSoon: true }), false, 'nor is a blink');
 });
 
 test('the blink lookahead is one rest frame, so the frame before a blink always sees it coming', () => {

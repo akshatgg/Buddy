@@ -24,7 +24,7 @@ const raycaster = new THREE.Raycaster();
 const blinker = createBlinker();
 const now = () => performance.now() / 1000;
 
-const LOOK_EPSILON = 0.002; // radians: a smaller turn of the head is not worth a frame
+const LOOK_EPSILON = 0.01; // radians (a few pixels of pointer): a smaller turn of the head is not worth waking for
 
 let rig = null;
 let mood = { name: 'idle', since: now() };
@@ -158,8 +158,8 @@ function stopLoop() {
 }
 
 /**
- * Something needs the full rate (a mood, a press, a head turn): do not wait out
- * a slow frame that is already scheduled. Replace it with one at the soonest the
+ * Something has just happened (a mood, a press, a head turn): do not wait out a
+ * slow frame that is already scheduled. Replace it with one at the soonest the
  * full rate allows, so there is still a single timer. Does nothing while paused.
  */
 function wake() {
@@ -235,8 +235,10 @@ window.buddy.onMood((name) => {
 });
 window.buddy.onCursor((point) => {
   cursor = point;
-  // The pointer moving is not the point; the head turning is. lookAt() stops
-  // changing once the pointer is far enough away, and then nothing needs drawing.
+  // The pointer moving is not what counts; the head turning is. lookAt() saturates (yaw and
+  // pitch each at their own distance), so a pointer that is far away turns the head no further
+  // and the buddy can rest. A real turn is drawn at once (wake) and keeps it at the settling
+  // rate until 10 s after the last one (see fpsFor).
   const look = lookAt(point.dx, point.dy);
   if (Math.abs(look.yaw - lastLook.yaw) > LOOK_EPSILON || Math.abs(look.pitch - lastLook.pitch) > LOOK_EPSILON) {
     lastLook = look;

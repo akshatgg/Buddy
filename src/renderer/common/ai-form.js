@@ -31,11 +31,21 @@ async function mountAiForm(root) {
   );
 
   let snap = await window.buddy.get();
+  if (!snap.ok) {
+    root.replaceChildren(el('p', { className: 'error', textContent: snap.error.message }));
+    return;
+  }
   const current = () => snap.providers.find((p) => p.id === snap.settings.provider);
 
   function setStatus(text, kind = 'muted') {
     status.textContent = text;
     status.className = kind;
+  }
+
+  /** What is known about the key: saved or not. */
+  function showKeyStatus() {
+    const p = current();
+    setStatus(p.hasKey ? 'Key saved ✓' : 'No key yet.', p.hasKey ? 'good' : 'muted');
   }
 
   function fillModels(models) {
@@ -48,8 +58,12 @@ async function mountAiForm(root) {
     fillModels(p.fallbackModels);
     if (!p.hasKey) return;
     const r = await window.buddy.models(p.id);
-    if (r.ok) fillModels(r.models);
-    else setStatus(r.error.message, 'error');
+    if (r.ok) {
+      fillModels(r.models);
+      showKeyStatus(); // a refresh that works clears the error an earlier one left
+    } else {
+      setStatus(r.error.message, 'error');
+    }
   }
 
   function render() {
@@ -58,12 +72,17 @@ async function mountAiForm(root) {
       value: x.id, textContent: x.label, selected: x.id === p.id,
     })));
     key.value = '';
-    setStatus(p.hasKey ? 'Key saved ✓' : 'No key yet.', p.hasKey ? 'good' : 'muted');
+    showKeyStatus();
   }
 
   provider.addEventListener('change', async () => {
     const r = await window.buddy.set({ provider: provider.value });
-    if (r.ok) snap = r;
+    if (!r.ok) {
+      render(); // back to the provider that is saved
+      setStatus(r.error.message, 'error');
+      return;
+    }
+    snap = r;
     render();
     await loadModels();
   });
@@ -77,18 +96,26 @@ async function mountAiForm(root) {
     }
     snap = r;
     render();
+    if (!r.verified) setStatus("Key saved — I couldn't check it (no internet)");
     fillModels(r.models);
   });
 
   model.addEventListener('change', async () => {
     const r = await window.buddy.set({ models: { ...snap.settings.models, [provider.value]: model.value } });
-    if (r.ok) snap = r;
+    if (r.ok) {
+      snap = r;
+      showKeyStatus();
+      return;
+    }
+    fillModels([...model.options].map((o) => o.value)); // back to the model that is saved
+    setStatus(r.error.message, 'error');
   });
 
   refresh.addEventListener('click', () => loadModels());
-  getKey.addEventListener('click', (e) => {
+  getKey.addEventListener('click', async (e) => {
     e.preventDefault();
-    window.buddy.openUrl(current().keyUrl);
+    const r = await window.buddy.openUrl(current().keyUrl);
+    if (!r.ok) setStatus(r.error.message, 'error');
   });
 
   render();

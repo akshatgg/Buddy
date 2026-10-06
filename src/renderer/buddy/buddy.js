@@ -146,6 +146,8 @@ function render(t) {
   setMorph('blink', pose.eyesClosed ? 1 : blinker.value(t));
   setMorph('smile', pose.smile);
   setMorph('mouthO', pose.mouthO);
+  setMorph('eyeLUp', pose.eyeL);
+  setMorph('eyeRUp', pose.eyeR);
   renderer.render(scene, camera);
 }
 

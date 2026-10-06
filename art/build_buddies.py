@@ -15,7 +15,8 @@ of CHARACTERS) picks the glow colour, the top piece and the colour of the feet.
 
 Every .glb follows the contract in docs/superpowers/specs (section 3):
 nodes Root, Head, ArmL, ArmR, and a mesh Face with morph targets blink,
-smile and mouthO, in that order. The app animates those by name, so keep them.
+smile, mouthO, eyeLUp and eyeRUp, in that order. The app animates those by
+name, so keep them.
 """
 
 import json
@@ -66,6 +67,7 @@ EYE_W, EYE_TALL = 0.06, 1.45       # open eye: half-width, and how many times as
 ARC_R, ARC_W, ARC_DIP = 0.056, 0.034, 0.3  # smile: arc radius, half-thickness, how far its ends dip (radians)
 BLINK_L, BLINK_W, BLINK_DZ = 0.07, 0.015, -0.02  # blink: the line's half-length, half-thickness and height
 MOUTH_DZ, MOUTH_R = -0.135, (0.018, 0.036)  # mouthO: the "o"'s height, inner and outer radius
+EYE_SWEEP = 0.17                   # eyeLUp, eyeRUp: how far up the screen they move an eye (31 % of its inner height)
 
 BODY_Z, BODY_SIZE = 0.45, (0.36, 0.3, 0.37)  # body centre height and half-sizes: 55 % of the head's width
 BODY_ROUND = 2.4
@@ -360,7 +362,7 @@ def eye_shapes():
     return open_eye, blink, smile
 
 
-KEYS = ("blink", "smile", "mouthO")  # the Face's morph targets, in the contract's order
+KEYS = ("blink", "smile", "mouthO", "eyeLUp", "eyeRUp")  # the Face's morph targets, in the contract's order
 
 
 def build_face(head, mats):
@@ -382,6 +384,18 @@ def build_face(head, mats):
         start = len(shapes["basis"])
         for key, points in (("basis", open_eye), ("blink", blink), ("smile", smile), ("mouthO", open_eye)):
             shapes[key] += [on_glass(side * EYE_X + p.x, EYE_DZ + p.y) for p in points]
+        # eyeLUp moves the eye on the viewer's left (the character's right: -X here, -x in
+        # three.js after the Y-up export) straight up the screen; eyeRUp moves the other eye.
+        # The app drives them from -1 (down) to 1 (up) while thinking, when the eyes are blink
+        # lines, so the shift is measured on those lines: half the way from the line moved
+        # down to the line moved up. It then slides straight, on the curved glass or just in
+        # front of it, never sinking into it.
+        shift = [(on_glass(side * EYE_X + p.x, EYE_DZ + p.y + EYE_SWEEP)
+                  - on_glass(side * EYE_X + p.x, EYE_DZ + p.y - EYE_SWEEP)) / 2 for p in blink]
+        rest = shapes["basis"][start:]
+        moving, still = ("eyeLUp", "eyeRUp") if side < 0 else ("eyeRUp", "eyeLUp")
+        shapes[moving] += [co + d for co, d in zip(rest, shift)]
+        shapes[still] += [co.copy() for co in rest]
         for r in range(rings - 1):
             for j in range(m):
                 j1 = (j + 1) % m
@@ -411,6 +425,8 @@ def build_face(head, mats):
         key = face.shape_key_add(name=name, from_mix=False)
         for point, co in zip(key.data, shapes[name]):
             point.co = co
+        if name in ("eyeLUp", "eyeRUp"):
+            key.slider_min = -1.0  # the app runs these from -1 (down) to 1; Blender would clamp them at 0
         # Blender 5 starts new keys at 1.0, and the glTF exporter writes these as
         # the mesh's default weights, so every key must start at rest.
         key.value = 0.0

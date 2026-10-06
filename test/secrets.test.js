@@ -14,12 +14,15 @@ const fakeSafeStorage = {
   decryptString: (b) => [...b.toString('utf8')].reverse().join(''),
 };
 
-function tmpFile() {
-  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-keys-')), 'keys.json');
+/** A keys file path inside a fresh temporary folder, which is removed when the test ends. */
+function tmpFile(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-keys-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return path.join(dir, 'keys.json');
 }
 
-test('keys are stored encrypted and read back', () => {
-  const file = tmpFile();
+test('keys are stored encrypted and read back', (t) => {
+  const file = tmpFile(t);
   const secrets = createSecrets({ file, safeStorage: fakeSafeStorage });
   assert.strictEqual(secrets.has('openai'), false);
   secrets.set('openai', 'sk-secret');
@@ -28,23 +31,23 @@ test('keys are stored encrypted and read back', () => {
   assert.ok(!fs.readFileSync(file, 'utf8').includes('sk-secret'), 'the key is not in the file as plain text');
 });
 
-test('clear removes a key', () => {
-  const secrets = createSecrets({ file: tmpFile(), safeStorage: fakeSafeStorage });
+test('clear removes a key', (t) => {
+  const secrets = createSecrets({ file: tmpFile(t), safeStorage: fakeSafeStorage });
   secrets.set('groq', 'g');
   secrets.clear('groq');
   assert.strictEqual(secrets.get('groq'), null);
 });
 
-test('refuses to save when the keychain is not available', () => {
+test('refuses to save when the keychain is not available', (t) => {
   const secrets = createSecrets({
-    file: tmpFile(),
+    file: tmpFile(t),
     safeStorage: { ...fakeSafeStorage, isEncryptionAvailable: () => false },
   });
   assert.throws(() => secrets.set('openai', 'k'), { code: 'no_keychain' });
 });
 
-test('a key that cannot be decrypted reads as missing', () => {
-  const file = tmpFile();
+test('a key that cannot be decrypted reads as missing', (t) => {
+  const file = tmpFile(t);
   createSecrets({ file, safeStorage: fakeSafeStorage }).set('gemini', 'k');
   const broken = createSecrets({
     file,

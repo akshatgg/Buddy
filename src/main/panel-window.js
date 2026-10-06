@@ -66,8 +66,8 @@ function createPanelWindow() {
     w.on('blur', () => {
       if (!w.isDestroyed() && !w.webContents.isDevToolsOpened()) hide();
     });
-    // Electron's default menu has File > Close Window (Cmd+W), which closes even a frameless panel,
-    // and after `closed` the window must not be used again.
+    // Buddy hides the panel rather than closing it (the menu's Close Window leaves it alone). A window that
+    // is closed all the same cannot be shown again: it is forgotten here, so the next open makes a new one.
     w.on('closed', () => forget(w));
     const contents = w.webContents;
     contents.on('will-navigate', (event) => event.preventDefault());

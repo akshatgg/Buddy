@@ -5,6 +5,7 @@ const assert = require('node:assert');
 const { BuddyError } = require('../shared/errors');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
 const { DEFAULTS } = require('../src/main/store');
+const { createShortcut } = require('../src/main/shortcut');
 const { chooseModel, registerSettingsIpc } = require('../src/main/ipc/settings');
 
 test('keeps the model the user picked when the key can use it', () => {
@@ -32,11 +33,12 @@ const refused = (code, message) => ({ ok: false, error: { code, message } });
 
 /**
  * registerSettingsIpc with fakes. `registered` is the shortcut that is
- * registered right now (null: none, as when it failed at launch); `taken` are
- * shortcuts another app owns. Provider calls are faked per test with
- * t.mock.method(PROVIDERS.anthropic, 'listModels', ...).
+ * registered right now (null: none, as when it failed at launch, or while Buddy is
+ * off); `taken` are shortcuts another app owns; `buddyOn` is whether Buddy is on.
+ * `realShortcut` replaces the fake shortcut. Provider calls are faked per test
+ * with t.mock.method(PROVIDERS.anthropic, 'listModels', ...).
  */
-function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = true } = {}) {
+function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut } = {}) {
   const data = { ...structuredClone(DEFAULTS), ...stored };
   const store = {
     get: (key) => data[key],
@@ -60,7 +62,7 @@ function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = t
   const calls = [];
   const opened = [];
   let current = registered;
-  let on = false;
+  let on = buddyOn;
   const handlers = {};
   registerSettingsIpc({
     ipcMain: { handle: (channel, fn) => { handlers[channel] = fn; } },
@@ -77,13 +79,17 @@ function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = t
     },
     buddy: { resize: () => calls.push(['resize']), reloadModel: () => calls.push(['reloadModel']) },
     power: { isOn: () => on, setOn: (value) => { on = value; calls.push(['setOn', value]); } },
-    shortcut: {
+    shortcut: realShortcut || {
       current: () => current,
       register(accelerator) {
         calls.push(['register', accelerator]);
         if (taken.includes(accelerator)) return false;
         current = accelerator;
         return true;
+      },
+      unregister() {
+        calls.push(['unregister']);
+        current = null;
       },
     },
     shell: { openExternal: async (url) => { opened.push(url); } },
@@ -402,7 +408,7 @@ test('set: only the settings a page may change are taken from a patch, and __pro
 });
 
 test('set: a shortcut that cannot be registered changes nothing at all', async () => {
-  const s = setup({ taken: ['Command+Q'] });
+  const s = setup({ taken: ['Command+Q'], buddyOn: true });
   const before = s.store.all();
   const r = await s.call('settings:set', { shortcut: 'Command+Q', size: 'large', buddyId: 'girl-1', buddyName: 'Zed' });
   assert.deepStrictEqual(r, refused('shortcut_taken', '"Command+Q" can\'t be used. Try another one.'));
@@ -412,7 +418,7 @@ test('set: a shortcut that cannot be registered changes nothing at all', async (
 });
 
 test('set: the shortcut is saved trimmed, and the trimmed text is what gets registered', async () => {
-  const s = setup();
+  const s = setup({ buddyOn: true });
   const r = await s.call('settings:set', { shortcut: '  CommandOrControl+Shift+B \n' });
   assert.strictEqual(r.settings.shortcut, 'CommandOrControl+Shift+B');
   assert.strictEqual(s.store.get('shortcut'), 'CommandOrControl+Shift+B');
@@ -420,21 +426,89 @@ test('set: the shortcut is saved trimmed, and the trimmed text is what gets regi
 });
 
 test('set: a shortcut that is registered already is not registered again', async () => {
-  const s = setup({ registered: 'Alt+Space' });
+  const s = setup({ registered: 'Alt+Space', buddyOn: true });
   assert.strictEqual((await s.call('settings:set', { shortcut: ' Alt+Space ' })).ok, true);
   assert.deepStrictEqual(s.calls, []);
   assert.strictEqual(s.store.get('shortcut'), 'Alt+Space');
 });
 
 test('set: saving the stored shortcut again registers it if it failed to register at launch', async () => {
-  const s = setup({ stored: { shortcut: 'Alt+Space' }, registered: null });
+  const s = setup({ stored: { shortcut: 'Alt+Space' }, registered: null, buddyOn: true });
   assert.strictEqual((await s.call('settings:set', { shortcut: 'Alt+Space' })).ok, true);
   assert.deepStrictEqual(s.calls, [['register', 'Alt+Space']]);
   assert.strictEqual(s.shortcutNow(), 'Alt+Space');
 
-  const stillTaken = setup({ stored: { shortcut: 'Alt+Space' }, registered: null, taken: ['Alt+Space'] });
+  const stillTaken = setup({ stored: { shortcut: 'Alt+Space' }, registered: null, taken: ['Alt+Space'], buddyOn: true });
   const r = await stillTaken.call('settings:set', { shortcut: 'Alt+Space' });
   assert.deepStrictEqual(r, refused('shortcut_taken', '"Alt+Space" can\'t be used. Try another one.'));
+});
+
+// While Buddy is off its shortcut is let go. Changing it in Settings still tells the user when the new one is
+// taken, but only checks it (registers it, then lets it go at once): it is taken for real when Buddy is turned on.
+
+test('set: while Buddy is off a new shortcut is saved and checked, then left unregistered', async () => {
+  const s = setup({ registered: null });
+  const r = await s.call('settings:set', { shortcut: ' CommandOrControl+Shift+B ' });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.settings.shortcut, 'CommandOrControl+Shift+B', 'the reply is the usual snapshot');
+  assert.strictEqual(r.buddyOn, false);
+  assert.strictEqual(s.store.get('shortcut'), 'CommandOrControl+Shift+B');
+  assert.deepStrictEqual(s.calls, [['register', 'CommandOrControl+Shift+B'], ['unregister']], 'registered to see that it is free, then let go');
+  assert.strictEqual(s.shortcutNow(), null);
+});
+
+test('set: while Buddy is off a shortcut that is taken is still refused, and nothing changes', async () => {
+  const s = setup({ registered: null, taken: ['Command+Q'] });
+  const before = s.store.all();
+  const r = await s.call('settings:set', { shortcut: 'Command+Q', size: 'large' });
+  assert.deepStrictEqual(r, refused('shortcut_taken', '"Command+Q" can\'t be used. Try another one.'));
+  assert.deepStrictEqual(s.store.all(), before);
+  assert.deepStrictEqual(s.calls, [['register', 'Command+Q']], 'no resize either');
+  assert.strictEqual(s.shortcutNow(), null);
+});
+
+test('set: while Buddy is off, saving the shortcut that is already saved checks it again and lets it go', async () => {
+  const s = setup({ stored: { shortcut: 'Alt+Space' }, registered: null });
+  assert.strictEqual((await s.call('settings:set', { shortcut: 'Alt+Space' })).ok, true);
+  assert.deepStrictEqual(s.calls, [['register', 'Alt+Space'], ['unregister']]);
+  assert.strictEqual(s.shortcutNow(), null);
+
+  const taken = setup({ stored: { shortcut: 'Alt+Space' }, registered: null, taken: ['Alt+Space'] });
+  const r = await taken.call('settings:set', { shortcut: 'Alt+Space' });
+  assert.deepStrictEqual(r, refused('shortcut_taken', '"Alt+Space" can\'t be used. Try another one.'));
+});
+
+test('set: other settings changed while Buddy is off do not touch the shortcut at all', async () => {
+  const s = setup({ registered: null });
+  assert.strictEqual((await s.call('settings:set', { size: 'large', buddyName: 'Zed' })).ok, true);
+  assert.deepStrictEqual(s.calls, [['resize']]);
+});
+
+test('set: with the real shortcut object, one changed while Buddy is off is taken only when Buddy is turned on', async () => {
+  const system = new Map(); // what the system has registered: accelerator -> handler
+  const globalShortcut = {
+    register(accelerator, fn) {
+      if (accelerator === 'Command+Q') return false; // another app has it
+      system.set(accelerator, fn);
+      return true;
+    },
+    unregister: (accelerator) => system.delete(accelerator),
+  };
+  const shortcut = createShortcut({ globalShortcut, onPress: () => {} });
+  shortcut.register('Alt+Space');
+  shortcut.unregister(); // Buddy was turned off
+  const s = setup({ realShortcut: shortcut });
+
+  assert.strictEqual((await s.call('settings:set', { shortcut: 'CommandOrControl+Shift+B' })).ok, true);
+  assert.deepStrictEqual([...system.keys()], [], 'nothing is registered while Buddy is off');
+  const taken = await s.call('settings:set', { shortcut: 'Command+Q' });
+  assert.strictEqual(taken.error.code, 'shortcut_taken');
+  assert.deepStrictEqual([...system.keys()], [], 'and a refused one registers nothing either');
+  assert.strictEqual(s.store.get('shortcut'), 'CommandOrControl+Shift+B');
+
+  // Buddy is turned on: main.js registers what is saved.
+  assert.strictEqual(shortcut.register(s.store.get('shortcut')), true);
+  assert.deepStrictEqual([...system.keys()], ['CommandOrControl+Shift+B']);
 });
 
 test("set: a blank name falls back to the buddy's own name, as the Welcome window does", async () => {

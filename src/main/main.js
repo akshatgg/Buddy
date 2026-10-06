@@ -7,7 +7,7 @@
  */
 
 const path = require('node:path');
-const { app, clipboard, globalShortcut, ipcMain, powerMonitor, safeStorage, screen } = require('electron');
+const { app, clipboard, globalShortcut: systemShortcut, ipcMain, powerMonitor, safeStorage, screen } = require('electron');
 const { createStore } = require('./store');
 const { createSecrets } = require('./secrets');
 const { createAi } = require('./ai');
@@ -46,6 +46,8 @@ async function start(options = {}) {
   const ai = createAi({ store, secrets });
   const helper = options.helper || new Helper({ binPath: helperPath() });
   helper.start();
+  // The end-to-end test passes its own, so that it never grabs the person's real shortcut.
+  const globalShortcut = options.globalShortcut || systemShortcut;
 
   const characters = loadCharacters();
   const buddy = createBuddyWindow({ store, screen, animate: options.animate !== false });
@@ -70,8 +72,17 @@ async function start(options = {}) {
     },
   });
   const onCall = () => {
+    // The shortcut is let go while Buddy is off. This is the second guard, for a press that was already on its way.
+    if (!power.isOn()) return;
     actions.toggle().catch((err) => console.error('[buddy] could not open the panel', err));
   };
+
+  // The shortcut is taken only while Buddy is on: it opens the panel, and the panel reads the person's selection.
+  const shortcut = createShortcut({ globalShortcut, onPress: onCall });
+  function takeShortcut() {
+    const accelerator = store.get('shortcut');
+    if (!shortcut.register(accelerator)) console.warn(`[buddy] could not register the shortcut ${accelerator}`);
+  }
 
   let tray = null;
   const power = createPower({
@@ -79,16 +90,17 @@ async function start(options = {}) {
     loginItems: options.loginItems || electronLoginItems(app),
     onChange(on) {
       if (on) {
+        takeShortcut();
         buddy.show();
         buddy.mood('wave');
       } else {
+        shortcut.unregister();
         panel.hide();
         buddy.hide();
       }
       tray.refresh();
     },
   });
-  const shortcut = createShortcut({ globalShortcut, onPress: onCall });
 
   tray = createTray({
     getState: () => ({ buddyOn: power.isOn(), visible: buddy.isVisible() }),
@@ -115,9 +127,6 @@ async function start(options = {}) {
     },
   });
 
-  if (!shortcut.register(store.get('shortcut'))) {
-    console.warn(`[buddy] could not register the shortcut ${store.get('shortcut')}`);
-  }
   app.on('second-instance', openSettings);
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
@@ -134,6 +143,7 @@ async function start(options = {}) {
   if (store.get('onboarded')) {
     power.syncAtLaunch();
     if (power.isOn()) {
+      takeShortcut();
       buddy.show();
       buddy.mood('wave');
     }

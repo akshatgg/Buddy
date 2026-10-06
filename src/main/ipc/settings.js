@@ -53,6 +53,20 @@ function registerSettingsIpc({
   // tested in plain Node by passing a `shell` of their own.
   const openExternal = (url) => (shell || require('electron').shell).openExternal(url);
 
+  /**
+   * Take `accelerator` as the shortcut; false when it cannot be used. While Buddy is on it is
+   * compared with the shortcut that is registered now, not the saved one, so saving again retries
+   * one that failed at launch. While Buddy is off its shortcut is let go: the new one is only
+   * checked (registered, then let go at once), so the user still hears when it is taken. It is
+   * registered for real when Buddy is turned on.
+   */
+  function useShortcut(accelerator) {
+    if (power.isOn()) return accelerator === shortcut.current() || shortcut.register(accelerator);
+    if (!shortcut.register(accelerator)) return false;
+    shortcut.unregister();
+    return true;
+  }
+
   function snapshot() {
     const settings = store.all();
     delete settings.positions;
@@ -88,11 +102,10 @@ function registerSettingsIpc({
       changes.buddyName = name || characters.get(changes.buddyId ?? store.get('buddyId')).defaultName;
     }
     // Last, so that a refused patch changes nothing: registering a shortcut is the one step
-    // that throwing afterwards would not undo. It is compared with the shortcut that is
-    // registered now, not the saved one, so saving again retries one that failed at launch.
+    // that throwing afterwards would not undo.
     if (Object.hasOwn(changes, 'shortcut')) {
       changes.shortcut = String(changes.shortcut).trim();
-      if (changes.shortcut !== shortcut.current() && !shortcut.register(changes.shortcut)) {
+      if (!useShortcut(changes.shortcut)) {
         throw new BuddyError('shortcut_taken', `"${changes.shortcut}" can't be used. Try another one.`);
       }
     }

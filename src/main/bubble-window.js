@@ -13,6 +13,14 @@ function createBubbleWindow() {
   let ready = null;
   let timer = null;
 
+  /** Forget a window that is gone, so that the next say() builds a new one. */
+  function forget(w) {
+    if (win !== w) return;
+    clearTimeout(timer); // its hide timer would otherwise reach into a window that no longer exists
+    win = null;
+    ready = null;
+  }
+
   function create() {
     const w = new BrowserWindow({
       ...BUBBLE,
@@ -36,6 +44,7 @@ function createBubbleWindow() {
     w.setAlwaysOnTop(true, 'pop-up-menu');
     w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     w.setIgnoreMouseEvents(true);
+    w.on('closed', () => forget(w));
     const contents = w.webContents;
     contents.on('will-navigate', (event) => event.preventDefault());
     contents.on('did-fail-load', (_event, code, description) => {
@@ -44,9 +53,8 @@ function createBubbleWindow() {
     contents.on('render-process-gone', (_event, details) => {
       console.error('[buddy] the bubble page crashed:', details.reason);
       // Drop the window, so that the next say() builds a new one.
-      clearTimeout(timer);
       if (!w.isDestroyed()) w.destroy();
-      if (win === w) win = null;
+      forget(w);
     });
     ready = w.loadFile(path.join(__dirname, '..', 'renderer', 'bubble', 'index.html')).catch((err) => {
       console.error('[buddy] could not load the bubble page:', err.message);

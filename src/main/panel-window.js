@@ -25,6 +25,14 @@ function createPanelWindow() {
     }
   }
 
+  /** Forget a window that is gone, so that the next show() builds a new one. */
+  function forget(w) {
+    if (win === w) {
+      win = null;
+      ready = null;
+    }
+  }
+
   function create() {
     const w = new BrowserWindow({
       ...PANEL,
@@ -49,6 +57,9 @@ function createPanelWindow() {
     w.on('blur', () => {
       if (!w.isDestroyed() && !w.webContents.isDevToolsOpened()) hide();
     });
+    // Electron's default menu has File > Close Window (Cmd+W), which closes even a frameless panel,
+    // and after `closed` the window must not be used again.
+    w.on('closed', () => forget(w));
     const contents = w.webContents;
     contents.on('will-navigate', (event) => event.preventDefault());
     contents.on('did-fail-load', (_event, code, description) => {
@@ -58,7 +69,7 @@ function createPanelWindow() {
       console.error('[buddy] the panel page crashed:', details.reason);
       // Drop the window, so that the next show() builds a new one.
       if (!w.isDestroyed()) w.destroy();
-      if (win === w) win = null;
+      forget(w);
     });
     ready = w.loadFile(path.join(__dirname, '..', 'renderer', 'panel', 'index.html')).catch((err) => {
       console.error('[buddy] could not load the panel page:', err.message);

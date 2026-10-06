@@ -41,11 +41,12 @@ const refused = (code, message) => ({ ok: false, error: { code, message } });
  * `realShortcut` replaces the fake shortcut. Provider calls are faked per test
  * with t.mock.method(PROVIDERS.anthropic, 'listModels', ...). `signedIn` is whether someone is signed in; `free` is
  * the server's free-mode settings as the app last got them; `signInFails` and `cloudFails` make signing in or
- * fetching those settings fail.
+ * fetching those settings fail; `cloudSignsOut` makes that fetch sign the person out first, as the real one does
+ * when the server turns their sign-in down twice.
  */
 function setup({
   stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut,
-  signedIn = true, free = null, signInFails = null, cloudFails = null,
+  signedIn = true, free = null, signInFails = null, cloudFails = null, cloudSignsOut = false,
 } = {}) {
   const data = { ...structuredClone(DEFAULTS), ...stored };
   const store = {
@@ -91,6 +92,7 @@ function setup({
     last: () => free,
     async settings(options) {
       calls.push(['cloudSettings', options]);
+      if (cloudSignsOut) account.signOut();
       if (cloudFails) throw cloudFails;
       return free;
     },
@@ -673,6 +675,32 @@ test('account:sign-in still answers when the free settings cannot be fetched', a
   assert.deepStrictEqual([r.ok, r.account.signedIn], [true, true]);
 });
 
+// The server can turn a new sign-in down (a token it will not take, twice): cloud.js then signs the person out and
+// the fetch of the free settings fails. That is not a sign-in that worked.
+test('account:sign-in that the fetch of the free settings signed out again says why, and is not answered as signed in', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const expired = new BuddyError('signed_out', 'Your sign-in has expired. Sign in again.');
+  const s = setup({ signedIn: false, cloudFails: expired, cloudSignsOut: true });
+  assert.deepStrictEqual(await s.call('account:sign-in'), refused('signed_out', 'Your sign-in has expired. Sign in again.'));
+  assert.deepStrictEqual(
+    s.calls.filter(([name]) => ['signIn', 'cloudSettings', 'signOut'].includes(name)),
+    [['signIn'], ['cloudSettings', { force: true }], ['signOut']],
+  );
+  assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments), [['[buddy] could not fetch the free settings:', 'signed_out']], 'logged by kind only');
+});
+
+test('account:sign-in that ends signed out says what it can: the error\'s own words, else "Sign-in didn\'t finish"', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  for (const [cloudFails, message] of [
+    [new BuddyError('network', "Couldn't reach Buddy's server. Check your internet."), "Couldn't reach Buddy's server. Check your internet."],
+    [new TypeError('x is not a function'), "Sign-in didn't finish. Try again."], // not a message for a person
+    [null, "Sign-in didn't finish. Try again."], // the fetch worked, and the person was signed out meanwhile
+  ]) {
+    const s = setup({ signedIn: false, cloudFails, cloudSignsOut: true });
+    assert.deepStrictEqual(await s.call('account:sign-in'), refused('signed_out', message), String(cloudFails));
+  }
+});
+
 test('account:sign-out signs out and answers the signed-out state', async () => {
   const s = setup();
   const r = await s.call('account:sign-out');
@@ -692,6 +720,11 @@ test('settings:refresh fetches the free settings for someone signed in, and neve
 
   const failing = setup({ cloudFails: new BuddyError('server', "Buddy's server had a problem. Try again.") });
   assert.strictEqual((await failing.call('settings:refresh')).ok, true);
+
+  // A fetch that signed the person out is no failure of the page either: the answer says they are signed out.
+  const expired = setup({ cloudFails: new BuddyError('signed_out', 'Your sign-in has expired. Sign in again.'), cloudSignsOut: true });
+  const r = await expired.call('settings:refresh');
+  assert.deepStrictEqual([r.ok, r.account], [true, { signedIn: false }]);
 });
 
 test('onboarding:finish wants someone signed in, and finishes nothing otherwise', async () => {

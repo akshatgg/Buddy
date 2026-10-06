@@ -63,7 +63,7 @@ const globalShortcut = {
 };
 
 // Nor may it sign in to Google or call Buddy's server: the app gets this account and this server. A check changes
-// cloud.free to see the app follow the admin's switches, and signs out and in again.
+// cloud.server, as the admin would, to see the app follow once it asks again, and signs out and in again.
 const account = {
   signedIn: true,
   listeners: [],
@@ -91,8 +91,12 @@ const account = {
   },
 };
 
+const SERVER_SETTINGS = { freeOn: false, limitMode: 'daily', limit: 30, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false };
+
 const cloud = {
-  free: { freeOn: false, limitMode: 'daily', limit: 30, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false },
+  server: { ...SERVER_SETTINGS }, // what the server answers when the app asks for this person's free-mode settings
+  free: { ...SERVER_SETTINGS }, // what the app kept the last time it asked, which is what last() gives back
+  forgets: 0, // how often the app forgot the kept settings, as it does when someone signs out
   asks: [],
   adminConfig: { enabled: false, limitMode: 'daily', dailyRequests: 30, allowOwnKey: false, provider: 'anthropic', model: 'claude-haiku-4-5-20251001' },
   adminUsers: [{
@@ -130,9 +134,11 @@ const cloud = {
     return account.signedIn ? this.free : null;
   },
   async settings() {
+    if (account.signedIn) this.free = { ...this.server };
     return this.last();
   },
   forget() {
+    this.forgets += 1;
     for (const fn of this.listeners) fn();
   },
   async ask(action, input) {
@@ -147,7 +153,7 @@ const cloud = {
 // cloud.json's values: the account and the server above are what use them, so they only make Buddy "set up".
 const cloudConfig = { serverUrl: 'https://e2e.invalid', firebaseApiKey: 'e2e', googleClientId: 'e2e', googleClientSecret: 'e2e' };
 
-const delay =(ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const WATCHDOG_MS = 120_000;
 

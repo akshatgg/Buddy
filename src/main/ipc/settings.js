@@ -180,18 +180,28 @@ function registerSettingsIpc({
     await openExternal(url);
   });
 
-  /** Fetch this person's free-mode settings again. A failure is only logged: the page shows the last known ones. */
+  /**
+   * Fetch this person's free-mode settings again. A failure is logged (by kind) and handed back, not thrown: the page
+   * shows the last known settings, and only a caller that must know why it failed looks at what comes back.
+   */
   async function refreshFree() {
     try {
       await cloud.settings({ force: true });
+      return null;
     } catch (err) {
       console.warn('[buddy] could not fetch the free settings:', err.code || err.name);
+      return err;
     }
   }
 
   handle('account:sign-in', async () => {
     await account.signIn();
-    await refreshFree();
+    const failure = await refreshFree();
+    // The server can turn a new sign-in down: cloud.js then signs the person out, and the fetch fails. That is not a
+    // sign-in that worked, so it is not answered as one.
+    if (!account.isSignedIn()) {
+      throw new BuddyError('signed_out', failure instanceof BuddyError ? failure.message : "Sign-in didn't finish. Try again.");
+    }
     return snapshot();
   });
 

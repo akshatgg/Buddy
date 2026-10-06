@@ -4,6 +4,7 @@
 const $ = (id) => document.getElementById(id);
 let snap = null;
 let gridBuilt = false;
+let signingIn = 0; // sign-ins that wait for the browser: pressing the button again starts a newer one
 
 function showStatus(id, text, kind) {
   $(id).textContent = text;
@@ -36,7 +37,8 @@ function renderAi() {
   $('ai').hidden = !snap.ai.showForm;
 }
 
-function render() {
+/** Show `snap`. With `fields: false` the text boxes are left alone: a refresh must not throw away what is being typed. */
+function render({ fields = true } = {}) {
   renderAccount();
   renderAi();
   if (gridBuilt) {
@@ -46,9 +48,11 @@ function render() {
     renderBuddyGrid($('buddies'), snap.characters, snap.settings.buddyId, (c) => save({ buddyId: c.id }, 'buddy-status'));
     gridBuilt = true;
   }
-  $('name').value = snap.settings.buddyName;
-  $('size').value = snap.settings.size;
-  $('shortcut').value = snap.settings.shortcut;
+  if (fields) {
+    $('name').value = snap.settings.buddyName;
+    $('size').value = snap.settings.size;
+    $('shortcut').value = snap.settings.shortcut;
+  }
   $('power').textContent = snap.buddyOn ? 'Turn off buddy' : 'Turn on buddy';
   showStatus(
     'power-status',
@@ -77,7 +81,13 @@ async function renderPermissions() {
 
 $('sign-in').addEventListener('click', async () => {
   showStatus('account-status', 'Finish signing in in your browser…', 'muted');
-  const r = await window.buddy.signIn();
+  signingIn += 1;
+  let r;
+  try {
+    r = await window.buddy.signIn();
+  } finally {
+    signingIn -= 1;
+  }
   if (r.ok) {
     snap = r;
     render();
@@ -117,8 +127,19 @@ for (const which of ['accessibility', 'screenRecording']) {
     showStatus('perm-status', failed ? failed.error.message : '', failed ? 'error' : 'muted');
   });
 }
-// Coming back from System Settings: show what changed.
-window.addEventListener('focus', renderPermissions);
+// Coming back to this window: System Settings may have changed the permissions, and the account may have changed
+// behind this page's back (a sign-in that expired, or one that another window ended). Show what changed. What is being
+// typed stays, and a sign-in that waits for the browser answers by itself.
+window.addEventListener('focus', async () => {
+  renderPermissions();
+  if (signingIn || !snap?.ok) return;
+  const fresh = await window.buddy.get();
+  if (signingIn || !fresh.ok) return;
+  const changed = fresh.account.signedIn !== snap.account.signedIn;
+  snap = fresh;
+  render({ fields: false });
+  if (changed) showStatus('account-status', '', 'muted'); // what it said ("Signed in ✓", an error) no longer holds
+});
 
 (async () => {
   snap = await window.buddy.get();

@@ -7,6 +7,7 @@ let steps = ALL_STEPS; // without 'ai' when free mode covers this person (snap.a
 let step = 0;
 let snap = null;
 let chosen = null;
+let signingIn = 0; // sign-ins that wait for the browser: pressing the button again starts a newer one
 
 function showStatus(id, text, kind) {
   $(id).textContent = text;
@@ -62,6 +63,14 @@ function renderAiNote() {
   $('ai-note').hidden = !snap.ai.note;
 }
 
+/** Show `snap`: who is signed in, and what free mode means for them, decide the steps and whether Next is on. */
+function renderSnapshot() {
+  setSteps();
+  renderSignIn();
+  renderAiNote();
+  go(step);
+}
+
 async function allow(which, statusId) {
   const asked = await window.buddy.requestPermission(which);
   const opened = await window.buddy.openPermissionSettings(which);
@@ -79,24 +88,37 @@ function pick(character) {
 
 $('sign-in').addEventListener('click', async () => {
   showStatus('signin-status', 'Finish signing in in your browser…', 'muted');
-  const r = await window.buddy.signIn();
+  signingIn += 1;
+  let r;
+  try {
+    r = await window.buddy.signIn();
+  } finally {
+    signingIn -= 1;
+  }
   if (!r.ok) {
     // Cancelled means the button was pressed again: the newer sign-in speaks for itself.
     if (r.error.code !== 'sign_in_cancelled') showStatus('signin-status', r.error.message, 'error');
     return;
   }
   snap = r;
-  setSteps();
-  renderSignIn();
-  renderAiNote();
-  go(step);
+  renderSnapshot();
 });
 $('acc-open').addEventListener('click', () => allow('accessibility', 'acc-status'));
 $('scr-open').addEventListener('click', () => allow('screenRecording', 'scr-status'));
 $('acc-check').addEventListener('click', checkPermissions);
 $('scr-check').addEventListener('click', checkPermissions);
-window.addEventListener('focus', () => {
+// Coming back to this window: the permissions may have changed in System Settings, and the account may have changed
+// behind this page's back (a sign-in that expired, or one that another window ended). Show what changed. A sign-in
+// that waits for the browser answers by itself.
+window.addEventListener('focus', async () => {
   if (steps[step] === 'accessibility' || steps[step] === 'screen') checkPermissions();
+  if (signingIn || !snap?.ok) return;
+  const fresh = await window.buddy.get();
+  if (signingIn || !fresh.ok) return;
+  if (JSON.stringify([fresh.account, fresh.ai]) === JSON.stringify([snap.account, snap.ai])) return; // nothing new
+  if (fresh.account.signedIn !== snap.account.signedIn) showStatus('signin-status', '', 'muted'); // what it said no longer holds
+  snap = fresh;
+  renderSnapshot();
 });
 $('back').addEventListener('click', () => go(step - 1));
 $('next').addEventListener('click', async () => {
@@ -120,10 +142,7 @@ $('next').addEventListener('click', async () => {
     showLoadError(snap.error.message);
     return;
   }
-  setSteps();
-  renderSignIn();
-  renderAiNote();
-  go(step);
+  renderSnapshot();
   chosen = snap.settings.buddyId;
   renderBuddyGrid($('buddies'), snap.characters, chosen, pick);
   $('name').value = snap.characters.find((c) => c.id === chosen)?.defaultName || '';

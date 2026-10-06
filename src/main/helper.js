@@ -43,7 +43,12 @@ class Helper extends EventEmitter {
     });
     this.child = child;
     readline.createInterface({ input: child.stdout }).on('line', (line) => this.onLine(line));
-    child.on('error', (err) => console.error('[buddy] helper failed:', err.message));
+    // A write after the helper died raises EPIPE here; the 'exit' handler does the cleanup.
+    child.stdin.on('error', () => {});
+    child.on('error', (err) => {
+      console.error('[buddy] helper failed:', err.message);
+      this.onExit(child); // a spawn failure emits 'error' but never 'exit'
+    });
     child.on('exit', () => this.onExit(child));
   }
 
@@ -78,7 +83,6 @@ class Helper extends EventEmitter {
     } catch {
       return;
     }
-    this.nextRestartMs = this.restartMs; // it is talking, so it started fine
     if (msg.event) {
       if (msg.event === 'frontApp') this.lastApp = { pid: msg.pid, bundleId: msg.bundleId, name: msg.name };
       this.emit(msg.event, msg);
@@ -86,6 +90,7 @@ class Helper extends EventEmitter {
     }
     const waiting = this.pending.get(msg.id);
     if (!waiting) return;
+    this.nextRestartMs = this.restartMs; // it answered a call, so it works
     this.pending.delete(msg.id);
     clearTimeout(waiting.timer);
     if (msg.ok) waiting.resolve(msg.result || {});

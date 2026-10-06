@@ -91,3 +91,32 @@ test('a call that gets no answer times out', async () => {
   await assert.rejects(helper.call('ping'), { code: 'timeout' });
   helper.stop();
 });
+
+test('a write error on the helper pipe does not throw', () => {
+  const { helper, child } = started();
+  assert.doesNotThrow(() => child.stdin.emit('error', new Error('EPIPE')));
+  helper.stop();
+});
+
+test('if the helper cannot be spawned, waiting calls fail and it is retried', async () => {
+  const { helper, spawnImpl, child } = started({ restartMs: 5 });
+  const pending = helper.call('ping');
+  child.emit('error', new Error('spawn ENOENT'));
+  await assert.rejects(pending, { code: 'helper_exit' });
+  await sleep(30);
+  assert.strictEqual(spawnImpl.children.length, 2);
+  helper.stop();
+});
+
+test('a helper that keeps crashing is restarted more slowly each time', async () => {
+  const { helper, spawnImpl, child } = started({ restartMs: 5 });
+  child.reply({ event: 'frontApp', pid: 1, bundleId: 'a', name: 'A' });
+  await tick();
+  child.emit('exit', 1);
+  await sleep(20);
+  spawnImpl.children[1].reply({ event: 'frontApp', pid: 1, bundleId: 'a', name: 'A' });
+  await tick();
+  spawnImpl.children[1].emit('exit', 1);
+  assert.strictEqual(helper.nextRestartMs, 20);
+  helper.stop();
+});

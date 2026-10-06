@@ -56,7 +56,12 @@ The helper is built with the C# compiler that comes with Windows (.NET Framework
 so nothing else has to be installed.
 
     npm install
-    npm start          # builds the helper, bin\buddy-helper.exe, then starts Buddy
+    npm run build:native          # builds the helper, bin\buddy-helper.exe
+    node tools/helper-smoke.js    # checks the helper on its own, in 10 seconds
+    npm start                     # builds the helper again, then starts Buddy
+
+Quit Buddy (menu → Quit Buddy) before you start it again: Windows does not let the
+running helper be replaced.
 
 To install it, build the installer on Windows:
 
@@ -75,8 +80,16 @@ That makes `release\Buddy Setup <version>.exe`. Run it: it installs Buddy for yo
   ^ arrow). A left or a right click opens it.
 - **Always on.** As on the Mac, only the installed Buddy starts itself with Windows.
 - **Not on Windows:** Buddy does not read from or type into a terminal (Ctrl+C there
-  would stop what is running), and Windows does not let it type into an app that runs
-  as administrator. There the answer is copied instead: press Ctrl+V.
+  would stop what is running), VS Code's included, and Windows does not let it type
+  into an app that runs as administrator. There the answer is copied instead: press
+  Ctrl+V. It cannot tell the terminal of a JetBrains IDE (IntelliJ, PyCharm) from the
+  editor, so do not open Buddy from one.
+- **Passwords.** Buddy reads no password field, and nothing a password manager copies
+  (KeePass copies a password on Ctrl+C).
+- **If Microsoft Defender stops the helper** (it is not signed, and it sends keys
+  like a person does), allow it in Windows Security → Protection history.
+- **If `npm run dist:win` says "Cannot create symbolic link"**, turn on Developer Mode
+  (Settings → System → For developers) and run it again.
 - **Trying a build safely.** `BUDDY_USER_DATA` works the same way (in PowerShell):
 
       $env:BUDDY_USER_DATA = "$env:TEMP\buddy-trial"

@@ -6,7 +6,8 @@ What only a person can check on Windows. Run it on a Windows 10 or 11 PC, first 
 `docs/manual-checklist.md`.
 
 ## Start
-- [ ] `npm install`, `npm test` and `npm run test:e2e` pass.
+- [ ] `npm install`, then `npm run build:native` and `node tools/helper-smoke.js`: ping, frontmost and permissions answer, and clicking between apps names each one.
+- [ ] `npm test` and `npm run test:e2e` pass, and the e2e ends by itself.
 - [ ] `npm start` builds `bin\buddy-helper.exe` and opens the Welcome window: pick a buddy → Next → Connect an AI (no permission steps) → Start my buddy.
 - [ ] The buddy floats at the bottom right, above the taskbar. No black console window opened. Buddy is not in the taskbar and not in Alt+Tab.
 - [ ] The buddy's icon is in the corner of the taskbar (maybe under the ^ arrow); a left click and a right click both open its menu.
@@ -20,22 +21,30 @@ What only a person can check on Windows. Run it on a Windows 10 or 11 PC, first 
 - [ ] Gmail: Fix → Use the whole box, close the panel and type a letter → the draft is not replaced, and the caret is at its end.
 - [ ] WhatsApp: select a Hinglish message, Ctrl+Shift+Space → Fix → Replace gives an English message in the box (not sent).
 - [ ] Word: Write → Insert works.
-- [ ] Chrome, text selected: press Ctrl+Shift+Space and keep the keys down for a moment → the panel opens on Fix with the text, and Chrome's inspector (Ctrl+Shift+C) did not open.
+- [ ] Chrome, text selected: press Ctrl+Shift+Space and keep the keys down for a moment → the panel opens on Fix with the text once you let go, and Chrome's inspector (Ctrl+Shift+C) did not open.
+- [ ] The same, keeping the keys down for 5 seconds → no spaces typed over your text; the panel says it couldn't read the selection.
+- [ ] Open the panel 20 times in a row (the shortcut, then a click on the buddy) and type at once each time: the text always lands in the panel, never in your app.
 - [ ] The panel's header names the app (· Google Chrome, · WhatsApp, · Notepad).
-- [ ] After each paste, the clipboard still holds what it held before. With clipboard history on (Win+V), Buddy's answer is not in it.
+- [ ] After each paste, the clipboard still holds what it held before. With clipboard history on (Win+V), neither Buddy's answer nor a second copy of your old clipboard is in it.
 - [ ] Copy a picture (Paint, or a browser), open the panel with nothing selected and close it, then paste in Paint → the picture is still on the clipboard.
-- [ ] Esc, or ✕, closes the panel and you can type in your app again without clicking it.
+- [ ] Copy a picture, then select text in Notepad and open the panel (it reads the text), close it, and paste in Paint → the picture is back on the clipboard.
+- [ ] Copy cells in Excel (or a paragraph in Word), use Buddy in another app (Write → Insert), then paste back into Excel (or Word) → what you copied comes back with its formatting.
+- [ ] A multi-line answer pasted into Notepad keeps its lines.
+- [ ] Esc, ✕, the shortcut again, or a click on the buddy closes the panel, and you can type in your app again without clicking it.
 - [ ] In the panel's text boxes Ctrl+C, Ctrl+V, Ctrl+Z and Ctrl+A work; Ctrl+Enter presses Write / Fix / Check.
 
 ## Check screen
 - [ ] Gmail compose in Chrome with mistakes → Check screen → the thumbnail shows only the Chrome window (not the panel, no black edges) → Check gives "Has problems", a list and a corrected version.
 - [ ] With display scaling at 150 % (Settings → System → Display), the thumbnail is sharp and whole.
+- [ ] An old app that Windows stretches at 150 % (for example one that looks slightly blurry): the thumbnail shows the whole window, with no black part.
 - [ ] With a model that cannot see images (Groq `llama-3.3-70b-versatile`): Check → "This model can't read screenshots. Pick another in Settings."
 
 ## Safety and errors
-- [ ] Cursor in a password field in Chrome, in Edge, and in a classic Windows box (for example the password field of a Wi-Fi network) → open the panel → "I don't read password fields." and nothing is read.
+- [ ] Cursor in a password field in Chrome, in Edge, and in a classic Windows app (for example 7-Zip: Add to archive → Enter password) → open the panel → "I don't read password fields." and nothing is read.
+- [ ] If KeePass (or another password manager) is installed: select an entry in its list, open the panel → nothing is read ("I don't read passwords."), and the clipboard holds what it held before.
 - [ ] With the cursor still in that password field, Write something in the panel → Insert copies the answer ("Copied — press Ctrl+V") and types nothing into the field.
 - [ ] Windows Terminal running something that lasts (`ping -t localhost`): open the panel → it opens on Write and the ping keeps running. Insert → "Copied — press Ctrl+V", and nothing is typed into the terminal.
+- [ ] The same in VS Code's terminal (`npm start` of Buddy itself is a good one): the program keeps running.
 - [ ] Notepad run as administrator: Insert → "Copied — press Ctrl+V".
 - [ ] Wi-Fi off → Write → "Couldn't reach …"; the buddy looks sleepy, then wakes up after a few seconds.
 - [ ] A wrong key in Settings → "Your … key was rejected. Check it in Settings.", with an "Open Settings" button that opens Settings.

@@ -67,38 +67,61 @@ compiler reads a file in the PC's own code page.
 | `captureSelection` | As on the Mac with Ctrl instead of ⌘: password check, save the clipboard, optional Ctrl+A, Ctrl+C, wait up to 300 ms for the clipboard to change, read the text, Right arrow after a whole-box read, put the clipboard back only if it changed. |
 | `paste` | As on the Mac: password check, save the clipboard, write the text, optional Ctrl+A, Ctrl+V, wait 500 ms, always put the clipboard back. |
 | `screenshot` | `PrintWindow(PW_RENDERFULLCONTENT)` of the program's window (only that window, as on the Mac), cropped to its visible frame, long edge at most 1568 px, JPEG quality 80. A minimised window → `no_window`. |
+| `activate { pid }` (Windows only) | Hands the keyboard back to the person's app when the panel closes (Esc, ✕, the shortcut, a click on the buddy). Electron hides a window on Windows without activating another, so the hidden panel would keep the keyboard. |
+| `focusWindow { hwnd }` (Windows only) | Brings the panel forward right after it opens, when Windows did not let Buddy take the front: otherwise the person's keys would still go to their app, where their text is selected (and Ctrl+Enter sends a Gmail draft). Only Buddy's own windows. |
 
 Details that are new on Windows:
 
 - **Keys the person still holds.** The shortcut fires while its keys are down, and Ctrl+C with
   Shift held is Ctrl+Shift+C (the inspector in Chrome). Before Ctrl+A/C/V the helper waits up to
-  1 s for Shift, Ctrl, Alt and Win to be let go, then lets go of any still down, after its own Ctrl
-  went down, so that a lone Alt or Win does not open a menu.
+  3 s for every key to be let go. It never lets go of one on the person's behalf: the keyboard
+  would keep repeating the shortcut's Space with nothing held with it, typing spaces over their
+  text. Keys still held after 3 s → `keys_held`, and nothing is sent.
 - **Clipboard.** Saved and restored in every memory format with the Win32 clipboard API (pictures
-  through their DIB form, Office drawings through `CopyEnhMetaFile`). Buddy's own temporary text
-  carries `ExcludeClipboardContentFromMonitorProcessing`, `CanIncludeInClipboardHistory = 0` and
-  `CanUploadToCloudClipboard = 0`, so it never shows up in Win+V, the cloud clipboard or clipboard
-  managers (the Mac's transient type). The helper's writes are owned by a message-only window on its
-  message-loop thread.
+  through their DIB form, Office drawings through `CopyEnhMetaFile`; OLE's own `DataObject` and
+  `Ole Private Data` are left out, as they point at the app that copied). Buddy's own temporary text
+  has Windows line breaks and carries `ExcludeClipboardContentFromMonitorProcessing`,
+  `CanIncludeInClipboardHistory = 0` and `CanUploadToCloudClipboard = 0`, so it never shows up in
+  Win+V, the cloud clipboard or clipboard managers (the Mac's transient type). Restores carry the two
+  "Can…" formats too, so Win+V does not get the person's old clipboard again after each use. The
+  helper's writes are owned by a message-only window on its message-loop thread. The person's own
+  selection, copied by their app, does enter Win+V: that cannot be helped.
+- **What a password manager copies** (marked `ExcludeClipboardContentFromMonitorProcessing` or
+  `Clipboard Viewer Ignore`) is never read: KeePass copies the selected entry's password on Ctrl+C,
+  though no password field has the focus. → `secure_field`, and the clipboard is put back. The
+  "Can…" formats alone are not taken as secret: Chrome's incognito windows put them on every copy.
 - **Password fields.** UI Automation's `IsPassword` on the focused element, given up after 1 s;
   when it cannot tell, the read goes on (as on the Mac).
-- **Terminals** (Windows Terminal, the console, Git Bash, ConEmu, PuTTY). Ctrl+C there stops the
-  running program when nothing is selected, so it is never sent: the panel opens empty, and "Use the
-  whole box" says it can't read a terminal. Paste is refused (a terminal runs every line), so the
-  answer is copied instead.
+- **Terminals**, known by their window (Windows Terminal, the console, Git Bash, ConEmu, PuTTY), by
+  their program (Alacritty, WezTerm, Tabby, Hyper, KiTTY, MobaXterm, PowerShell ISE …) or by the
+  focused field (xterm.js inside VS Code). Ctrl+C there stops the running program when nothing is
+  selected, so it is never sent: the panel opens empty, and "Use the whole box" says it can't read a
+  terminal. Paste is refused (a terminal runs every line), so the answer is copied instead. JetBrains
+  IDEs' terminal cannot be told apart (README).
 - **Apps run as administrator.** Windows drops keys sent to them without saying so, which would
-  lose the answer. Paste is refused, so the answer is copied instead.
-- **Focus back to Buddy.** After its keys, the helper is the program that sent the last input; it
-  calls `AllowSetForegroundWindow` for Buddy, so the panel can take the focus when it opens.
-- Per-monitor DPI aware, so window sizes and screenshots are in real pixels.
+  lose the answer or make a box look empty. Reading and pasting are refused with `elevated`, and the
+  answer is copied instead.
+- **Focus back to Buddy.** Windows lets only the program that sent the last input event bring a
+  window forward, and takes that back at the person's next key. After reading, once the keys are up,
+  the helper sends an input event that does nothing and calls `AllowSetForegroundWindow` for Buddy;
+  `focusWindow` then makes sure.
+- **Nothing waits on another app's window**: `ShowWindowAsync`, `SetWindowPos(SWP_ASYNCWINDOWPOS)`,
+  and no `AttachThreadInput` with a hung thread. If a call still takes too long, `helper.js` stops
+  the helper and starts a fresh one (on the Mac too), so one hung app cannot leave every later call
+  waiting. Reading and pasting get 10 s, other calls 5 s.
+- Per-monitor DPI aware, so window sizes and screenshots are in real pixels. Lines go out through a
+  writer thread, so the message loop never waits for Buddy to read a large reply.
+- `tools/helper-smoke.js` checks the helper on its own (ping, frontmost, permissions, the apps in
+  front) before any UI test.
 
 ## 4. The app
 
 | Part | Change |
 |---|---|
-| `src/main/platform.js` | new: floating window type, default shortcut, paste keys, helper file name |
+| `src/main/platform.js` | new: floating window type, default shortcut, paste keys, helper file name, whether the helper moves the focus, line breaks |
 | `src/main/store.js` | default shortcut from `platform.js` |
-| `src/main/actions.js` | "Copied — press Ctrl+V" on Windows |
+| `src/main/actions.js` | "Copied — press Ctrl+V" on Windows; `dismiss()` closes the panel and, on Windows, calls `activate`; on Windows `focusWindow` after the panel shows; Windows line breaks on the clipboard |
+| `src/main/ipc/panel.js` | Esc and ✕ close the panel through `actions.dismiss()` |
 | `src/main/{buddy,bubble,panel}-window.js` | window type from `platform.js` |
 | `src/main/main.js` | helper file name; `app.setAppUserModelId('com.akshatgg.buddy')` on Windows (the login item's name) |
 | `src/main/app-menu.js` | no application menu on Windows |
@@ -106,12 +129,13 @@ Details that are new on Windows:
 | `src/main/settings-windows.js` | `app.focus({ steal })` on the Mac only (on Windows it focuses the process's first window, which can be the buddy) |
 | `src/main/ipc/settings.js` | `platform` in the snapshot |
 | `src/main/secrets.js` | Windows wording when the key store is not available |
-| `src/main/helper.js` | "Buddy's helper" in its messages; `windowsHide` when it starts the helper |
+| `src/main/helper.js` | "Buddy's helper" in its messages; `windowsHide`; a call that times out stops the helper, which then starts afresh; 10 s for reading and pasting |
 | Welcome, Settings, panel, `base.css` | as in §2; Segoe UI in the font list |
 | `tools/build-native.js` | `npm run build:native` builds the helper for the system it runs on (swiftc or csc) |
 | `package.json` | `build:native` runs that script; `dist:win`; the test globs in double quotes, which cmd.exe also reads as quotes |
 | `.gitattributes` | LF line endings in every checkout, Windows included |
 | `tools/make-tray-icon.js` | also writes the Windows tray icon |
+| `tools/helper-smoke.js` | new: checks the helper on its own |
 | `electron-builder.config.js`, `build/afterPack.js` | `win` (NSIS, x64, the helper as an extra resource); afterPack checks the Windows package for the three.js files and the helper |
 | `test/e2e` | runs on both: the shortcut and app menu checks follow the platform |
 
@@ -123,6 +147,5 @@ Details that are new on Windows:
   assemblies in C# 5 mode, to catch mistakes. It is not run there.
 - On Windows, by the owner: `npm test`, `npm run test:e2e`, and `docs/manual-checklist-windows.md`
   with `npm start` and with the installed app.
-- Not yet known, to be seen in that test: whether Esc returns the focus to the person's app by itself
-  (if not, the helper gets an `activate` command for it), and whether PrintWindow draws every app
-  (some GPU-drawn windows come out black).
+- Not yet known, to be seen in that test: whether PrintWindow draws every app (some GPU-drawn
+  windows, and old apps Windows stretches at 125–150 %, may come out partly black).

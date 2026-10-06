@@ -155,13 +155,14 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout, c
         console.warn('[buddy] paste failed, copied instead:', err.code);
       }
     }
-    clipboard.writeText(text);
+    // Electron's clipboard writes are asynchronous: say "copied" only once the text is there.
+    await clipboard.writeText(text);
     ui.bubble(COPIED);
     return { copied: true };
   }
 
-  function copy(text) {
-    clipboard.writeText(text);
+  async function copy(text) {
+    await clipboard.writeText(text);
     ui.bubble('Copied');
     return { copied: true };
   }

@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { createActions, COPIED } = require('../src/main/actions');
 
-function setup({ lastApp = { pid: 7, name: 'Google Chrome' }, replies = {}, ask } = {}) {
+function setup({ lastApp = { pid: 7, name: 'Google Chrome' }, replies = {}, ask, clipboard: givenClipboard } = {}) {
   const log = [];
   const helper = {
     lastApp,
@@ -31,7 +31,7 @@ function setup({ lastApp = { pid: 7, name: 'Google Chrome' }, replies = {}, ask 
     bubble: (text) => log.push(['bubble', text]),
     mood: (name) => log.push(['mood', name]),
   };
-  const clipboard = {
+  const clipboard = givenClipboard || {
     text: null,
     writeText(text) {
       this.text = text;
@@ -349,11 +349,89 @@ test('a failed paste is logged with its cause before the clipboard takes over', 
   assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments), [['[buddy] paste failed, copied instead:', 'not_frontmost']]);
 });
 
-test('copy puts it on the clipboard and says so', () => {
+test('copy puts it on the clipboard and says so', async () => {
   const s = setup();
-  assert.deepStrictEqual(s.actions.copy('Hi'), { copied: true });
+  assert.deepStrictEqual(await s.actions.copy('Hi'), { copied: true });
   assert.strictEqual(s.clipboard.text, 'Hi');
   assert.deepStrictEqual(entries(s.log, 'bubble')[0], ['bubble', 'Copied']);
+});
+
+/** Electron's clipboard (from Electron 44): writeText answers a promise. This one is settled by hand. */
+function asyncClipboard() {
+  const clipboard = {
+    text: null,
+    writes: [],
+    writeText(text) {
+      return new Promise((resolve, reject) => {
+        clipboard.writes.push({
+          done() {
+            clipboard.text = text;
+            resolve();
+          },
+          fail: reject,
+        });
+      });
+    },
+  };
+  return clipboard;
+}
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test('insert says the answer was copied only once it is on the clipboard', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const clipboard = asyncClipboard();
+  const s = setup({ replies: { paste: failure('not_frontmost') }, clipboard });
+  await s.actions.open();
+  let answered = false;
+  const inserting = s.actions.insert('Hello', 'insert').then((r) => {
+    answered = true;
+    return r;
+  });
+  await tick();
+  assert.strictEqual(clipboard.writes.length, 1, 'the answer is being written to the clipboard');
+  assert.strictEqual(answered, false, 'insert has not answered yet');
+  assert.strictEqual(entries(s.log, 'bubble').length, 0, 'and the bubble does not say "Copied" yet');
+  clipboard.writes[0].done();
+  assert.deepStrictEqual(await inserting, { copied: true });
+  assert.deepStrictEqual(entries(s.log, 'bubble'), [['bubble', COPIED]]);
+});
+
+test('a clipboard that cannot be written makes insert fail instead of saying it copied', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const clipboard = asyncClipboard();
+  const s = setup({ replies: { paste: failure('not_frontmost') }, clipboard });
+  await s.actions.open();
+  const inserting = s.actions.insert('Hello', 'insert');
+  await tick();
+  clipboard.writes[0].fail(new Error('the pasteboard is busy'));
+  await assert.rejects(inserting, { message: 'the pasteboard is busy' });
+  assert.strictEqual(entries(s.log, 'bubble').length, 0);
+});
+
+test('copy says "Copied" only once the text is on the clipboard', async () => {
+  const clipboard = asyncClipboard();
+  const s = setup({ clipboard });
+  let answered = false;
+  const copying = Promise.resolve(s.actions.copy('Hi')).then((r) => {
+    answered = true;
+    return r;
+  });
+  await tick();
+  assert.strictEqual(answered, false, 'copy has not answered yet');
+  assert.strictEqual(entries(s.log, 'bubble').length, 0, 'and the bubble does not say "Copied" yet');
+  clipboard.writes[0].done();
+  assert.deepStrictEqual(await copying, { copied: true });
+  assert.deepStrictEqual(entries(s.log, 'bubble'), [['bubble', 'Copied']]);
+});
+
+test('a clipboard that cannot be written makes copy fail instead of saying it copied', async () => {
+  const clipboard = asyncClipboard();
+  const s = setup({ clipboard });
+  const copying = Promise.resolve(s.actions.copy('Hi'));
+  clipboard.writes[0].fail(new Error('the pasteboard is busy'));
+  await assert.rejects(copying, { message: 'the pasteboard is busy' });
+  assert.strictEqual(entries(s.log, 'bubble').length, 0);
 });
 
 test('screenshot and whole box need an app to work on', async () => {

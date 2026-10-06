@@ -1,7 +1,7 @@
 # Buddy v1 (macOS) — Design
 
 Date: 2026-10-06
-Status: approved in chat, awaiting review of this file
+Status: approved in chat
 Working name: **Buddy** (product name can change later)
 
 ## 1. Goal
@@ -133,7 +133,8 @@ the same eyes, so the app never blinks while smiling.
 three.js with `GLTFLoader` in the buddy window's renderer, transparent
 background, soft lighting. Rendering capped at 30 fps and paused when the buddy
 is hidden, the screen is locked, or the display sleeps. Target: under 3 % CPU
-while idle on Apple Silicon.
+while idle on Apple Silicon. Phase 1 measures about 4.3 % (CPU time over 60 s),
+which the user accepted for now; it is to be improved in Phase 3.
 
 ## 4. Always on
 
@@ -142,10 +143,16 @@ while idle on Apple Silicon.
   open at login (`app.setLoginItemSettings({ openAtLogin: true })`).
 - On launch: if `buddyOn`, show the buddy (with the wave mood).
 - **Quit** from the menu bar closes the app for now; it comes back at the next
-  login because the login item is still set.
+  login because the login item is still set. Buddy has no Cmd+Q: Quit is only in
+  the menu bar.
 - Only **Turn off buddy** (menu or Settings) sets `buddyOn = false`, removes the
-  login item and hides the buddy. The menu bar icon stays until Quit, with
-  "Turn on buddy".
+  login item, releases the global shortcut and hides the buddy. The menu bar
+  icon stays until Quit, with "Turn on buddy". The shortcut is registered only
+  while the buddy is on.
+- Only the installed app (`app.isPackaged`) has a login item. A development run
+  adds none: `setLoginItemSettings` registers the running app, which there is
+  Electron.app. At launch the login item is made to agree with `buddyOn` both
+  ways (added when on and missing, removed when off and still there).
 - If the buddy window's renderer crashes, it is reloaded automatically.
 
 ## 5. AI: keys, routing, prompts
@@ -359,10 +366,11 @@ request `{ id, cmd, args }` → reply `{ id, ok, result | error }`, plus events
 
 | Situation | What the user sees |
 |---|---|
-| Paste fails (no Accessibility permission, app gone) | Answer copied; bubble: "Copied — press ⌘V" |
+| Paste fails (no Accessibility permission, app gone, or the focus is a password field) | Answer copied; bubble: "Copied — press ⌘V" |
 | Focused field is a password field | "I don't read password fields." |
 | No Screen Recording permission | Check screen tab explains and links to System Settings |
 | No internet | Sleepy mood + "No internet" |
+| The AI does not answer within 60 s | "Claude took too long to answer. Try again." (the provider's name; not the sleepy mood) |
 | Own key wrong/expired/out of credit | Provider's reason in plain words + "Open Settings" |
 | `free_limit` | "You've used today's N free actions. Resets at midnight." |
 | `free_off` | Config refreshed; key setup screen appears |

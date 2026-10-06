@@ -17,7 +17,8 @@ const { EventEmitter } = require('node:events');
 const readline = require('node:readline');
 const { BuddyError } = require('../../shared/errors');
 
-const DEFAULT_TIMEOUTS = { screenshot: 10_000, default: 5_000 };
+// Reading the selection and pasting wait on the person's app (and, on Windows, for them to let go of the shortcut's keys).
+const DEFAULT_TIMEOUTS = { screenshot: 10_000, captureSelection: 10_000, paste: 10_000, default: 5_000 };
 const MAX_RESTART_MS = 30_000;
 
 class Helper extends EventEmitter {
@@ -41,7 +42,7 @@ class Helper extends EventEmitter {
     this.stopped = false;
     const child = this.spawnImpl(this.binPath, ['--owner-pid', String(this.ownerPid)], {
       stdio: ['pipe', 'pipe', 'inherit'],
-      windowsHide: true, // Windows would otherwise give the helper a console window of its own
+      windowsHide: true, // on Windows: no console window for it, ever
     });
     this.child = child;
     readline.createInterface({ input: child.stdout }).on('line', (line) => this.onLine(line));
@@ -68,10 +69,14 @@ class Helper extends EventEmitter {
       return Promise.reject(new BuddyError('helper_down', "Buddy's helper is not running."));
     }
     const id = this.nextId++;
+    const child = this.child;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new BuddyError('timeout', "Buddy's helper took too long."));
+        // The helper works one call at a time: one stuck on an app that hangs would keep every later call waiting.
+        // It is stopped, and onExit() starts a fresh one.
+        if (child === this.child) child.kill();
       }, this.timeouts[cmd] || this.timeouts.default);
       this.pending.set(id, { resolve, reject, timer });
       this.child.stdin.write(`${JSON.stringify({ id, cmd, args })}\n`);
@@ -113,4 +118,4 @@ class Helper extends EventEmitter {
   }
 }
 
-module.exports = { Helper };
+module.exports = { Helper, DEFAULT_TIMEOUTS };

@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
-const { Helper } = require('../src/main/helper');
+const { Helper, DEFAULT_TIMEOUTS } = require('../src/main/helper');
 
 /** Stands in for child_process.spawn: each child records what it was sent. */
 function fakeSpawn() {
@@ -131,12 +131,29 @@ test('its failures are told in words that fit the Mac and Windows alike', async 
   const idle = new Helper({ binPath: 'b', spawnImpl: fakeSpawn() });
   await assert.rejects(idle.call('ping'), { code: 'helper_down', message: "Buddy's helper is not running." });
 
-  const { helper, child } = started({ timeouts: { default: 10 } });
-  await assert.rejects(helper.call('ping'), { code: 'timeout', message: "Buddy's helper took too long." });
+  const slow = started({ timeouts: { default: 10 } });
+  await assert.rejects(slow.helper.call('ping'), { code: 'timeout', message: "Buddy's helper took too long." });
+  slow.helper.stop();
+
+  const { helper, child } = started();
   const failing = helper.call('ping');
-  child.reply({ id: 2, ok: false });
+  child.reply({ id: 1, ok: false });
   await assert.rejects(failing, { code: 'failed', message: "Buddy's helper failed." });
   const waiting = helper.call('ping');
   helper.stop();
   await assert.rejects(waiting, { code: 'helper_exit', message: "Buddy's helper stopped. Try again." });
+});
+
+test('a helper that does not answer in time is stopped and started afresh: a hung app must not leave every later call waiting', async () => {
+  const { helper, spawnImpl } = started({ timeouts: { ping: 10, default: 1000 }, restartMs: 5 });
+  const waiting = helper.call('frontmost');
+  await assert.rejects(helper.call('ping'), { code: 'timeout' });
+  await assert.rejects(waiting, { code: 'helper_exit' }, 'the calls queued behind it fail with it');
+  await sleep(30);
+  assert.strictEqual(spawnImpl.children.length, 2, 'and a new helper is started');
+  helper.stop();
+});
+
+test('reading the selection and pasting wait on the person\'s app, so they get 10 seconds; other calls get 5', () => {
+  assert.deepStrictEqual(DEFAULT_TIMEOUTS, { screenshot: 10_000, captureSelection: 10_000, paste: 10_000, default: 5_000 });
 });

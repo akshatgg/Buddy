@@ -15,16 +15,27 @@ module.exports = async function giveUpCheck(ctx, { assert, waitFor }) {
     await waitFor(() => gone, 'the page to crash');
   }
 
+  // The menu bar menu offers "Hide buddy" while the buddy is shown: it must be rebuilt when the window is given up.
+  const refresh = ctx.tray.refresh;
+  let refreshes = 0;
+  ctx.tray.refresh = () => {
+    refreshes += 1;
+    return refresh();
+  };
+
   const first = ctx.buddy.window();
   await waitFor(() => ready(first), 'the buddy page');
   for (const n of [1, 2]) {
     await crash(first);
     await waitFor(() => ready(first), `the page to come back after crash ${n}`);
   }
+  assert.strictEqual(refreshes, 0, 'a crash that is recovered from changes nothing in the menu');
   await crash(first);
   await waitFor(() => ctx.buddy.window() === null, 'the window to be dropped after the third crash');
   assert.ok(first.isDestroyed(), 'the old window is destroyed');
   assert.strictEqual(ctx.buddy.isVisible(), false, 'so the buddy is no longer reported as visible');
+  assert.strictEqual(refreshes, 1, 'and the menu bar menu was rebuilt, so it no longer offers "Hide buddy" for a buddy that is gone');
+  ctx.tray.refresh = refresh;
 
   ctx.buddy.show();
   const fresh = ctx.buddy.window();

@@ -18,7 +18,7 @@ const CURSOR_MS = 66; // about 15 updates a second is plenty for a head turn
 const MAX_CRASHES = 3; // this many page crashes within CRASH_WINDOW_MS and we stop reloading it
 const CRASH_WINDOW_MS = 60_000;
 
-function createBuddyWindow({ store, screen, animate = true }) {
+function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {} }) {
   let win = null;
   let loaded = false; // the page has finished loading, so it can take messages
   let pendingMood = null; // the latest mood sent while the page was not loaded
@@ -116,6 +116,7 @@ function createBuddyWindow({ store, screen, animate = true }) {
     paused = false;
     pendingMood = null;
     crashes = []; // a window made by a later show() gets its own reloads
+    onGiveUp(); // the menu bar menu still offers "Hide buddy" until it is told
   }
 
   /**

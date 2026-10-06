@@ -50,7 +50,13 @@ async function start(options = {}) {
   const globalShortcut = options.globalShortcut || systemShortcut;
 
   const characters = loadCharacters();
-  const buddy = createBuddyWindow({ store, screen, animate: options.animate !== false });
+  let tray = null;
+  const buddy = createBuddyWindow({
+    store,
+    screen,
+    animate: options.animate !== false,
+    onGiveUp: () => tray?.refresh(), // the page crashed again and again, and the window is gone: the menu must say so
+  });
   const bubble = createBubbleWindow();
   const panel = createPanelWindow();
   const windows = createSettingsWindows({ app });
@@ -84,7 +90,6 @@ async function start(options = {}) {
     if (!shortcut.register(accelerator)) console.warn(`[buddy] could not register the shortcut ${accelerator}`);
   }
 
-  let tray = null;
   const power = createPower({
     store,
     // None in a development run, which would register Electron.app; the end-to-end test passes its own.

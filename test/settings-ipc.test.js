@@ -27,6 +27,8 @@ const CHARACTERS = [
   { id: 'girl-1', defaultName: 'Anaya' },
 ];
 const CLAUDE = PROVIDERS.anthropic;
+const SETTINGS_PAGE = 'ours';
+const WELCOME_PAGE = 'welcome';
 const STRAY_KEY = "That doesn't look like an API key. Copy only the key and paste it again.";
 const FAILED = { ok: false, error: { code: 'failed', message: 'Something went wrong. Try again.' } };
 const refused = (code, message) => ({ ok: false, error: { code, message } });
@@ -66,7 +68,11 @@ function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = t
   const handlers = {};
   registerSettingsIpc({
     ipcMain: { handle: (channel, fn) => { handlers[channel] = fn; } },
-    windows: { owns: (webContents) => webContents === 'ours' },
+    windows: {
+      // 'ours' is the Settings window's page and 'welcome' the Welcome window's. owns(page, kind) asks about one kind.
+      owns: (webContents, kind) => (kind === undefined ? [SETTINGS_PAGE, WELCOME_PAGE].includes(webContents)
+        : webContents === (kind === 'onboarding' ? WELCOME_PAGE : SETTINGS_PAGE)),
+    },
     store,
     secrets,
     ai: { listModels: async (id, options) => { calls.push(['listModels', id, options]); return [`${id}-live`]; } },
@@ -95,8 +101,9 @@ function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = t
     shell: { openExternal: async (url) => { opened.push(url); } },
     onFinishOnboarding: () => calls.push(['finished']),
   });
-  const call = (channel, ...args) => handlers[channel]({ sender: 'ours' }, ...args);
-  return { call, handlers, store, keys, calls, opened, shortcutNow: () => current };
+  const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
+  const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
+  return { call, callFromWelcome, handlers, store, keys, calls, opened, shortcutNow: () => current };
 }
 
 test('settings:get answers the settings without positions or lastDisplayId, the buddies and the providers', async () => {
@@ -544,32 +551,52 @@ test('set: a name is trimmed and cut to 24 characters', async () => {
 
 test('onboarding:finish keeps a real choice and otherwise falls back to the first buddy and its own name', async () => {
   const s = setup();
-  assert.deepStrictEqual(await s.call('onboarding:finish', { buddyId: 'girl-1', buddyName: '  Pixie  ' }), { ok: true });
+  assert.deepStrictEqual(await s.callFromWelcome('onboarding:finish', { buddyId: 'girl-1', buddyName: '  Pixie  ' }), { ok: true });
   assert.deepStrictEqual([s.store.get('buddyId'), s.store.get('buddyName'), s.store.get('onboarded')], ['girl-1', 'Pixie', true]);
   assert.deepStrictEqual(s.calls, [['finished']]);
 
   const blank = setup();
-  await blank.call('onboarding:finish', { buddyId: 'girl-1', buddyName: '   ' });
+  await blank.callFromWelcome('onboarding:finish', { buddyId: 'girl-1', buddyName: '   ' });
   assert.strictEqual(blank.store.get('buddyName'), 'Anaya');
 
   const unknown = setup();
-  await unknown.call('onboarding:finish', { buddyId: 'nope', buddyName: '' });
+  await unknown.callFromWelcome('onboarding:finish', { buddyId: 'nope', buddyName: '' });
   assert.deepStrictEqual([unknown.store.get('buddyId'), unknown.store.get('buddyName')], ['boy-1', 'Aarav']);
 
   const none = setup();
-  assert.deepStrictEqual(await none.call('onboarding:finish'), { ok: true });
+  assert.deepStrictEqual(await none.callFromWelcome('onboarding:finish'), { ok: true });
   assert.deepStrictEqual([none.store.get('buddyId'), none.store.get('buddyName'), none.store.get('onboarded')], ['boy-1', 'Aarav', true]);
 
   const long = setup();
-  await long.call('onboarding:finish', { buddyName: ` ${'n'.repeat(40)} ` });
+  await long.callFromWelcome('onboarding:finish', { buddyName: ` ${'n'.repeat(40)} ` });
   assert.strictEqual(long.store.get('buddyName'), 'n'.repeat(24));
 });
 
 test('onboarding:finish refuses a choice that is not an object, and finishes nothing', async () => {
   const s = setup();
   for (const choice of [null, 'girl-1', 5, [], [{ buddyId: 'girl-1' }]]) {
-    assert.deepStrictEqual(await s.call('onboarding:finish', choice), refused('bad_request', 'Those choices are not valid.'), JSON.stringify(choice));
+    assert.deepStrictEqual(await s.callFromWelcome('onboarding:finish', choice), refused('bad_request', 'Those choices are not valid.'), JSON.stringify(choice));
   }
   assert.strictEqual(s.store.get('onboarded'), false);
   assert.deepStrictEqual(s.calls, []);
+});
+
+test('onboarding:finish is accepted from the Welcome window only: the Settings window cannot finish the Welcome', async () => {
+  const s = setup();
+  const refusedOutright = refused('not_allowed', 'Not allowed.');
+  assert.deepStrictEqual(await s.call('onboarding:finish', { buddyId: 'girl-1', buddyName: 'Pixie' }), refusedOutright);
+  assert.deepStrictEqual(await s.call('onboarding:finish'), refusedOutright);
+  assert.strictEqual(s.store.get('onboarded'), false, 'nothing was saved');
+  assert.strictEqual(s.store.get('buddyId'), 'boy-1');
+  assert.deepStrictEqual(s.calls, [], 'and nothing was finished: the Welcome stays open, the buddy stays off');
+
+  assert.deepStrictEqual(await s.callFromWelcome('onboarding:finish', { buddyId: 'girl-1', buddyName: 'Pixie' }), { ok: true });
+  assert.deepStrictEqual(s.calls, [['finished']]);
+});
+
+test('the Welcome window can use the other channels, as the Settings window can', async () => {
+  const s = setup();
+  assert.strictEqual((await s.callFromWelcome('settings:get')).ok, true);
+  assert.strictEqual((await s.callFromWelcome('settings:set', { size: 'large' })).ok, true);
+  assert.deepStrictEqual(await s.callFromWelcome('permissions:get'), { ok: true, accessibility: true, screenRecording: false });
 });

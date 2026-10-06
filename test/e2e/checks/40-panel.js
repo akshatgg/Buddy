@@ -56,9 +56,11 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
   ctx.actions.run = async () => { throw new BuddyError('bad_key', 'Your Claude key was rejected. Check it in Settings.'); };
   const open = ctx.windows.open;
   const opened = [];
+  let settingsWindow = null;
   ctx.windows.open = (kind) => {
     opened.push(kind);
-    return open.call(ctx.windows, kind);
+    settingsWindow = open.call(ctx.windows, kind);
+    return settingsWindow;
   };
   try {
     await writeSomething();
@@ -70,6 +72,7 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
     ctx.windows.open = open;
     ctx.actions.run = run;
     ctx.windows.close('settings');
+    if (settingsWindow) await waitFor(() => settingsWindow.isDestroyed(), 'the Settings window to close');
   }
 
   // Opening the panel again (or changing tab) clears the error and the button with it.

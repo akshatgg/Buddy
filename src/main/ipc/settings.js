@@ -50,6 +50,8 @@ function registerSettingsIpc({
   ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, onFinishOnboarding, shell,
 }) {
   const handle = guarded(ipcMain, (webContents) => windows.owns(webContents));
+  // Finishing the Welcome is for the Welcome window only: the Settings window has no business doing it.
+  const handleWelcome = guarded(ipcMain, (webContents) => windows.owns(webContents, 'onboarding'));
   // Electron is loaded only when a page asks to open something, so these handlers can be
   // tested in plain Node by passing a `shell` of their own.
   const openExternal = (url) => (shell || require('electron').shell).openExternal(url);
@@ -170,7 +172,7 @@ function registerSettingsIpc({
     await openExternal(url);
   });
 
-  handle('onboarding:finish', (choice = {}) => {
+  handleWelcome('onboarding:finish', (choice = {}) => {
     if (!isPlainObject(choice)) throw new BuddyError('bad_request', 'Those choices are not valid.');
     const buddyId = characters.list.some((c) => c.id === choice.buddyId) ? choice.buddyId : characters.list[0].id;
     const buddyName = String(choice.buddyName || '').trim().slice(0, NAME_MAX) || characters.get(buddyId).defaultName;

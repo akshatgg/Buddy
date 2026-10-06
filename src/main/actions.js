@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * What happens when the user works with the panel, in the order the Mac needs:
+ * What happens when the user works with the panel, in the order the system needs:
  * grab their selection before the panel takes the screen, run the AI, and put
  * the answer back into the app they came from -- or on the clipboard when
  * that is not possible. The panel holds the keyboard focus while it is open, so
@@ -10,8 +10,9 @@
 
 const { BuddyError } = require('../../shared/errors');
 const { AI_TIMEOUT_MS } = require('./ai');
+const { pasteKeys } = require('./platform');
 
-const COPIED = 'Copied — press ⌘V';
+const COPIED = `Copied — press ${pasteKeys}`;
 const SLEEPY_MS = 5000;
 const EMPTY_BOX = 'That box looks empty.';
 const UNREADABLE = "I couldn't read your selection — select it again or paste it here.";
@@ -80,10 +81,11 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout, c
 
   /**
    * Read everything in the box the user was writing in. The panel has the keyboard
-   * focus, so the helper's ⌘A and ⌘C would land in the panel itself (and bringing the
-   * app forward would blur it): it is hidden while the box is read, and shown again
-   * either way, with the text or with the reason it could not be read. Until it is
-   * back, toggle() does nothing: a click on the buddy would open a second panel.
+   * focus, so the helper's ⌘A and ⌘C (Ctrl+A and Ctrl+C on Windows) would land in
+   * the panel itself (and bringing the app forward would blur it): it is hidden while
+   * the box is read, and shown again either way, with the text or with the reason it
+   * could not be read. Until it is back, toggle() does nothing: a click on the buddy
+   * would open a second panel.
    */
   async function wholeBox() {
     const app = session.app;

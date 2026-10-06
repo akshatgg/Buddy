@@ -2,7 +2,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const path = require('node:path');
 const { createActions, COPIED } = require('../src/main/actions');
+const { onPlatform } = require('./helpers/platform');
 
 function setup({ lastApp = { pid: 7, name: 'Google Chrome' }, replies = {}, ask, clipboard: givenClipboard } = {}) {
   const log = [];
@@ -465,4 +467,10 @@ test('screenshot and whole box need an app to work on', async () => {
   await s.actions.open();
   await assert.rejects(s.actions.screenshot(), { code: 'no_app' });
   await assert.rejects(s.actions.wholeBox(), { code: 'no_app' });
+});
+
+test('the "copied" bubble names the keys that paste: ⌘V on the Mac, Ctrl+V on Windows', () => {
+  const file = path.join(__dirname, '..', 'src', 'main', 'actions.js');
+  assert.strictEqual(onPlatform('darwin', file, (m) => m.COPIED), 'Copied — press ⌘V');
+  assert.strictEqual(onPlatform('win32', file, (m) => m.COPIED), 'Copied — press Ctrl+V');
 });

@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createSecrets } = require('../src/main/secrets');
+const { onPlatform } = require('./helpers/platform');
 
 // Stands in for Electron's safeStorage: "encrypts" by reversing the text.
 const fakeSafeStorage = {
@@ -44,6 +45,27 @@ test('refuses to save when the keychain is not available', (t) => {
     safeStorage: { ...fakeSafeStorage, isEncryptionAvailable: () => false },
   });
   assert.throws(() => secrets.set('openai', 'k'), { code: 'no_keychain' });
+});
+
+test('the refusal names what keeps keys safe on the system: the Mac keychain, or Windows', () => {
+  const file = path.join(__dirname, '..', 'src', 'main', 'secrets.js');
+  const refusal = (m) => {
+    const keys = require('node:path').join(require('node:os').tmpdir(), 'buddy-keys-never-written.json');
+    try {
+      m.createSecrets({ file: keys, safeStorage: { isEncryptionAvailable: () => false } }).set('openai', 'k');
+      return null;
+    } catch (err) {
+      return { code: err.code, message: err.message };
+    }
+  };
+  assert.deepStrictEqual(onPlatform('darwin', file, refusal), {
+    code: 'no_keychain',
+    message: 'Your Mac keychain is not available, so the key cannot be saved safely.',
+  });
+  assert.deepStrictEqual(onPlatform('win32', file, refusal), {
+    code: 'no_keychain',
+    message: "Windows can't protect your key right now, so it cannot be saved safely.",
+  });
 });
 
 test('a key that cannot be decrypted reads as missing', (t) => {

@@ -25,11 +25,12 @@ const { createShortcut } = require('./shortcut');
 const { registerBuddyIpc } = require('./ipc/buddy');
 const { registerPanelIpc } = require('./ipc/panel');
 const { registerSettingsIpc } = require('./ipc/settings');
+const { helperFile, windows: onWindows } = require('./platform');
 
 function helperPath() {
   return app.isPackaged
-    ? path.join(process.resourcesPath, 'bin', 'buddy-helper')
-    : path.join(__dirname, '..', '..', 'bin', 'buddy-helper');
+    ? path.join(process.resourcesPath, 'bin', helperFile)
+    : path.join(__dirname, '..', '..', 'bin', helperFile);
 }
 
 async function start(options = {}) {
@@ -37,9 +38,12 @@ async function start(options = {}) {
     app.quit();
     return null;
   }
+  // Windows names the login item by this id and gives Buddy's windows to it; the installer's shortcut carries the same
+  // one (appId in electron-builder.config.js).
+  if (onWindows) app.setAppUserModelId('com.akshatgg.buddy');
   await app.whenReady();
   if (app.dock) app.dock.hide();
-  app.on('window-all-closed', () => {}); // a menu bar app: closing windows must not quit it
+  app.on('window-all-closed', () => {}); // a menu bar (or tray) app: closing windows must not quit it
 
   const userData = app.getPath('userData');
   const store = createStore({ file: path.join(userData, 'settings.json') });
@@ -62,7 +66,7 @@ async function start(options = {}) {
   const panel = createPanelWindow();
   const windows = createSettingsWindows({ app });
   const openSettings = () => windows.open('settings');
-  installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings and Welcome, and no Cmd+Q
+  installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings and Welcome, and no Cmd+Q (none on Windows)
 
   const actions = createActions({
     helper,

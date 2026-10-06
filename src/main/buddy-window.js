@@ -3,7 +3,7 @@
 /**
  * The buddy itself: a small see-through window that floats over every app.
  *
- * It never takes focus (type 'panel', focusable false), so clicking it leaves
+ * It never takes focus (a panel on the Mac, a tool window on Windows, and focusable false), so clicking it leaves
  * the user's app in front -- which is what lets the panel paste back into it.
  * Clicks on its empty corners pass through to whatever is underneath: the
  * page reports when the pointer is over the character (buddy:hover), and only
@@ -13,6 +13,7 @@
 const path = require('node:path');
 const { BrowserWindow } = require('electron');
 const { buddyWindowSize, clampToArea, defaultBounds, snapToEdge, resizeAround } = require('./geometry');
+const { floatingType } = require('./platform');
 
 const CURSOR_MS = 66; // about 15 updates a second is plenty for a head turn
 const MAX_CRASHES = 3; // this many page crashes within CRASH_WINDOW_MS and we stop reloading it
@@ -41,7 +42,7 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {} 
     loaded = false;
     win = new BrowserWindow({
       ...startBounds(),
-      type: 'panel',
+      type: floatingType,
       transparent: true,
       frame: false,
       hasShadow: false,

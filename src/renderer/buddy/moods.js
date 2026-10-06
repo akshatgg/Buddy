@@ -3,6 +3,17 @@
 // fraction of the model's height; angles are radians.
 
 export const FPS = 30;
+export const IDLE_FPS = 15; // floating and blinking alone do not need more
+
+/**
+ * How many frames a second to draw. Full rate while the buddy is doing
+ * something (a mood, a drag, the head following a moving pointer); the idle
+ * rate otherwise, so a buddy that is just floating wakes the page and the GPU
+ * half as often. `sinceCursorMove` is seconds since the pointer last moved.
+ */
+export function fpsFor({ mood, pressing, sinceCursorMove }) {
+  return mood !== 'idle' || pressing || sinceCursorMove < 1 ? FPS : IDLE_FPS;
+}
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 

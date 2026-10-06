@@ -1,9 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import { FPS, floatOffset, createBlinker, lookAt, moodPose } from '../src/renderer/buddy/moods.js';
+import { FPS, IDLE_FPS, fpsFor, floatOffset, createBlinker, lookAt, moodPose } from '../src/renderer/buddy/moods.js';
 
 test('30 frames a second', () => {
   assert.strictEqual(FPS, 30);
+});
+
+test('15 frames a second when nothing is happening', () => {
+  assert.strictEqual(IDLE_FPS, 15);
+  assert.strictEqual(fpsFor({ mood: 'idle', pressing: false, sinceCursorMove: 5 }), 15);
+  assert.strictEqual(fpsFor({ mood: 'idle', pressing: false, sinceCursorMove: Infinity }), 15, 'the pointer never moved');
+});
+
+test('full rate for any mood but idle', () => {
+  for (const mood of ['wave', 'happy', 'thinking', 'sleepy', 'wobble']) {
+    assert.strictEqual(fpsFor({ mood, pressing: false, sinceCursorMove: 5 }), 30, mood);
+  }
+});
+
+test('full rate while the pointer is pressed or dragging', () => {
+  assert.strictEqual(fpsFor({ mood: 'idle', pressing: true, sinceCursorMove: 5 }), 30);
+});
+
+test('full rate for a second after the pointer last moved', () => {
+  assert.strictEqual(fpsFor({ mood: 'idle', pressing: false, sinceCursorMove: 0 }), 30);
+  assert.strictEqual(fpsFor({ mood: 'idle', pressing: false, sinceCursorMove: 0.99 }), 30);
+  assert.strictEqual(fpsFor({ mood: 'idle', pressing: false, sinceCursorMove: 1 }), 15);
 });
 
 test('floats on a 3 second sine', () => {

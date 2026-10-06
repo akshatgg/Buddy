@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { FPS, floatOffset, createBlinker, lookAt, moodPose } from './moods.js';
+import { fpsFor, floatOffset, createBlinker, lookAt, moodPose } from './moods.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
@@ -25,10 +25,10 @@ const now = () => performance.now() / 1000;
 let rig = null;
 let mood = { name: 'idle', since: now() };
 let cursor = { dx: 0, dy: 0 };
-let paused = false;
+let cursorMovedAt = -Infinity; // when the pointer last moved, in now() seconds
 let hovering = false;
 let press = null; // { x, y, moved } while the pointer is down on the buddy
-let lastFrame = 0;
+let timer = null; // the one pending frame; null while the loop is paused
 
 function resize() {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -96,12 +96,25 @@ function render(t) {
   renderer.render(scene, camera);
 }
 
-function loop(ms) {
-  if (paused) return;
-  requestAnimationFrame(loop);
-  if (ms - lastFrame < 1000 / FPS - 2) return;
-  lastFrame = ms;
-  if (rig) render(ms / 1000);
+/**
+ * The frame loop: one timer, so the page wakes only when a frame is due (not at
+ * the display's refresh rate) and can slow down while the buddy is just floating.
+ * The next frame is scheduled before drawing this one, so drawing time does not
+ * stretch the interval.
+ */
+function tick() {
+  const fps = fpsFor({ mood: mood.name, pressing: press !== null, sinceCursorMove: now() - cursorMovedAt });
+  timer = setTimeout(tick, 1000 / fps);
+  if (rig) render(now());
+}
+
+function startLoop() {
+  if (timer === null) tick();
+}
+
+function stopLoop() {
+  clearTimeout(timer);
+  timer = null;
 }
 
 function overBuddy(clientX, clientY) {
@@ -157,17 +170,16 @@ window.buddy.onMood((name) => {
 });
 window.buddy.onCursor((point) => {
   cursor = point;
+  cursorMovedAt = now();
 });
-window.buddy.onPause((value) => {
-  const resume = paused && !value;
-  paused = value;
-  if (resume) requestAnimationFrame(loop);
+window.buddy.onPause((paused) => {
+  if (paused) stopLoop();
+  else startLoop();
 });
 window.buddy.onReload(() => {
   load().catch((err) => console.error('[buddy] model failed to load', err));
 });
 window.addEventListener('resize', resize);
 
-load()
-  .then(() => requestAnimationFrame(loop))
-  .catch((err) => console.error('[buddy] model failed to load', err));
+load().catch((err) => console.error('[buddy] model failed to load', err));
+startLoop(); // frames before the model arrives draw nothing; main sends buddy:pause if it should not run

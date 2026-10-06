@@ -104,7 +104,7 @@ async function mountAiForm(root) {
     const r = await window.buddy.set({ models: { ...snap.settings.models, [provider.value]: model.value } });
     if (r.ok) {
       snap = r;
-      showKeyStatus();
+      if (status.className === 'error') showKeyStatus(); // an earlier error no longer applies
       return;
     }
     fillModels([...model.options].map((o) => o.value)); // back to the model that is saved

@@ -226,6 +226,17 @@ test('with no app known, "Use the whole box" leaves the panel alone', async () =
   assert.deepStrictEqual(steps(s.log, from), []);
 });
 
+test('opening again forgets the whole box', async () => {
+  const s = setup({ replies: { captureSelection: (args) => ({ text: args.selectAll ? 'whole text' : 'me go' }) } });
+  await s.actions.open();
+  await s.actions.wholeBox();
+  assert.strictEqual(s.actions.session().wholeBox, true);
+  await s.actions.open();
+  assert.strictEqual(s.actions.session().wholeBox, false);
+  await s.actions.insert('fixed', 'replace');
+  assert.strictEqual(entries(s.log, 'helper').at(-1)[2].selectAll, false);
+});
+
 test('run shows thinking, then happy', async () => {
   const s = setup();
   assert.deepStrictEqual(await s.actions.run('write', { instruction: 'x' }), { text: 'answer for write' });
@@ -264,7 +275,17 @@ test('insert closes the panel and pastes at the cursor in the app it came from',
   await s.actions.open();
   assert.deepStrictEqual(await s.actions.insert('Dear Sir,', 'insert'), { pasted: true });
   assert.deepStrictEqual(entries(s.log, 'helper').at(-1), ['helper', 'paste', { pid: 7, text: 'Dear Sir,', selectAll: false }]);
-  assert.ok(s.log.findIndex((e) => e[0] === 'hidePanel') < s.log.findIndex((e) => e[1] === 'paste'));
+  const hidden = s.log.findIndex((e) => e[0] === 'hidePanel');
+  const pasted = s.log.findIndex((e) => e[0] === 'helper' && e[1] === 'paste');
+  assert.ok(hidden >= 0, 'the panel is hidden');
+  assert.ok(hidden < pasted, 'and it is hidden before the paste');
+});
+
+test('Replace on a selection replaces just that selection', async () => {
+  const s = setup({ replies: { captureSelection: { text: 'me go home' } } });
+  await s.actions.open();
+  await s.actions.insert('I am going home', 'replace');
+  assert.deepStrictEqual(entries(s.log, 'helper').at(-1), ['helper', 'paste', { pid: 7, text: 'I am going home', selectAll: false }]);
 });
 
 test('replaceAll selects the whole box first', async () => {

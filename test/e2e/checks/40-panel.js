@@ -9,7 +9,7 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
     const panel = ctx.panel.window();
     await waitFor(() => panel.isVisible(), 'the panel to open');
     await waitFor(
-      () => panel.webContents.executeJavaScript("!document.getElementById('tab-write').hidden"),
+      () => panel.webContents.executeJavaScript(`document.querySelector('[data-tab="write"]').classList.contains('active')`),
       'the Write tab, since no text was selected',
     );
 

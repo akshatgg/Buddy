@@ -155,3 +155,16 @@ test('a page that fails to load is logged, not left as an unhandled rejection', 
   assert.match(message, /onboarding/);
   assert.strictEqual(err, failure);
 });
+
+test('the admin window opens its own page, with its own preload, sandboxed', () => {
+  const { windows, created } = setup();
+  windows.open('admin');
+  const [admin] = created;
+  assert.strictEqual(admin.options.title, 'Buddy Admin');
+  assert.strictEqual(admin.file, path.join(SRC, 'renderer', 'admin', 'index.html'));
+  assert.strictEqual(admin.options.webPreferences.preload, path.join(SRC, 'preload', 'admin.js'));
+  assert.strictEqual(admin.options.webPreferences.sandbox, true);
+  assert.strictEqual(admin.options.webPreferences.contextIsolation, true);
+  assert.strictEqual(windows.owns(admin.webContents, 'admin'), true);
+  assert.strictEqual(windows.owns(admin.webContents, 'settings'), false);
+});

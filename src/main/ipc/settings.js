@@ -51,7 +51,8 @@ function registerSettingsIpc({
   ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, onFinishOnboarding, shell,
   account, cloud, canSignIn,
 }) {
-  const handle = guarded(ipcMain, (webContents) => windows.owns(webContents));
+  // The Settings and Welcome windows only: the Admin window has calls of its own (ipc/admin.js).
+  const handle = guarded(ipcMain, (webContents) => windows.owns(webContents, 'settings') || windows.owns(webContents, 'onboarding'));
   // Finishing the Welcome is for the Welcome window only: the Settings window has no business doing it.
   const handleWelcome = guarded(ipcMain, (webContents) => windows.owns(webContents, 'onboarding'));
   // Electron is loaded only when a page asks to open something, so these handlers can be

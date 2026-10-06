@@ -7,9 +7,11 @@ const { Menu, Tray, nativeImage } = require('electron');
 
 const ICON = path.join(__dirname, '..', '..', 'assets', 'trayTemplate.png');
 
-function buildMenuTemplate({ buddyOn, visible }, handlers) {
+function buildMenuTemplate({ buddyOn, visible, isAdmin = false }, handlers) {
   return [
     { label: visible ? 'Hide buddy' : 'Show buddy', enabled: buddyOn, click: () => handlers.setVisible(!visible) },
+    // Only for the admin; the server refuses the admin's calls to anyone else whatever the menu shows.
+    ...(isAdmin ? [{ label: 'Admin…', click: () => handlers.openAdmin() }] : []),
     { label: 'Settings…', click: () => handlers.openSettings() },
     { type: 'separator' },
     { label: buddyOn ? 'Turn off buddy' : 'Turn on buddy', click: () => handlers.setBuddyOn(!buddyOn) },

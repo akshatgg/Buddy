@@ -28,6 +28,7 @@ const { createShortcut } = require('./shortcut');
 const { registerBuddyIpc } = require('./ipc/buddy');
 const { registerPanelIpc } = require('./ipc/panel');
 const { registerSettingsIpc } = require('./ipc/settings');
+const { registerAdminIpc } = require('./ipc/admin');
 
 function helperPath() {
   return app.isPackaged
@@ -75,7 +76,7 @@ async function start(options = {}) {
   const panel = createPanelWindow();
   const windows = createSettingsWindows({ app });
   const openSettings = () => windows.open('settings');
-  installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings and Welcome, and no Cmd+Q
+  installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings, Welcome and Admin, and no Cmd+Q
 
   const actions = createActions({
     helper,
@@ -123,8 +124,15 @@ async function start(options = {}) {
     },
   });
 
+  // "Admin…" is in the menu for the admin only: the server says who that is (and refuses the admin's calls to
+  // anyone else, whatever the menu shows).
+  const trayState = () => ({
+    buddyOn: power.isOn(),
+    visible: buddy.isVisible(),
+    isAdmin: account.isSignedIn() && cloud.last()?.isAdmin === true,
+  });
   tray = createTray({
-    getState: () => ({ buddyOn: power.isOn(), visible: buddy.isVisible() }),
+    getState: trayState,
     handlers: {
       setVisible(visible) {
         if (visible) buddy.show();
@@ -132,14 +140,19 @@ async function start(options = {}) {
         tray.refresh();
       },
       openSettings,
+      openAdmin: () => windows.open('admin'),
       setBuddyOn: (on) => power.setOn(on),
       quit: () => app.quit(),
     },
   });
 
-  // Signing out forgets this person's free-mode settings, so that the next person does not inherit them.
+  // Signing out forgets this person's free-mode settings, so that the next person does not inherit them, and closes
+  // the Admin window.
   account.onChange(() => {
-    if (!account.isSignedIn()) cloud.forget();
+    if (!account.isSignedIn()) {
+      cloud.forget();
+      windows.close('admin');
+    }
     tray.refresh();
   });
   cloud.onChange(() => tray.refresh());
@@ -155,6 +168,7 @@ async function start(options = {}) {
       power.setOn(true);
     },
   });
+  registerAdminIpc({ ipcMain, windows, cloud });
 
   app.on('second-instance', openSettings);
   app.on('will-quit', () => {
@@ -188,7 +202,7 @@ async function start(options = {}) {
   }
   tray.refresh();
 
-  return { store, secrets, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, shortcut };
+  return { store, secrets, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, trayState, shortcut };
 }
 
 module.exports = { start };

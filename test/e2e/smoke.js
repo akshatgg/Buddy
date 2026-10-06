@@ -15,6 +15,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { BuddyError } = require('../../shared/errors');
+const { PROVIDERS, PROVIDER_IDS } = require('../../shared/providers');
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-e2e-'));
 app.setPath('userData', userData);
@@ -93,6 +94,37 @@ const account = {
 const cloud = {
   free: { freeOn: false, limitMode: 'daily', limit: 30, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false },
   asks: [],
+  adminConfig: { enabled: false, limitMode: 'daily', dailyRequests: 30, allowOwnKey: false, provider: 'anthropic', model: 'claude-haiku-4-5-20251001' },
+  adminUsers: [{
+    uid: 'u1', email: 'rahul@example.com', name: 'Rahul', joined: '2026-10-01T10:00:00.000Z',
+    lastActive: '2026-10-07T06:00:00.000Z', blocked: false, usedToday: 3,
+  }],
+  admin: {
+    async settings() {
+      return {
+        config: cloud.adminConfig,
+        providers: PROVIDER_IDS.map((id) => ({
+          id, label: PROVIDERS[id].label, hasKey: id === 'anthropic', fallbackModels: PROVIDERS[id].fallbackModels,
+        })),
+      };
+    },
+    async save(patch) {
+      if (patch.dailyRequests === 0) throw new BuddyError('bad_request', 'The daily limit must be a whole number from 1 to 10000.');
+      cloud.adminConfig = { ...cloud.adminConfig, ...patch };
+      return cloud.admin.settings();
+    },
+    async models() {
+      return { models: ['claude-haiku-4-5-20251001', 'claude-sonnet-5-5'], live: true };
+    },
+    async users() {
+      return { users: cloud.adminUsers };
+    },
+    async block(uid, blocked) {
+      const user = cloud.adminUsers.find((u) => u.uid === uid);
+      user.blocked = blocked;
+      return { user };
+    },
+  },
   listeners: [],
   last() {
     return account.signedIn ? this.free : null;

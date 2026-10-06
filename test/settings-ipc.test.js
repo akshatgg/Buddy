@@ -29,6 +29,7 @@ const CHARACTERS = [
 const CLAUDE = PROVIDERS.anthropic;
 const SETTINGS_PAGE = 'ours';
 const WELCOME_PAGE = 'welcome';
+const ADMIN_PAGE = 'admin';
 const STRAY_KEY = "That doesn't look like an API key. Copy only the key and paste it again.";
 const FAILED = { ok: false, error: { code: 'failed', message: 'Something went wrong. Try again.' } };
 const refused = (code, message) => ({ ok: false, error: { code, message } });
@@ -97,9 +98,11 @@ function setup({
   registerSettingsIpc({
     ipcMain: { handle: (channel, fn) => { handlers[channel] = fn; } },
     windows: {
-      // 'ours' is the Settings window's page and 'welcome' the Welcome window's. owns(page, kind) asks about one kind.
-      owns: (webContents, kind) => (kind === undefined ? [SETTINGS_PAGE, WELCOME_PAGE].includes(webContents)
-        : webContents === (kind === 'onboarding' ? WELCOME_PAGE : SETTINGS_PAGE)),
+      // 'ours' is the Settings window's page, 'welcome' the Welcome window's and 'admin' the Admin window's.
+      // owns(page, kind) asks about one kind; with no kind, about any of them.
+      owns: (webContents, kind) => (kind === undefined
+        ? [SETTINGS_PAGE, WELCOME_PAGE, ADMIN_PAGE].includes(webContents)
+        : webContents === { settings: SETTINGS_PAGE, onboarding: WELCOME_PAGE, admin: ADMIN_PAGE }[kind]),
     },
     store,
     secrets,
@@ -697,4 +700,12 @@ test('onboarding:finish wants someone signed in, and finishes nothing otherwise'
     refused('signed_out', 'Sign in with Google first.'));
   assert.strictEqual(s.store.get('onboarded'), false);
   assert.ok(!s.calls.some(([name]) => name === 'finished'));
+});
+
+test('the Admin window cannot use the Settings channels', async () => {
+  const s = setup();
+  for (const channel of Object.keys(s.handlers)) {
+    assert.deepStrictEqual(await s.handlers[channel]({ sender: ADMIN_PAGE }), refused('not_allowed', 'Not allowed.'), channel);
+  }
+  assert.deepStrictEqual(s.calls, []);
 });

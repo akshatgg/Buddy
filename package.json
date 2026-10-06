@@ -1,0 +1,28 @@
+{
+  "name": "buddy",
+  "productName": "Buddy",
+  "version": "0.1.0",
+  "description": "A small floating buddy that writes and fixes English in any app",
+  "main": "src/main/main.js",
+  "type": "commonjs",
+  "private": true,
+  "author": "akshatgg",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "npm run build:native && electron .",
+    "build:native": "mkdir -p bin && swiftc -O -target arm64-apple-macos14.0 src/native/BuddyHelper.swift -o bin/buddy-helper",
+    "build:buddies": "/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python art/build_buddies.py -- --out assets/buddies",
+    "build:icons": "node tools/make-tray-icon.js",
+    "lint": "eslint .",
+    "test": "eslint . && node --test 'test/*.test.js' 'test/*.test.mjs'"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "electron": "^44.5.1",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  }
+}

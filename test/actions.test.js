@@ -137,18 +137,20 @@ test('a password field and a missing permission are explained, not logged as pro
   for (const [code, message, notice] of cases) {
     const s = setup({ replies: { captureSelection: failure(code, message) } });
     await s.actions.open();
-    assert.strictEqual(entries(s.log, 'showPanel')[0][1].notice, notice);
+    const shown = entries(s.log, 'showPanel')[0][1];
+    assert.strictEqual(shown.notice, notice);
+    assert.strictEqual(shown.tab, 'write');
   }
   assert.strictEqual(warn.mock.callCount(), 0);
 });
 
-test('when the selection cannot be read for any other reason, the panel says so and the cause is logged', async (t) => {
+test('when the selection cannot be read for any other reason, the panel says so on the Fix tab and the cause is logged', async (t) => {
   const warn = t.mock.method(console, 'warn', () => {});
   const s = setup({ replies: { captureSelection: failure('timeout', 'The Mac helper took too long.') } });
   await s.actions.open();
   const shown = entries(s.log, 'showPanel')[0][1];
   assert.strictEqual(shown.notice, "I couldn't read your selection — select it again or paste it here.");
-  assert.strictEqual(shown.tab, 'write');
+  assert.strictEqual(shown.tab, 'fix', 'where "paste it here" points');
   assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments), [['[buddy] could not read the selection:', 'timeout']]);
 });
 

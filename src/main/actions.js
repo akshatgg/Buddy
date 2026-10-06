@@ -36,10 +36,12 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout, c
     const app = helper.lastApp;
     let selection = '';
     let notice = '';
+    let tab = 'write';
     if (app) {
       try {
         const r = await helper.call('captureSelection', { pid: app.pid, selectAll: false });
         selection = r.text || '';
+        if (selection) tab = 'fix';
       } catch (err) {
         if (err.code === 'secure_field') {
           notice = err.message;
@@ -48,11 +50,12 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout, c
         } else {
           console.warn('[buddy] could not read the selection:', err.code);
           notice = UNREADABLE;
+          tab = 'fix'; // the notice says to paste the text here, and that is the Fix box
         }
       }
     }
     session = { app, selection, wholeBox: false };
-    await ui.showPanel(panelState({ selection, tab: selection ? 'fix' : 'write', notice }));
+    await ui.showPanel(panelState({ selection, tab, notice }));
   }
 
   /** One opening at a time: asking again while the selection is still being read joins the one in progress. */

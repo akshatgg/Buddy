@@ -20,6 +20,7 @@ const DEFAULTS = Object.freeze({
   models: {},
   positions: {},
   lastDisplayId: null,
+  cloud: null, // this person's free-mode settings as the server last gave them (src/main/cloud.js)
 });
 
 function writeAtomic(file, text, mode) {

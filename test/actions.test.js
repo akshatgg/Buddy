@@ -226,6 +226,41 @@ test('with no app known, "Use the whole box" leaves the panel alone', async () =
   assert.deepStrictEqual(steps(s.log, from), []);
 });
 
+test('while the whole box is being read, the shortcut and a click on the buddy do nothing', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const s = setup({
+    replies: { captureSelection: (args) => (args.selectAll ? gate.then(() => ({ text: 'whole text' })) : { text: 'me go' }) },
+  });
+  await s.actions.open();
+  const from = s.log.length;
+  const reading = s.actions.wholeBox();
+  await s.actions.toggle(); // the panel is hidden on purpose, so this would open it a second time
+  assert.deepStrictEqual(steps(s.log, from), ['hidePanel', 'captureSelection']);
+  release();
+  await reading;
+  assert.deepStrictEqual(steps(s.log, from), ['hidePanel', 'captureSelection', 'showPanel']);
+});
+
+test('the shortcut works again once the whole-box read is over, whether it worked or failed', async () => {
+  for (const works of [true, false]) {
+    const s = setup({
+      replies: {
+        captureSelection: (args) => {
+          if (args.selectAll && !works) throw failure('timeout', 'The Mac helper took too long.');
+          return { text: 'me go' };
+        },
+      },
+    });
+    await s.actions.open();
+    if (works) await s.actions.wholeBox();
+    else await assert.rejects(s.actions.wholeBox(), { code: 'timeout' });
+    const from = s.log.length;
+    await s.actions.toggle(); // the panel is back on screen, so this closes it
+    assert.deepStrictEqual(steps(s.log, from), ['hidePanel'], works ? 'after a read that worked' : 'after a read that failed');
+  }
+});
+
 test('opening again forgets the whole box', async () => {
   const s = setup({ replies: { captureSelection: (args) => ({ text: args.selectAll ? 'whole text' : 'me go' }) } });
   await s.actions.open();

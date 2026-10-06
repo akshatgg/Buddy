@@ -18,6 +18,7 @@ const UNREADABLE = "I couldn't read your selection — select it again or paste 
 function createActions({ helper, ai, clipboard, store, ui, later = setTimeout, cancelLater = clearTimeout }) {
   let session = { app: null, selection: '', wholeBox: false };
   let opening = null; // the open() in progress, if any
+  let capturing = false; // wholeBox() is reading the app, with the panel hidden on purpose
   let sleepy = null; // the pending "back to idle" timer after a network error, if any
 
   /** What the panel opens with: the buddy's name, the app it came from, the text, and the tab and notice to show. */
@@ -65,6 +66,7 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout, c
   }
 
   async function toggle() {
+    if (capturing) return; // the panel is hidden on purpose while the box is read, and comes back by itself
     if (ui.isPanelVisible() || ui.panelJustClosed()) {
       ui.hidePanel();
       return;
@@ -76,11 +78,21 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout, c
    * Read everything in the box the user was writing in. The panel has the keyboard
    * focus, so the helper's ⌘A and ⌘C would land in the panel itself (and bringing the
    * app forward would blur it): it is hidden while the box is read, and shown again
-   * either way, with the text or with the reason it could not be read.
+   * either way, with the text or with the reason it could not be read. Until it is
+   * back, toggle() does nothing: a click on the buddy would open a second panel.
    */
   async function wholeBox() {
     const app = session.app;
     if (!app) throw new BuddyError('no_app', 'Click in the box you are writing in, then open me again.');
+    capturing = true;
+    try {
+      return await readWholeBox(app);
+    } finally {
+      capturing = false;
+    }
+  }
+
+  async function readWholeBox(app) {
     const before = session.selection;
     ui.hidePanel();
     let state;

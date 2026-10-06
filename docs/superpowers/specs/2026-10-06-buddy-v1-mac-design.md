@@ -376,7 +376,8 @@ request `{ id, cmd, args }` → reply `{ id, ok, result | error }`, plus events
 | `free_off` | Config refreshed; key setup screen appears |
 | `blocked` | "Your free access is paused." |
 | Provider error on free route | "Buddy couldn't answer. Try again." (request refunded) |
-| Model can't read images | "This model can't read screenshots. Pick another in Settings." |
+| A model the key cannot use | "This model isn't available for your key. Pick another in Settings." + "Open Settings" |
+| Model can't read images | "This model can't read screenshots. Pick another in Settings." + "Open Settings" |
 
 ## 9. Testing
 

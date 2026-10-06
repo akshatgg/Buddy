@@ -32,11 +32,13 @@ test('an answer comes back as { ok: true, result }', async () => {
   });
 });
 
-test('an error about the key reaches the panel with its code next to its message, so it can offer Open Settings', async () => {
+test('an error that Settings can fix reaches the panel with its code next to its message, so it can offer Open Settings', async () => {
   for (const [code, message] of [
     ['no_key', 'Add your API key in Settings first.'],
     ['bad_key', 'Your Claude key was rejected. Check it in Settings.'],
     ['no_credit', 'Your Claude account is out of credit.'],
+    ['bad_model', "This model isn't available for your key. Pick another in Settings."],
+    ['no_vision', "This model can't read screenshots. Pick another in Settings."],
   ]) {
     const s = setup({ run: async () => { throw new BuddyError(code, message); } });
     assert.deepStrictEqual(await s.handlers['panel:run'](s.fromPanel, 'write', { instruction: 'x' }), {

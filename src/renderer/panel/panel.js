@@ -11,9 +11,10 @@ let image = null; // the latest screenshot, base64 JPEG
 let currentTab = 'write';
 let generation = 0; // counts how often the panel has been opened; an answer to a request from an earlier opening is stale
 
-// Errors whose fix is in Settings: no key yet, a key that was refused, an account out of credit. They come
-// with an "Open Settings" button. (The code is the one the main process sent along with the message.)
-const SETTINGS_ERRORS = ['no_key', 'bad_key', 'no_credit'];
+// Errors whose fix is in Settings: no key yet, a key that was refused, an account out of credit, and a model
+// that cannot be used (not there for this key, or it cannot read screenshots: "Pick another in Settings").
+// They come with an "Open Settings" button. (The code is the one the main process sent along with the message.)
+const SETTINGS_ERRORS = ['no_key', 'bad_key', 'no_credit', 'bad_model', 'no_vision'];
 
 function show(el, visible) {
   el.hidden = !visible;

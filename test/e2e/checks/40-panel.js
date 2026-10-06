@@ -34,12 +34,16 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
   }
   assert.deepStrictEqual(await writeSomething(), { message: 'Add your API key in Settings first.', button: true });
 
-  // The same for a key that was refused, and for an account out of credit; not for errors Settings cannot fix.
+  // The same for a key that was refused, an account out of credit, and a model that cannot be used (it is not
+  // there for this key, or it cannot read screenshots), whose messages say to pick another in Settings; not for
+  // errors Settings cannot fix.
   const run = ctx.actions.run;
   try {
     for (const [code, message, button] of [
       ['bad_key', 'Your Claude key was rejected. Check it in Settings.', true],
       ['no_credit', 'Your Claude account is out of credit.', true],
+      ['bad_model', "This model isn't available for your key. Pick another in Settings.", true],
+      ['no_vision', "This model can't read screenshots. Pick another in Settings.", true],
       ['rate_limited', 'Claude is busy right now. Try again in a minute.', false],
       ['timeout', 'Claude took too long to answer. Try again.', false],
       ['network', "Couldn't reach Claude. Check your internet.", false],

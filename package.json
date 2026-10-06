@@ -14,6 +14,7 @@
     "build:buddies": "/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python art/build_buddies.py -- --out assets/buddies",
     "build:icons": "node tools/make-tray-icon.js",
     "build:icon": "mkdir -p art/out && /Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python art/render_icon.py -- --out art/out/robot.png && swift build/MakeIcon.swift art/out/robot.png build/icon.png",
+    "sync:web": "node tools/sync-web-shared.js",
     "dist:mac": "npm run build:native && electron-builder --mac --config electron-builder.config.js --publish never",
     "lint": "eslint .",
     "test": "eslint . && node --test 'test/*.test.js' 'test/*.test.mjs'",

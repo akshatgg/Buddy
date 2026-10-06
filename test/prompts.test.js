@@ -71,3 +71,7 @@ test('parseCheck falls back to the raw text', () => {
   assert.deepStrictEqual(parseCheck('Looks fine to me!'), { raw: 'Looks fine to me!' });
   assert.deepStrictEqual(parseCheck('{"verdict":"maybe"}'), { raw: '{"verdict":"maybe"}' });
 });
+
+test('answers are capped at 1024 tokens, on the own-key route and the free one alike', () => {
+  assert.strictEqual(require('../shared/prompts').MAX_TOKENS, 1024);
+});

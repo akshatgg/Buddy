@@ -1,4 +1,5 @@
-label.check { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-weight: normal; }
+/* Vertical margins only: a margin shorthand here would zero the left one, and .indent could not set it. */
+label.check { display: flex; align-items: center; gap: 8px; margin-top: 8px; margin-bottom: 8px; font-weight: normal; }
 .indent { margin-left: 26px; }
 input[type="number"] {
   font: inherit; width: 110px; flex: none; padding: 7px 9px; border-radius: 8px;

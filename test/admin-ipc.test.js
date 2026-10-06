@@ -6,9 +6,13 @@ const { BuddyError } = require('../shared/errors');
 const { registerAdminIpc } = require('../src/main/ipc/admin');
 
 const ADMIN_PAGE = 'the admin page';
+const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-/** registerAdminIpc with a fake server: `calls` records what reached it; `fails` makes every admin call fail. */
-function setup({ fails = null } = {}) {
+/**
+ * registerAdminIpc with a fake server: `calls` records what reached it; `fails` makes every admin call fail;
+ * `refreshFails` makes the app's own fetch of the free settings (which follows a save) fail.
+ */
+function setup({ fails = null, refreshFails = null } = {}) {
   const handlers = {};
   const calls = [];
   const answer = (name, value) => async (...args) => {
@@ -26,6 +30,7 @@ function setup({ fails = null } = {}) {
     },
     async settings(options) {
       calls.push(['refresh', options]);
+      if (refreshFails) throw refreshFails;
       return null;
     },
   };
@@ -81,4 +86,28 @@ test('arguments that are not valid are refused before the server is asked', asyn
 test("the server's refusal reaches the page in its own words", async () => {
   const s = setup({ fails: new BuddyError('not_admin', 'Only the admin can do this.') });
   assert.deepStrictEqual(await s.call('admin:users'), { ok: false, error: { code: 'not_admin', message: 'Only the admin can do this.' } });
+});
+
+test('a save the server refuses fetches nothing again', async () => {
+  const refusal = new BuddyError('bad_request', 'The daily limit must be a whole number from 1 to 10000.');
+  const s = setup({ fails: refusal });
+  assert.deepStrictEqual(await s.call('admin:save', { dailyRequests: 0 }),
+    { ok: false, error: { code: 'bad_request', message: refusal.message } });
+  assert.deepStrictEqual(s.calls, [['save', { dailyRequests: 0 }]], 'no refresh after a refused save');
+});
+
+test('a fetch that fails after a save does not fail the save: it is logged, by its kind only', async (t) => {
+  const warned = t.mock.method(console, 'warn', () => {});
+  for (const failure of [
+    new BuddyError('network', "Couldn't reach Buddy's server. Check your internet."),
+    new TypeError('x is not a function'),
+  ]) {
+    const s = setup({ refreshFails: failure });
+    assert.deepStrictEqual(await s.call('admin:save', { enabled: true }), { ok: true, config: { enabled: true }, providers: [] });
+    await tick(); // the fetch is not waited for: let its failure be dealt with
+  }
+  assert.deepStrictEqual(warned.mock.calls.map((c) => c.arguments), [
+    ['[buddy] could not fetch the free settings:', 'network'],
+    ['[buddy] could not fetch the free settings:', 'TypeError'],
+  ], 'the code, or the name of the failure, and nothing it says');
 });

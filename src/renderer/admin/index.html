@@ -11,7 +11,8 @@
 <main>
   <p id="load-error" class="error" hidden></p>
 
-  <section id="free-card" class="card">
+  <!-- Both cards stay hidden until the settings have arrived (admin.js shows them): nothing in them works without those. -->
+  <section id="free-card" class="card" hidden>
     <h2>Free AI</h2>
     <p class="muted">These switches apply to every Buddy app and every user, the next time they open Buddy.</p>
     <p id="no-keys" class="error" hidden>No AI key is set on the server yet, so free mode can't be turned on.</p>
@@ -41,7 +42,7 @@
     </div>
   </section>
 
-  <section id="users-card" class="card">
+  <section id="users-card" class="card" hidden>
     <div class="row">
       <h2 class="grow">Users</h2>
       <button id="users-refresh" type="button">Refresh</button>

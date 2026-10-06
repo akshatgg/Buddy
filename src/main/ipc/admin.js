@@ -19,8 +19,11 @@ function registerAdminIpc({ ipcMain, windows, cloud }) {
   handle('admin:save', async (patch) => {
     if (!isPlainObject(patch)) throw new BuddyError('bad_request', 'Those settings are not valid.');
     const saved = await cloud.admin.save(patch);
-    // The admin's own app follows the new switches at once; every other app does on its next check.
-    cloud.settings({ force: true }).catch(() => {});
+    // The admin's own app follows the new switches at once; every other app does on its next check. The save is done
+    // whether or not this fetch works, so a failure is only logged (by its kind, as at launch), not handed to the page.
+    cloud.settings({ force: true }).catch((err) => {
+      console.warn('[buddy] could not fetch the free settings:', err.code || err.name);
+    });
     return saved;
   });
 

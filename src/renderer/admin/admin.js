@@ -62,34 +62,41 @@ function render() {
   loadModels(config.provider, config.model);
 }
 
+/**
+ * The switches as the form has them. The daily box and "own key" are only read for a daily limit (they are hidden for
+ * Unlimited), so what is left in them then cannot stop Unlimited from saving.
+ */
 function readForm() {
-  return {
-    enabled: $('enabled').checked,
-    limitMode: document.querySelector('input[name="limitMode"]:checked')?.value || 'daily',
-    dailyRequests: Number($('daily').value),
-    allowOwnKey: $('own').checked,
-    provider: $('provider').value,
-    model: $('model').value,
-  };
+  const limitMode = document.querySelector('input[name="limitMode"]:checked')?.value || 'daily';
+  const form = { enabled: $('enabled').checked, limitMode, provider: $('provider').value, model: $('model').value };
+  if (limitMode === 'daily') {
+    form.dailyRequests = Number($('daily').value);
+    form.allowOwnKey = $('own').checked;
+  }
+  return form;
 }
 
 function lastActiveText(iso) {
   return iso ? new Date(iso).toLocaleString() : 'never';
 }
 
+/** One row of the users table, with the button that blocks or unblocks that person. */
+function userRow(user) {
+  const button = el('button', { type: 'button', textContent: user.blocked ? 'Unblock' : 'Block' });
+  const row = el('tr', { className: user.blocked ? 'blocked' : '' }, [
+    el('td', { textContent: user.name || '—' }),
+    el('td', { textContent: user.email }),
+    el('td', { className: 'num', textContent: String(user.usedToday) }),
+    el('td', { textContent: lastActiveText(user.lastActive) }),
+    el('td', {}, [button]),
+  ]);
+  button.addEventListener('click', () => setBlocked(user, row, button));
+  return row;
+}
+
 function renderUsers(users) {
   showStatus('users-status', users.length === 1 ? '1 user' : `${users.length} users`);
-  $('users').replaceChildren(...users.map((user) => {
-    const button = el('button', { type: 'button', textContent: user.blocked ? 'Unblock' : 'Block' });
-    button.addEventListener('click', () => setBlocked(user, button));
-    return el('tr', { className: user.blocked ? 'blocked' : '' }, [
-      el('td', { textContent: user.name || '—' }),
-      el('td', { textContent: user.email }),
-      el('td', { className: 'num', textContent: String(user.usedToday) }),
-      el('td', { textContent: lastActiveText(user.lastActive) }),
-      el('td', {}, [button]),
-    ]);
-  }));
+  $('users').replaceChildren(...users.map(userRow));
 }
 
 async function loadUsers() {
@@ -102,7 +109,7 @@ async function loadUsers() {
   renderUsers(r.users);
 }
 
-async function setBlocked(user, button) {
+async function setBlocked(user, row, button) {
   button.disabled = true;
   const r = await window.buddy.block(user.uid, !user.blocked);
   if (!r.ok) {
@@ -110,6 +117,9 @@ async function setBlocked(user, button) {
     showStatus('users-status', r.error.message, 'error');
     return;
   }
+  // The row shows what the server answered at once, so that it is right (and can be used again) even if the list
+  // cannot be loaded again just after.
+  row.replaceWith(userRow(r.user));
   await loadUsers();
 }
 
@@ -119,6 +129,9 @@ $('provider').addEventListener('change', () => {
   loadModels(p.id, p.fallbackModels[0]);
 });
 $('models-refresh').addEventListener('click', () => loadModels($('provider').value, $('model').value));
+// What the status says ("Saved ✓", or why a save was refused) is about the form as it was: it goes as soon as a
+// field changes.
+$('free-card').addEventListener('input', () => showStatus('save-status', ''));
 $('save').addEventListener('click', async () => {
   $('save').disabled = true;
   showStatus('save-status', 'Saving…');
@@ -130,7 +143,7 @@ $('save').addEventListener('click', async () => {
   }
   view = r;
   render();
-  showStatus('save-status', 'Saved ✓ Every Buddy app uses it from now on.', 'good');
+  showStatus('save-status', 'Saved ✓ Every Buddy app uses it the next time it is opened.', 'good');
 });
 $('users-refresh').addEventListener('click', loadUsers);
 
@@ -139,11 +152,11 @@ $('users-refresh').addEventListener('click', loadUsers);
   if (!r.ok) {
     $('load-error').textContent = r.error.message;
     $('load-error').hidden = false;
-    $('free-card').hidden = true;
-    $('users-card').hidden = true;
-    return;
+    return; // both cards stay hidden: nothing in them can work without the settings
   }
   view = r;
   render();
+  $('free-card').hidden = false;
+  $('users-card').hidden = false;
   await loadUsers();
 })();

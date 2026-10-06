@@ -23,15 +23,22 @@ const TOKENS = {
   user: { uid: 'u1', ...RAHUL, emailVerified: true },
   admin: { uid: 'a1', email: ADMIN, name: 'Akshat', emailVerified: true },
   unverified: { uid: 'u2', email: 'x@gmail.com', name: 'X', emailVerified: false },
+  // The admin's address in capitals, and the admin's address on a token whose email is not verified.
+  adminShouting: { uid: 'a2', email: ADMIN.toUpperCase(), name: 'Akshat', emailVerified: true },
+  adminUnverified: { uid: 'a3', email: ADMIN, name: 'Akshat', emailVerified: false },
 };
+
+/** Every route and method that is for the admin only. */
+const ADMIN_ROUTES = [[adminSettings, 'GET'], [adminSettings, 'PUT'], [adminModels, 'GET'], [adminUsers, 'GET'], [adminUsers, 'POST']];
 
 /**
  * The handlers with fakes: an in-memory database, one fake provider whatever the id, the server's keys in `keys`,
- * and three ID tokens: 'user', 'admin' and 'unverified'. `run(handler, method, { token, body, query })`.
+ * `adminEmail` as the server's ADMIN_EMAIL, and ID tokens by name: 'user', 'admin', 'unverified', and two more for the
+ * admin gate ('adminShouting', 'adminUnverified'). `run(handler, method, { token, body, query })`.
  */
 function setup({
   stored = null, users = {}, keys = { anthropic: 'admin-key' }, vision = true, reply = 'An answer', fail = null,
-  live = ['m-1', 'm-2'], listFails = false,
+  live = ['m-1', 'm-2'], listFails = false, adminEmail = ADMIN,
 } = {}) {
   const db = fakeDb({ config: stored, users });
   const completes = [];
@@ -57,7 +64,7 @@ function setup({
     db,
     providers: { getProvider: () => provider },
     adminKeys: keys,
-    adminEmail: ADMIN,
+    adminEmail,
     now: () => NOW,
   };
   const run = (handler, method, { token = 'user', body, query } = {}) => handle(handler, {
@@ -71,9 +78,11 @@ function setup({
 
 // ---- signing in ----
 
-test('every route wants a valid ID token for a verified email', async () => {
+test('every route wants a valid ID token for a verified email', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
   const s = setup();
-  for (const handler of [config, ask, adminSettings, adminModels, adminUsers]) {
+  const routes = [config, ask, adminSettings, adminModels, adminUsers];
+  for (const handler of routes) {
     const method = handler === ask ? 'POST' : 'GET';
     assert.deepStrictEqual(await s.run(handler, method, { token: null }), refusal(401, 'unauthenticated', 'Sign in to use Buddy.'));
     assert.deepStrictEqual(await s.run(handler, method, { token: 'forged' }),
@@ -82,6 +91,9 @@ test('every route wants a valid ID token for a verified email', async () => {
       refusal(401, 'unauthenticated', 'Sign in with a Google account whose email is verified.'));
   }
   assert.deepStrictEqual(s.db.state.calls, [], 'nothing was read or written');
+  // A token that is turned away leaves a trace, by its kind only (the fake throws new Error('not a token')), so a
+  // problem on the server's side shows apart from people's sign-ins simply expiring.
+  assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments.join(' ')), routes.map(() => '[auth] token not accepted: Error'));
 });
 
 test('a method a route does not take is refused', async () => {
@@ -93,10 +105,42 @@ test('a method a route does not take is refused', async () => {
 
 test('the admin routes are for the admin only', async () => {
   const s = setup();
-  for (const [handler, method] of [[adminSettings, 'GET'], [adminSettings, 'PUT'], [adminModels, 'GET'], [adminUsers, 'GET'], [adminUsers, 'POST']]) {
+  for (const [handler, method] of ADMIN_ROUTES) {
     assert.deepStrictEqual(await s.run(handler, method, { body: { enabled: true } }), refusal(403, 'not_admin', 'Only the admin can do this.'));
   }
   assert.deepStrictEqual(s.db.state.calls, []);
+});
+
+test('the admin is known by email in any letter case, and only for an email that is verified', async () => {
+  // Capitals on the token, lower case in ADMIN_EMAIL.
+  const s = setup();
+  assert.strictEqual((await s.run(config, 'GET', { token: 'adminShouting' })).body.isAdmin, true);
+  assert.strictEqual((await s.run(adminSettings, 'GET', { token: 'adminShouting' })).status, 200);
+
+  // Spaces and capitals in ADMIN_EMAIL, the way it may have been typed into the server's settings.
+  const typed = setup({ adminEmail: `  ${ADMIN.toUpperCase()}  ` });
+  assert.strictEqual((await typed.run(config, 'GET', { token: 'admin' })).body.isAdmin, true);
+  assert.strictEqual((await typed.run(adminUsers, 'GET', { token: 'admin' })).status, 200);
+
+  // The admin's address on a token whose email is not verified is nobody: not even signed in.
+  const unverified = setup();
+  for (const [handler, method] of [[config, 'GET'], ...ADMIN_ROUTES]) {
+    assert.deepStrictEqual(await unverified.run(handler, method, { token: 'adminUnverified' }),
+      refusal(401, 'unauthenticated', 'Sign in with a Google account whose email is verified.'), `${method} ${handler.name}`);
+  }
+  assert.deepStrictEqual(unverified.db.state.calls, [], 'nothing was read or written');
+});
+
+test('with no ADMIN_EMAIL, however it is empty, nobody is the admin', async () => {
+  for (const adminEmail of ['', '   ', null]) {
+    const s = setup({ adminEmail });
+    const how = JSON.stringify(adminEmail);
+    assert.strictEqual((await s.run(config, 'GET', { token: 'admin' })).body.isAdmin, false, how);
+    for (const [handler, method] of ADMIN_ROUTES) {
+      assert.deepStrictEqual(await s.run(handler, method, { token: 'admin' }), refusal(403, 'not_admin', 'Only the admin can do this.'),
+        `${how} ${method} ${handler.name}`);
+    }
+  }
 });
 
 // ---- GET /api/config ----
@@ -205,7 +249,8 @@ test('ask: a screenshot for a model that cannot see is refused, and not counted'
 
 test('ask: when the AI fails the request is given back, and the user hears it in plain words', async (t) => {
   const warn = t.mock.method(console, 'warn', () => {});
-  const s = setup({ stored: freeDaily(5), fail: new BuddyError('rate_limited', 'Claude is busy right now. Try again in a minute.') });
+  // A provider's message can echo what the person sent, so the fake's does.
+  const s = setup({ stored: freeDaily(5), fail: new BuddyError('rate_limited', 'Claude is busy: my secret text') });
   assert.deepStrictEqual(await s.run(ask, 'POST', { body: { action: 'fix', text: 'my secret text' } }),
     refusal(502, 'upstream', "Buddy couldn't answer. Try again."));
   assert.strictEqual(s.db.state.users.u1.usedCount, 0);
@@ -213,6 +258,18 @@ test('ask: when the AI fails the request is given back, and the user hears it in
   const logged = warn.mock.calls.map((c) => c.arguments.join(' ')).join('\n');
   assert.match(logged, /\[ask\] anthropic failed: rate_limited/);
   assert.doesNotMatch(logged, /secret/, 'what the user sent is never logged');
+});
+
+test('ask: when the request cannot be given back either, the person hears the same, and only the kind is logged', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const error = t.mock.method(console, 'error', () => {});
+  const s = setup({ stored: freeDaily(5), fail: new BuddyError('rate_limited', 'Claude is busy: my secret text') });
+  s.db.refundRequest = async () => { throw Object.assign(new Error('The database said: my secret text'), { code: 'unavailable' }); };
+  assert.deepStrictEqual(await s.run(ask, 'POST', { body: { action: 'fix', text: 'my secret text' } }),
+    refusal(502, 'upstream', "Buddy couldn't answer. Try again."));
+  assert.strictEqual(s.db.state.users.u1.usedCount, 1, 'it stays counted when it cannot be given back');
+  assert.deepStrictEqual(error.mock.calls.map((c) => c.arguments.join(' ')), ['[ask] could not give the request back: unavailable']);
+  assert.doesNotMatch(warn.mock.calls.map((c) => c.arguments.join(' ')).join('\n'), /secret/);
 });
 
 test('ask: a Check answer comes back read as well', async () => {
@@ -264,7 +321,7 @@ test("admin models: the live list for the server's key", async () => {
 });
 
 test('admin models: the usual list when the server has no key, the key lists nothing, or the listing fails', async (t) => {
-  t.mock.method(console, 'warn', () => {});
+  const warn = t.mock.method(console, 'warn', () => {});
   const usual = PROVIDERS.openai.fallbackModels;
   const list = (options) => setup(options).run(adminModels, 'GET', { token: 'admin', query: { provider: 'openai' } });
   assert.deepStrictEqual((await list({})).body, { models: usual, live: false });
@@ -272,6 +329,7 @@ test('admin models: the usual list when the server has no key, the key lists not
   assert.deepStrictEqual((await list({ keys: { openai: 'k' }, listFails: true })).body, {
     models: usual, live: false, warning: "Couldn't load the model list for the server's OpenAI key. Showing the usual models.",
   });
+  assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments.join(' ')), ['[models] openai failed: bad_key'], 'only the kind is logged');
 });
 
 test('admin models: only real providers', async () => {
@@ -321,9 +379,14 @@ test('admin users: someone who is not there, or a request that is not valid', as
 
 // ---- anything else ----
 
-test('a failure nobody planned for is a 500 in plain words, and it is logged', async (t) => {
+test('a failure nobody planned for is a 500 in plain words, and only its kind is logged', async (t) => {
   const error = t.mock.method(console, 'error', () => {});
-  const r = await handle(async () => { throw new TypeError('boom'); }, { method: 'GET', headers: {} }, {});
+  // Its message quotes what the person sent, as a JSON.parse error does.
+  const failure = async () => { throw new SyntaxError('Unexpected token in "my secret text"'); };
+  const r = await handle(failure, { method: 'GET', headers: {} }, {});
   assert.deepStrictEqual(r, refusal(500, 'server', "Buddy's server had a problem. Try again."));
   assert.strictEqual(error.mock.callCount(), 1);
+  const logged = error.mock.calls[0].arguments.join(' ');
+  assert.match(logged, /\[api\] failed: SyntaxError/);
+  assert.doesNotMatch(logged, /secret/, 'what the person sent is never logged');
 });

@@ -69,7 +69,8 @@ function buildPrompt(action, input = {}) {
 
   if (action === 'write') {
     const instruction = requireText(input.instruction, LIMITS.instruction, 'Tell me what to write first.');
-    const tone = TONES[input.tone] ? input.tone : 'formal';
+    // A tone of its own only: TONES[input.tone] would also find "constructor", "toString" and the like.
+    const tone = Object.hasOwn(TONES, input.tone) ? input.tone : 'formal';
     return { system: SYSTEM.write(tone), user: instruction, image: null };
   }
 

@@ -45,6 +45,11 @@ const STATUS = {
 const isPlainObject = (value) => Object.prototype.toString.call(value) === '[object Object]';
 const answer = (body) => ({ status: 200, body });
 const hasKeyIn = (deps) => (id) => typeof deps.adminKeys?.[id] === 'string' && deps.adminKeys[id] !== '';
+/**
+ * What kind of failure `err` is: its code, else its name. Only this is ever logged, never its message, because a
+ * message can quote what the person sent.
+ */
+const kindOf = (err) => err?.code || err?.name || 'error';
 
 function allowMethods(req, ...methods) {
   if (!methods.includes(req.method)) throw new BuddyError('method_not_allowed', 'Not allowed.');
@@ -57,7 +62,10 @@ async function signedIn(req, deps) {
   let who;
   try {
     who = await deps.verifyToken(match[1]);
-  } catch {
+  } catch (err) {
+    // The kind is logged (never the token or the message), so a problem on the server's side, such as a bad service
+    // account or Google's keys not being reachable, can be told apart from people's sign-ins simply expiring.
+    console.warn(`[auth] token not accepted: ${kindOf(err)}`);
     throw new BuddyError('unauthenticated', 'Your sign-in has expired. Sign in again.');
   }
   if (!who?.uid || !who.email || who.emailVerified !== true) {
@@ -138,11 +146,11 @@ async function ask(req, deps) {
     });
   } catch (err) {
     // Only the kind of failure is logged, never what the person sent.
-    console.warn(`[ask] ${cfg.provider} failed: ${err?.code || err?.name || 'error'}`);
+    console.warn(`[ask] ${cfg.provider} failed: ${kindOf(err)}`);
     try {
       await deps.db.refundRequest({ uid: who.uid, day });
     } catch (refundErr) {
-      console.error(`[ask] could not give the request back: ${refundErr?.code || refundErr?.name || 'error'}`);
+      console.error(`[ask] could not give the request back: ${kindOf(refundErr)}`);
     }
     throw new BuddyError('upstream', "Buddy couldn't answer. Try again.");
   }
@@ -188,7 +196,7 @@ async function adminModels(req, deps) {
       apiKey: deps.adminKeys[id], fetchImpl: deps.fetchImpl, signal: AbortSignal.timeout(MODELS_TIMEOUT_MS),
     });
   } catch (err) {
-    console.warn(`[models] ${id} failed: ${err?.code || err?.name || 'error'}`);
+    console.warn(`[models] ${id} failed: ${kindOf(err)}`);
     return answer({
       models: fallbackModels,
       live: false,
@@ -240,7 +248,7 @@ async function handle(handler, req, deps) {
     if (err instanceof BuddyError && Object.hasOwn(STATUS, err.code)) {
       return { status: STATUS[err.code], body: { error: { code: err.code, message: err.message } } };
     }
-    console.error(`[api] failed: ${err?.code || err?.name || 'error'}: ${err?.message}`);
+    console.error(`[api] failed: ${kindOf(err)}`);
     return { status: 500, body: { error: { code: 'server', message: "Buddy's server had a problem. Try again." } } };
   }
 }

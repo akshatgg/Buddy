@@ -18,6 +18,14 @@ test('write: an unknown tone falls back to formal', () => {
   assert.match(buildPrompt('write', { instruction: 'hi', tone: 'pirate' }).system, /formal and polite/);
 });
 
+test('write: a name every object has (constructor, __proto__, toString) is not a tone either', () => {
+  const formal = buildPrompt('write', { instruction: 'hi' }).system;
+  assert.match(formal, /Tone: formal and polite\./);
+  for (const tone of ['constructor', '__proto__', 'toString']) {
+    assert.strictEqual(buildPrompt('write', { instruction: 'hi', tone }).system, formal, tone);
+  }
+});
+
 test('write: an empty instruction is refused with a message for the user', () => {
   assert.throws(() => buildPrompt('write', { instruction: '   ' }), {
     code: 'bad_request',

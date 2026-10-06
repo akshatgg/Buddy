@@ -17,8 +17,10 @@
  *                  bundle so its seal matches its contents.
  *
  *   2. UNSIGNED    "cannot be opened because it is from an unidentified
- *                  developer." Bypassable: right-click → Open, or
- *                  System Settings → Privacy & Security → Open Anyway.
+ *                  developer." Bypassable: System Settings → Privacy &
+ *                  Security → Open Anyway. Right-click → Open no longer gets
+ *                  past Gatekeeper on macOS 15 and later. A copy built on this
+ *                  Mac (not downloaded) may open without any warning at all.
  *                  This is where the project sits with no certificates.
  *
  *   3. SIGNED      No warning at all. Requires the Apple Developer Program

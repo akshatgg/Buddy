@@ -30,8 +30,10 @@ disk image, `release/Buddy-<version>-arm64.dmg`. Open the `.dmg` and drag Buddy 
 Applications, or copy `release/mac-arm64/Buddy.app` there yourself.
 
 - **The first open.** The app is signed only with an ad-hoc signature, not by
-  Apple, so macOS stops it the first time. Right-click Buddy → Open, or go to
-  System Settings → Privacy & Security → Open Anyway.
+  Apple, so macOS may stop it the first time. Open System Settings → Privacy &
+  Security, scroll down to the line about Buddy and click **Open Anyway**.
+  (Right-click → Open no longer gets past this on macOS 15 and later.) A copy
+  you built on this Mac and did not download may open with no warning at all.
 - **Permissions.** Allow Accessibility and Screen Recording for **Buddy**, not
   for your terminal. After you rebuild and reinstall, macOS may need them
   switched off and on again, because the ad-hoc signature changes with every

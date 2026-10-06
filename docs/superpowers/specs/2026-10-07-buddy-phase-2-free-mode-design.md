@@ -154,7 +154,7 @@ Every call sends `Authorization: Bearer <Firebase ID token>`. Errors are
    limit); otherwise `usedCount += 1`, `lastActive = now`. Counted before the AI call, so parallel
    requests cannot slip past the limit. Unlimited mode counts too (for the users list).
 5. Build the prompt (shared module) and call the configured provider and model with the admin key.
-   A screenshot with a model that cannot read images → 400 `no_vision`.
+   A screenshot with a model that cannot read images → 400 `free_no_vision`.
 6. Provider fails → give the request back (`usedCount -= 1` if still the same day) → 502 `upstream`
    "Buddy couldn't answer. Try again."
 7. Return the answer. Nothing the user sent is logged or stored.
@@ -187,8 +187,8 @@ sign-in."
 ### Routing
 
 The app keeps the last answer of `GET /api/config` (saved, so it survives a restart without internet)
-and refreshes it: at launch, when Settings or Admin opens, when the panel opens and the last answer is
-older than 60 s, and right after a `free_off`, `free_limit` or `blocked` error.
+and refreshes it: at launch, at sign-in, when Settings opens, after the admin saves, before a request
+when the last answer is older than 60 s, and right after a `free_off`, `free_limit` or `blocked` error.
 
 ```
 not signed in                                   → "Sign in to use Buddy."
@@ -224,8 +224,9 @@ The own-key route is exactly Phase 1's (prompts built in the app, provider calle
 ## 6. Errors (new codes)
 
 `signed_out`, `free_limit`, `need_key` (limit used, own keys allowed, none saved), `blocked`,
-`free_off`, `no_vision`, `upstream`, `unauthenticated`, `not_admin`, `network` (server unreachable).
-The panel's "Open Settings" button shows for `signed_out` and `need_key` as well as the Phase 1 codes.
+`free_off`, `free_no_vision`, `upstream`, `unauthenticated`, `not_admin`, `not_set_up`, `network` (server
+unreachable). The panel's "Open Settings" button shows for `signed_out`, `need_key`, `free_off` and
+`not_set_up` as well as the Phase 1 codes.
 
 ## 7. Testing
 

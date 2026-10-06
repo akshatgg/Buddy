@@ -232,7 +232,7 @@ the key's shape:
 - If the key starts the way another AI's keys do, not the chosen one's, it is
   that AI's key: it is checked with that AI, saved under it, that AI's model is
   chosen, and it becomes the chosen AI. The answer carries `switchedFrom` (the
-  AI that was chosen), and the form says "That's a Google Gemini key, so I
+  AI that was chosen), and the form says "That key is for Google Gemini, so I
   switched to Google Gemini. Key saved ✓".
 - A key that starts like none of them is checked with the chosen AI, as before.
 - All of this happens only once the key is kept. A key that is refused, or whose

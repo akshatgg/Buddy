@@ -87,13 +87,18 @@ async function mountAiForm(root) {
 
   async function pick(id) {
     const r = await window.buddy.set({ provider: id });
+    // render() empties the key box, but here the key stays: a person may paste it first and then click their AI.
+    // It is read now, after the answer, so anything typed while the AI was being saved is kept too.
+    const typed = key.value;
     if (!r.ok) {
       render(); // back to the AI that is saved
+      key.value = typed;
       setStatus(r.error.message, 'error');
       return;
     }
     snap = r;
     render();
+    key.value = typed;
     await loadModels();
   }
 
@@ -109,7 +114,7 @@ async function mountAiForm(root) {
     fillModels(r.models);
     // The key was for another AI than the one that was chosen: it was kept there, and Buddy switched to it.
     const { label } = current();
-    const switched = r.switchedFrom ? `That's a ${label} key, so I switched to ${label}. ` : '';
+    const switched = r.switchedFrom ? `That key is for ${label}, so I switched to ${label}. ` : '';
     if (!r.verified) setStatus(`${switched}Key saved — I couldn't check it (no internet)`);
     else if (switched) setStatus(`${switched}Key saved ✓`, 'good');
   });

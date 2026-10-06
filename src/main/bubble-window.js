@@ -14,7 +14,7 @@ function createBubbleWindow() {
   let timer = null;
 
   function create() {
-    win = new BrowserWindow({
+    const w = new BrowserWindow({
       ...BUBBLE,
       type: 'panel',
       transparent: true,
@@ -32,22 +32,44 @@ function createBubbleWindow() {
         contextIsolation: true,
       },
     });
-    win.setAlwaysOnTop(true, 'pop-up-menu');
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    win.setIgnoreMouseEvents(true);
-    ready = win.loadFile(path.join(__dirname, '..', 'renderer', 'bubble', 'index.html'));
+    win = w;
+    w.setAlwaysOnTop(true, 'pop-up-menu');
+    w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    w.setIgnoreMouseEvents(true);
+    const contents = w.webContents;
+    contents.on('will-navigate', (event) => event.preventDefault());
+    contents.on('did-fail-load', (_event, code, description) => {
+      console.error('[buddy] the bubble page failed to load:', code, description);
+    });
+    contents.on('render-process-gone', (_event, details) => {
+      console.error('[buddy] the bubble page crashed:', details.reason);
+      // Drop the window, so that the next say() builds a new one.
+      clearTimeout(timer);
+      if (!w.isDestroyed()) w.destroy();
+      if (win === w) win = null;
+    });
+    ready = w.loadFile(path.join(__dirname, '..', 'renderer', 'bubble', 'index.html')).catch((err) => {
+      console.error('[buddy] could not load the bubble page:', err.message);
+    });
   }
 
   return {
     window: () => win,
+    /** Never rejects: whoever asks for a bubble cannot do anything about one that fails, so it is logged. */
     async say(text, buddyBounds, area) {
-      if (!win) create();
-      await ready;
-      win.setBounds(bubbleBounds(buddyBounds, area));
-      win.webContents.send('bubble:text', text);
-      win.showInactive();
-      clearTimeout(timer);
-      timer = setTimeout(() => win.hide(), SHOW_MS);
+      try {
+        if (!win) create();
+        const w = win;
+        await ready;
+        if (w !== win) return; // the page crashed while it was loading, and the window was dropped
+        w.setBounds(bubbleBounds(buddyBounds, area));
+        w.webContents.send('bubble:text', text);
+        w.showInactive();
+        clearTimeout(timer);
+        timer = setTimeout(() => w.hide(), SHOW_MS);
+      } catch (err) {
+        console.error('[buddy] could not show the bubble:', err);
+      }
     },
   };
 }

@@ -26,7 +26,7 @@ function createPanelWindow() {
   }
 
   function create() {
-    win = new BrowserWindow({
+    const w = new BrowserWindow({
       ...PANEL,
       type: 'panel',
       frame: false,
@@ -43,23 +43,39 @@ function createPanelWindow() {
         contextIsolation: true,
       },
     });
-    win.setAlwaysOnTop(true, 'pop-up-menu');
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    win.on('blur', () => {
-      if (!win.webContents.isDevToolsOpened()) hide();
+    win = w;
+    w.setAlwaysOnTop(true, 'pop-up-menu');
+    w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    w.on('blur', () => {
+      if (!w.isDestroyed() && !w.webContents.isDevToolsOpened()) hide();
     });
-    ready = win.loadFile(path.join(__dirname, '..', 'renderer', 'panel', 'index.html'));
+    const contents = w.webContents;
+    contents.on('will-navigate', (event) => event.preventDefault());
+    contents.on('did-fail-load', (_event, code, description) => {
+      console.error('[buddy] the panel page failed to load:', code, description);
+    });
+    contents.on('render-process-gone', (_event, details) => {
+      console.error('[buddy] the panel page crashed:', details.reason);
+      // Drop the window, so that the next show() builds a new one.
+      if (!w.isDestroyed()) w.destroy();
+      if (win === w) win = null;
+    });
+    ready = w.loadFile(path.join(__dirname, '..', 'renderer', 'panel', 'index.html')).catch((err) => {
+      console.error('[buddy] could not load the panel page:', err.message);
+    });
   }
 
   return {
     window: () => win,
     async show(state, buddyBounds, area) {
       if (!win) create();
+      const w = win;
       await ready;
-      win.setBounds(panelBounds(buddyBounds, area));
-      win.webContents.send('panel:open', state);
-      win.show();
-      win.focus();
+      if (w !== win) return; // the page crashed while it was loading, and the window was dropped
+      w.setBounds(panelBounds(buddyBounds, area));
+      w.webContents.send('panel:open', state);
+      w.show();
+      w.focus();
     },
     hide,
     isVisible: () => Boolean(win && win.isVisible()),

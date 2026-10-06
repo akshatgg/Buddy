@@ -20,6 +20,7 @@
     "test:e2e": "electron test/e2e/smoke.js"
   },
   "devDependencies": {
+    "@electron/asar": "^3.4.1",
     "@eslint/js": "^10.0.1",
     "electron": "^44.5.1",
     "electron-builder": "^26.15.3",

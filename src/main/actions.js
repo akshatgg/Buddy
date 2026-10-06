@@ -9,6 +9,7 @@
  */
 
 const { BuddyError } = require('../../shared/errors');
+const { AI_TIMEOUT_MS } = require('./ai');
 
 const COPIED = 'Copied — press ⌘V';
 const SLEEPY_MS = 5000;
@@ -120,7 +121,7 @@ function createActions({ helper, ai, clipboard, store, ui, later = setTimeout, c
     }
     ui.mood('thinking');
     try {
-      const out = await ai.ask(action, input);
+      const out = await ai.ask(action, input, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
       ui.mood('happy');
       return out;
     } catch (err) {

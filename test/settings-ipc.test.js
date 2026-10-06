@@ -69,7 +69,7 @@ function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = t
     windows: { owns: (webContents) => webContents === 'ours' },
     store,
     secrets,
-    ai: { listModels: async (id) => [`${id}-live`] },
+    ai: { listModels: async (id, options) => { calls.push(['listModels', id, options]); return [`${id}-live`]; } },
     characters: { list: CHARACTERS, get: (id) => CHARACTERS.find((c) => c.id === id) || CHARACTERS[0] },
     helper: {
       call: async (cmd) => {
@@ -186,10 +186,12 @@ test('save-key: with no internet the key is kept, and the answer says it was not
 });
 
 test('save-key: a key the provider accepts is kept, verified, with a model the key can use', async (t) => {
+  const timeout = t.mock.method(AbortSignal, 'timeout', () => 'the 60 s signal');
   const listModels = t.mock.method(CLAUDE, 'listModels', async () => ['claude-sonnet-5-5', 'claude-opus-5-5']);
   const s = setup();
   const r = await s.call('settings:save-key', 'anthropic', 'sk-ant-abc');
-  assert.deepStrictEqual(listModels.mock.calls[0].arguments, [{ apiKey: 'sk-ant-abc' }]);
+  assert.deepStrictEqual(listModels.mock.calls[0].arguments, [{ apiKey: 'sk-ant-abc', signal: 'the 60 s signal' }]);
+  assert.deepStrictEqual(timeout.mock.calls.map((c) => c.arguments), [[60_000]], 'the check is given 60 seconds');
   assert.strictEqual(r.ok, true);
   assert.strictEqual(r.verified, true);
   assert.strictEqual(s.keys.anthropic, 'sk-ant-abc');
@@ -212,6 +214,17 @@ test('save-key: a working key that lists no models is verified and uses the fall
   const r = await s.call('settings:save-key', 'anthropic', 'sk-ant-abc');
   assert.strictEqual(r.verified, true);
   assert.deepStrictEqual(r.models, CLAUDE.fallbackModels);
+});
+
+test('save-key: a check that takes too long is refused in plain words, and the key is not kept', async (t) => {
+  t.mock.method(CLAUDE, 'listModels', async () => {
+    throw new BuddyError('timeout', 'Claude took too long to answer. Try again.');
+  });
+  const s = setup();
+  const r = await s.call('settings:save-key', 'anthropic', 'sk-ant-abc');
+  assert.deepStrictEqual(r, refused('timeout', 'Claude took too long to answer. Try again.'));
+  assert.deepStrictEqual(s.keys, {}, 'it was not "no internet", so it is not saved as unchecked');
+  assert.deepStrictEqual(s.store.get('models'), {});
 });
 
 test('save-key: an unexpected failure is not mistaken for being offline', async (t) => {
@@ -250,12 +263,14 @@ test('keys and models: only real provider names are accepted', async () => {
   assert.deepStrictEqual(s.keys, {});
 });
 
-test('clear-key forgets the key; models answers the list for a provider', async () => {
+test('clear-key forgets the key; models answers the list for a provider', async (t) => {
+  t.mock.method(AbortSignal, 'timeout', () => 'the 60 s signal');
   const s = setup();
   s.keys.openai = 'k';
   const cleared = await s.call('settings:clear-key', 'openai');
   assert.strictEqual(cleared.providers.find((p) => p.id === 'openai').hasKey, false);
   assert.deepStrictEqual(await s.call('settings:models', 'openai'), { ok: true, models: ['openai-live'] });
+  assert.deepStrictEqual(s.calls, [['listModels', 'openai', { signal: 'the 60 s signal' }]], 'the list is given 60 seconds too');
 });
 
 // ---- opening pages ----

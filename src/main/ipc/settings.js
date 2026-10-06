@@ -4,6 +4,7 @@
 
 const { BuddyError } = require('../../../shared/errors');
 const { PROVIDERS, PROVIDER_IDS, getProvider } = require('../../../shared/providers');
+const { AI_TIMEOUT_MS } = require('../ai');
 const { SIZES } = require('../geometry');
 const { guarded } = require('./result');
 
@@ -125,7 +126,7 @@ function registerSettingsIpc({
     }
     let live = null;
     try {
-      live = await provider.listModels({ apiKey });
+      live = await provider.listModels({ apiKey, signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
     } catch (err) {
       // A wrong key is refused; being offline is not the key's fault.
       if (err.code !== 'network') throw err;
@@ -146,7 +147,7 @@ function registerSettingsIpc({
 
   handle('settings:models', async (providerId) => {
     getProvider(providerId);
-    return { models: await ai.listModels(providerId) };
+    return { models: await ai.listModels(providerId, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) }) };
   });
 
   handle('settings:buddy-on', (on) => {

@@ -295,6 +295,32 @@ test('other errors put the buddy back to idle', async () => {
   assert.deepStrictEqual(entries(s.log, 'mood').map((e) => e[1]), ['thinking', 'idle']);
 });
 
+test('a request to the AI is given 60 seconds to answer', async (t) => {
+  const timeout = t.mock.method(AbortSignal, 'timeout', () => 'the 60 s signal');
+  const asked = [];
+  const s = setup({ ask: async (action, input, options) => { asked.push([action, input, options]); return { text: 'ok' }; } });
+  await s.actions.run('fix', { text: 'me go home' });
+  assert.deepStrictEqual(timeout.mock.calls.map((c) => c.arguments), [[60_000]]);
+  assert.deepStrictEqual(asked, [['fix', { text: 'me go home' }, { signal: 'the 60 s signal' }]]);
+});
+
+test('each request gets its own timeout', async (t) => {
+  const timeout = t.mock.method(AbortSignal, 'timeout', () => ({}));
+  const signals = [];
+  const s = setup({ ask: async (action, input, { signal }) => { signals.push(signal); return { text: 'ok' }; } });
+  await s.actions.run('fix', { text: 'a' });
+  await s.actions.run('fix', { text: 'b' });
+  assert.strictEqual(timeout.mock.callCount(), 2);
+  assert.notStrictEqual(signals[0], signals[1]);
+});
+
+test('an answer that takes too long puts the buddy back to idle, not to sleep: it is not "no internet"', async () => {
+  const s = setup({ ask: async () => { throw failure('timeout', 'Claude took too long to answer. Try again.'); } });
+  await assert.rejects(s.actions.run('fix', { text: 'x' }), { code: 'timeout', message: 'Claude took too long to answer. Try again.' });
+  assert.deepStrictEqual(entries(s.log, 'mood').map((e) => e[1]), ['thinking', 'idle']);
+  assert.strictEqual(s.timers.length, 0, 'no "sleepy for a while" timer');
+});
+
 test('a new request cancels the pending "sleepy, then idle" timer', async () => {
   let offline = true;
   const s = setup({ ask: async () => { if (offline) throw failure('network'); return { text: 'ok' }; } });

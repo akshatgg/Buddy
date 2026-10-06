@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { fakeFetch, offlineFetch } = require('./helpers/fake-fetch');
+const { BuddyError } = require('../shared/errors');
 const { PROVIDERS, PROVIDER_IDS, getProvider } = require('../shared/providers');
 
 const ASK = { apiKey: 'k-123', system: 'SYS', user: 'USER', image: null, maxTokens: 1024 };
@@ -213,6 +214,66 @@ test('no network becomes a network error', async () => {
     getProvider('openai').complete({ ...ASK, model: 'm', fetchImpl: offlineFetch() }),
     { code: 'network', message: "Couldn't reach OpenAI. Check your internet." },
   );
+});
+
+/** A fetch that never answers, and gives up with the signal's reason when the signal fires, as Node's does. */
+function hangingFetch(_url, { signal }) {
+  return new Promise((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(signal.reason));
+  });
+}
+
+/** AbortSignal.timeout's timer does not keep Node running, so a test that waits for one needs something that does. */
+async function keepingNodeAlive(run) {
+  const keepAlive = setInterval(() => {}, 10);
+  try {
+    return await run();
+  } finally {
+    clearInterval(keepAlive);
+  }
+}
+
+test('a request that takes too long is a timeout in plain words, not "no internet"', () => keepingNodeAlive(async () => {
+  const labels = { anthropic: 'Claude', openai: 'OpenAI', gemini: 'Gemini', groq: 'Groq' };
+  for (const id of PROVIDER_IDS) {
+    const signal = AbortSignal.timeout(10);
+    await assert.rejects(
+      getProvider(id).complete({ ...ASK, model: 'm', fetchImpl: hangingFetch, signal }),
+      { name: 'BuddyError', code: 'timeout', message: `${labels[id]} took too long to answer. Try again.` },
+      id,
+    );
+  }
+}));
+
+test('asking for the list of models can time out the same way', () => keepingNodeAlive(async () => {
+  for (const id of PROVIDER_IDS) {
+    await assert.rejects(
+      getProvider(id).listModels({ apiKey: 'k', fetchImpl: hangingFetch, signal: AbortSignal.timeout(10) }),
+      { code: 'timeout' },
+      id,
+    );
+  }
+}));
+
+test('a timeout while the answer is still being read is a timeout too', async () => {
+  const slowBody = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => {
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    },
+  });
+  await assert.rejects(
+    getProvider('openai').complete({ ...ASK, model: 'm', fetchImpl: slowBody }),
+    { code: 'timeout', message: 'OpenAI took too long to answer. Try again.' },
+  );
+});
+
+test('a request that is cancelled is still passed through as an abort, not turned into a Buddy error', async () => {
+  const controller = new AbortController();
+  const asking = getProvider('anthropic').complete({ ...ASK, model: 'm', fetchImpl: hangingFetch, signal: controller.signal });
+  controller.abort();
+  await assert.rejects(asking, (err) => err.name === 'AbortError' && !(err instanceof BuddyError));
 });
 
 test('an empty answer is an error, not an empty paste', async () => {

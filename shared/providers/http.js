@@ -49,9 +49,13 @@ async function errorFromResponse(res, label) {
   return new BuddyError('upstream', `${label} had a problem (${status}). Try again in a moment.`);
 }
 
+/** A request given a deadline (AbortSignal.timeout) ran out of time: that is not the internet being down. */
+const isTimeout = (err) => err?.name === 'TimeoutError';
+const tookTooLong = (label) => new BuddyError('timeout', `${label} took too long to answer. Try again.`);
+
 /**
- * fetch + JSON. A network failure becomes BuddyError('network'); an abort is
- * passed through untouched so callers can tell "cancelled" from "failed".
+ * fetch + JSON. A network failure becomes BuddyError('network'), and a request that ran out of time
+ * BuddyError('timeout'); an abort is passed through untouched so callers can tell "cancelled" from "failed".
  */
 async function requestJson({ fetchImpl = fetch, url, method = 'GET', headers = {}, body, signal, label }) {
   let res;
@@ -64,10 +68,15 @@ async function requestJson({ fetchImpl = fetch, url, method = 'GET', headers = {
     });
   } catch (err) {
     if (err?.name === 'AbortError') throw err;
+    if (isTimeout(err)) throw tookTooLong(label);
     throw new BuddyError('network', `Couldn't reach ${label}. Check your internet.`);
   }
   if (!res.ok) throw await errorFromResponse(res, label);
-  return res.json();
+  try {
+    return await res.json(); // the deadline covers reading the answer too
+  } catch (err) {
+    throw isTimeout(err) ? tookTooLong(label) : err;
+  }
 }
 
 module.exports = { requestJson, errorFromResponse };

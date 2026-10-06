@@ -74,9 +74,10 @@ Details that are new on Windows:
 
 - **Keys the person still holds.** The shortcut fires while its keys are down, and Ctrl+C with
   Shift held is Ctrl+Shift+C (the inspector in Chrome). Before Ctrl+A/C/V the helper waits up to
-  3 s for every key to be let go. It never lets go of one on the person's behalf: the keyboard
-  would keep repeating the shortcut's Space with nothing held with it, typing spaces over their
-  text. Keys still held after 3 s → `keys_held`, and nothing is sent.
+  3 s for every key to be let go (input-method keys aside, which can read as down while their mode
+  is on). It never lets go of one on the person's behalf: the keyboard would keep repeating the
+  shortcut's Space with nothing held with it, typing spaces over their text. Keys still held after
+  3 s → `keys_held`, and nothing is sent; the panel says to let go of the keys.
 - **Clipboard.** Saved and restored in every memory format with the Win32 clipboard API (pictures
   through their DIB form, Office drawings through `CopyEnhMetaFile`; OLE's own `DataObject` and
   `Ole Private Data` are left out, as they point at the app that copied). Buddy's own temporary text
@@ -88,8 +89,10 @@ Details that are new on Windows:
   selection, copied by their app, does enter Win+V: that cannot be helped.
 - **What a password manager copies** (marked `ExcludeClipboardContentFromMonitorProcessing` or
   `Clipboard Viewer Ignore`) is never read: KeePass copies the selected entry's password on Ctrl+C,
-  though no password field has the focus. → `secure_field`, and the clipboard is put back. The
-  "Can…" formats alone are not taken as secret: Chrome's incognito windows put them on every copy.
+  though no password field has the focus. → `secure_field`, and the clipboard is put back. The marks
+  are looked for once the helper has the clipboard open, so once the app that copied is done (the
+  clipboard's count goes up while it is still adding formats). The "Can…" formats alone are not
+  taken as secret: Chrome's incognito windows put them on every copy.
 - **Password fields.** UI Automation's `IsPassword` on the focused element, given up after 1 s;
   when it cannot tell, the read goes on (as on the Mac).
 - **Terminals**, known by their window (Windows Terminal, the console, Git Bash, ConEmu, PuTTY), by
@@ -99,8 +102,8 @@ Details that are new on Windows:
   terminal. Paste is refused (a terminal runs every line), so the answer is copied instead. JetBrains
   IDEs' terminal cannot be told apart (README).
 - **Apps run as administrator.** Windows drops keys sent to them without saying so, which would
-  lose the answer or make a box look empty. Reading and pasting are refused with `elevated`, and the
-  answer is copied instead.
+  lose the answer or make a box look empty. Reading and pasting are refused with `elevated`: the
+  panel says why, and an answer is copied instead.
 - **Focus back to Buddy.** Windows lets only the program that sent the last input event bring a
   window forward, and takes that back at the person's next key. After reading, once the keys are up,
   the helper sends an input event that does nothing and calls `AllowSetForegroundWindow` for Buddy;

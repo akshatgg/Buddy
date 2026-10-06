@@ -1,0 +1,6 @@
+{
+  "serverUrl": "https://buddy-server.vercel.app",
+  "firebaseApiKey": "AIza... (Firebase console: Project settings, General, Web API key)",
+  "googleClientId": "....apps.googleusercontent.com (Google Cloud console: Credentials, OAuth client of type Desktop app)",
+  "googleClientSecret": "GOCSPX-... (the same OAuth client)"
+}

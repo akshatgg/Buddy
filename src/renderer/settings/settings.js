@@ -7,7 +7,8 @@ let gridBuilt = false;
 
 // Windows asks for no permissions, and its shortcuts are written with Ctrl.
 const onWindows = () => snap?.platform === 'win32';
-const WINDOWS_SHORTCUT_HINT = 'Press it in any app to open your buddy. For example: Ctrl+Shift+Space or Ctrl+Alt+B';
+// Not Ctrl+Alt: on many keyboards that is AltGr, which types a character.
+const WINDOWS_SHORTCUT_HINT = 'Press it in any app to open your buddy. For example: Ctrl+Shift+Space or Ctrl+Shift+B';
 
 function showStatus(id, text, kind) {
   $(id).textContent = text;

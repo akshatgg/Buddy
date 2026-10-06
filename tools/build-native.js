@@ -93,7 +93,14 @@ function commandFor(platform, { root = ROOT, env = process.env, exists = fs.exis
 if (require.main === module) {
   const { file, args } = commandFor(process.platform);
   fs.mkdirSync(path.join(ROOT, 'bin'), { recursive: true });
-  execFileSync(file, args, { stdio: 'inherit' });
+  try {
+    execFileSync(file, args, { stdio: 'inherit' });
+  } catch {
+    // The compiler has said what went wrong. On Windows the usual cause is a Buddy that is still running: Windows
+    // does not let a running program's file be replaced (error CS0016).
+    if (process.platform === 'win32') console.error('[build:native] If a file is "in use", quit Buddy first (menu: Quit Buddy).');
+    process.exit(1);
+  }
 }
 
 module.exports = { commandFor };

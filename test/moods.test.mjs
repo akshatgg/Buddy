@@ -184,7 +184,7 @@ test('thinking shows the eyes as lines, and no mouth', () => {
   }
 });
 
-test('thinking sweeps the eye lines up and down 1.2 times a second, the right one 0.6 rad behind', () => {
+test('thinking sweeps the eye lines up and down 1.2 times a second', () => {
   assert.strictEqual(SWEEP_HZ, 1.2);
   assert.strictEqual(SWEEP_LAG, 0.6);
   const cycle = 1 / SWEEP_HZ;

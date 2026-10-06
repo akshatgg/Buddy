@@ -25,12 +25,21 @@ const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100);
 // at start (a few milliseconds on the GPU) and only sampled after that. Tipped back a little,
 // so the room's front light shows as a reflection across the top of the face screen rather
 // than between the eyes.
-const pmrem = new THREE.PMREMGenerator(renderer);
-const room = new RoomEnvironment();
-scene.environment = pmrem.fromScene(room, 0.04).texture;
-scene.environmentRotation.x = -0.3;
-room.dispose();
-pmrem.dispose();
+let environmentTarget = null; // what the room was last prefiltered into
+function buildEnvironment() {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const room = new RoomEnvironment();
+  const target = pmrem.fromScene(room, 0.04);
+  scene.environment = target.texture;
+  scene.environmentRotation.x = -0.3;
+  if (environmentTarget) environmentTarget.dispose();
+  environmentTarget = target;
+  room.dispose();
+  pmrem.dispose();
+}
+buildEnvironment();
+// After a lost GPU context (often after sleep) three.js restores its state, but not this texture's contents.
+canvas.addEventListener('webglcontextrestored', buildEnvironment);
 // Soft, warm light on top of the room's.
 scene.add(new THREE.HemisphereLight(0xfff3e6, 0xd9cbbd, 0.5));
 const keyLight = new THREE.DirectionalLight(0xffeedd, 1.2);

@@ -82,8 +82,9 @@ function createActions({
 }) {
   let chat = newChat();
   let opening = null; // the open() in progress, if any
-  let aside = false; // the panel is hidden on purpose while the helper reads from or types into the app
-  let working = false; // a button that works in the app (Insert, Replace, Undo, Send) is under way
+  let aside = 0; // how many of Buddy's steps in the app are under way with the panel hidden on purpose for them
+  let lane = Promise.resolve(); // Buddy's work in the app, one step after the other (inApp)
+  let working = 0; // how many steps in the app are under way or waiting their turn
   let sleepy = null; // the pending "back to idle" timer after a network error, if any
 
   /**
@@ -222,7 +223,7 @@ function createActions({
   }
 
   async function toggle() {
-    if (aside) return; // the panel is hidden on purpose while the helper works in the app
+    if (aside > 0) return; // the panel is hidden on purpose while the helper works in the app
     // On the Mac a click on the buddy takes the panel's focus first, which hides it, and only then arrives here: that
     // click closed the panel, so it ends the chat as closing does, and must not open it again.
     if (ui.isPanelVisible() || ui.panelJustClosed()) {
@@ -235,15 +236,16 @@ function createActions({
   /**
    * The panel has the keyboard focus, so the helper's keys (⌘A and ⌘C to read the box, ⌘V to paste, ⌘Z, a send key)
    * would land in the panel itself, and bringing the app forward would blur it: it is hidden while the helper works.
-   * Until that is over, toggle() does nothing: a click on the buddy would open a second panel.
+   * Until that is over, toggle() does nothing: a click on the buddy would open a second panel. A count, not a flag: the
+   * end of one step must not let the panel open in the middle of another.
    */
   async function stepAside(work) {
-    aside = true;
+    aside += 1;
     ui.hidePanel();
     try {
       return await work();
     } finally {
-      aside = false;
+      aside -= 1;
     }
   }
 
@@ -316,22 +318,8 @@ function createActions({
 
     if (reply.kind === 'box') {
       if (!c.app) return stop(c, 'no_app', 'Click in the box you are writing in, then open me again.');
-      let box;
-      try {
-        box = (await stepAside(() => helper.call('captureSelection', { pid: c.app.pid, selectAll: true }))).text || '';
-      } catch (err) {
-        failed(c, err, you);
-        await comeBack(c);
-        return false;
-      }
-      if (c !== chat) return false;
-      if (!box) {
-        stop(c, 'empty_box', 'That box looks empty.');
-        await comeBack(c);
-        return false;
-      }
-      add(c, { type: 'event', text: `📖 Read your text in ${appName(c)}`, buttons: [] });
-      await comeBack(c);
+      const box = await inApp(() => readBox(c, you), { wait: true }); // in its turn, after any other step in the app
+      if (box === null || c !== chat) return false;
       reply = await ask({ ...asked, box, step: 2 }); // the box takes the place of the selection
       if (c !== chat) return false;
       from = 'box';
@@ -358,6 +346,30 @@ function createActions({
     return finish(c, reply, from);
   }
 
+  /**
+   * Read the whole text box the person is writing in: the panel steps aside for it and comes back on the same chat.
+   * Answers the text, or null when Buddy stopped short (the reason is in the chat).
+   */
+  async function readBox(c, you) {
+    let box;
+    try {
+      box = (await stepAside(() => helper.call('captureSelection', { pid: c.app.pid, selectAll: true }))).text || '';
+    } catch (err) {
+      failed(c, err, you);
+      await comeBack(c);
+      return null;
+    }
+    if (c !== chat) return null;
+    if (!box) {
+      stop(c, 'empty_box', 'That box looks empty.');
+      await comeBack(c);
+      return null;
+    }
+    add(c, { type: 'event', text: `📖 Read your text in ${appName(c)}`, buttons: [] });
+    await comeBack(c);
+    return box;
+  }
+
   /** The final answer: what it shows, and what Buddy does in the app. */
   async function finish(c, reply, from) {
     if (reply.kind === 'send') {
@@ -373,11 +385,15 @@ function createActions({
     if (reply.text) buttons = reply.kind === 'answer' ? ['copy'] : [mode === 'insert' ? 'insert' : 'replace', 'copy'];
     const item = add(c, { type: 'buddy', say: reply.say, text: reply.text, notes: reply.notes, buttons, mode });
     if (reply.kind !== 'answer' && reply.doIt && reply.text) {
-      // Buddy never sends by itself: when the message asked for it, the panel comes back to ask.
-      if ((await put(c, item)) && reply.send) {
-        add(c, { type: 'question', text: 'Send it?', buttons: ['send', 'not-now'] });
-        await comeBack(c);
-      }
+      // In its turn, after any other step in the app. Buddy never sends by itself: when the message asked for it, the
+      // panel comes back to ask.
+      await inApp(async () => {
+        if (c !== chat) return; // closed while it waited
+        if ((await put(c, item)) && reply.send) {
+          add(c, { type: 'question', text: 'Send it?', buttons: ['send', 'not-now'] });
+          await comeBack(c);
+        }
+      }, { wait: true });
     }
     return true;
   }
@@ -525,15 +541,19 @@ function createActions({
     push(c);
   }
 
-  /** One button at a time in the app: a quick second press of Send must not send twice. */
-  async function inApp(work) {
-    if (working) throw new BuddyError('bad_request', "Wait a moment, I'm still on it.");
-    working = true;
-    try {
-      await work();
-    } finally {
-      working = false;
-    }
+  /**
+   * Work in the app, one step at a time: each one waits for the one before it, so that no step's panel comes back, or
+   * its keys land, in the middle of another. Buddy's own steps (reading the box, "do it") wait their turn; a button
+   * pressed while a step is under way or waiting is refused instead (a quick second press of Send must not send twice).
+   */
+  function inApp(work, { wait = false } = {}) {
+    if (working > 0 && !wait) return Promise.reject(new BuddyError('bad_request', "Wait a moment, I'm still on it."));
+    working += 1;
+    const step = lane.then(work);
+    lane = step.catch(() => {}); // the next step goes whether or not this one worked
+    return step.finally(() => {
+      working -= 1;
+    });
   }
 
   /** A button on an item in the chat. Only the buttons the item shows can be pressed. */

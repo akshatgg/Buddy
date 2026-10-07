@@ -920,6 +920,58 @@ test('Undo on text Buddy put in the app presses ⌘Z there once, and the Undo bu
   assert.deepStrictEqual(chatOf(s)[1].buttons, ['copy']);
 });
 
+test('work in the app goes one step at a time: a "do it" answer waits for an Undo under way, then goes in', async () => {
+  let answer;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const first = [reply({ text: 'Dear Sir,', doIt: true })];
+  const s = setup({
+    replies: { press: () => gate.then(() => { throw failure('not_frontmost', 'Could not switch back to that app.'); }) },
+    ask: (action, given) => {
+      s.log.push(['ask', action, given]);
+      if (first.length) return Promise.resolve({ text: '', chat: first.shift() });
+      return new Promise((resolve) => { answer = () => resolve({ text: '', chat: reply({ text: 'Yours, Akshat', doIt: true }) }); });
+    },
+  });
+  const pastes = () => entries(s.log, 'helper').filter((e) => e[1] === 'paste').map((e) => e[2].text);
+  await s.actions.open();
+  await s.actions.send('write it here');
+  await s.actions.open();
+  const sending = s.actions.send('and sign it');
+  await new Promise(setImmediate);
+  const undoing = s.actions.act(2, 'undo');
+  while (!entries(s.log, 'helper').some((e) => e[1] === 'press')) await new Promise(setImmediate);
+  answer();
+  for (let i = 0; i < 10; i += 1) await new Promise(setImmediate);
+  assert.deepStrictEqual(pastes(), ['Dear Sir,'], 'the new text waits while the Undo is under way');
+  await s.actions.toggle();
+  assert.strictEqual(entries(s.log, 'showPanel').length, 2, 'and the shortcut does nothing meanwhile');
+  const from = s.log.length;
+  release();
+  assert.deepStrictEqual(await undoing, {});
+  await sending;
+  // The Undo could not press its key, so the panel came back with the reason; then the new text went in.
+  assert.deepStrictEqual(steps(s.log, from), ['showPanel', 'hidePanel', 'paste', 'bubble']);
+  assert.deepStrictEqual(pastes(), ['Dear Sir,', 'Yours, Akshat']);
+});
+
+test('a button that works in the app is refused while one of Buddy\'s own steps there is under way', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const s = setup({
+    replies: { paste: (args) => (args.text === 'Second.' ? gate.then(() => ({})) : {}) },
+    answers: [reply({ text: 'First.' }), reply({ text: 'Second.', doIt: true })],
+  });
+  await s.actions.open();
+  await s.actions.send('one');
+  const sending = s.actions.send('two, here');
+  while (!entries(s.log, 'helper').some((e) => e[1] === 'paste')) await new Promise(setImmediate);
+  await assert.rejects(s.actions.act(2, 'insert'), { code: 'bad_request', message: "Wait a moment, I'm still on it." });
+  release();
+  await sending;
+  assert.deepStrictEqual(entries(s.log, 'helper').filter((e) => e[1] === 'paste').map((e) => e[2].text), ['Second.']);
+});
+
 test('on Windows Undo presses Ctrl+Z', async () => {
   const s = setup({ windows: true, answers: [reply({ text: 'Dear Sir,', doIt: true })] });
   await s.actions.open();

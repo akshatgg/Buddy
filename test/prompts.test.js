@@ -207,7 +207,10 @@ test('chat: the system prompt asks for the JSON and gives every rule', () => {
   assert.match(system, /JSON only/);
   assert.match(system, /"kind"/);
   for (const kind of ['write', 'fix', 'answer', 'box', 'screen', 'send']) assert.match(system, new RegExp(`"${kind}"`), kind);
-  for (const field of ['say', 'text', 'notes', 'doIt', 'send', 'remember']) assert.match(system, new RegExp(`"${field}"`), field);
+  for (const field of ['say', 'text', 'notes', 'doIt', 'send', 'remember', 'again']) assert.match(system, new RegExp(`"${field}"`), field);
+  assert.match(system, /all eight fields/);
+  assert.match(system, /"again": true or false/, 'the JSON shape has it');
+  assert.match(system, /- "again": true when "text" is a new version of the last text you wrote or fixed in this chat/);
   assert.match(system, /Hinglish/);
   assert.match(system, /language and script/);
   assert.match(system, /\[Name\]/);
@@ -222,13 +225,15 @@ test('chat: the system prompt asks for the JSON and gives every rule', () => {
 
 // ---- parseChat ----
 
-const answerOf = (fields) => JSON.stringify({ kind: 'write', say: '', text: '', notes: [], doIt: false, send: false, remember: [], ...fields });
+const answerOf = (fields) => JSON.stringify({
+  kind: 'write', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false, ...fields,
+});
 
 test('parseChat reads each kind', () => {
   for (const kind of ['write', 'fix', 'answer', 'box', 'screen', 'send']) {
     const text = kind === 'answer' ? 'It means "soon".' : 'Some text';
     assert.deepStrictEqual(parseChat(answerOf({ kind, say: 'Here you go.', text })), {
-      kind, say: 'Here you go.', text, notes: [], doIt: false, send: false, remember: [],
+      kind, say: 'Here you go.', text, notes: [], doIt: false, send: false, remember: [], again: false,
     }, kind);
   }
 });
@@ -236,7 +241,7 @@ test('parseChat reads each kind', () => {
 test('parseChat reads a full answer, with or without code fences', () => {
   const answer = {
     kind: 'fix', say: 'Theek kar diya!', text: 'I am going to the office.', notes: ['"go" should be "going".'],
-    doIt: true, send: true, remember: ['You work in an office.'],
+    doIt: true, send: true, remember: ['You work in an office.'], again: true,
   };
   assert.deepStrictEqual(parseChat(JSON.stringify(answer)), answer);
   assert.deepStrictEqual(parseChat(`\`\`\`json\n${JSON.stringify(answer)}\n\`\`\``), answer);
@@ -244,7 +249,7 @@ test('parseChat reads a full answer, with or without code fences', () => {
 });
 
 test('parseChat: an answer that is not JSON, or of a kind it does not know, is a written answer with the raw text', () => {
-  const written = (raw) => ({ kind: 'write', say: '', text: raw, notes: [], doIt: false, send: false, remember: [] });
+  const written = (raw) => ({ kind: 'write', say: '', text: raw, notes: [], doIt: false, send: false, remember: [], again: false });
   assert.deepStrictEqual(parseChat('  Dear Sir,\nI will be on leave tomorrow.  '), written('Dear Sir,\nI will be on leave tomorrow.'));
   const odd = answerOf({ kind: 'dance', text: 'x' });
   assert.deepStrictEqual(parseChat(odd), written(odd));
@@ -257,7 +262,7 @@ test('parseChat: an answer that is not JSON, or of a kind it does not know, is a
 });
 
 test('parseChat: JSON with words around it, or line breaks inside its strings, is still read', () => {
-  const answer = { kind: 'write', say: 'Ye lo.', text: 'Dear Sir,\nI need leave tomorrow.', notes: [], doIt: true, send: false, remember: [] };
+  const answer = { kind: 'write', say: 'Ye lo.', text: 'Dear Sir,\nI need leave tomorrow.', notes: [], doIt: true, send: false, remember: [], again: false };
   // Some models write the line breaks of a text as they are, which JSON does not allow inside a string.
   const rawBreaks = JSON.stringify(answer).replace('\\n', '\n');
   assert.deepStrictEqual(parseChat(rawBreaks), answer);
@@ -266,24 +271,41 @@ test('parseChat: JSON with words around it, or line breaks inside its strings, i
 
 test('parseChat: an answer with only `say` takes it as its text', () => {
   const r = parseChat(JSON.stringify({ kind: 'answer', say: 'Kal ka matlab tomorrow hai.' }));
-  assert.deepStrictEqual(r, { kind: 'answer', say: '', text: 'Kal ka matlab tomorrow hai.', notes: [], doIt: false, send: false, remember: [] });
+  assert.deepStrictEqual(r, { kind: 'answer', say: '', text: 'Kal ka matlab tomorrow hai.', notes: [], doIt: false, send: false, remember: [], again: false });
   // Only for an answer: a written text with no text stays as it is.
   assert.deepStrictEqual(parseChat(JSON.stringify({ kind: 'write', say: 'Hmm.' })),
-    { kind: 'write', say: 'Hmm.', text: '', notes: [], doIt: false, send: false, remember: [] });
+    { kind: 'write', say: 'Hmm.', text: '', notes: [], doIt: false, send: false, remember: [], again: false });
 });
 
 test('parseChat: missing or odd fields read as empty or false, and the lists are capped', () => {
-  assert.deepStrictEqual(parseChat('{"kind": "box"}'), { kind: 'box', say: '', text: '', notes: [], doIt: false, send: false, remember: [] });
+  assert.deepStrictEqual(parseChat('{"kind": "box"}'), {
+    kind: 'box', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false,
+  });
   const r = parseChat(JSON.stringify({
     kind: 'fix', say: 7, text: ['no'], notes: ['1', 2, '  ', '3', '4', '5', '6', '7'], doIt: 'yes', send: 1,
-    remember: ['A', null, 'B', 'C', 'D', 'E', 'F', 'z'.repeat(201), ' '],
+    remember: ['A', null, 'B', 'C', 'D', 'E', 'F', 'z'.repeat(201), ' '], again: 'yes',
   }));
   assert.deepStrictEqual(r, {
     kind: 'fix', say: '', text: '', notes: ['1', '3', '4', '5', '6'], doIt: false, send: false, remember: ['A', 'B', 'C', 'D', 'E'],
+    again: false,
   });
   const long = parseChat(JSON.stringify({ kind: 'write', remember: ['z'.repeat(201), 'z'.repeat(200)] }));
   assert.deepStrictEqual(long.remember, ['z'.repeat(200)], 'a fact over 200 characters is left out, not cut');
   assert.deepStrictEqual(parseChat('{"kind": "send", "notes": "not a list", "remember": {"a": 1}}').notes, []);
+});
+
+test('parseChat: `again` is true only for a new version of written or fixed text, and only when it says true', () => {
+  for (const kind of ['write', 'fix']) {
+    assert.strictEqual(parseChat(answerOf({ kind, text: 'Shorter.', again: true })).again, true, kind);
+    assert.strictEqual(parseChat(answerOf({ kind, text: 'Shorter.', again: false })).again, false, kind);
+  }
+  for (const kind of ['answer', 'box', 'screen', 'send']) {
+    assert.strictEqual(parseChat(answerOf({ kind, text: 'x', again: true })).again, false, kind);
+  }
+  for (const again of ['true', 1, 'yes', null, {}, [true]]) {
+    assert.strictEqual(parseChat(answerOf({ kind: 'write', text: 'x', again })).again, false, JSON.stringify(again));
+  }
+  assert.strictEqual(parseChat('{"kind": "write", "text": "x"}').again, false, 'a missing `again` is false');
 });
 
 test('parseChat never throws', () => {

@@ -324,7 +324,8 @@ test('ask: a Check answer comes back read as well', async () => {
 
 /** A chat answer of `kind` as parseChat reads it, and as the model writes it. */
 const chatOf = (kind, extra = {}) => ({
-  kind, say: 'Okay!', text: kind === 'write' ? 'Dear Sir,' : '', notes: [], doIt: false, send: false, remember: [], ...extra,
+  kind, say: 'Okay!', text: kind === 'write' ? 'Dear Sir,' : '', notes: [], doIt: false, send: false, remember: [], again: false,
+  ...extra,
 });
 const chatReply = (kind, extra) => JSON.stringify(chatOf(kind, extra));
 
@@ -352,7 +353,7 @@ test('ask: a chat whose first answer wants the text box or the screen is given b
     for (const step of [undefined, 1]) {
       const s = setup({ stored: freeDaily(5), reply: chatReply(kind) });
       const r = await s.run(ask, 'POST', { body: { action: 'chat', message: 'fix my English', step } });
-      const empty = { kind, say: '', text: '', notes: [], doIt: false, send: false, remember: [] };
+      const empty = { kind, say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false };
       assert.deepStrictEqual(r, { status: 200, body: { text: JSON.stringify(empty), model: 'claude-x', chat: empty } });
       assert.strictEqual(s.db.state.users.u1.usedCount, 0, `${kind}, step ${step}: given back`);
       assert.deepStrictEqual(s.db.state.calls.filter((c) => c !== 'getConfig'), ['countRequest', 'refundRequest']);
@@ -361,7 +362,9 @@ test('ask: a chat whose first answer wants the text box or the screen is given b
 });
 
 test('ask: a given-back answer carries nothing the AI wrote into it, so asking "step 1" again and again gets no free text', async () => {
-  const sneaky = JSON.stringify({ kind: 'screen', say: 'Here you go', text: 'A whole free essay', notes: ['n'], doIt: true, send: true, remember: ['x'] });
+  const sneaky = JSON.stringify({
+    kind: 'screen', say: 'Here you go', text: 'A whole free essay', notes: ['n'], doIt: true, send: true, remember: ['x'], again: true,
+  });
   const s = setup({ stored: freeDaily(5), reply: sneaky });
   const r = await s.run(ask, 'POST', { body: { action: 'chat', message: 'write an essay', step: 1 } });
   assert.ok(!JSON.stringify(r.body).includes('essay'), 'the text is dropped');
@@ -412,7 +415,7 @@ test('ask: a chat that cannot be given back is still answered, and only the kind
   const s = setup({ stored: freeDaily(5), reply: chatReply('screen') });
   s.db.refundRequest = async () => { throw Object.assign(new Error('The database said: fix my English'), { code: 'unavailable' }); };
   const r = await s.run(ask, 'POST', { body: { action: 'chat', message: 'fix my English' } });
-  const empty = { kind: 'screen', say: '', text: '', notes: [], doIt: false, send: false, remember: [] };
+  const empty = { kind: 'screen', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false };
   assert.deepStrictEqual(r, { status: 200, body: { text: JSON.stringify(empty), model: 'claude-x', chat: empty } });
   assert.strictEqual(s.db.state.users.u1.usedCount, 1, 'it stays counted when it cannot be given back');
   assert.deepStrictEqual(error.mock.calls.map((c) => c.arguments.join(' ')), ['[ask] could not give the request back: unavailable']);

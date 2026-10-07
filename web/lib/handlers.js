@@ -183,7 +183,7 @@ async function ask(req, deps) {
   // answers out of it.
   if (chat && body.step !== 2 && (chat.kind === 'box' || chat.kind === 'screen')) {
     await giveBack(who.uid, day, deps);
-    chat = { kind: chat.kind, say: '', text: '', notes: [], doIt: false, send: false, remember: [] };
+    chat = { kind: chat.kind, say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false };
     text = JSON.stringify(chat);
   }
   return answer({

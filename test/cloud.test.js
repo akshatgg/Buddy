@@ -236,7 +236,7 @@ test('ask: a chat posts every chat input it has, and nothing else', async () => 
 });
 
 test("ask: a chat answer is read here, from its text, as on the own-key route: the server's reading never reaches the panel", async () => {
-  const chat = { kind: 'fix', say: 'Ho gaya!', text: 'I am going home.', notes: ['"go" → "going"'], doIt: true, send: false, remember: [] };
+  const chat = { kind: 'fix', say: 'Ho gaya!', text: 'I am going home.', notes: ['"go" → "going"'], doIt: true, send: false, remember: [], again: false };
   const text = `\`\`\`json\n${JSON.stringify(chat)}\n\`\`\``;
   const s = setup({ answers: [
     ok({ text, model: 'm', chat: { kind: 'send', say: 'not this' } }),
@@ -244,7 +244,9 @@ test("ask: a chat answer is read here, from its text, as on the own-key route: t
   ] });
   assert.deepStrictEqual(await s.cloud.ask('chat', { message: 'fix this' }), { text, model: 'm', chat });
   assert.deepStrictEqual(await s.cloud.ask('chat', { message: 'leave mail' }), {
-    text: 'Dear Sir,', model: 'm', chat: { kind: 'write', say: '', text: 'Dear Sir,', notes: [], doIt: false, send: false, remember: [] },
+    text: 'Dear Sir,', model: 'm', chat: {
+      kind: 'write', say: '', text: 'Dear Sir,', notes: [], doIt: false, send: false, remember: [], again: false,
+    },
   });
 });
 

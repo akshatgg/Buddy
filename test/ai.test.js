@@ -91,11 +91,11 @@ test('check answers are parsed', async () => {
 });
 
 test('chat: the own key answers with the chat prompt, and the answer comes back read', async () => {
-  const answer = JSON.stringify({ kind: 'fix', say: 'Ho gaya!', text: 'I am going home.', notes: ['"go" → "going"'], doIt: true, send: false, remember: [] });
+  const answer = JSON.stringify({ kind: 'fix', say: 'Ho gaya!', text: 'I am going home.', notes: ['"go" → "going"'], doIt: true, send: false, remember: [], again: false });
   const { ai, calls } = setup({ answer });
   const out = await ai.ask('chat', { message: 'fix this', selection: 'me go home', appName: 'Notes', step: 1 });
   assert.deepStrictEqual([out.text, out.model], [answer, 'm-default']);
-  assert.deepStrictEqual(out.chat, { kind: 'fix', say: 'Ho gaya!', text: 'I am going home.', notes: ['"go" → "going"'], doIt: true, send: false, remember: [] });
+  assert.deepStrictEqual(out.chat, { kind: 'fix', say: 'Ho gaya!', text: 'I am going home.', notes: ['"go" → "going"'], doIt: true, send: false, remember: [], again: false });
   assert.match(calls[0].system, /"kind"/);
   assert.match(calls[0].user, /Selected text:\n"""\nme go home\n"""/);
   assert.match(calls[0].user, /The app they are in: Notes/);
@@ -106,7 +106,7 @@ test('chat: an answer that is not JSON is read as a written answer', async () =>
   const { ai } = setup({ answer: 'Dear Sir, I need leave tomorrow.' });
   const out = await ai.ask('chat', { message: 'leave mail' });
   assert.deepStrictEqual(out.chat, {
-    kind: 'write', say: '', text: 'Dear Sir, I need leave tomorrow.', notes: [], doIt: false, send: false, remember: [],
+    kind: 'write', say: '', text: 'Dear Sir, I need leave tomorrow.', notes: [], doIt: false, send: false, remember: [], again: false,
   });
 });
 

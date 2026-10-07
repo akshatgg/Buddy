@@ -11,9 +11,13 @@ const change = (keyCode, flags, t) => ({ kind: 'flags', keyCode, flags, t });
 const rightOption = (t) => [change(61, 0x80040, t), change(61, 0, t + 100)];
 const leftCommand = (t) => [change(55, 0x100008, t), change(55, 0, t + 100)];
 
-/** A key watch with a fake helper (it records each call; `failing` is the code its watchKeys fails with) and fake timers. */
+/**
+ * A key watch with a fake helper (it records each call; `failing` is the code its watchKeys fails with) and fake timers.
+ * `warnings` is what the key watch logged, one [message, code] for each.
+ */
 function setup(t, { failing = null } = {}) {
-  t.mock.method(console, 'warn', () => {});
+  const warnings = [];
+  t.mock.method(console, 'warn', (...args) => warnings.push(args));
   const helper = new EventEmitter();
   helper.calls = [];
   helper.failing = failing;
@@ -44,7 +48,7 @@ function setup(t, { failing = null } = {}) {
     timers.delete(id);
     timer.fn();
   };
-  return { helper, watch, presses, timers, press, told, fireTimer };
+  return { helper, watch, presses, timers, press, told, fireTimer, warnings };
 }
 
 test('the helper listens only while a single-key shortcut is set', async (t) => {
@@ -120,6 +124,26 @@ test('quick changes leave the helper told the last of them', async (t) => {
   assert.deepStrictEqual(s.presses, ['open']);
 });
 
+test('a change made while the helper is being told is told right after', async (t) => {
+  const s = setup(t);
+  s.watch.setShortcut('Tap:RightOption');
+  s.watch.setShortcut(null); // before the helper has answered the first
+  await tick();
+  await tick();
+  assert.deepStrictEqual(s.told(), [true, false]);
+});
+
+test("a change made right behind the helper's answer is not lost", async (t) => {
+  const s = setup(t);
+  s.watch.setShortcut('Tap:RightOption');
+  // This runs right after the answer has been taken: after the last time the key watch looked for a change, and before
+  // the call is marked as done.
+  Promise.resolve().then(() => s.watch.setShortcut(null));
+  await tick();
+  await tick();
+  assert.deepStrictEqual(s.told(), [true, false]);
+});
+
 test('a helper that restarts is told again; with nothing to listen for, it is told nothing', async (t) => {
   const s = setup(t);
   s.helper.emit('started');
@@ -147,6 +171,40 @@ test('when the helper cannot listen, it is asked again every 10 seconds until it
   assert.strictEqual(s.timers.size, 0, 'listening: nothing more to ask');
   s.press(rightOption(1000));
   assert.deepStrictEqual(s.presses, ['open']);
+});
+
+test('a helper that keeps failing is logged once, and again only after it has worked in between', async (t) => {
+  const s = setup(t, { failing: 'no_accessibility' });
+  s.watch.setShortcut('Tap:RightOption');
+  await tick();
+  const logged = ['[buddy] could not listen for the shortcut key:', 'no_accessibility'];
+  assert.deepStrictEqual(s.warnings, [logged]);
+  s.fireTimer();
+  await tick();
+  s.fireTimer();
+  await tick();
+  assert.deepStrictEqual(s.warnings, [logged], 'not again every 10 seconds');
+  assert.strictEqual(s.timers.size, 1, 'but it is still asked again');
+  s.helper.failing = null; // the permission is given
+  s.fireTimer();
+  await tick();
+  assert.strictEqual(s.timers.size, 0);
+  s.helper.failing = 'no_accessibility'; // and taken away again
+  s.helper.emit('started');
+  await tick();
+  assert.deepStrictEqual(s.warnings, [logged, logged], 'it worked in between, so this is news');
+  assert.strictEqual(s.timers.size, 1);
+});
+
+test('a failure that comes when nothing is wanted any more is not logged, and not asked again', async (t) => {
+  const s = setup(t, { failing: 'no_accessibility' });
+  s.watch.setShortcut('Tap:RightOption');
+  s.watch.setShortcut(null); // before the helper has answered
+  await tick();
+  await tick();
+  assert.deepStrictEqual(s.told(), [true], 'and it is told nothing more');
+  assert.deepStrictEqual(s.warnings, []);
+  assert.strictEqual(s.timers.size, 0);
 });
 
 test('asking again stops when the shortcut is no longer a single key', async (t) => {

@@ -21,6 +21,7 @@ function createKeyWatch({ helper, onPress, later = setTimeout, cancelLater = cle
   let telling = null; // the helper is being told; this settles once it has been
   let again = false; // what the helper should do changed while it was being told
   let retry = null; // the timer that asks again after the helper could not listen
+  let failed = false; // the helper could not listen, and the log says so: it is not said again until it has worked
 
   const wanted = () => Boolean(shortcut || recorder);
 
@@ -32,10 +33,14 @@ function createKeyWatch({ helper, onPress, later = setTimeout, cancelLater = cle
       try {
         await helper.call('watchKeys', { on: want });
         listening = want;
+        failed = false;
       } catch (err) {
         listening = false; // it could not listen, or could not be told to stop: either way it is not listening for Buddy
-        if (want) {
-          console.warn('[buddy] could not listen for the shortcut key:', err.code);
+        // Nothing wanted any more (it changed while the helper was being told): nothing to log, nothing to ask again.
+        if (want && wanted()) {
+          // One line for as long as it keeps failing, not one every 10 seconds.
+          if (!failed) console.warn('[buddy] could not listen for the shortcut key:', err.code);
+          failed = true;
           askAgainLater();
         }
       }
@@ -54,6 +59,8 @@ function createKeyWatch({ helper, onPress, later = setTimeout, cancelLater = cle
     }
     telling = tell().finally(() => {
       telling = null;
+      // The loop looked at `again` for the last time before this ran: a change made in between would never be told.
+      if (again) sync();
     });
     return telling;
   }

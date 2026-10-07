@@ -16,12 +16,12 @@
     </div>
   </header>
 
-  <div id="chat" class="chat">
+  <div id="chat" class="chat" role="log" aria-label="Chat" aria-live="off">
     <div id="empty" class="empty">
       <p id="greeting" class="greeting">Hi! What should we do?</p>
       <p class="examples"><span>“boss ko mail, kal chutti chahiye”</span> · <span>“fix this”</span> · <span>“what does this mean?”</span></p>
     </div>
-    <ol id="items" class="items" aria-label="Chat" aria-live="polite"></ol>
+    <ol id="items" class="items"></ol>
     <p id="thinking" class="thinking" aria-live="polite" hidden></p>
   </div>
 
@@ -38,6 +38,7 @@
     </div>
   </div>
 </div>
+<div id="announce" class="visually-hidden" aria-live="polite"></div>
 <script src="chat-view.js"></script>
 <script src="panel.js"></script>
 </body>

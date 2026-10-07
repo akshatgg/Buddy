@@ -4,9 +4,9 @@
 
 /**
  * What the panel draws for the chat state the main process sends (src/main/actions.js): the label of each button,
- * the selection card's first words, the "… is thinking" line, whether a message can be sent now, and what to draw
- * for each item in the chat. The panel page loads this as a script; the unit tests require it. So it must stay free
- * of the DOM.
+ * the selection card's first words, the "… is thinking" line, whether a message can be sent now, what to draw for
+ * each item in the chat, and what a screen reader says about it. The panel page loads this as a script; the unit tests
+ * require it. So it must stay free of the DOM.
  *
  * An item's parts: { id, kind: 'you' | 'buddy' | 'event' | 'error' | 'question', say, text, notes,
  * buttons: [{ button, label, primary }] }. `say` and `notes` are only ever filled in for the buddy's answers.
@@ -75,7 +75,24 @@ const ChatView = (() => {
     return parts;
   }
 
-  return { buttonLabel, selectionPreview, thinkingLine, canSend, itemParts };
+  /**
+   * Who an item is from, for a screen reader, which cannot see which side of the chat it is on: "You:", the buddy's
+   * name ("Aarav:") for its answers, errors and questions, and '' for a small line about what happened.
+   */
+  function speaker(kind, buddyName) {
+    if (kind === 'you') return 'You:';
+    if (kind === 'buddy' || kind === 'error' || kind === 'question') return `${text(buddyName) || 'Buddy'}:`;
+    return '';
+  }
+
+  /** What a screen reader reads out for an item that is new in the chat: who it is from, then all its words. */
+  function spokenLine(parts, buddyName) {
+    const words = [parts.say, parts.text, ...parts.notes].filter(Boolean).join(' ');
+    const who = speaker(parts.kind, buddyName);
+    return who ? `${who} ${words}` : words;
+  }
+
+  return { buttonLabel, selectionPreview, thinkingLine, canSend, itemParts, speaker, spokenLine };
 })();
 
 if (typeof module !== 'undefined') module.exports = ChatView;

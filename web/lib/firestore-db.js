@@ -6,7 +6,8 @@
  * back out as JS Dates.
  *
  *   config/free     the admin's switches
- *   users/{uid}     email, name, joined, lastActive, blocked, usedDay, usedCount
+ *   users/{uid}     email, name, joined, lastActive, blocked, usedDay, usedCount, and once a request was given back,
+ *                   refundDay, refundCount
  */
 
 /**
@@ -83,14 +84,22 @@ function createFirestoreDb(firestore) {
       });
     },
 
-    /** Give back a request the AI could not answer, if it still counts towards `day`. */
-    async refundRequest({ uid, day }) {
+    /**
+     * Give back a request, if it still counts towards `day`: at most `limit` a day, counted in the same transaction,
+     * so that give-backs asked for at the same moment cannot slip past the limit either. Past it, the request stays
+     * counted.
+     */
+    async refundRequest({ uid, day, limit }) {
       const ref = users.doc(uid);
-      await firestore.runTransaction(async (tx) => {
+      return firestore.runTransaction(async (tx) => {
         const snap = await tx.get(ref);
-        if (!snap.exists) return;
+        if (!snap.exists) return { ok: false, reason: 'not_counted' };
         const d = snap.data();
-        if (d.usedDay === day && Number.isInteger(d.usedCount) && d.usedCount > 0) tx.update(ref, { usedCount: d.usedCount - 1 });
+        if (d.usedDay !== day || !Number.isInteger(d.usedCount) || d.usedCount < 1) return { ok: false, reason: 'not_counted' };
+        const given = d.refundDay === day && Number.isInteger(d.refundCount) ? d.refundCount : 0;
+        if (given >= limit) return { ok: false, reason: 'limit', refundCount: given };
+        tx.update(ref, { usedCount: d.usedCount - 1, refundDay: day, refundCount: given + 1 });
+        return { ok: true, refundCount: given + 1 };
       });
     },
 

@@ -122,6 +122,9 @@ function chatPrompt(input) {
   const box = optionalText(input.box, LIMITS.text);
   const image = typeof input.image === 'string' ? input.image : '';
   if (image.length > LIMITS.imageChars) throw new BuddyError('bad_request', 'That screenshot is too big.');
+  // The app reads the box or the screen only for a second step. A first step may be given back on Buddy's server, so
+  // it is text only: what was given back cannot have carried a screenshot or a whole box.
+  if ((box || image) && input.step !== 2) throw new BuddyError('bad_request', 'That can only come with the second step.');
   const appName = oneLine(input.appName, CHAT_LIMITS.nameChars);
   const userName = oneLine(input.userName, CHAT_LIMITS.nameChars);
   const history = (Array.isArray(input.history) ? input.history : [])

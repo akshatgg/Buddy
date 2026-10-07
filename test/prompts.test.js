@@ -137,16 +137,16 @@ test('chat: the screenshot goes along as the image, and the prompt says so', () 
   assert.strictEqual(p.image, 'IMG');
   assert.match(p.user, /screenshot/i);
   assert.match(p.user, /This is the second step/);
-  assert.throws(() => buildPrompt('chat', { message: 'hi', image: 'a'.repeat(LIMITS.imageChars + 1) }),
+  assert.throws(() => buildPrompt('chat', { message: 'hi', image: 'a'.repeat(LIMITS.imageChars + 1), step: 2 }),
     { code: 'bad_request', message: 'That screenshot is too big.' });
   assert.strictEqual(buildPrompt('chat', { message: 'hi', image: 7 }).image, null, 'an image that is not text is left out');
 });
 
 test('chat: a selection or a box over 8000 characters is refused; blank ones are left out', () => {
   const tooLong = { code: 'bad_request', message: 'That is too long (over 8000 characters). Try a shorter one.' };
-  assert.ok(buildPrompt('chat', { message: 'fix', selection: 'a'.repeat(8000), box: 'b'.repeat(8000) }));
+  assert.ok(buildPrompt('chat', { message: 'fix', selection: 'a'.repeat(8000), box: 'b'.repeat(8000), step: 2 }));
   assert.throws(() => buildPrompt('chat', { message: 'fix', selection: 'a'.repeat(8001) }), tooLong);
-  assert.throws(() => buildPrompt('chat', { message: 'fix', box: 'a'.repeat(8001) }), tooLong);
+  assert.throws(() => buildPrompt('chat', { message: 'fix', box: 'a'.repeat(8001), step: 2 }), tooLong);
   const p = buildPrompt('chat', { message: 'fix', selection: '   ', box: 42 });
   assert.ok(!p.user.includes('Selected text:'));
   assert.ok(!p.user.includes('Their text box:'));
@@ -193,6 +193,21 @@ test('chat: the app and the name are cut to 100 characters, on one line', () => 
   assert.match(user, new RegExp(`Their first name: n{100}\\n`));
   const none = buildPrompt('chat', { message: 'hi', appName: '  ', userName: 5 }).user;
   assert.ok(!none.includes('The app they are in') && !none.includes('Their first name'));
+});
+
+test('chat: a text box or a screenshot only comes with the second step', () => {
+  // The app reads them only for a second step, which is never given back: a first step, which may be, is text only.
+  const refused = { code: 'bad_request', message: 'That can only come with the second step.' };
+  for (const step of [undefined, 1, '2', 3, true]) {
+    assert.throws(() => buildPrompt('chat', { message: 'fix my English', box: 'i am go', step }), refused, `box, step ${step}`);
+    assert.throws(() => buildPrompt('chat', { message: 'what is this?', image: 'IMG', step }), refused, `image, step ${step}`);
+  }
+  // A box or an image that is not there, blank or not text, is nothing, and is not refused.
+  for (const nothing of [{ box: '   ' }, { box: 42 }, { image: '' }, { image: 7 }, { box: null, image: null }]) {
+    assert.ok(buildPrompt('chat', { message: 'hi', step: 1, ...nothing }), JSON.stringify(nothing));
+  }
+  assert.ok(buildPrompt('chat', { message: 'fix my English', box: 'i am go', step: 2 }));
+  assert.ok(buildPrompt('chat', { message: 'what is this?', image: 'IMG', step: 2 }));
 });
 
 test('chat: only step 2 is a second step', () => {

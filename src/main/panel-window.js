@@ -78,9 +78,14 @@ function permissionRules({ isPanel, page = PAGE, platform = process.platform }) 
  * `BrowserWindow` and `session` are Electron's unless given (the tests give their own). The panel's window has no
  * session of its own, so it is in the default one, with the other windows: the permission rules go on it as soon as
  * there is a panel (main.js makes it at launch), not only once its window is made, so that no other page has the
- * microphone meanwhile.
+ * microphone meanwhile. `onGone()` is called once for each window whose page is gone: it crashed or did not load, or
+ * the window was closed. Such a page cannot say that it stopped listening.
  */
-function createPanelWindow({ BrowserWindow = electron.BrowserWindow, session = electron.session.defaultSession } = {}) {
+function createPanelWindow({
+  BrowserWindow = electron.BrowserWindow,
+  session = electron.session.defaultSession,
+  onGone = () => {},
+} = {}) {
   let win = null;
   let ready = null;
   let hiddenAt = 0;
@@ -100,11 +105,12 @@ function createPanelWindow({ BrowserWindow = electron.BrowserWindow, session = e
     }
   }
 
-  /** Forget a window that is gone, so that the next show() builds a new one. */
+  /** Forget a window that is gone, so that the next show() builds a new one; and say it is gone. */
   function forget(w) {
     if (win === w) {
       win = null;
       ready = null;
+      onGone();
     }
   }
 

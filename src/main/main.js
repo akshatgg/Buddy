@@ -102,7 +102,10 @@ async function start(options = {}) {
     onGiveUp: () => tray?.refresh(), // the page crashed again and again, and the window is gone: the menu must say so
   });
   const bubble = createBubbleWindow();
-  const panel = createPanelWindow();
+  const panel = createPanelWindow({
+    // Its page crashed or did not load, or its window was closed: a listening there is over, and the page cannot say so.
+    onGone: () => ui.listening(false),
+  });
   const windows = createSettingsWindows({ app });
   const openSettings = (section) => windows.open('settings', section ? { section } : undefined);
   // Settings → Memory follows each change to what Buddy knows about the person.
@@ -137,7 +140,10 @@ async function start(options = {}) {
   const ui = {
     showPanel: (state) => panel.show(state, buddy.bounds(), buddy.display().workArea),
     panelState: (state) => panel.send('panel:state', state),
-    hidePanel: () => panel.hide(),
+    hidePanel() {
+      panel.hide();
+      ui.listening(false); // a listening ends with the panel (the page says so too, a moment later)
+    },
     isPanelVisible: () => panel.isVisible(),
     panelJustClosed: () => panel.justClosed(),
     panelHiddenAt: () => panel.hiddenAt(),
@@ -145,8 +151,9 @@ async function start(options = {}) {
     openSettings,
     bubble: (text) => bubble.say(text, buddy.bounds(), buddy.display().workArea),
     mood: (name) => buddy.mood(name),
-    // For the buddy's feelings, which have their own design: voice (the next step) will say when the panel listens
-    // (listening(on)) and how loud the person speaks (voiceLevel(0..1), about 10 times a second). Nothing uses them yet.
+    // For the buddy's feelings, which have their own design: when the panel listens (listening(on), from its page; and
+    // false when main hides the panel or its page is gone) and how loud the person speaks (voiceLevel(0..1), about 10
+    // times a second). Nothing uses them yet.
     listening() {},
     voiceLevel() {},
   };

@@ -109,7 +109,10 @@ class FakeWindow {
     this.destroyed = false;
     this.events = {};
     this.webContents = {
-      on() {},
+      handlers: {},
+      on(event, fn) {
+        this.handlers[event] = fn;
+      },
       setWindowOpenHandler() {},
       send() {},
       isDevToolsOpened: () => false,
@@ -218,4 +221,52 @@ test('while macOS asks about the microphone the panel stays open, and gets the k
   assert.strictEqual(focused, 1, 'the panel has the keyboard again');
   w.events.blur(); // a click somewhere else afterwards hides it as always
   assert.strictEqual(w.isVisible(), false);
+});
+
+test('a page that crashed, a page that did not load, or a window that was closed: main hears the panel is gone, once', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  for (const [what, end] of [
+    ['crashed', (w) => w.webContents.handlers['render-process-gone']({}, { reason: 'crashed' })],
+    ['did not load', (w) => w.webContents.handlers['did-fail-load']({}, -6, 'ERR_FILE_NOT_FOUND', PAGE_URL, true)],
+    ['closed', (w) => w.destroy()],
+  ]) {
+    let gone = 0;
+    const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession(), onGone: () => { gone += 1; } });
+    await panel.show({}, BUDDY, AREA);
+    const w = panel.window();
+    end(w);
+    assert.strictEqual(gone, 1, what);
+    assert.strictEqual(panel.window(), null, what);
+    w.events.closed?.(); // Electron's own "closed" for a window already dropped
+    assert.strictEqual(gone, 1, `${what}, and only once`);
+  }
+});
+
+test('a load that was cancelled, or a failure in a frame inside the page, is not the panel gone', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  let gone = 0;
+  const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession(), onGone: () => { gone += 1; } });
+  await panel.show({}, BUDDY, AREA);
+  const w = panel.window();
+  w.webContents.handlers['did-fail-load']({}, -3, 'ERR_ABORTED', PAGE_URL, true);
+  w.webContents.handlers['did-fail-load']({}, -6, 'ERR_FILE_NOT_FOUND', 'file:///x.html', false);
+  assert.strictEqual(gone, 0);
+  assert.strictEqual(panel.window(), w);
+});
+
+test('a page whose load fails outright is gone too, and without onGone nothing breaks', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  class Unloadable extends FakeWindow {
+    loadFile() {
+      return Promise.reject(new Error('no such file'));
+    }
+  }
+  let gone = 0;
+  const panel = createPanelWindow({ BrowserWindow: Unloadable, session: fakeSession(), onGone: () => { gone += 1; } });
+  await panel.show({}, BUDDY, AREA);
+  assert.strictEqual(gone, 1);
+  const quiet = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession() });
+  await quiet.show({}, BUDDY, AREA);
+  quiet.window().destroy();
+  assert.strictEqual(quiet.window(), null);
 });

@@ -87,6 +87,14 @@ function createKeyWatch({ helper, onPress, later = setTimeout, cancelLater = cle
   }
 
   helper.on('keys', (event) => {
+    if (event.kind === 'lost') {
+      // The helper could not make its tap again (after Accessibility came back): it no longer listens, whatever it was
+      // told, so it is told again, and asked again later if that fails too.
+      listening = false;
+      detector.reset();
+      sync();
+      return;
+    }
     const tap = detector.feed(event);
     if (!tap) return;
     if (recorder) recorder(tap);

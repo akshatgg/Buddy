@@ -364,6 +364,9 @@ func onKeyEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refco
     default:
         // A scroll that goes on by itself after the fingers have left the trackpad is not the person doing anything.
         if type == .scrollWheel && event.getIntegerValueField(.scrollWheelEventMomentumPhase) != 0 { break }
+        // Of the system-defined events only the media keys count (subtype 8): fn and 🌐 may bring others of their own,
+        // and those must not spoil a tap of fn.
+        if type.rawValue == 14 && NSEvent(cgEvent: event)?.subtype.rawValue != 8 { break }
         if event.flags.rawValue & heldModifiers != 0 { send(["event": "keys", "kind": "other"]) }
     }
     return Unmanaged.passUnretained(event)
@@ -380,7 +383,12 @@ func checkKeyTap() {
     if !keyTapTrusted {
         keyTapTrusted = true
         try? setKeyTap(false)
-        try? setKeyTap(true)
+        do {
+            try setKeyTap(true)
+        } catch {
+            // No tap any more: the key watch is told, and asks again until one can be made.
+            send(["event": "keys", "kind": "lost"])
+        }
         return
     }
     if !CGEvent.tapIsEnabled(tap: tap) { CGEvent.tapEnable(tap: tap, enable: true) }

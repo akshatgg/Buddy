@@ -156,6 +156,20 @@ test('a helper that restarts is told again; with nothing to listen for, it is to
   assert.deepStrictEqual(s.told(), [true, true]);
 });
 
+test('a helper that lost its tap is told again, and the press it was hearing is forgotten', async (t) => {
+  const s = setup(t);
+  s.watch.setShortcut('Tap:RightOption');
+  await tick();
+  s.press([change(61, 0x80040, 1000)]); // Right ⌥ down…
+  s.helper.emit('keys', { event: 'keys', kind: 'lost' }); // …and the tap is gone before it is let go
+  await tick();
+  assert.deepStrictEqual(s.told(), [true, true]);
+  s.press([change(61, 0, 1100)]);
+  assert.deepStrictEqual(s.presses, [], 'half a press is not a tap');
+  s.press(rightOption(2000));
+  assert.deepStrictEqual(s.presses, ['open']);
+});
+
 test('when the helper cannot listen, it is asked again every 10 seconds until it can', async (t) => {
   const s = setup(t, { failing: 'no_accessibility' });
   s.watch.setShortcut('Tap:RightOption');

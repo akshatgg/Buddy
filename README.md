@@ -21,7 +21,9 @@ terminal), so allow that app in System Settings → Privacy & Security.
 ## Install on your Mac
 
 Only an installed app can start itself at login, and it gets its own
-permissions. Build it once and put it in Applications (Apple Silicon only):
+permissions. Build it once and put it in Applications (Apple Silicon only).
+A build needs a valid `cloud.json` first, and fails without one (see
+"Sign-in and free mode" below):
 
     npm run dist:mac
 
@@ -47,6 +49,21 @@ Applications, or copy `release/mac-arm64/Buddy.app` there yourself.
       BUDDY_USER_DATA=$(mktemp -d) release/mac-arm64/Buddy.app/Contents/MacOS/Buddy
 
 The app runs without Terminal and has no Dock icon; it lives in the menu bar.
+
+## Sign-in and free mode
+
+Everyone signs in with Google. The admin (akshatg9636@gmail.com) gets
+**Admin…** in the menu bar, to make Buddy free for everyone with the server's AI
+key — unlimited or a number of requests a day — and to block people.
+
+The server is in `web/` (Vercel + Firestore, project `buddy-7f8c2`); see
+`web/README.md`. The app finds it, and signs in, with `cloud.json` at the
+repository root. It is not in git: copy `cloud.example.json` and fill it in. A
+build without a valid one fails (`build/afterPack.js`).
+
+    npm run sync:web         # after changing shared/: the server keeps a copy in web/shared
+    npm run test:firestore   # the server's database code against the Firestore emulator (needs the Firebase CLI (firebase) and Java 21 or newer)
+    npm run deploy:server    # deploy the server
 
 ## Tests
 

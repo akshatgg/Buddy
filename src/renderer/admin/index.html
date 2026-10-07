@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'">
+  <title>Buddy Admin</title>
+  <link rel="stylesheet" href="../common/base.css">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+<main>
+  <p id="load-error" class="error" hidden></p>
+
+  <!-- Both cards stay hidden until the settings have arrived (admin.js shows them): nothing in them works without those. -->
+  <section id="free-card" class="card" hidden>
+    <h2>Free AI</h2>
+    <p class="muted">These switches apply to every Buddy app and every user, the next time they open Buddy.</p>
+    <p id="no-keys" class="error" hidden>No AI key is set on the server yet, so free mode can't be turned on.</p>
+
+    <label class="check"><input id="enabled" type="checkbox"> Free mode: everyone uses your AI key</label>
+
+    <label class="check"><input type="radio" name="limitMode" value="unlimited"> Unlimited</label>
+    <label class="check"><input type="radio" name="limitMode" value="daily"> Daily limit</label>
+    <div id="daily-row" class="row indent">
+      <input id="daily" type="number" min="1" max="10000" step="1">
+      <span class="muted grow">free requests per user per day</span>
+    </div>
+    <label id="own-row" class="check indent"><input id="own" type="checkbox"> Also let users add their own key (used after their free requests run out)</label>
+
+    <label for="provider">AI provider</label>
+    <select id="provider"></select>
+    <label for="model">Model</label>
+    <div class="row">
+      <select id="model"></select>
+      <button id="models-refresh" type="button">Refresh</button>
+    </div>
+    <p id="models-note" class="muted"></p>
+
+    <div class="row">
+      <button id="save" class="primary" type="button">Save</button>
+      <span id="save-status" class="muted"></span>
+    </div>
+  </section>
+
+  <section id="users-card" class="card" hidden>
+    <div class="row">
+      <h2 class="grow">Users</h2>
+      <button id="users-refresh" type="button">Refresh</button>
+    </div>
+    <p id="users-status" class="muted"></p>
+    <table>
+      <thead><tr><th>Name</th><th>Email</th><th class="num">Today</th><th>Last active</th><th></th></tr></thead>
+      <tbody id="users"></tbody>
+    </table>
+  </section>
+</main>
+<script src="admin.js"></script>
+</body>
+</html>

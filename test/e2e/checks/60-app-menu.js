@@ -8,8 +8,8 @@ function allItems(menu) {
 }
 
 // Electron's default menu quits Buddy on Cmd+Q and closes (destroys) any focused window on Cmd+W, the panel included.
-// Buddy has its own: the Edit roles, so copy and paste work in its text boxes; Cmd+W for Settings and Welcome only;
-// and no Cmd+Q, so that Buddy is quit only from the menu bar's "Quit".
+// Buddy has its own: the Edit roles, so copy and paste work in its text boxes; Cmd+W for Settings, Welcome and Admin
+// only; and no Cmd+Q, so that Buddy is quit only from the menu bar's "Quit".
 module.exports = async function appMenuCheck(ctx, { assert, delay, waitFor }) {
   const menu = Menu.getApplicationMenu();
   assert.ok(menu, 'Buddy sets its own application menu');

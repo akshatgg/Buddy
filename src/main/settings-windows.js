@@ -1,12 +1,13 @@
 'use strict';
 
-/** The Settings and Welcome windows: ordinary windows, at most one of each. */
+/** The Settings, Welcome and Admin windows: ordinary windows, at most one of each. */
 
 const path = require('node:path');
 
 const KINDS = {
-  settings: { title: 'Buddy Settings', width: 520, height: 720 },
-  onboarding: { title: 'Welcome to Buddy', width: 520, height: 620 },
+  settings: { title: 'Buddy Settings', width: 520, height: 720, preload: 'settings.js' },
+  onboarding: { title: 'Welcome to Buddy', width: 520, height: 620, preload: 'settings.js' },
+  admin: { title: 'Buddy Admin', width: 680, height: 780, preload: 'admin.js' },
 };
 
 // BrowserWindow can be passed in so tests can run without Electron; the real one is loaded
@@ -24,7 +25,7 @@ function createSettingsWindows({ app, BrowserWindow = require('electron').Browse
         windows[kind].focus();
         return windows[kind];
       }
-      const { title, width, height } = KINDS[kind];
+      const { title, width, height, preload } = KINDS[kind];
       const win = new BrowserWindow({
         title,
         width,
@@ -34,7 +35,7 @@ function createSettingsWindows({ app, BrowserWindow = require('electron').Browse
         fullscreenable: false,
         show: false,
         webPreferences: {
-          preload: path.join(__dirname, '..', 'preload', 'settings.js'),
+          preload: path.join(__dirname, '..', 'preload', preload),
           sandbox: true,
           contextIsolation: true,
         },
@@ -56,7 +57,7 @@ function createSettingsWindows({ app, BrowserWindow = require('electron').Browse
     close(kind) {
       if (alive(windows[kind])) windows[kind].close();
     },
-    /** Is this page one of these windows' own? With a `kind` ('settings' or 'onboarding'), only that kind counts. */
+    /** Is this page one of these windows' own? With a `kind` ('settings', 'onboarding' or 'admin'), only that kind counts. */
     owns(webContents, kind) {
       return Object.entries(windows).some(
         ([name, win]) => (kind === undefined || name === kind) && alive(win) && win.webContents === webContents,

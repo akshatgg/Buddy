@@ -2,10 +2,12 @@
 /* global mountAiForm, renderBuddyGrid */
 
 const $ = (id) => document.getElementById(id);
-const STEPS = ['pick', 'accessibility', 'screen', 'ai'];
+const ALL_STEPS = ['signin', 'pick', 'accessibility', 'screen', 'ai'];
+let steps = ALL_STEPS; // without 'ai' when free mode covers this person (snap.ai.showForm is false)
 let step = 0;
 let snap = null;
 let chosen = null;
+let signingIn = 0; // sign-ins that wait for the browser: pressing the button again starts a newer one
 
 function showStatus(id, text, kind) {
   $(id).textContent = text;
@@ -32,14 +34,42 @@ async function checkPermissions() {
   show('scr-status', Boolean(r.screenRecording));
 }
 
+/** The steps for this person: Connect an AI only when they may need a key of their own. */
+function setSteps() {
+  steps = ALL_STEPS.filter((name) => name !== 'ai' || snap.ai.showForm);
+  step = Math.min(step, steps.length - 1);
+}
+
 function go(n) {
   step = n;
-  STEPS.forEach((name, i) => {
-    $(`step-${name}`).hidden = i !== n;
-  });
+  for (const name of ALL_STEPS) $(`step-${name}`).hidden = name !== steps[n];
   $('back').hidden = n === 0;
-  $('next').textContent = n === STEPS.length - 1 ? 'Start my buddy' : 'Next';
-  if (STEPS[n] === 'accessibility' || STEPS[n] === 'screen') checkPermissions();
+  $('next').textContent = n === steps.length - 1 ? 'Start my buddy' : 'Next';
+  // Next is off on the first step until the person is signed in. Someone signed out later, behind the page's back, is
+  // brought back to it when the window gets the focus again, and finishing is refused to anyone signed out.
+  $('next').disabled = steps[n] === 'signin' && !snap?.account.signedIn;
+  if (steps[n] === 'accessibility' || steps[n] === 'screen') checkPermissions();
+}
+
+function renderSignIn() {
+  const { account, canSignIn } = snap;
+  $('sign-in').hidden = account.signedIn;
+  $('sign-in').disabled = !canSignIn;
+  if (account.signedIn) showStatus('signin-status', `Signed in as ${account.email} ✓`, 'good');
+  else if (!canSignIn) showStatus('signin-status', "This copy of Buddy isn't set up for sign-in.", 'error');
+}
+
+function renderAiNote() {
+  $('ai-note').textContent = snap.ai.note;
+  $('ai-note').hidden = !snap.ai.note;
+}
+
+/** Show `snap`: who is signed in, and what free mode means for them, decide the steps and whether Next is on. */
+function renderSnapshot() {
+  setSteps();
+  renderSignIn();
+  renderAiNote();
+  go(step);
 }
 
 async function allow(which, statusId) {
@@ -57,16 +87,45 @@ function pick(character) {
   chosen = character.id;
 }
 
+$('sign-in').addEventListener('click', async () => {
+  showStatus('signin-status', 'Finish signing in in your browser…', 'muted');
+  signingIn += 1;
+  let r;
+  try {
+    r = await window.buddy.signIn();
+  } finally {
+    signingIn -= 1;
+  }
+  if (!r.ok) {
+    // Cancelled means the button was pressed again: the newer sign-in speaks for itself.
+    if (r.error.code !== 'sign_in_cancelled') showStatus('signin-status', r.error.message, 'error');
+    return;
+  }
+  snap = r;
+  renderSnapshot();
+});
 $('acc-open').addEventListener('click', () => allow('accessibility', 'acc-status'));
 $('scr-open').addEventListener('click', () => allow('screenRecording', 'scr-status'));
 $('acc-check').addEventListener('click', checkPermissions);
 $('scr-check').addEventListener('click', checkPermissions);
-window.addEventListener('focus', () => {
-  if (STEPS[step] === 'accessibility' || STEPS[step] === 'screen') checkPermissions();
+// Coming back to this window: the permissions may have changed in System Settings, and the account may have changed
+// behind this page's back (a sign-in that expired, or one that another window ended). Show what changed, and someone
+// who is signed out now goes back to the first step, where the Sign in button is. A sign-in that waits for the browser
+// answers by itself.
+window.addEventListener('focus', async () => {
+  if (steps[step] === 'accessibility' || steps[step] === 'screen') checkPermissions();
+  if (signingIn || !snap?.ok) return;
+  const fresh = await window.buddy.get();
+  if (signingIn || !fresh.ok) return;
+  if (JSON.stringify([fresh.account, fresh.ai]) === JSON.stringify([snap.account, snap.ai])) return; // nothing new
+  if (fresh.account.signedIn !== snap.account.signedIn) showStatus('signin-status', '', 'muted'); // what it said no longer holds
+  snap = fresh;
+  if (!snap.account.signedIn) step = 0;
+  renderSnapshot();
 });
 $('back').addEventListener('click', () => go(step - 1));
 $('next').addEventListener('click', async () => {
-  if (step < STEPS.length - 1) {
+  if (step < steps.length - 1) {
     go(step + 1);
     return;
   }
@@ -80,12 +139,13 @@ $('next').addEventListener('click', async () => {
 });
 
 (async () => {
-  go(0); // first, so Back is hidden on the first step from the start
+  go(0); // first, so Back is hidden and Next is off on the first step from the start
   snap = await window.buddy.get();
   if (!snap.ok) {
     showLoadError(snap.error.message);
     return;
   }
+  renderSnapshot();
   chosen = snap.settings.buddyId;
   renderBuddyGrid($('buddies'), snap.characters, chosen, pick);
   $('name').value = snap.characters.find((c) => c.id === chosen)?.defaultName || '';

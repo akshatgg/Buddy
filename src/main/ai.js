@@ -1,26 +1,35 @@
 'use strict';
 
 /**
- * Answers one panel action. Phase 1 has a single route -- the user's own key,
- * straight to the provider they picked -- so this picks the provider and
- * model from settings, builds the prompt, and calls it.
+ * Answers one panel action, by one of two routes (Phase 2 spec §5, "Routing"):
+ *   free -- Buddy's server answers with the admin's key (src/main/cloud.js);
+ *   own  -- the user's own key, straight to the provider they picked (Phase 1).
+ * Which one comes from the server's free-mode settings for this person. Nobody uses either without signing in.
  */
 
 const { BuddyError } = require('../../shared/errors');
 const prompts = require('../../shared/prompts');
 const providerRegistry = require('../../shared/providers');
 
-const MAX_TOKENS = 1024;
+const { MAX_TOKENS } = prompts;
 // How long a person waits for the AI (an answer, or a check of their key) before it is given up on.
 const AI_TIMEOUT_MS = 60_000;
 
-function createAi({ store, secrets, providers = providerRegistry, fetchImpl }) {
+// What the server says when it will not answer for free; the settings are fetched again after each.
+const FREE_REFUSALS = ['free_limit', 'free_off', 'blocked'];
+
+const signedOut = () => new BuddyError('signed_out', 'Sign in to use Buddy.');
+
+function createAi({ store, secrets, cloud, account, providers = providerRegistry, fetchImpl }) {
   function modelFor(providerId) {
     const provider = providers.getProvider(providerId);
     return store.get('models')?.[providerId] || provider.fallbackModels[0];
   }
 
-  async function ask(action, input, { signal } = {}) {
+  const hasOwnKey = () => secrets.has(store.get('provider'));
+
+  /** The user's own key, straight to their provider: Phase 1's route. */
+  async function askOwn(action, input, { signal } = {}) {
     const providerId = store.get('provider');
     const provider = providers.getProvider(providerId);
     const apiKey = secrets.get(providerId);
@@ -32,6 +41,61 @@ function createAi({ store, secrets, providers = providerRegistry, fetchImpl }) {
     }
     const out = await provider.complete({ apiKey, model, ...prompt, maxTokens: MAX_TOKENS, fetchImpl, signal });
     return action === 'check' ? { ...out, check: prompts.parseCheck(out.text) } : out;
+  }
+
+  /**
+   * The server would not answer for free: carry on with the user's own key where the admin allows it. When the settings
+   * cannot be fetched again, the ones from before the request decide, unless the person has been signed out meanwhile.
+   */
+  async function afterRefusal(err, before, action, input, options) {
+    const fresh = await cloud.settings({ force: true }).catch((fetchErr) => {
+      if (fetchErr.code === 'signed_out') throw fetchErr;
+      return null;
+    });
+    // Signed out while the settings were being fetched again, which then comes back with none (signing out forgets
+    // them): nobody uses either route without signing in, and the settings from before the request must not decide.
+    if (!account.isSignedIn()) throw signedOut();
+    const now = fresh || before;
+    if (err.code === 'free_off') {
+      if (!now.freeOn) return askOwn(action, input, options);
+      throw err;
+    }
+    if (now.allowOwnKey && hasOwnKey()) return askOwn(action, input, options);
+    if (err.code === 'free_limit' && now.allowOwnKey) {
+      const limit = now.limit ?? before.limit;
+      const used = limit ? `today's ${limit} free requests` : "today's free requests";
+      throw new BuddyError('need_key', `You've used ${used}. Add your own key in Settings to keep going, or wait until midnight.`);
+    }
+    throw err;
+  }
+
+  async function ask(action, input, options = {}) {
+    if (!account.isSignedIn()) throw signedOut();
+    const free = await cloud.settings();
+    // Signed out while the settings were being fetched: signing out forgets them, so the fetch comes back with none,
+    // which is not "the server was never reached" (nor a reason to use either route).
+    if (!account.isSignedIn()) throw signedOut();
+    if (!free) {
+      // The server has never been reached: the user's own key, when there is one.
+      if (hasOwnKey()) return askOwn(action, input, options);
+      throw new BuddyError('network', "Couldn't reach Buddy's server. Check your internet.");
+    }
+    if (!free.freeOn) return askOwn(action, input, options);
+    if (free.blocked) {
+      if (free.allowOwnKey && hasOwnKey()) return askOwn(action, input, options);
+      throw new BuddyError('blocked', 'Your free access is paused.');
+    }
+    // Today's free requests are used up and the admin lets this person go on with their own key: the server would only
+    // refuse (and the settings be fetched again), so the own key answers at once.
+    const usedUp = free.limitMode === 'daily' && free.limit !== null && free.usedToday >= free.limit;
+    if (usedUp && free.allowOwnKey && hasOwnKey()) return askOwn(action, input, options);
+    prompts.buildPrompt(action, input); // input that is not valid is refused here, without a call to the server
+    try {
+      return await cloud.ask(action, input, options);
+    } catch (err) {
+      if (!FREE_REFUSALS.includes(err.code)) throw err;
+      return afterRefusal(err, free, action, input, options);
+    }
   }
 
   /** Models for a provider: the live list for the saved key, else the fallback list. */

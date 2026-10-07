@@ -5,7 +5,7 @@
  * decides what the keys do while one of its windows has the focus. Electron's default menu would have Cmd+Q quit
  * Buddy and Cmd+W close any focused window, the panel included. This one has only:
  *   - the Edit roles, so that cut, copy, paste, select all and undo work in the text boxes of the panel and Settings;
- *   - Cmd+W, which closes the focused Settings or Welcome window and nothing else;
+ *   - Cmd+W, which closes the focused Settings, Welcome or Admin window and nothing else;
  *   - no Cmd+Q: Buddy is quit only from the menu bar's "Quit".
  */
 
@@ -33,7 +33,7 @@ function buildAppMenuTemplate({ closeWindow }) {
   ];
 }
 
-/** `windows` is the Settings and Welcome windows (settings-windows.js); Menu can be passed in so that tests need no Electron. */
+/** `windows` is the Settings, Welcome and Admin windows (settings-windows.js); Menu can be passed in so that tests need no Electron. */
 function installAppMenu({ windows, Menu = require('electron').Menu }) {
   const template = buildAppMenuTemplate({
     closeWindow(win) {

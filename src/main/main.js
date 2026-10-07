@@ -7,9 +7,12 @@
  */
 
 const path = require('node:path');
-const { app, clipboard, globalShortcut: systemShortcut, ipcMain, powerMonitor, safeStorage, screen } = require('electron');
+const { app, clipboard, globalShortcut: systemShortcut, ipcMain, powerMonitor, safeStorage, screen, shell } = require('electron');
 const { createStore } = require('./store');
 const { createSecrets } = require('./secrets');
+const { loadCloudConfig } = require('./cloud-config');
+const { createAccount } = require('./account');
+const { createCloud } = require('./cloud');
 const { createAi } = require('./ai');
 const { Helper } = require('./helper');
 const { loadCharacters } = require('./characters');
@@ -25,6 +28,7 @@ const { createShortcut } = require('./shortcut');
 const { registerBuddyIpc } = require('./ipc/buddy');
 const { registerPanelIpc } = require('./ipc/panel');
 const { registerSettingsIpc } = require('./ipc/settings');
+const { registerAdminIpc } = require('./ipc/admin');
 
 function helperPath() {
   return app.isPackaged
@@ -44,7 +48,17 @@ async function start(options = {}) {
   const userData = app.getPath('userData');
   const store = createStore({ file: path.join(userData, 'settings.json') });
   const secrets = createSecrets({ file: path.join(userData, 'keys.json'), safeStorage });
-  const ai = createAi({ store, secrets });
+  // The end-to-end test passes its own account and server, so that it never signs in to Google or calls the real
+  // server, and its own cloud.json values, so that it does not depend on this Mac's.
+  const cloudConfig = options.cloudConfig === undefined ? loadCloudConfig() : options.cloudConfig;
+  const account = options.account || createAccount({
+    file: path.join(userData, 'account.json'),
+    safeStorage,
+    config: cloudConfig,
+    openBrowser: (url) => shell.openExternal(url),
+  });
+  const cloud = options.cloud || createCloud({ config: cloudConfig, account, store });
+  const ai = createAi({ store, secrets, cloud, account });
   const helper = options.helper || new Helper({ binPath: helperPath() });
   helper.start();
   // The end-to-end test passes its own, so that it never grabs the person's real shortcut.
@@ -62,7 +76,7 @@ async function start(options = {}) {
   const panel = createPanelWindow();
   const windows = createSettingsWindows({ app });
   const openSettings = () => windows.open('settings');
-  installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings and Welcome, and no Cmd+Q
+  installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings, Welcome and Admin, and no Cmd+Q
 
   const actions = createActions({
     helper,
@@ -110,8 +124,15 @@ async function start(options = {}) {
     },
   });
 
+  // "Admin…" is in the menu for the admin only: the server says who that is (and refuses the admin's calls to
+  // anyone else, whatever the menu shows).
+  const trayState = () => ({
+    buddyOn: power.isOn(),
+    visible: buddy.isVisible(),
+    isAdmin: account.isSignedIn() && cloud.last()?.isAdmin === true,
+  });
   tray = createTray({
-    getState: () => ({ buddyOn: power.isOn(), visible: buddy.isVisible() }),
+    getState: trayState,
     handlers: {
       setVisible(visible) {
         if (visible) buddy.show();
@@ -119,21 +140,38 @@ async function start(options = {}) {
         tray.refresh();
       },
       openSettings,
+      openAdmin: () => windows.open('admin'),
       setBuddyOn: (on) => power.setOn(on),
       quit: () => app.quit(),
     },
   });
 
+  // Whenever the person changes (signed out, or someone else signed in), their free-mode settings are forgotten, so
+  // that the next person does not inherit them (or the admin's menu). Signing out also closes the Admin window.
+  let uid = account.user()?.uid ?? null;
+  account.onChange(() => {
+    const current = account.user()?.uid ?? null;
+    if (current !== uid) {
+      uid = current;
+      cloud.forget();
+    }
+    if (!account.isSignedIn()) windows.close('admin');
+    tray.refresh();
+  });
+  cloud.onChange(() => tray.refresh());
+
   registerBuddyIpc({ ipcMain, buddy, characters, store, onClick: onCall });
   registerPanelIpc({ ipcMain, panel, actions, openSettings });
   registerSettingsIpc({
     ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut,
+    account, cloud, canSignIn: Boolean(cloudConfig),
     onFinishOnboarding() {
       windows.close('onboarding');
       buddy.reloadModel();
       power.setOn(true);
     },
   });
+  registerAdminIpc({ ipcMain, windows, cloud });
 
   app.on('second-instance', openSettings);
   app.on('will-quit', () => {
@@ -148,6 +186,11 @@ async function start(options = {}) {
   screen.on('display-removed', () => buddy.reclamp());
   screen.on('display-metrics-changed', () => buddy.reclamp());
 
+  // This person's free-mode settings, fetched once at launch, so that Settings and the menu are up to date.
+  if (account.isSignedIn()) {
+    cloud.settings({ force: true }).catch((err) => console.warn('[buddy] could not fetch the free settings:', err.code || err.name));
+  }
+
   if (store.get('onboarded')) {
     power.syncAtLaunch();
     if (power.isOn()) {
@@ -155,12 +198,14 @@ async function start(options = {}) {
       buddy.show();
       buddy.mood('wave');
     }
+    // Nobody can use Buddy signed out: Settings has the Sign in button.
+    if (!account.isSignedIn()) openSettings();
   } else {
     windows.open('onboarding');
   }
   tray.refresh();
 
-  return { store, secrets, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, shortcut };
+  return { store, secrets, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, trayState, shortcut };
 }
 
 module.exports = { start };

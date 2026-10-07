@@ -8,8 +8,17 @@
 </head>
 <body>
 <main>
-  <section id="step-pick">
-    <h1>Hi! Pick your buddy</h1>
+  <section id="step-signin">
+    <h1>Hi! Sign in to start</h1>
+    <p>Sign in with your Google account. Buddy only learns your name and your email address.</p>
+    <div class="row">
+      <button id="sign-in" class="primary" type="button">Sign in with Google</button>
+    </div>
+    <p id="signin-status" class="muted"></p>
+  </section>
+
+  <section id="step-pick" hidden>
+    <h1>Pick your buddy</h1>
     <p class="muted">You can change this any time in Settings.</p>
     <div id="buddies" class="buddies"></div>
     <label for="name">Give your buddy a name</label>
@@ -40,6 +49,7 @@
   <section id="step-ai" hidden>
     <h1>Connect an AI</h1>
     <p>Your buddy uses an AI to write. Pick one and paste your API key. You can also do this later in Settings.</p>
+    <p id="ai-note" class="muted" hidden></p>
     <div id="ai"></div>
   </section>
 

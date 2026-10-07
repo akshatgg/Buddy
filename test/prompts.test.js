@@ -18,6 +18,14 @@ test('write: an unknown tone falls back to formal', () => {
   assert.match(buildPrompt('write', { instruction: 'hi', tone: 'pirate' }).system, /formal and polite/);
 });
 
+test('write: a name every object has (constructor, __proto__, toString) is not a tone either', () => {
+  const formal = buildPrompt('write', { instruction: 'hi' }).system;
+  assert.match(formal, /Tone: formal and polite\./);
+  for (const tone of ['constructor', '__proto__', 'toString']) {
+    assert.strictEqual(buildPrompt('write', { instruction: 'hi', tone }).system, formal, tone);
+  }
+});
+
 test('write: an empty instruction is refused with a message for the user', () => {
   assert.throws(() => buildPrompt('write', { instruction: '   ' }), {
     code: 'bad_request',
@@ -70,4 +78,8 @@ test('parseCheck keeps at most 5 problems and turns a blank correction into null
 test('parseCheck falls back to the raw text', () => {
   assert.deepStrictEqual(parseCheck('Looks fine to me!'), { raw: 'Looks fine to me!' });
   assert.deepStrictEqual(parseCheck('{"verdict":"maybe"}'), { raw: '{"verdict":"maybe"}' });
+});
+
+test('answers are capped at 1024 tokens, on the own-key route and the free one alike', () => {
+  assert.strictEqual(require('../shared/prompts').MAX_TOKENS, 1024);
 });

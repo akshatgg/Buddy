@@ -12,6 +12,7 @@ function handlers() {
     calls,
     setVisible: (v) => calls.push(['setVisible', v]),
     openSettings: () => calls.push(['openSettings']),
+    openAdmin: () => calls.push(['openAdmin']),
     setBuddyOn: (on) => calls.push(['setBuddyOn', on]),
     quit: () => calls.push(['quit']),
   };
@@ -43,4 +44,12 @@ test('the menu bar icon files exist and are PNGs', () => {
     const bytes = fs.readFileSync(path.join(__dirname, '..', 'assets', name));
     assert.strictEqual(bytes.subarray(1, 4).toString('ascii'), 'PNG');
   }
+});
+
+test('the admin gets an Admin… item, above Settings…', () => {
+  const h = handlers();
+  const t = buildMenuTemplate({ buddyOn: true, visible: true, isAdmin: true }, h);
+  assert.deepStrictEqual(labels(t), ['Hide buddy', 'Admin…', 'Settings…', 'Turn off buddy', 'Quit Buddy']);
+  t.find((item) => item.label === 'Admin…').click();
+  assert.deepStrictEqual(h.calls, [['openAdmin']]);
 });

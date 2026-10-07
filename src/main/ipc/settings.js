@@ -7,6 +7,7 @@ const { PROVIDERS, PROVIDER_IDS, getProvider, providerForKey } = require('../../
 const { AI_TIMEOUT_MS } = require('../ai');
 const { SIZES } = require('../geometry');
 const { guarded } = require('./result');
+const { aiSection } = require('../free-state');
 
 const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models'];
 const NAME_MAX = 24;
@@ -48,8 +49,10 @@ function checkPermission(which) {
 
 function registerSettingsIpc({
   ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, onFinishOnboarding, shell,
+  account, cloud, canSignIn,
 }) {
-  const handle = guarded(ipcMain, (webContents) => windows.owns(webContents));
+  // The Settings and Welcome windows only: the Admin window has calls of its own (ipc/admin.js).
+  const handle = guarded(ipcMain, (webContents) => windows.owns(webContents, 'settings') || windows.owns(webContents, 'onboarding'));
   // Finishing the Welcome is for the Welcome window only: the Settings window has no business doing it.
   const handleWelcome = guarded(ipcMain, (webContents) => windows.owns(webContents, 'onboarding'));
   // Electron is loaded only when a page asks to open something, so these handlers can be
@@ -74,6 +77,8 @@ function registerSettingsIpc({
     const settings = store.all();
     delete settings.positions;
     delete settings.lastDisplayId;
+    delete settings.cloud; // the server's free-mode settings: the page gets what they mean, in `ai`
+    const user = account.user();
     return {
       settings,
       buddyOn: power.isOn(),
@@ -85,6 +90,9 @@ function registerSettingsIpc({
         fallbackModels: PROVIDERS[id].fallbackModels,
         hasKey: secrets.has(id),
       })),
+      account: user ? { signedIn: true, email: user.email, name: user.name } : { signedIn: false },
+      canSignIn,
+      ai: aiSection(user ? cloud.last() : null), // free-mode settings apply only to someone signed in
     };
   }
 
@@ -185,8 +193,44 @@ function registerSettingsIpc({
     await openExternal(url);
   });
 
+  /**
+   * Fetch this person's free-mode settings again. A failure is logged (by kind) and handed back, not thrown: the page
+   * shows the last known settings, and only a caller that must know why it failed looks at what comes back.
+   */
+  async function refreshFree() {
+    try {
+      await cloud.settings({ force: true });
+      return null;
+    } catch (err) {
+      console.warn('[buddy] could not fetch the free settings:', err.code || err.name);
+      return err;
+    }
+  }
+
+  handle('account:sign-in', async () => {
+    await account.signIn();
+    const failure = await refreshFree();
+    // The server can turn a new sign-in down: cloud.js then signs the person out, and the fetch fails. That is not a
+    // sign-in that worked, so it is not answered as one.
+    if (!account.isSignedIn()) {
+      throw new BuddyError('signed_out', failure instanceof BuddyError ? failure.message : "Sign-in didn't finish. Try again.");
+    }
+    return snapshot();
+  });
+
+  handle('account:sign-out', () => {
+    account.signOut();
+    return snapshot();
+  });
+
+  handle('settings:refresh', async () => {
+    if (account.isSignedIn()) await refreshFree();
+    return snapshot();
+  });
+
   handleWelcome('onboarding:finish', (choice = {}) => {
     if (!isPlainObject(choice)) throw new BuddyError('bad_request', 'Those choices are not valid.');
+    if (!account.isSignedIn()) throw new BuddyError('signed_out', 'Sign in with Google first.');
     const buddyId = characters.list.some((c) => c.id === choice.buddyId) ? choice.buddyId : characters.list[0].id;
     const buddyName = String(choice.buddyName || '').trim().slice(0, NAME_MAX) || characters.get(buddyId).defaultName;
     store.set({ buddyId, buddyName, onboarded: true });

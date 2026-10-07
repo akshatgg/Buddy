@@ -33,6 +33,7 @@ const GEMINI_KEY = 'AIzaSy-not-a-real-gemini-key';
 const GEMINI_MODELS = ['gemini-pro-latest', 'gemini-flash-latest', 'gemini-2.5-flash'];
 const SETTINGS_PAGE = 'ours';
 const WELCOME_PAGE = 'welcome';
+const ADMIN_PAGE = 'admin';
 const STRAY_KEY = "That doesn't look like an API key. Copy only the key and paste it again.";
 const FAILED = { ok: false, error: { code: 'failed', message: 'Something went wrong. Try again.' } };
 const refused = (code, message) => ({ ok: false, error: { code, message } });
@@ -42,9 +43,15 @@ const refused = (code, message) => ({ ok: false, error: { code, message } });
  * registered right now (null: none, as when it failed at launch, or while Buddy is
  * off); `taken` are shortcuts another app owns; `buddyOn` is whether Buddy is on.
  * `realShortcut` replaces the fake shortcut. Provider calls are faked per test
- * with t.mock.method(PROVIDERS.anthropic, 'listModels', ...).
+ * with t.mock.method(PROVIDERS.anthropic, 'listModels', ...). `signedIn` is whether someone is signed in; `free` is
+ * the server's free-mode settings as the app last got them; `signInFails` and `cloudFails` make signing in or
+ * fetching those settings fail; `cloudSignsOut` makes that fetch sign the person out first, as the real one does
+ * when the server turns their sign-in down twice.
  */
-function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut } = {}) {
+function setup({
+  stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut,
+  signedIn = true, free = null, signInFails = null, cloudFails = null, cloudSignsOut = false,
+} = {}) {
   const data = { ...structuredClone(DEFAULTS), ...stored };
   const store = {
     get: (key) => data[key],
@@ -70,12 +77,38 @@ function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = t
   let current = registered;
   let on = buddyOn;
   const handlers = {};
+  let signed = signedIn;
+  const account = {
+    isSignedIn: () => signed,
+    user: () => (signed ? { uid: 'u1', email: 'rahul@gmail.com', name: 'Rahul' } : null),
+    async signIn() {
+      calls.push(['signIn']);
+      if (signInFails) throw signInFails;
+      signed = true;
+      return { uid: 'u1', email: 'rahul@gmail.com', name: 'Rahul' };
+    },
+    signOut() {
+      calls.push(['signOut']);
+      signed = false;
+    },
+  };
+  const cloud = {
+    last: () => free,
+    async settings(options) {
+      calls.push(['cloudSettings', options]);
+      if (cloudSignsOut) account.signOut();
+      if (cloudFails) throw cloudFails;
+      return free;
+    },
+  };
   registerSettingsIpc({
     ipcMain: { handle: (channel, fn) => { handlers[channel] = fn; } },
     windows: {
-      // 'ours' is the Settings window's page and 'welcome' the Welcome window's. owns(page, kind) asks about one kind.
-      owns: (webContents, kind) => (kind === undefined ? [SETTINGS_PAGE, WELCOME_PAGE].includes(webContents)
-        : webContents === (kind === 'onboarding' ? WELCOME_PAGE : SETTINGS_PAGE)),
+      // 'ours' is the Settings window's page, 'welcome' the Welcome window's and 'admin' the Admin window's.
+      // owns(page, kind) asks about one kind; with no kind, about any of them.
+      owns: (webContents, kind) => (kind === undefined
+        ? [SETTINGS_PAGE, WELCOME_PAGE, ADMIN_PAGE].includes(webContents)
+        : webContents === { settings: SETTINGS_PAGE, onboarding: WELCOME_PAGE, admin: ADMIN_PAGE }[kind]),
     },
     store,
     secrets,
@@ -104,6 +137,9 @@ function setup({ stored = {}, registered = 'Alt+Space', taken = [], keychain = t
     },
     shell: { openExternal: async (url) => { opened.push(url); } },
     onFinishOnboarding: () => calls.push(['finished']),
+    account,
+    cloud,
+    canSignIn: true,
   });
   const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
   const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
@@ -740,4 +776,110 @@ test('the Welcome window can use the other channels, as the Settings window can'
   assert.strictEqual((await s.callFromWelcome('settings:get')).ok, true);
   assert.strictEqual((await s.callFromWelcome('settings:set', { size: 'large' })).ok, true);
   assert.deepStrictEqual(await s.callFromWelcome('permissions:get'), { ok: true, accessibility: true, screenRecording: false });
+});
+
+// ---- signing in and free mode (Phase 2) ----
+
+const UNLIMITED = { freeOn: true, limitMode: 'unlimited', limit: null, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false };
+
+test('settings:get: who is signed in, whether this copy can sign in, and what the AI section shows', async () => {
+  const s = setup({ free: UNLIMITED, stored: { cloud: UNLIMITED } });
+  const r = await s.call('settings:get');
+  assert.deepStrictEqual(r.account, { signedIn: true, email: 'rahul@gmail.com', name: 'Rahul' });
+  assert.strictEqual(r.canSignIn, true);
+  assert.deepStrictEqual(r.ai, { note: 'Free AI is on. No key needed.', showForm: false });
+  assert.ok(!('cloud' in r.settings), 'the kept server settings are not page settings');
+
+  const out = await setup({ signedIn: false, free: UNLIMITED }).call('settings:get');
+  assert.deepStrictEqual(out.account, { signedIn: false });
+  assert.deepStrictEqual(out.ai, { note: '', showForm: true }, 'signed out, no free settings apply');
+});
+
+test('account:sign-in signs in, fetches the free settings, and answers the new state', async () => {
+  const s = setup({ signedIn: false });
+  const r = await s.call('account:sign-in');
+  assert.strictEqual(r.ok, true);
+  assert.deepStrictEqual(r.account, { signedIn: true, email: 'rahul@gmail.com', name: 'Rahul' });
+  assert.deepStrictEqual(s.calls.filter(([name]) => ['signIn', 'cloudSettings'].includes(name)), [['signIn'], ['cloudSettings', { force: true }]]);
+});
+
+test('account:sign-in that fails says why, and fetches nothing', async () => {
+  const s = setup({ signedIn: false, signInFails: new BuddyError('sign_in_failed', "Google didn't sign you in. Try again.") });
+  assert.deepStrictEqual(await s.call('account:sign-in'), refused('sign_in_failed', "Google didn't sign you in. Try again."));
+  assert.ok(!s.calls.some(([name]) => name === 'cloudSettings'));
+});
+
+test('account:sign-in still answers when the free settings cannot be fetched', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const s = setup({ signedIn: false, cloudFails: new BuddyError('server', "Buddy's server had a problem. Try again.") });
+  const r = await s.call('account:sign-in');
+  assert.deepStrictEqual([r.ok, r.account.signedIn], [true, true]);
+});
+
+// The server can turn a new sign-in down (a token it will not take, twice): cloud.js then signs the person out and
+// the fetch of the free settings fails. That is not a sign-in that worked.
+test('account:sign-in that the fetch of the free settings signed out again says why, and is not answered as signed in', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const expired = new BuddyError('signed_out', "Buddy couldn't check your sign-in. Sign in again.");
+  const s = setup({ signedIn: false, cloudFails: expired, cloudSignsOut: true });
+  assert.deepStrictEqual(await s.call('account:sign-in'), refused('signed_out', "Buddy couldn't check your sign-in. Sign in again."));
+  assert.deepStrictEqual(
+    s.calls.filter(([name]) => ['signIn', 'cloudSettings', 'signOut'].includes(name)),
+    [['signIn'], ['cloudSettings', { force: true }], ['signOut']],
+  );
+  assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments), [['[buddy] could not fetch the free settings:', 'signed_out']], 'logged by kind only');
+});
+
+test('account:sign-in that ends signed out says what it can: the error\'s own words, else "Sign-in didn\'t finish"', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  for (const [cloudFails, message] of [
+    [new BuddyError('network', "Couldn't reach Buddy's server. Check your internet."), "Couldn't reach Buddy's server. Check your internet."],
+    [new TypeError('x is not a function'), "Sign-in didn't finish. Try again."], // not a message for a person
+    [null, "Sign-in didn't finish. Try again."], // the fetch worked, and the person was signed out meanwhile
+  ]) {
+    const s = setup({ signedIn: false, cloudFails, cloudSignsOut: true });
+    assert.deepStrictEqual(await s.call('account:sign-in'), refused('signed_out', message), String(cloudFails));
+  }
+});
+
+test('account:sign-out signs out and answers the signed-out state', async () => {
+  const s = setup();
+  const r = await s.call('account:sign-out');
+  assert.deepStrictEqual([r.ok, r.account], [true, { signedIn: false }]);
+  assert.ok(s.calls.some(([name]) => name === 'signOut'));
+});
+
+test('settings:refresh fetches the free settings for someone signed in, and never fails the page', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const s = setup();
+  assert.strictEqual((await s.call('settings:refresh')).ok, true);
+  assert.deepStrictEqual(s.calls.filter(([name]) => name === 'cloudSettings'), [['cloudSettings', { force: true }]]);
+
+  const out = setup({ signedIn: false });
+  await out.call('settings:refresh');
+  assert.ok(!out.calls.some(([name]) => name === 'cloudSettings'), 'nobody to fetch them for');
+
+  const failing = setup({ cloudFails: new BuddyError('server', "Buddy's server had a problem. Try again.") });
+  assert.strictEqual((await failing.call('settings:refresh')).ok, true);
+
+  // A fetch that signed the person out is no failure of the page either: the answer says they are signed out.
+  const expired = setup({ cloudFails: new BuddyError('signed_out', "Buddy couldn't check your sign-in. Sign in again."), cloudSignsOut: true });
+  const r = await expired.call('settings:refresh');
+  assert.deepStrictEqual([r.ok, r.account], [true, { signedIn: false }]);
+});
+
+test('onboarding:finish wants someone signed in, and finishes nothing otherwise', async () => {
+  const s = setup({ signedIn: false });
+  assert.deepStrictEqual(await s.callFromWelcome('onboarding:finish', { buddyId: 'girl-1', buddyName: 'Pixie' }),
+    refused('signed_out', 'Sign in with Google first.'));
+  assert.strictEqual(s.store.get('onboarded'), false);
+  assert.ok(!s.calls.some(([name]) => name === 'finished'));
+});
+
+test('the Admin window cannot use the Settings channels', async () => {
+  const s = setup();
+  for (const channel of Object.keys(s.handlers)) {
+    assert.deepStrictEqual(await s.handlers[channel]({ sender: ADMIN_PAGE }), refused('not_allowed', 'Not allowed.'), channel);
+  }
+  assert.deepStrictEqual(s.calls, []);
 });

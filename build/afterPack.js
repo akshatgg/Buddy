@@ -2,14 +2,22 @@
 const { execFileSync, spawnSync } = require('child_process');
 const path = require('path');
 const asar = require('@electron/asar');
+const { parseCloudConfig } = require('../src/main/cloud-config');
 
-// What the buddy page imports from three.js's examples through its import map (src/renderer/buddy/index.html).
-// electron-builder leaves an `examples` folder out of node_modules on its own; the file set in
-// electron-builder.config.js puts these back. A package without them has no robot.
+// What the installed app cannot do without, checked in app.asar: what the buddy page imports from three.js's examples
+// through its import map (src/renderer/buddy/index.html) -- electron-builder leaves an `examples` folder out of
+// node_modules on its own, and the file set in electron-builder.config.js puts these back -- and cloud.json, without
+// which nobody can sign in (it is not in git: copy cloud.example.json and fill it in).
 const REQUIRED_IN_ASAR = [
   'node_modules/three/examples/jsm/loaders/GLTFLoader.js',
   'node_modules/three/examples/jsm/environments/RoomEnvironment.js',
+  'cloud.json',
 ];
+
+// What the build says about a packed cloud.json that the app would refuse (see cloudConfigProblem).
+const CLOUD_CONFIG_NOT_VALID =
+  'cloud.json in the app is not valid: it needs serverUrl (https), firebaseApiKey, googleClientId and ' +
+  'googleClientSecret (see cloud.example.json).';
 
 /** The names in `required` that the asar at `asarPath` does not hold. */
 function missingFromAsar(asarPath, required = REQUIRED_IN_ASAR) {
@@ -18,6 +26,17 @@ function missingFromAsar(asarPath, required = REQUIRED_IN_ASAR) {
     asar.listPackage(asarPath, { isPack: false }).map((entry) => entry.replace(/\\/g, '/').replace(/^\//, ''))
   );
   return required.filter((name) => !held.has(name));
+}
+
+/**
+ * What is wrong with the cloud.json packed in the asar at `asarPath`: null when the app would accept it (the rules it
+ * applies when it starts, parseCloudConfig), the build's message when it would not. An asar with no cloud.json at all
+ * also gives null: naming that is missingFromAsar's job (REQUIRED_IN_ASAR), and the build checks it first.
+ */
+function cloudConfigProblem(asarPath) {
+  if (missingFromAsar(asarPath, ['cloud.json']).length > 0) return null;
+  const text = asar.extractFile(asarPath, 'cloud.json').toString('utf8');
+  return parseCloudConfig(text) ? null : CLOUD_CONFIG_NOT_VALID;
 }
 
 /**
@@ -51,25 +70,36 @@ function missingFromAsar(asarPath, required = REQUIRED_IN_ASAR) {
  * is checked below, because a bundle without it still verifies, and Buddy would
  * then run with no way to copy, paste or see the screen.
  *
- * Before any of that, and whoever signs, the package is checked for the files the
- * buddy page cannot show the robot without (REQUIRED_IN_ASAR): the build fails
- * when they are missing.
+ * Before any of that, and whoever signs, the package is checked for what the
+ * installed app cannot do without (REQUIRED_IN_ASAR: the files the buddy page
+ * cannot show the robot without, and cloud.json, which sign-in needs) and for a
+ * cloud.json that is valid (cloudConfigProblem): the build fails when one is
+ * missing or not valid.
  */
 exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== 'darwin') return;
 
   const appName = `${context.packager.appInfo.productFilename}.app`;
   const appPath = path.join(context.appOutDir, appName);
+  const asarPath = path.join(appPath, 'Contents', 'Resources', 'app.asar');
 
-  // However the bundle is signed: an app.asar without three.js's loader would install, open and show nothing.
-  const missing = missingFromAsar(path.join(appPath, 'Contents', 'Resources', 'app.asar'));
+  // However the bundle is signed: an app.asar without three.js's loader would install, open and show nothing, and one
+  // without cloud.json would open and never let anyone sign in.
+  const missing = missingFromAsar(asarPath);
   if (missing.length > 0) {
     throw new Error(
-      `app.asar is missing ${missing.join(' and ')}, so the installed Buddy would show no robot. ` +
-      "The file set for three.js's examples in electron-builder.config.js is what brings them in."
+      `app.asar is missing ${missing.join(' and ')}. Without three.js's loader and environment the installed Buddy ` +
+      "shows no robot (the file set for three.js's examples in electron-builder.config.js brings them in); without " +
+      'cloud.json nobody can sign in (copy cloud.example.json to cloud.json and fill it in).'
     );
   }
-  console.log('  • app.asar holds the three.js loader and environment');
+  console.log('  • app.asar holds the three.js loader and environment, and cloud.json');
+
+  // Being there is not enough: a cloud.json that is damaged or incomplete, or whose server is not https, installs and
+  // opens, and then every sign-in says this copy is not set up. The app's own rules, applied to the packed file.
+  const problem = cloudConfigProblem(asarPath);
+  if (problem) throw new Error(problem);
+  console.log('  • cloud.json is in app.asar and valid');
 
   // With a certificate electron-builder signs the bundle itself, after this hook.
   if (context.packager.platformSpecificBuildOptions.identity !== null) return;
@@ -100,3 +130,4 @@ exports.default = async function afterPack(context) {
 
 exports.REQUIRED_IN_ASAR = REQUIRED_IN_ASAR;
 exports.missingFromAsar = missingFromAsar;
+exports.cloudConfigProblem = cloudConfigProblem;

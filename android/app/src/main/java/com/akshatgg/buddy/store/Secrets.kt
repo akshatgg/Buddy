@@ -48,6 +48,9 @@ class KeystoreSecrets(private val kv: KeyValue) : Secrets {
 
     private fun slot(id: String) = "secret.$id"
 
+    // One at a time: two first uses at once would each make a key, and the second would replace the first, so that
+    // whatever was saved with the first could no longer be read.
+    @Synchronized
     private fun key(): SecretKey {
         val store = KeyStore.getInstance(PROVIDER).apply { load(null) }
         (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }

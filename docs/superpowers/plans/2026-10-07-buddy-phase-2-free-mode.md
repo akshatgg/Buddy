@@ -1,5 +1,7 @@
 # Buddy Phase 2 — Free mode, Google sign-in and the admin window (Mac) — Implementation Plan
 
+> **Superseded in places.** Review fixes changed the code after the code blocks below were written: logs carry error kinds only, never messages (the plan's Task 2 `vercel.js` still logs `err.message`); the service account key is checked before firebase-admin is loaded; a 401 signs a person out only when it is the server's own `unauthenticated`, and the server answers 503 when it cannot check a token; and the final fix wave added the rest (Cancel on Google's page as `sign_in_denied`, the "Almost done" browser tab, a refusal's reason in the sign-in log, only the server's own error codes taken as its own, the settings' back-off and 8-second deadline, Check answers read in the app, the settings forgotten whenever the person changes, typed text kept in Settings, the Welcome going back to its Sign in step, and Block not reloading the users list). Where this plan and the code differ, the code in the repository is authoritative.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Everyone signs in with Google; the admin (akshatg9636@gmail.com) can make Buddy free for all users with the server's AI key — unlimited or N requests a day, optionally followed by the user's own key — block users, and do all of it from an Admin window inside the Mac app.

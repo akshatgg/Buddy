@@ -146,7 +146,9 @@ Every call sends `Authorization: Bearer <Firebase ID token>`. Errors are
 | `POST /api/admin/users` | admin | Body `{ uid, blocked }` → `{ user }` |
 
 `POST /api/ask`:
-1. Verify the ID token (`email_verified`) → 401 `unauthenticated`.
+1. Verify the ID token (`email_verified`) → 401 `unauthenticated` for a token that is no good (expired,
+   garbled, revoked, of a disabled or deleted user); 503 `server` when the server cannot check a token at all
+   (Google's signing keys out of reach, say).
 2. Validate the body with the shared prompt builder → 400 `bad_request`.
 3. Read `config/free`. Free off (or no key for its provider) → 403 `free_off`.
 4. Transaction on `users/{uid}`: missing → created; `blocked` → 403 `blocked`; a new day resets
@@ -171,13 +173,17 @@ tested with fakes; the Firestore part is tested against the local Firestore emul
 Authorization code + PKCE with a loopback redirect: Buddy listens once on `127.0.0.1:<random port>`,
 opens Google's sign-in page in the default browser, receives the code (5-minute limit), exchanges
 it at Google's token endpoint for a Google ID token, and signs in to Firebase with it
-(`accounts:signInWithIdp`). The browser tab then says "You're signed in to Buddy. You can close this tab."
+(`accounts:signInWithIdp`). The browser tab is answered as soon as the code arrives, before that exchange, so it
+says "Almost done. You can close this tab. Buddy is finishing signing you in."; Buddy itself then shows
+"Signed in ✓", or why not. After Cancel on Google's page the tab says "Sign-in did not finish", and Buddy
+"You didn't finish signing in with Google. Try again."
 
 The Firebase refresh token is stored encrypted with `safeStorage` (`account.json`), with the user's
 uid, email and name. ID tokens live in memory and are refreshed through `securetoken.googleapis.com`
 a few minutes before they expire. A refresh that is refused (token revoked) signs the user out.
 
-Sign out forgets the account file and the cached server settings.
+Sign out forgets the account file and the cached server settings (which are also forgotten when someone else
+signs in).
 
 `cloud.json` (not in git; `cloud.example.json` is) holds the server URL, the Firebase web API key and
 the Google desktop OAuth client id and secret (Google treats a desktop client's secret as not
@@ -188,10 +194,13 @@ sign-in."
 
 The app keeps the last answer of `GET /api/config` (saved, so it survives a restart without internet)
 and refreshes it: at launch, at sign-in, when Settings opens, after the admin saves, before a request
-when the last answer is older than 60 s, and right after a `free_off`, `free_limit` or `blocked` error.
+when the last answer is older than 60 s, and right after a `free_off`, `free_limit` or `blocked` error. A server
+that could not be reached is not asked again before a request for 60 s either, and the fetch has an 8 s deadline.
 
 ```
 not signed in                                   → "Sign in to use Buddy."
+freeOn, daily limit already used up (as last
+    known), allowOwnKey and own key saved       → own key (the server is not asked)
 freeOn and not blocked                          → free (server)
     server says free_limit:
         allowOwnKey and own key saved           → own key (same request, once)
@@ -225,8 +234,17 @@ The own-key route is exactly Phase 1's (prompts built in the app, provider calle
 
 `signed_out`, `free_limit`, `need_key` (limit used, own keys allowed, none saved), `blocked`,
 `free_off`, `free_no_vision`, `upstream`, `unauthenticated`, `not_admin`, `not_set_up`, `network` (server
-unreachable). The panel's "Open Settings" button shows for `signed_out`, `need_key`, `free_off` and
-`not_set_up` as well as the Phase 1 codes.
+unreachable), `timeout` (the server, or Google, took too long), `server` (the server failed, or answered in a way
+it never does). Signing in and keeping the session add `auth_failed` (the ID token could not be renewed),
+`no_keychain`, `sign_in_failed`, `sign_in_cancelled` (Buddy let go of the wait itself: a newer sign-in, or a
+sign-out; the pages show nothing for it), `sign_in_denied` (Cancel on Google's page) and `sign_in_timeout`. The
+panel's "Open Settings" button shows for `signed_out`, `need_key`, `free_off` and `not_set_up` as well as the
+Phase 1 codes.
+
+Only the server's own answer signs a person out: a 401 `unauthenticated`, given again after the ID token was
+renewed once. Any other 401 (a hosting page, say), or an error code the server never sends, is `server`, and the
+app falls back to the last known settings. The server answers 503 `server` for its own failures to check a token,
+so that they sign nobody out.
 
 ## 7. Testing
 

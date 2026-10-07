@@ -9,6 +9,7 @@
     html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; }
     canvas { display: block; width: 100%; height: 100%; }
   </style>
+  <link rel="stylesheet" href="symbols.css">
   <script type="importmap">
     {
       "imports": {
@@ -20,6 +21,8 @@
 </head>
 <body>
   <canvas id="c"></canvas>
+  <!-- The symbols over the buddy (symbols.js): it lets the pointer through to the canvas. -->
+  <div id="symbols"></div>
   <script type="module" src="buddy.js"></script>
 </body>
 </html>

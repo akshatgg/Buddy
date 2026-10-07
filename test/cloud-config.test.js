@@ -82,6 +82,43 @@ test('parseCloudConfig: a value that is blank, missing or not text is not a conf
   }
 });
 
+// A real value is one word. cloud.example.json's placeholders are not: the three secrets each carry a note in
+// parentheses (its serverUrl is an address already), so a copy that was not filled in is refused, and so is a real
+// value with a note left after it.
+const EXAMPLE = path.join(__dirname, '..', 'cloud.example.json');
+
+test('parseCloudConfig: an unedited cloud.example.json is not a config, nor is one with any placeholder left in', () => {
+  const text = fs.readFileSync(EXAMPLE, 'utf8');
+  assert.strictEqual(parseCloudConfig(text), null);
+  const example = JSON.parse(text);
+  const placeholders = FIELDS.filter((name) => /\s/.test(example[name].trim()));
+  assert.deepStrictEqual(placeholders, ['firebaseApiKey', 'googleClientId', 'googleClientSecret'], "the example's notes");
+  for (const name of placeholders) {
+    assert.strictEqual(parseCloudConfig(JSON.stringify({ ...GOOD, [name]: example[name] })), null, name);
+  }
+});
+
+test('parseCloudConfig: a value with whitespace inside it is not a config', () => {
+  // For the server, an address that URL parsing alone lets through: it encodes a space and drops a tab or newline.
+  const heads = { ...GOOD, serverUrl: 'https://buddy-server.vercel.app/a' };
+  for (const name of FIELDS) {
+    for (const space of [' ', '\t', '\n']) {
+      const value = `${heads[name].trim()}${space}b`;
+      assert.strictEqual(parseCloudConfig(JSON.stringify({ ...GOOD, [name]: value })), null, `${name}: ${JSON.stringify(value)}`);
+    }
+  }
+});
+
+test('parseCloudConfig: whitespace around a value is trimmed, not refused', () => {
+  const padded = Object.fromEntries(FIELDS.map((name) => [name, `\t ${GOOD[name].trim()}\n `]));
+  assert.deepStrictEqual(parseCloudConfig(JSON.stringify(padded)), {
+    serverUrl: 'https://buddy-server.vercel.app',
+    firebaseApiKey: 'AIza-key',
+    googleClientId: 'id.apps.googleusercontent.com',
+    googleClientSecret: 'GOCSPX-secret',
+  });
+});
+
 test('parseCloudConfig: the server must be https, or http on this Mac', () => {
   assert.strictEqual(parseCloudConfig(JSON.stringify({ ...GOOD, serverUrl: 'http://buddy.example.com' })), null);
   assert.strictEqual(parseCloudConfig(JSON.stringify({ ...GOOD, serverUrl: 'not a url' })), null);

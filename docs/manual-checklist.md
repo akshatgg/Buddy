@@ -1,6 +1,9 @@
-# Manual checklist — Phase 1
+# Manual checklist
 
-Run this before calling Phase 1 done, and again after any change to
+Phase 1 is the sections from Paste-back to Look and feel. Phase 2 is the last
+section, "Phase 2: sign-in and free mode".
+
+Run Phase 1 before calling it done, and again after any change to
 `src/native/`, `src/main/actions.js` or the panel. Run it with the installed
 Buddy.app (`npm run dist:mac`, then "Install on your Mac" in the README), and use
 a real API key. Accessibility and Screen Recording go to Buddy, not to your

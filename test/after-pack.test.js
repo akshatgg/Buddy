@@ -99,6 +99,7 @@ test('a packed cloud.json that the app would refuse is a problem, in the words t
     '[]',
     JSON.stringify({ ...CLOUD, googleClientSecret: ' ' }),
     JSON.stringify({ ...CLOUD, serverUrl: 'http://buddy-server.vercel.app' }),
+    fs.readFileSync(path.join(__dirname, '..', 'cloud.example.json'), 'utf8'), // copied and never filled in
   ];
   for (const text of refused) {
     const archive = await makeAsar(t, ['cloud.json'], { 'cloud.json': text });

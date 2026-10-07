@@ -52,6 +52,9 @@ function createAi({ store, secrets, cloud, account, providers = providerRegistry
       if (fetchErr.code === 'signed_out') throw fetchErr;
       return null;
     });
+    // Signed out while the settings were being fetched again, which then comes back with none (signing out forgets
+    // them): nobody uses either route without signing in, and the settings from before the request must not decide.
+    if (!account.isSignedIn()) throw signedOut();
     const now = fresh || before;
     if (err.code === 'free_off') {
       if (!now.freeOn) return askOwn(action, input, options);

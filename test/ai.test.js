@@ -12,11 +12,12 @@ const FREE_ON = { ...FREE_OFF, freeOn: true };
  * createAi with fakes. `calls` records the own-key provider's calls, `cloudCalls` the server's. `free` is what the
  * server's settings say (null: never reached); `fresh` what they say when fetched again with force, or `freshFails`
  * the error that fetch fails with; `freeAsk` decides the server's answer. With `signOutDuring`, the person signs out
- * while the settings are being fetched, and the fetch still comes back with what `free` says.
+ * while the settings are being fetched ('fetch': the one a request starts with; 'refetch': the forced one after the
+ * server refused to answer for free), and that fetch still comes back with what `free` (or `fresh`, or `freshFails`) says.
  */
 function setup({
   key = 'k-1', model, vision = true, answer = 'Fixed text', live = ['m-live'], signedIn = true, free = FREE_OFF, fresh, freshFails,
-  freeAsk, signOutDuring = false,
+  freeAsk, signOutDuring = null,
 } = {}) {
   const calls = [];
   const cloudCalls = [];
@@ -35,7 +36,7 @@ function setup({
   const cloud = {
     async settings(options = {}) {
       cloudCalls.push(['settings', options]);
-      if (signOutDuring) signedIn = false;
+      if (signOutDuring === (options.force ? 'refetch' : 'fetch')) signedIn = false;
       if (options.force && freshFails) throw freshFails;
       return options.force && fresh !== undefined ? fresh : free;
     },
@@ -132,7 +133,7 @@ test('signed out while the settings are being fetched: that is the answer, not "
   // Signing out forgets the settings, so the fetch that was under way comes back with none (cloud.forget() in cloud.js).
   for (const [what, free] of [['none', null], ['some', FREE_ON]]) {
     for (const key of ['k-1', null]) {
-      const s = setup({ free, key, signOutDuring: true });
+      const s = setup({ free, key, signOutDuring: 'fetch' });
       await assert.rejects(s.ai.ask('fix', { text: 'x' }), { code: 'signed_out', message: 'Sign in to use Buddy.' },
         `settings: ${what}, own key: ${key}`);
       assert.deepStrictEqual(s.calls, [], 'the own key is not used');
@@ -217,6 +218,19 @@ test('signed out while the settings are fetched again after a refusal: that is t
     const s = setup({ free: { ...FREE_ON, allowOwnKey: true }, freshFails: signedOut, freeAsk: () => { throw err; } });
     await assert.rejects(s.ai.ask('fix', { text: 'x' }), signedOut, err.code);
     assert.strictEqual(s.calls.length, 0, `${err.code}: the own key is not used`);
+  }
+});
+
+test('signed out while the settings are fetched again after a refusal, whatever that fetch comes back with: that is the answer', async () => {
+  // Signing out forgets the settings, so the fetch that was under way comes back with none (cloud.forget() in cloud.js);
+  // the settings from before the request must not decide then, and the own key is not used.
+  const noInternet = new BuddyError('network', "Couldn't reach Buddy's server.");
+  for (const err of [LIMIT, new BuddyError('blocked', 'Your free access is paused.'), new BuddyError('free_off', 'Free AI is off.')]) {
+    for (const [what, fetched] of [['none', { fresh: null }], ['a failure', { freshFails: noInternet }]]) {
+      const s = setup({ free: { ...FREE_ON, allowOwnKey: true }, ...fetched, signOutDuring: 'refetch', freeAsk: () => { throw err; } });
+      await assert.rejects(s.ai.ask('fix', { text: 'x' }), { code: 'signed_out', message: 'Sign in to use Buddy.' }, `${err.code}, ${what}`);
+      assert.deepStrictEqual(s.calls, [], `${err.code}, ${what}: the own key is not used`);
+    }
   }
 });
 

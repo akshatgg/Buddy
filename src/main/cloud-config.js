@@ -14,10 +14,15 @@ const FILE = path.join(__dirname, '..', '..', 'cloud.json');
 const FIELDS = ['serverUrl', 'firebaseApiKey', 'googleClientId', 'googleClientSecret'];
 const LOCAL_HOSTS = ['localhost', '127.0.0.1'];
 
+// A real value is one word: an address, an API key, a client id and a secret have no whitespace inside them (around
+// them is trimmed). The placeholders in cloud.example.json do, each carries a note in parentheses, so a copy that was
+// not filled in is refused, and so is a real value with its note left after it.
+const isOneWord = (value) => typeof value === 'string' && /^\S+$/.test(value.trim());
+
 /**
- * The four values in cloud.json's text, or null when it is damaged or incomplete, or the server is not https. The
- * build runs this on the cloud.json it finds in the packed app (build/afterPack.js), so it fails there rather than
- * shipping a Buddy that cannot sign in.
+ * The four values in cloud.json's text, or null when it is damaged or incomplete, a value is not one word (a
+ * placeholder from cloud.example.json left in), or the server is not https. The build runs this on the cloud.json it
+ * finds in the packed app (build/afterPack.js), so it fails there rather than shipping a Buddy that cannot sign in.
  */
 function parseCloudConfig(text) {
   let data;
@@ -27,7 +32,7 @@ function parseCloudConfig(text) {
     return null;
   }
   if (!data || typeof data !== 'object') return null;
-  if (!FIELDS.every((name) => typeof data[name] === 'string' && data[name].trim())) return null;
+  if (!FIELDS.every((name) => isOneWord(data[name]))) return null;
   let url;
   try {
     url = new URL(data.serverUrl.trim());

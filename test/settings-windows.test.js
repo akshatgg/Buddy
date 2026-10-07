@@ -19,6 +19,8 @@ function setup({ loadFile = () => Promise.resolve() } = {}) {
       this.shown = 0;
       this.focused = 0;
       this.onceHandlers = {};
+      this.handlers = {};
+      this.sent = []; // [channel, ...args] of everything the window's page was sent
       this.navigationHandler = null;
       this.openHandler = null;
       this.webContents = {
@@ -28,17 +30,25 @@ function setup({ loadFile = () => Promise.resolve() } = {}) {
         setWindowOpenHandler: (fn) => {
           this.openHandler = fn;
         },
+        send: (...args) => {
+          this.sent.push(args);
+        },
       };
       created.push(this);
     }
 
-    loadFile(file) {
+    loadFile(file, options) {
       this.file = file;
+      this.loadOptions = options;
       return loadFile(file);
     }
 
     once(event, fn) {
       this.onceHandlers[event] = fn;
+    }
+
+    on(event, fn) {
+      this.handlers[event] = fn;
     }
 
     show() {
@@ -167,4 +177,38 @@ test('the admin window opens its own page, with its own preload, sandboxed', () 
   assert.strictEqual(admin.options.webPreferences.contextIsolation, true);
   assert.strictEqual(windows.owns(admin.webContents, 'admin'), true);
   assert.strictEqual(windows.owns(admin.webContents, 'settings'), false);
+});
+
+test('Settings can open on a section: a new window loads with it in the hash, an open one is told', () => {
+  const { windows, created } = setup();
+  const win = windows.open('settings', { section: 'ai' });
+  assert.deepStrictEqual(win.loadOptions, { hash: 'ai' });
+  windows.open('settings', { section: 'shortcut' });
+  assert.deepStrictEqual(win.sent, [['settings:section', 'shortcut']]);
+  windows.open('settings');
+  assert.deepStrictEqual(win.sent, [['settings:section', 'shortcut']], 'no section, nothing sent');
+  assert.strictEqual(created.length, 1);
+  const plain = setup().windows.open('onboarding');
+  assert.strictEqual(plain.loadOptions, undefined);
+});
+
+test('onClosed hears which kind of window closed', () => {
+  const { windows } = setup();
+  const heard = [];
+  windows.onClosed((kind) => heard.push(kind));
+  const win = windows.open('settings');
+  win.handlers.closed();
+  assert.deepStrictEqual(heard, ['settings']);
+});
+
+test('no options, null or empty options all mean no section, for a new window and for one that is open', () => {
+  const { windows, created } = setup();
+  for (const options of [undefined, null, {}, { section: undefined }, { section: '' }]) {
+    const first = windows.open('settings', options);
+    assert.strictEqual(first.loadOptions, undefined, `new window, ${JSON.stringify(options)}`);
+    assert.doesNotThrow(() => windows.open('settings', options), `open window, ${JSON.stringify(options)}`);
+    assert.deepStrictEqual(first.sent, [], `nothing sent, ${JSON.stringify(options)}`);
+    windows.close('settings');
+  }
+  assert.strictEqual(created.length, 5, 'each round opened a window of its own');
 });

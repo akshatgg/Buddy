@@ -11,14 +11,14 @@
  */
 
 const path = require('node:path');
-const { BrowserWindow } = require('electron');
 const { buddyWindowSize, clampToArea, defaultBounds, snapToEdge, resizeAround } = require('./geometry');
 
 const CURSOR_MS = 66; // about 15 updates a second is plenty for a head turn
 const MAX_CRASHES = 3; // this many page crashes within CRASH_WINDOW_MS and we stop reloading it
 const CRASH_WINDOW_MS = 60_000;
 
-function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {} }) {
+// BrowserWindow can be passed in so tests can run without Electron; the real one is loaded only when none is.
+function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {}, BrowserWindow = require('electron').BrowserWindow }) {
   let win = null;
   let loaded = false; // the page has finished loading, so it can take messages
   let pendingMood = null; // the latest mood sent while the page was not loaded
@@ -123,11 +123,25 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {} 
    * Send to the page. While it is not loaded (launch, reload, after a crash)
    * only the latest mood is kept, to be sent once it is ready; the rest would
    * be stale by then, and onLoaded() tells the page whether to be paused.
+   *
+   * A page whose process has just died counts as not loaded too. Electron says
+   * so (render-process-gone, then onCrash) a moment later, and the cursor timer
+   * can fire in between. Sending then throws ("Render frame was disposed"), and
+   * in the main process that is an uncaught error with a blocking dialog, so the
+   * throw is caught here as well.
    */
   function send(channel, value) {
     if (!win || win.isDestroyed()) return;
-    if (loaded) win.webContents.send(channel, value);
-    else if (channel === 'buddy:mood') pendingMood = value;
+    const contents = win.webContents;
+    if (loaded && !contents.isDestroyed() && !contents.isCrashed()) {
+      try {
+        contents.send(channel, value);
+        return;
+      } catch (err) {
+        console.warn('[buddy] the page could not be reached:', err.code || err.name);
+      }
+    }
+    if (channel === 'buddy:mood') pendingMood = value;
   }
 
   function stopCursor() {

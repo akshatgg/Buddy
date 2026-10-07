@@ -1,0 +1,93 @@
+/*
+ * The Welcome: one step at a time on a card in the middle of the window, the steps as dots above it, and Back and
+ * Next below it. The card always has the same size, with the step at its top, so that from one step to the next only
+ * what is on the card changes: its edges, each step's title, the dots and the buttons (under the pointer) stay where
+ * they are.
+ */
+
+html, body.welcome { height: 100%; }
+/* The window's height, never more: a step too tall for it scrolls inside its card, and Back and Next stay in view. */
+body.welcome main {
+  display: flex;
+  flex-direction: column;
+  max-width: 496px; /* a 440 px card, and room around it */
+  height: 100%;
+  margin: 0 auto;
+  padding: 20px 28px;
+}
+body.welcome main > :not(.step) { flex: none; }
+
+/* ---- The steps: a dot for each; the one shown is longer, in the accent; the ones done keep some of it ---- */
+
+/* Each dot stands out 3:1 from the window, in both modes (measured). */
+.steps {
+  --dot-later: color-mix(in srgb, var(--fg) 48%, transparent);
+  --dot-done: color-mix(in srgb, var(--accent) 75%, transparent);
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+@media (prefers-color-scheme: dark) {
+  .steps {
+    --dot-later: color-mix(in srgb, var(--fg) 35%, transparent);
+    --dot-done: color-mix(in srgb, var(--accent) 60%, transparent);
+  }
+}
+.steps li { width: 6px; height: 6px; border-radius: 3px; background: var(--dot-later); }
+.steps li.done { background: var(--dot-done); }
+.steps li.current { width: 22px; background: var(--accent); }
+
+/* ---- The card that holds the step: all the room between the dots and the buttons ---- */
+
+.step {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 28px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.step > h1 { font-size: 22px; margin: 0 0 8px; }
+.step > p { margin: 0; }
+.step > p + p { margin-top: 8px; }
+.step > .row { margin-top: 20px; }
+.step > label { margin: 20px 0 6px; }
+
+/* Sign in: the one thing to do on this step, so its button is large (base.css's .btn.large). Under it, a wait or why
+   it did not work. Signed in, the line that says as whom takes the button's place, at its size and with its corners,
+   so nothing on the step moves. */
+#sign-in { width: 100%; margin-top: 22px; }
+#signin-status { margin-top: 14px; }
+#signin-status.good { display: flex; align-items: center; min-height: 38px; padding: 9px 12px; border-radius: 9px; background: var(--good-soft); }
+#sign-in[hidden] + #signin-status { margin-top: 22px; }
+
+/* Accessibility and Screen Recording: allowed or not, as a badge (base.css's, as in Settings); a problem, as a note. */
+#acc-status, #scr-status { margin-top: 14px; }
+:is(#acc-status, #scr-status).badge { align-self: flex-start; }
+
+/* Pick your buddy. */
+#step-pick .buddies { margin-top: 18px; }
+
+/* Connect an AI: the free-mode note, then the form (spaced by base.css), fitted to the card: its choices and labels a
+   little closer than in Settings, so that the step fits the window with the note too. */
+#ai-note { margin-top: 14px; }
+#ai { margin-top: 16px; }
+#ai .ai-choice { padding-block: 10px; }
+#ai > label { margin-top: 14px; }
+
+/* ---- Back and Next, at the bottom; a refusal to finish shows just above them ---- */
+
+#finish-status { margin-top: 12px; padding-block: 8px; }
+body.welcome footer { margin: 0; padding-top: 16px; }
+#finish-status:not([hidden]) + footer { padding-top: 12px; }
+body.welcome footer .btn { min-width: 88px; }
+
+/* The Welcome could not load its settings: why, on a card in the middle of the window. */
+body.welcome main:has(> .load-error) { justify-content: center; }
+.load-error { align-self: center; max-width: 360px; padding: 16px 20px; text-align: center; }

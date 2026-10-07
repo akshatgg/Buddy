@@ -1,23 +1,24 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'">
   <title>Welcome to Buddy</title>
   <link rel="stylesheet" href="../common/base.css">
+  <link rel="stylesheet" href="onboarding.css">
 </head>
-<body>
+<body class="welcome">
 <main>
-  <section id="step-signin">
+  <ol id="steps" class="steps" aria-label="Steps"></ol>
+
+  <section id="step-signin" class="step">
     <h1>Hi! Sign in to start</h1>
     <p>Sign in with your Google account. Buddy only learns your name and your email address.</p>
-    <div class="row">
-      <button id="sign-in" class="primary" type="button">Sign in with Google</button>
-    </div>
-    <p id="signin-status" class="muted"></p>
+    <button id="sign-in" class="btn primary large" type="button">Sign in with Google</button>
+    <p id="signin-status" class="muted" aria-live="polite"></p>
   </section>
 
-  <section id="step-pick" hidden>
+  <section id="step-pick" class="step" hidden>
     <h1>Pick your buddy</h1>
     <p class="muted">You can change this any time in Settings.</p>
     <div id="buddies" class="buddies"></div>
@@ -25,40 +26,40 @@
     <input id="name" type="text" maxlength="24">
   </section>
 
-  <section id="step-accessibility" hidden>
+  <section id="step-accessibility" class="step" hidden>
     <h1>Let your buddy type for you</h1>
     <p>To read the text you select and paste answers into Gmail, WhatsApp and other apps, your Mac needs to allow <strong>Accessibility</strong> for Buddy.</p>
     <p>Click the button, then switch Buddy on in the list that opens.</p>
     <div class="row">
-      <button id="acc-open" class="primary" type="button">Open System Settings</button>
-      <button id="acc-check" type="button">Check again</button>
+      <button id="acc-open" class="btn primary" type="button">Open System Settings</button>
+      <button id="acc-check" class="btn" type="button">Check again</button>
     </div>
-    <p id="acc-status" class="muted"></p>
+    <p id="acc-status" class="muted" aria-live="polite"></p>
   </section>
 
-  <section id="step-screen" hidden>
+  <section id="step-screen" class="step" hidden>
     <h1>Let your buddy see your screen</h1>
     <p>For <strong>Check screen</strong>, your buddy takes a screenshot of the window you are in. Allow <strong>Screen Recording</strong> for Buddy. You can skip this and allow it later.</p>
     <div class="row">
-      <button id="scr-open" class="primary" type="button">Open System Settings</button>
-      <button id="scr-check" type="button">Check again</button>
+      <button id="scr-open" class="btn primary" type="button">Open System Settings</button>
+      <button id="scr-check" class="btn" type="button">Check again</button>
     </div>
-    <p id="scr-status" class="muted"></p>
+    <p id="scr-status" class="muted" aria-live="polite"></p>
   </section>
 
-  <section id="step-ai" hidden>
+  <section id="step-ai" class="step" hidden>
     <h1>Connect an AI</h1>
     <p>Your buddy uses an AI to write. Pick one and paste your API key. You can also do this later in Settings.</p>
-    <p id="ai-note" class="muted" hidden></p>
+    <p id="ai-note" class="note" hidden></p>
     <div id="ai"></div>
   </section>
 
-  <p id="finish-status" class="error" hidden></p>
+  <p id="finish-status" class="note error" aria-live="polite" hidden></p>
 
   <footer class="row">
-    <button id="back" type="button">Back</button>
+    <button id="back" class="btn" type="button">Back</button>
     <span class="spacer"></span>
-    <button id="next" class="primary" type="button">Next</button>
+    <button id="next" class="btn primary" type="button">Next</button>
   </footer>
 </main>
 <script src="../common/buddy-grid.js"></script>

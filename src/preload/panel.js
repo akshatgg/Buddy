@@ -10,5 +10,5 @@ contextBridge.exposeInMainWorld('buddy', {
   insert: (text, mode) => ipcRenderer.invoke('panel:insert', text, mode),
   copy: (text) => ipcRenderer.invoke('panel:copy', text),
   close: () => ipcRenderer.send('panel:close'),
-  openSettings: () => ipcRenderer.send('panel:open-settings'),
+  openSettings: (code) => ipcRenderer.send('panel:open-settings', typeof code === 'string' ? code : undefined),
 });

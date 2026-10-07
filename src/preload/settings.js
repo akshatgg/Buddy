@@ -17,4 +17,7 @@ contextBridge.exposeInMainWorld('buddy', {
   openPermissionSettings: (which) => ipcRenderer.invoke('permissions:open', which),
   openUrl: (url) => ipcRenderer.invoke('settings:open-url', url),
   finishOnboarding: (choice) => ipcRenderer.invoke('onboarding:finish', choice),
+  pauseShortcut: () => ipcRenderer.invoke('shortcut:pause'),
+  resumeShortcut: () => ipcRenderer.invoke('shortcut:resume'),
+  onSection: (fn) => ipcRenderer.on('settings:section', (_event, name) => fn(name)),
 });

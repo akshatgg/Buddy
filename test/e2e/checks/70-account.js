@@ -17,7 +17,7 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
   const denied = () => new BuddyError('sign_in_denied', "You didn't finish signing in with Google. Try again.");
   const settings = ctx.windows.open('settings');
   const page = (script) => settings.webContents.executeJavaScript(script);
-  const loaded = () => page("document.getElementById('account-line').textContent !== ''").catch(() => false);
+  const loaded = () => page("document.getElementById('profile-name').textContent !== ''").catch(() => false);
   /** Load Settings again, and wait for the new page, not the old one. */
   async function reload() {
     await page('window.__old = true');
@@ -39,6 +39,15 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
   }
   const accountButtons = () => page("[document.getElementById('sign-in').hidden, document.getElementById('sign-out').hidden]");
   const accountStatus = () => page("document.getElementById('account-status').textContent");
+  const signInTop = () => page("document.getElementById('sign-in').getBoundingClientRect().top");
+  // The profile at the top of the sidebar: the name, the email, the initials and whether the photo is shown.
+  const profile = () => page(`({
+    name: document.getElementById('profile-name').textContent,
+    email: document.getElementById('profile-email').textContent,
+    initials: document.getElementById('avatar-initials').textContent,
+    photo: !document.getElementById('avatar-img').hidden,
+  })`);
+  const SIGNED_OUT = { name: 'Not signed in', email: 'Sign in with Google to use your buddy.', initials: '', photo: false };
   // Typing in the name box without leaving it: the page saves a name only when the box is left.
   const typeName = (text) => page(`document.getElementById('name').value = ${JSON.stringify(text)}`);
   const nameBox = () => page("document.getElementById('name').value");
@@ -46,8 +55,26 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
 
   try {
     await waitFor(loaded, 'the Settings window to load');
-    assert.strictEqual(await page("document.getElementById('account-line').textContent"), 'Signed in as E2E Tester (e2e@example.com)');
+    // The fake account has no photo, so its initials are shown.
+    assert.deepStrictEqual(await profile(), { name: 'E2E Tester', email: 'e2e@example.com', initials: 'ET', photo: false });
     assert.deepStrictEqual(await accountButtons(), [true, false], 'Sign out is offered');
+    // A name or an email too long for the sidebar is cut short with "…": the whole of it shows on hover.
+    assert.deepStrictEqual(await page("[document.getElementById('profile-name').title, document.getElementById('profile-email').title]"),
+      ['E2E Tester', 'e2e@example.com']);
+
+    // Initials are whole characters: a name that starts with an emoji keeps it whole, not half of it.
+    const { user } = ctx.account;
+    ctx.account.user = function withEmoji() {
+      const person = user.call(this);
+      return person && { ...person, name: '🦊Fox Tester' };
+    };
+    try {
+      await reload();
+      assert.strictEqual((await profile()).initials, '🦊T');
+    } finally {
+      ctx.account.user = user;
+    }
+    await reload();
 
     // The AI card follows the admin's switches.
     await cardShows({ note: null, form: true }, 'free mode off: the key form');
@@ -98,9 +125,12 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
     assert.strictEqual(ctx.account.isSignedIn(), false);
     assert.strictEqual(ctx.cloud.forgets, forgets + 1, "signing out forgot this person's free settings");
     assert.strictEqual(await accountStatus(), 'Signed out.');
+    assert.deepStrictEqual(await profile(), SIGNED_OUT, 'the profile says nobody is signed in');
     assert.strictEqual(await nameBox(), 'Typed before signing out', 'what was typed stays');
     await reload();
     assert.deepStrictEqual(await accountButtons(), [false, true], 'Sign in is offered');
+    assert.deepStrictEqual(await profile(), SIGNED_OUT, 'and so it does after loading again');
+    const signInAt = await signInTop();
     assert.deepStrictEqual(await aiCard(), { note: null, form: true }, 'signed out: no free settings apply');
     await panel.webContents.executeJavaScript(
       "document.getElementById('write-text').value = 'mail to my boss'; document.getElementById('write-go').click();",
@@ -118,12 +148,15 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
     await waitFor(async () => (await accountStatus()) === denied().message, 'Settings to say that the sign-in did not finish');
     assert.strictEqual(ctx.account.isSignedIn(), false);
     assert.deepStrictEqual(await accountButtons(), [false, true], 'Sign in is still offered');
+    assert.strictEqual(await signInTop(), signInAt, 'and the button has not moved for the lines under it');
 
     // Signing in from Settings, which keeps what is being typed too.
     await typeName('Typed before signing in');
     await page("document.getElementById('sign-in').click()");
     await waitFor(() => page("document.getElementById('sign-out').hidden === false"), 'Settings to show the person signed in');
     assert.strictEqual(ctx.account.isSignedIn(), true);
+    assert.strictEqual(await accountStatus(), 'Signed in ✓'); // it fades after a few seconds, as "Saved ✓" does
+    assert.deepStrictEqual(await profile(), { name: 'E2E Tester', email: 'e2e@example.com', initials: 'ET', photo: false });
     assert.strictEqual(await nameBox(), 'Typed before signing in', 'what was typed stays');
 
     // Someone else signing in over this person, with no sign-out in between, makes the app forget the first person's
@@ -137,13 +170,19 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
     ctx.account.uid = 'e2e-user';
     await ctx.account.signIn(); // and back
 
-    // A sign-in that ends behind the page's back (it expired, or another window signed out) is shown when the window
-    // gets the focus back, and "Signed in ✓", which the page said about the sign-in it knew of, goes.
-    assert.strictEqual(await accountStatus(), 'Signed in ✓');
+    // An account that changes behind the page's back (a sign-in that expired, another window signing out or in) is
+    // shown when the window gets the focus back, and what the page said about the account it knew of goes.
+    await page("document.getElementById('sign-out').click()");
+    await waitFor(async () => (await accountStatus()) === 'Signed out.', 'Settings to say it signed out');
+    await ctx.account.signIn();
+    await page("window.dispatchEvent(new Event('focus'))");
+    await waitFor(async () => JSON.stringify(await accountButtons()) === '[true,false]', 'Settings to show the sign-in when it gets the focus back');
+    assert.strictEqual(await accountStatus(), '', '"Signed out." is gone');
+    assert.deepStrictEqual(await profile(), { name: 'E2E Tester', email: 'e2e@example.com', initials: 'ET', photo: false });
     ctx.account.signOut();
     await page("window.dispatchEvent(new Event('focus'))");
     await waitFor(async () => JSON.stringify(await accountButtons()) === '[false,true]', 'Settings to show the sign-out when it gets the focus back');
-    assert.strictEqual(await accountStatus(), '', '"Signed in ✓" is gone');
+    assert.deepStrictEqual(await profile(), SIGNED_OUT, 'and the profile with it');
   } finally {
     ctx.cloud.settings = fetchSettings;
     answerFetch?.(); // a fetch still held back is let go, so that nothing hangs
@@ -170,6 +209,11 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
     await waitFor(() => w("document.getElementById('next')?.disabled === true").catch(() => false), 'the Welcome window, with Next off');
     assert.deepStrictEqual(await w('window.buddy.finishOnboarding({})'),
       { ok: false, error: { code: 'signed_out', message: 'Sign in with Google first.' } });
+    // Each step sits at the top of its card, so the title is in the same place on every step; and once signed in, the
+    // line that says so takes the button's place, at its size, so nothing on the step moves.
+    const box = (selector) => w(`(({ top, left, width, height }) => [top, left, width, height].map(Math.round))(document.querySelector('${selector}').getBoundingClientRect())`);
+    const button = await box('#sign-in');
+    const title = await box('#step-signin h1');
 
     // Cancel on Google's page: the Welcome says so, the person stays signed out, and Next stays off.
     ctx.account.nextSignInError = denied();
@@ -181,12 +225,15 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
     await w("document.getElementById('sign-in').click()");
     await waitFor(() => w("document.getElementById('next').disabled === false"), 'Next to come on once signed in');
     assert.strictEqual(ctx.account.isSignedIn(), true);
+    assert.deepStrictEqual(await box('#signin-status'), button, '"Signed in as …" is where the button was, at its size');
+    assert.deepStrictEqual(await box('#step-signin h1'), title, 'and the title has not moved');
 
     // Signed out behind its back on a later step: when it gets the focus back, the Welcome goes back to its first step
     // and offers Sign in again, instead of leaving the person to find out at the last step.
     assert.strictEqual(await signInStatus(), 'Signed in as e2e@example.com ✓');
     await w("document.getElementById('next').click()");
     assert.deepStrictEqual(await shownSteps(), ['pick'], 'on to the next step');
+    assert.deepStrictEqual(await box('#step-pick h1'), title, "whose title is where the first step's was");
     ctx.account.signOut();
     await w("window.dispatchEvent(new Event('focus'))");
     await waitFor(async () => JSON.stringify(await shownSteps()) === '["signin"]' && (await signInOfferedWithNextOff()),

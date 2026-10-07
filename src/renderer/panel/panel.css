@@ -1,28 +1,141 @@
+/* The panel: a small card that floats beside the buddy, in Settings' look. The window is clear around it. */
+
 html, body { background: transparent; height: 100%; }
 body { padding: 6px; }
 
 .panel {
-  height: 100%; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px;
-  border-radius: 14px; background: var(--card); border: 1px solid var(--line);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18); overflow: auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.16); /* small enough to fit in the clear edge of the window */
+  overflow: auto;
 }
 
-header { display: flex; align-items: center; justify-content: space-between; }
-.icon { border: none; background: transparent; padding: 2px 6px; }
+/* ---- The buddy's name, the app it came from, Settings and Close ---- */
 
-.tabs { display: flex; gap: 4px; background: var(--bg); border-radius: 9px; padding: 3px; }
-.tabs button { flex: 1; border: none; background: transparent; padding: 5px 4px; font-size: 12px; }
-.tabs button.active { background: var(--card); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tools { display: flex; flex: none; gap: 2px; margin-right: -6px; }
+
+/* Icon buttons, their glyphs drawn here (the gear is base.css's, as in Settings), so both are the same size and weight. */
+.icon {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+.icon:hover { background: var(--hover); color: var(--fg); }
+.icon:active { background: var(--track); }
+.icon::before, .icon::after { content: ""; position: absolute; left: 50%; top: 50%; background: currentColor; }
+.icon.glyph-gear::before { width: 14px; height: 14px; margin: -7px 0 0 -7px; clip-path: var(--glyph); }
+.icon.glyph-gear::after { display: none; }
+.cross::before, .cross::after {
+  width: 13px;
+  height: 1.5px;
+  margin: -0.75px 0 0 -6.5px;
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+.cross::after { transform: rotate(-45deg); }
+
+/* ---- The tabs, drawn as a segmented control ---- */
+
+.tabs { display: flex; flex: none; padding: 2px; border-radius: 8px; background: var(--track); }
+.tabs button {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+/* Hairlines between the tabs, except beside the chosen one. */
+.tabs button + button::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  border-left: 1px solid var(--line);
+}
+.tabs button.active::before, .tabs button.active + button::before { border-color: transparent; }
+/* A click on the track's edge still lands on the tab: each one takes the track's full 28 px height. */
+.tabs button::after { content: ""; position: absolute; inset: -2px 0; }
+.tabs button:active:not(.active) { background: var(--hover); }
+.tabs button.active { background: var(--control); box-shadow: var(--shadow); font-weight: 500; }
+.tabs button:focus-visible { outline-offset: 0; }
+
+/* ---- Each tab, and the answer ---- */
 
 .tab, #result { display: flex; flex-direction: column; gap: 8px; }
-.tones { display: flex; gap: 10px; flex: 1; }
-.tones label { margin: 0; font-weight: normal; display: flex; gap: 4px; align-items: center; }
+#again { margin-right: -8px; } /* its words line up with the box's right edge */
+.panel textarea { padding: 6px 10px; }
+.tones span { min-width: 0; padding-inline: 11px; font-size: 12px; }
 
-#shot { max-height: 120px; object-fit: contain; border-radius: 8px; border: 1px solid var(--line); }
-.notice { background: var(--bg); border-radius: 8px; padding: 6px 8px; margin: 0; }
-.verdict { font-weight: 600; margin: 0; }
-.verdict.good { color: var(--good); }
-.verdict.problems { color: var(--error); }
+#shot {
+  max-height: 120px;
+  object-fit: contain;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+/* With an answer under it, the screenshot shrinks. If the answer still does not fit (a check with a verdict and
+   problems above its text), the text box gives up the room, down to three lines, so that Replace and Copy stay in
+   view without scrolling. An answer that fits keeps its full box. */
+.panel:has(#result:not([hidden])) #shot { max-height: 56px; }
+#result { min-height: 0; }
+#result > * { flex-shrink: 0; }
+#result-text { flex-shrink: 1; min-height: 68px; } /* three lines */
+#notice { margin: 0; }
+
+/* Working on it: a small spinner (still, for someone who asked for less motion). */
+#busy { display: flex; align-items: center; gap: 8px; margin: 0; }
+#busy::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--track);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* What went wrong (base.css's error note), with the way to Settings beside it when the fix is there. */
+.error-line { display: flex; align-items: center; gap: 10px; padding: 7px 7px 7px 11px; }
+.error-line:has(> #error[hidden]) { display: none; }
+.error-line:has(> #error-settings[hidden]) { padding-right: 11px; }
+#error { flex: 1; min-width: 0; margin: 0; }
+
+/* The check's verdict as a badge, and its problems. */
+.verdict {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  height: 22px;
+  margin: 0;
+  padding: 0 10px;
+  border-radius: 11px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.verdict.good { background: var(--good-soft); }
+.verdict.problems { background: var(--error-soft); color: var(--error); }
 #problems { margin: 0; padding-left: 18px; }
-#busy, #error { margin: 0; }
-#error-settings { align-self: flex-start; }
+#problems li::marker { color: var(--error); }

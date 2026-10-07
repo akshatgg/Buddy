@@ -10,6 +10,7 @@ let last = null; // { action, input } of the latest request, for Try again
 let image = null; // the latest screenshot, base64 JPEG
 let currentTab = 'write';
 let generation = 0; // counts how often the panel has been opened; an answer to a request from an earlier opening is stale
+let errorCode = null; // the code of the error shown now, so that Open Settings can say which section it is about
 
 // Errors whose fix is in Settings: no key yet, a key that was refused, an account out of credit, a model that cannot
 // be used (not there for this key, or it cannot read screenshots: "Pick another in Settings"); and signed out,
@@ -23,6 +24,7 @@ function show(el, visible) {
 }
 
 function showError(message, code) {
+  errorCode = message ? (code || null) : null;
   $('error').textContent = message || '';
   show($('error'), Boolean(message));
   show($('error-settings'), Boolean(message) && SETTINGS_ERRORS.includes(code));
@@ -72,7 +74,9 @@ function setTab(name) {
   currentTab = name;
   for (const t of TABS) {
     show($(`tab-${t}`), t === name);
-    document.querySelector(`[data-tab="${t}"]`).classList.toggle('active', t === name);
+    const tab = document.querySelector(`[data-tab="${t}"]`);
+    tab.classList.toggle('active', t === name);
+    tab.setAttribute('aria-pressed', String(t === name)); // so a screen reader says which tab is chosen
   }
   show($('result'), false);
   showError('');
@@ -159,7 +163,7 @@ $('again').addEventListener('click', () => {
 });
 $('close').addEventListener('click', () => window.buddy.close());
 $('settings').addEventListener('click', () => window.buddy.openSettings());
-$('error-settings').addEventListener('click', () => window.buddy.openSettings());
+$('error-settings').addEventListener('click', () => window.buddy.openSettings(errorCode));
 for (const b of document.querySelectorAll('[data-tab]')) b.addEventListener('click', () => setTab(b.dataset.tab));
 
 document.addEventListener('keydown', (e) => {

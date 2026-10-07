@@ -19,9 +19,11 @@ async function mountAiForm(root) {
   const saveKey = el('button', { type: 'button', textContent: 'Save key' });
   const getKey = el('a', { href: '#', textContent: 'Get a key' });
   const status = el('span', { className: 'muted' });
+  status.setAttribute('aria-live', 'polite'); // what a check of the key found is read out as it changes
   const model = el('select', { id: 'ai-model' });
   const refresh = el('button', { type: 'button', textContent: 'Refresh' });
 
+  root.classList.add('ai-form'); // base.css spaces the form by this class
   root.replaceChildren(
     el('fieldset', {}, [el('legend', { textContent: 'Which AI do you have a key for?' }), choices]),
     el('label', { htmlFor: 'ai-key', textContent: 'API key' }),

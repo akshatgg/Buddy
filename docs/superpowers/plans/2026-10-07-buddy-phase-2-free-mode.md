@@ -27,7 +27,7 @@
 - `web/shared/` is generated: change `shared/`, then run `npm run sync:web`. `npm test` fails while the copy is stale.
 - Server code (`web/lib`, `web/api`) uses the copy's `BuddyError` (`web/shared/errors.js`), a different class from `shared/errors.js`: a server test whose error must reach `handle()` as a `BuddyError` imports it from `web/shared/errors`.
 - `cloud.json` (server URL, Firebase web API key, Google desktop OAuth client id and secret) is never committed; `cloud.example.json` is.
-- Commits: one per task at least. **No `Co-Authored-By` line and no mention of Claude as an author** in commits, PRs or files (the user's rule). The Claude AI provider inside the app is product content and stays.
+- Commits: one per task at least. **No `Co-Authored-By` line and no AI-assistant credit** in commits, PRs or files (the user's rule). The AI provider names inside the app are product content and stay.
 - `npm run test:e2e` briefly opens Buddy's windows on screen and uses only fakes (clipboard, shortcut, login item, account, server); it is safe to run.
 
 ## File map

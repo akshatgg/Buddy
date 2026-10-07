@@ -27,19 +27,27 @@ function fillModels(models, chosen) {
   $('model').replaceChildren(...list.map((m) => el('option', { value: m, textContent: m, selected: m === chosen })));
 }
 
+/** A problem with the list of models, in a note under the Model row (too long for the line beside its title). */
+function showModelsWarning(text) {
+  $('models-warning').textContent = text;
+  $('models-warning').hidden = !text;
+}
+
 async function loadModels(provider, chosen) {
   const known = view.providers.find((p) => p.id === provider);
   fillModels(known ? known.fallbackModels : [], chosen);
   showStatus('models-note', 'Loading the models…');
+  showModelsWarning('');
   const r = await window.buddy.models(provider);
   if ($('provider').value !== provider) return; // the admin picked another provider meanwhile
   if (!r.ok) {
-    showStatus('models-note', r.error.message, 'error');
+    showStatus('models-note', '');
+    showModelsWarning(r.error.message);
     return;
   }
   fillModels(r.models, $('model').value || chosen);
-  if (r.warning) showStatus('models-note', r.warning, 'error');
-  else showStatus('models-note', r.live ? '' : 'The usual models for this provider.');
+  showStatus('models-note', r.live || r.warning ? '' : 'The usual models for this provider.');
+  showModelsWarning(r.warning || ''); // the server's own words, which say that the usual models are shown
 }
 
 function render() {
@@ -82,7 +90,9 @@ function lastActiveText(iso) {
 
 /** One row of the users table, with the button that blocks or unblocks that person. */
 function userRow(user) {
-  const button = el('button', { type: 'button', textContent: user.blocked ? 'Unblock' : 'Block' });
+  const button = el('button', {
+    type: 'button', className: 'btn small', textContent: user.blocked ? 'Unblock' : 'Block',
+  });
   const row = el('tr', { className: user.blocked ? 'blocked' : '' }, [
     el('td', { textContent: user.name || '—' }),
     el('td', { textContent: user.email }),
@@ -99,6 +109,9 @@ const usersText = (count) => (count === 1 ? '1 user' : `${count} users`);
 function renderUsers(users) {
   showStatus('users-status', usersText(users.length));
   $('users').replaceChildren(...users.map(userRow));
+  // Nobody yet: a line that says so, rather than the table's header over nothing.
+  document.querySelector('.users table').hidden = users.length === 0;
+  $('users-empty').hidden = users.length > 0;
 }
 
 async function loadUsers() {

@@ -1,5 +1,7 @@
 'use strict';
 
+const path = require('node:path');
+const { nativeImage } = require('electron');
 const { BuddyError } = require('../../../shared/errors');
 
 module.exports = async function panelCheck(ctx, { assert, waitFor }) {
@@ -61,9 +63,9 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
   const open = ctx.windows.open;
   const opened = [];
   let settingsWindow = null;
-  ctx.windows.open = (kind) => {
+  ctx.windows.open = (kind, options) => {
     opened.push(kind);
-    settingsWindow = open.call(ctx.windows, kind);
+    settingsWindow = open.call(ctx.windows, kind, options);
     return settingsWindow;
   };
   try {
@@ -74,6 +76,11 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
     assert.strictEqual(panel.isVisible(), false, 'the panel steps aside');
     // Let its page finish loading before it is closed again, so that closing it does not cut the load short.
     await waitFor(() => settingsWindow.webContents.executeJavaScript("document.getElementById('size') !== null"), 'the Settings page to load');
+    // A key that was refused is fixed in the AI section, so Settings opens there.
+    await waitFor(
+      () => settingsWindow.webContents.executeJavaScript("!document.getElementById('section-ai').hidden"),
+      'Settings to open on the AI section',
+    );
   } finally {
     ctx.windows.open = open;
     ctx.actions.run = run;
@@ -84,4 +91,40 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
   // Opening the panel again (or changing tab) clears the error and the button with it.
   await page(`document.querySelector('[data-tab="fix"]').click()`);
   assert.deepStrictEqual(await errorShown(), { message: null, button: false });
+
+  // The tabs say which one is chosen, and what goes wrong or is under way is read out as it appears.
+  assert.deepStrictEqual(await page("[...document.querySelectorAll('[data-tab]')].map((tab) => tab.getAttribute('aria-pressed'))"),
+    ['false', 'true', 'false']);
+  assert.deepStrictEqual(await page("['error', 'busy'].map((id) => document.getElementById(id).getAttribute('aria-live'))"), ['polite', 'polite']);
+
+  // A check of the screen, with the screenshot, a verdict, three problems and the corrected text: Replace and Copy are
+  // in view without scrolling (the screenshot is smaller while an answer is shown).
+  const picture = nativeImage.createFromPath(path.join(__dirname, '..', '..', '..', 'assets', 'buddies', 'previews', 'boy-1.png'));
+  const { screenshot } = ctx.actions;
+  ctx.actions.screenshot = async () => ({ image: picture.toJPEG(80).toString('base64') });
+  ctx.actions.run = async () => ({
+    text: '',
+    check: {
+      verdict: 'problems',
+      problems: ['"recieve" should be "receive".', 'The greeting has no name after "Dear".', 'The last line ends without a full stop'],
+      corrected: 'Dear Rahul,\n\nI am happy to receive your reply. See you on Monday.',
+    },
+  });
+  try {
+    await ctx.panel.show({ buddyName: 'Buddy', appName: 'Mail', selection: '', tab: 'check', notice: '' }, ctx.buddy.bounds(), ctx.buddy.display().workArea);
+    await waitFor(() => page("document.getElementById('shot').naturalHeight > 0 && !document.getElementById('shot').hidden"), 'the screenshot');
+    await page("document.getElementById('check-go').click()");
+    await waitFor(() => page("!document.getElementById('result').hidden"), 'the answer');
+    const view = await page(`(() => {
+      const panel = document.querySelector('.panel');
+      const box = panel.getBoundingClientRect();
+      const bottom = Math.max(...['insert', 'copy'].map((id) => document.getElementById(id).getBoundingClientRect().bottom));
+      return { scrollTop: panel.scrollTop, inView: bottom <= box.bottom - panel.clientTop, label: document.getElementById('insert').textContent };
+    })()`);
+    assert.deepStrictEqual(view, { scrollTop: 0, inView: true, label: 'Replace' }, 'Replace and Copy are in view, unscrolled');
+  } finally {
+    ctx.actions.run = run;
+    ctx.actions.screenshot = screenshot;
+    ctx.panel.hide();
+  }
 };

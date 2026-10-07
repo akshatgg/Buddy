@@ -80,12 +80,12 @@ function setup({
   let signed = signedIn;
   const account = {
     isSignedIn: () => signed,
-    user: () => (signed ? { uid: 'u1', email: 'rahul@gmail.com', name: 'Rahul' } : null),
+    user: () => (signed ? { uid: 'u1', email: 'rahul@gmail.com', name: 'Rahul', photo: 'https://lh3.googleusercontent.com/a/rahul' } : null),
     async signIn() {
       calls.push(['signIn']);
       if (signInFails) throw signInFails;
       signed = true;
-      return { uid: 'u1', email: 'rahul@gmail.com', name: 'Rahul' };
+      return { uid: 'u1', email: 'rahul@gmail.com', name: 'Rahul', photo: 'https://lh3.googleusercontent.com/a/rahul' };
     },
     signOut() {
       calls.push(['signOut']);
@@ -101,7 +101,7 @@ function setup({
       return free;
     },
   };
-  registerSettingsIpc({
+  const ipc = registerSettingsIpc({
     ipcMain: { handle: (channel, fn) => { handlers[channel] = fn; } },
     windows: {
       // 'ours' is the Settings window's page, 'welcome' the Welcome window's and 'admin' the Admin window's.
@@ -140,10 +140,11 @@ function setup({
     account,
     cloud,
     canSignIn: true,
+    version: '0.1.0',
   });
   const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
   const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
-  return { call, callFromWelcome, handlers, store, keys, calls, opened, shortcutNow: () => current };
+  return { call, callFromWelcome, handlers, store, keys, calls, opened, ipc, shortcutNow: () => current };
 }
 
 test('settings:get answers the settings without positions or lastDisplayId, the buddies and the providers', async () => {
@@ -785,7 +786,7 @@ const UNLIMITED = { freeOn: true, limitMode: 'unlimited', limit: null, usedToday
 test('settings:get: who is signed in, whether this copy can sign in, and what the AI section shows', async () => {
   const s = setup({ free: UNLIMITED, stored: { cloud: UNLIMITED } });
   const r = await s.call('settings:get');
-  assert.deepStrictEqual(r.account, { signedIn: true, email: 'rahul@gmail.com', name: 'Rahul' });
+  assert.deepStrictEqual(r.account, { signedIn: true, email: 'rahul@gmail.com', name: 'Rahul', photo: 'https://lh3.googleusercontent.com/a/rahul' });
   assert.strictEqual(r.canSignIn, true);
   assert.deepStrictEqual(r.ai, { note: 'Free AI is on. No key needed.', showForm: false });
   assert.ok(!('cloud' in r.settings), 'the kept server settings are not page settings');
@@ -799,7 +800,7 @@ test('account:sign-in signs in, fetches the free settings, and answers the new s
   const s = setup({ signedIn: false });
   const r = await s.call('account:sign-in');
   assert.strictEqual(r.ok, true);
-  assert.deepStrictEqual(r.account, { signedIn: true, email: 'rahul@gmail.com', name: 'Rahul' });
+  assert.deepStrictEqual(r.account, { signedIn: true, email: 'rahul@gmail.com', name: 'Rahul', photo: 'https://lh3.googleusercontent.com/a/rahul' });
   assert.deepStrictEqual(s.calls.filter(([name]) => ['signIn', 'cloudSettings'].includes(name)), [['signIn'], ['cloudSettings', { force: true }]]);
 });
 
@@ -882,4 +883,98 @@ test('the Admin window cannot use the Settings channels', async () => {
     assert.deepStrictEqual(await s.handlers[channel]({ sender: ADMIN_PAGE }), refused('not_allowed', 'Not allowed.'), channel);
   }
   assert.deepStrictEqual(s.calls, []);
+});
+
+// ---- the shortcut recorder, the profile photo, the version ----
+
+test('shortcut:pause lets go of the global shortcut, so the page hears the keys instead of the panel opening', async () => {
+  const s = setup({ buddyOn: true });
+  assert.deepStrictEqual(await s.call('shortcut:pause'), { ok: true });
+  assert.deepStrictEqual(s.calls, [['unregister']]);
+  assert.strictEqual(s.shortcutNow(), null);
+});
+
+test('shortcut:resume takes the saved shortcut back while Buddy is on, and only when it is not the one registered', async () => {
+  const s = setup({ buddyOn: true, registered: null, stored: { shortcut: 'Shift+Command+B' } });
+  assert.deepStrictEqual(await s.call('shortcut:resume'), { ok: true });
+  assert.deepStrictEqual(s.calls, [['register', 'Shift+Command+B']]);
+  assert.strictEqual(s.shortcutNow(), 'Shift+Command+B');
+  await s.call('shortcut:resume');
+  assert.deepStrictEqual(s.calls, [['register', 'Shift+Command+B']], 'already registered: nothing more');
+});
+
+test('shortcut:resume does nothing while Buddy is off; resumeShortcut is also there for the main process', async () => {
+  const s = setup({ buddyOn: false, registered: null });
+  await s.call('shortcut:resume');
+  assert.deepStrictEqual(s.calls, []);
+  assert.strictEqual(typeof s.ipc.resumeShortcut, 'function');
+});
+
+// Only a closing Settings window gives the shortcut back (main.js), so a pause from any other window would never be undone.
+test('shortcut:pause and shortcut:resume are for the Settings window only: the Welcome window is refused, and the shortcut is left as it is', async () => {
+  const refusedOutright = refused('not_allowed', 'Not allowed.');
+
+  const pausing = setup({ buddyOn: true });
+  assert.deepStrictEqual(await pausing.callFromWelcome('shortcut:pause'), refusedOutright);
+  assert.deepStrictEqual(pausing.calls, [], 'nothing was let go');
+  assert.strictEqual(pausing.shortcutNow(), 'Alt+Space', 'the shortcut is still registered');
+
+  const resuming = setup({ buddyOn: true, registered: null, stored: { shortcut: 'Shift+Command+B' } });
+  assert.deepStrictEqual(await resuming.callFromWelcome('shortcut:resume'), refusedOutright);
+  assert.deepStrictEqual(resuming.calls, [], 'nothing was registered');
+  assert.strictEqual(resuming.shortcutNow(), null);
+
+  // The same set-ups, asked by the Settings window, are answered: it is the page, not the state, that was refused.
+  assert.deepStrictEqual(await pausing.call('shortcut:pause'), { ok: true });
+  assert.deepStrictEqual(pausing.calls, [['unregister']]);
+  assert.deepStrictEqual(await resuming.call('shortcut:resume'), { ok: true });
+  assert.deepStrictEqual(resuming.calls, [['register', 'Shift+Command+B']]);
+});
+
+test('saving a new shortcut while paused registers it, and resume then leaves it alone', async () => {
+  const s = setup({ buddyOn: true });
+  await s.call('shortcut:pause');
+  const r = await s.call('settings:set', { shortcut: 'Shift+Command+B' });
+  assert.strictEqual(r.ok, true);
+  await s.call('shortcut:resume');
+  assert.deepStrictEqual(s.calls, [['unregister'], ['register', 'Shift+Command+B']]);
+  assert.strictEqual(s.shortcutNow(), 'Shift+Command+B');
+});
+
+test('a shortcut that is taken while paused is refused, and resume puts the old one back', async () => {
+  const s = setup({ buddyOn: true, taken: ['Command+Space'] });
+  await s.call('shortcut:pause');
+  const r = await s.call('settings:set', { shortcut: 'Command+Space' });
+  assert.strictEqual(r.error.code, 'shortcut_taken');
+  await s.call('shortcut:resume');
+  assert.strictEqual(s.shortcutNow(), 'Alt+Space');
+  assert.strictEqual(s.store.get('shortcut'), 'Alt+Space');
+});
+
+test('shortcut:resume logs it when another app took the saved shortcut during the pause, and still answers ok', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const s = setup({ buddyOn: true, registered: null, taken: ['Alt+Space'] });
+  assert.deepStrictEqual(await s.call('shortcut:resume'), { ok: true });
+  assert.deepStrictEqual(s.calls, [['register', 'Alt+Space']]);
+  assert.strictEqual(s.shortcutNow(), null, 'it could not be taken back');
+  assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments), [['[buddy] could not take the shortcut back']]);
+  s.ipc.resumeShortcut(); // the main process asks the same way, when Settings closes
+  assert.strictEqual(warn.mock.callCount(), 2);
+});
+
+test('shortcut:resume says nothing when the shortcut is back, was never let go, or Buddy is off', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  await setup({ buddyOn: true, registered: null }).call('shortcut:resume');
+  await setup({ buddyOn: true }).call('shortcut:resume');
+  const off = setup({ buddyOn: false, registered: null, taken: ['Alt+Space'] });
+  await off.call('shortcut:resume');
+  assert.deepStrictEqual(off.calls, [], 'Buddy is off: no attempt, so nothing failed');
+  assert.strictEqual(warn.mock.callCount(), 0);
+});
+
+test("the snapshot carries the person's photo and the app's version", async () => {
+  const r = await setup().call('settings:get');
+  assert.strictEqual(r.account.photo, 'https://lh3.googleusercontent.com/a/rahul');
+  assert.strictEqual(r.version, '0.1.0');
+  assert.deepStrictEqual((await setup({ signedIn: false }).call('settings:get')).account, { signedIn: false });
 });

@@ -4,6 +4,10 @@
 
 const { guarded } = require('./result');
 
+// Errors whose fix is in the AI section of Settings: a key, a model, or free mode.
+const AI_ERRORS = ['no_key', 'bad_key', 'no_credit', 'bad_model', 'no_vision', 'need_key', 'free_off'];
+const sectionFor = (code) => (AI_ERRORS.includes(code) ? 'ai' : undefined);
+
 function registerPanelIpc({ ipcMain, panel, actions, openSettings }) {
   const fromPanel = (webContents) => webContents === panel.window()?.webContents;
   const handle = guarded(ipcMain, fromPanel);
@@ -17,10 +21,10 @@ function registerPanelIpc({ ipcMain, panel, actions, openSettings }) {
   ipcMain.on('panel:close', (event) => {
     if (fromPanel(event.sender)) panel.hide();
   });
-  ipcMain.on('panel:open-settings', (event) => {
+  ipcMain.on('panel:open-settings', (event, code) => {
     if (!fromPanel(event.sender)) return;
     panel.hide();
-    openSettings();
+    openSettings(sectionFor(code));
   });
 }
 

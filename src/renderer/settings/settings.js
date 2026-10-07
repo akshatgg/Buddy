@@ -8,23 +8,54 @@ let snap = null;
 let gridBuilt = false;
 let signingIn = 0; // sign-ins that wait for the browser: pressing the button again starts a newer one
 let recording = false; // the Shortcut box is waiting for keys
+let loadFailed = false; // the settings could not be loaded: the page only says why
+const FADE_AFTER_MS = 3000; // how long a success ("Saved ✓") is shown before it fades
+const fading = new Map(); // a status line's id -> the timer that fades its success
 
+/**
+ * Say on a status line how something went. A section has one line at a time: what its other lines said is about an
+ * earlier change, so they are emptied. A success fades after a few seconds; anything else (an error, a wait) stays
+ * until the line is used again.
+ */
 function showStatus(id, text, kind = 'muted') {
-  $(id).textContent = text;
-  $(id).className = `status small ${kind}`;
+  for (const line of $(id).closest('.section')?.querySelectorAll('.status') ?? []) {
+    if (line.id !== id) setLine(line.id, '');
+  }
+  setLine(id, text, kind);
 }
 
-/** Shown in place of the page when its settings cannot be loaded. */
+function setLine(id, text, kind = 'muted') {
+  clearTimeout(fading.get(id));
+  fading.delete(id);
+  $(id).textContent = text;
+  $(id).className = `status small ${kind}`;
+  if (kind !== 'good' || !text) return;
+  fading.set(id, setTimeout(() => {
+    $(id).classList.add('fading'); // settings.css fades it out, then it is emptied
+    fading.set(id, setTimeout(() => setLine(id, ''), 300));
+  }, FADE_AFTER_MS));
+}
+
+/**
+ * Shown where the sections were when the settings cannot be loaded. The sections stay in the page, hidden: the
+ * sidebar and the window getting the focus back still look them up, and none of them could work, so none is offered.
+ */
 function showLoadError(message) {
-  const p = document.createElement('p');
-  p.className = 'error';
-  p.textContent = message;
-  document.querySelector('.content').replaceChildren(p);
+  loadFailed = true;
+  for (const s of SECTIONS) $(`section-${s}`).hidden = true;
+  for (const item of navItems) {
+    item.classList.remove('active');
+    item.removeAttribute('aria-current');
+  }
+  document.querySelector('.content').prepend(Object.assign(document.createElement('p'), {
+    className: 'note error load-error', textContent: message,
+  }));
 }
 
 // ---- sections ----
 
 function showSection(name) {
+  if (loadFailed) return; // there is no section to show
   const section = SECTIONS.includes(name) ? name : 'buddy';
   if (recording && section !== 'shortcut') stopRecording();
   for (const s of SECTIONS) {
@@ -52,8 +83,10 @@ window.buddy.onSection((name) => showSection(name));
 // ---- the profile ----
 
 function initials(name, email) {
+  // Whole characters, not halves of one: an emoji, or a letter from beyond the basic set, is two units of a string.
+  const first = (text) => Array.from(text)[0] || '';
   const words = String(name || '').trim().split(/\s+/).filter(Boolean);
-  const letters = words.length ? words.slice(0, 2).map((w) => w[0]) : [String(email || '').charAt(0)];
+  const letters = words.length ? words.slice(0, 2).map(first) : [first(String(email || ''))];
   return letters.join('').toUpperCase();
 }
 
@@ -85,6 +118,8 @@ function renderAccount() {
     $('avatar-initials').textContent = '';
     showPhoto('');
   }
+  // A name or an email too long for the sidebar is cut short with "…": the whole of it shows on hover.
+  for (const id of ['profile-name', 'profile-email']) $(id).title = $(id).textContent;
   $('sign-in').hidden = account.signedIn || !canSignIn;
   $('sign-out').hidden = !account.signedIn;
 }

@@ -96,7 +96,10 @@ body.settings { overflow: hidden; }
 }
 
 .sidebar-foot { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding: 12px 4px 0; }
-.sidebar-foot .status { margin: 0; text-align: center; }
+/* The line under Sign in or Sign out keeps the room of two lines while it is empty, so that the button above it does
+   not move when something is said there. */
+.sidebar-foot .status { min-height: 2lh; margin: 0; text-align: center; }
+.sidebar-foot .status:empty { display: block; }
 
 /* ---- The chosen section ---- */
 
@@ -109,6 +112,10 @@ body.settings { overflow: hidden; }
 .section > h1 + * { margin-top: 0; }
 .section > .lead + * { margin-top: 18px; }
 .section > .status { margin-top: 8px; }
+/* A success fades a few seconds after it appears; settings.js then empties its line. */
+.status.fading { opacity: 0; transition: opacity 250ms ease; }
+/* The settings could not be loaded: why, where the sections were. */
+.load-error { margin: 0; }
 
 /* Buddy: "Saved ✓" for the buddy that was picked shows beside the title, so the cards below never move. The size
    control is as wide as the name box above it. */

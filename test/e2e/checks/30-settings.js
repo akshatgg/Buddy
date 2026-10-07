@@ -268,7 +268,80 @@ async function closingWhileRecordingCheck(ctx, win, { assert, waitFor }) {
   assert.strictEqual(ctx.store.get('shortcut'), 'Alt+Space', 'and nothing was saved meanwhile');
 }
 
-module.exports = async function settingsCheck(ctx, { assert, waitFor }) {
+// A section says how a change went on one line at a time: a new line takes the place of what the section said before.
+// "Saved ✓" fades after a few seconds; a refusal stays until the next try (the Shortcut box's, here: ⌃⌘K is another
+// app's in the fake).
+async function statusLinesCheck(ctx, win, { assert, waitFor }) {
+  const page = (script) => win.webContents.executeJavaScript(script);
+  const lines = async () => JSON.stringify(await page("['buddy-status', 'name-status', 'size-status'].map((id) => document.getElementById(id).textContent)"));
+  const shortcutStatus = () => page("document.getElementById('shortcut-status').textContent");
+  const press = (init) => page(`document.dispatchEvent(new KeyboardEvent('keydown', ${JSON.stringify({ ...init, bubbles: true })}))`);
+  const { buddyId, buddyName, size } = ctx.store.all();
+
+  await page(`document.querySelector('.nav-item[data-section="shortcut"]').click()`);
+  await page("document.getElementById('shortcut').click()");
+  await waitFor(() => ctx.globalShortcut.registered.size === 0, 'the shortcut to be let go');
+  await press({ code: 'KeyK', key: 'k', ctrlKey: true, metaKey: true });
+  await waitFor(async () => (await shortcutStatus()).includes('taken'), 'the shortcut to be refused');
+  await waitFor(() => ctx.globalShortcut.registered.size === 1, 'the saved shortcut to be registered again');
+
+  // Another buddy, a name and a size: one line, about the latest.
+  await page(`document.querySelector('.nav-item[data-section="buddy"]').click()`);
+  await page("document.querySelector('#buddies input:not(:checked)').click()");
+  await waitFor(async () => (await lines()) === '["Saved ✓","",""]', 'the buddy to be saved');
+  await page("const box = document.getElementById('name'); box.value = 'Lines'; box.dispatchEvent(new Event('change'));");
+  await waitFor(async () => (await lines()) === '["","Saved ✓",""]', 'the name to be saved, on its line only');
+  await page("document.querySelector('#size input:not(:checked)').click()");
+  await waitFor(async () => (await lines()) === '["","","Saved ✓"]', 'the size to be saved, on its line only');
+  assert.strictEqual(await page("document.querySelectorAll('#section-buddy .status:not(:empty)').length"), 1, 'one line in the section');
+
+  await waitFor(async () => (await lines()) === '["","",""]', '"Saved ✓" to fade', 6000);
+  await page(`document.querySelector('.nav-item[data-section="shortcut"]').click()`);
+  assert.strictEqual(await shortcutStatus(), '⌃ ⌘ K is taken. Try another one.', 'the refusal is still there');
+  await page("document.getElementById('shortcut').click()");
+  await press({ code: 'Escape', key: 'Escape' });
+  await waitFor(() => ctx.globalShortcut.registered.size === 1, 'the saved shortcut to be registered again');
+  assert.strictEqual(await shortcutStatus(), '', 'and goes with the next try');
+
+  const back = await page(`window.buddy.set(${JSON.stringify({ buddyId, buddyName, size })})`); // as it was, for the checks after this one
+  assert.strictEqual(back.ok, true);
+}
+
+// Settings that can't be loaded (here the account can't be read): the page says so where the sections were. Choosing a
+// section, a section asked for from outside (as the panel's Open Settings does) and the window getting the focus back
+// then do nothing, and throw nothing.
+async function loadFailureCheck(ctx, { assert, delay, waitFor }) {
+  const { user } = ctx.account;
+  const logError = console.error;
+  ctx.account.user = () => {
+    throw new Error('e2e: the account cannot be read');
+  };
+  console.error = (...args) => {
+    if (!String(args[0]).startsWith('[buddy] unexpected error')) logError(...args); // the main process logs the failure
+  };
+  const win = ctx.windows.open('settings');
+  const page = (script) => win.webContents.executeJavaScript(script);
+  try {
+    await waitFor(() => page("document.querySelector('.content').textContent.includes('Something went wrong. Try again.')").catch(() => false),
+      'Settings to say it could not load');
+    await page(`window.__errors = [];
+      window.addEventListener('error', (e) => window.__errors.push(e.message));
+      window.addEventListener('unhandledrejection', (e) => window.__errors.push(String(e.reason)));`);
+    for (const section of ['shortcut', 'ai', 'general']) await page(`document.querySelector('.nav-item[data-section="${section}"]').click()`);
+    ctx.windows.open('settings', { section: 'ai' });
+    await page("window.dispatchEvent(new Event('focus'))");
+    await delay(300);
+    assert.deepStrictEqual(await page('window.__errors'), [], 'nothing threw');
+    assert.deepStrictEqual(await page(SECTIONS_SHOWN), { shown: [], active: [], current: [] }, 'and no section is shown or marked');
+  } finally {
+    ctx.account.user = user;
+    console.error = logError;
+    win.destroy();
+    await waitFor(() => win.isDestroyed(), 'the Settings window to be gone');
+  }
+}
+
+module.exports = async function settingsCheck(ctx, { assert, delay, waitFor }) {
   const win = ctx.windows.open('settings');
   await waitFor(
     () => win.webContents.executeJavaScript("document.querySelector('#size input:checked')?.value === 'medium'"),
@@ -278,6 +351,14 @@ module.exports = async function settingsCheck(ctx, { assert, waitFor }) {
   assert.deepStrictEqual(await win.webContents.executeJavaScript(SECTIONS_SHOWN), {
     shown: ['section-buddy'], active: ['buddy'], current: ['buddy'],
   }, 'Settings opens on Buddy');
+  // For a screen reader: the page's language, the lines that say how something went (read out when they change, as is
+  // what the Shortcut box shows), and each Allow button named for what it allows.
+  assert.deepStrictEqual(await win.webContents.executeJavaScript(`({
+    lang: document.documentElement.lang,
+    live: [...document.querySelectorAll('.status'), document.getElementById('shortcut-keys')]
+      .filter((el) => el.getAttribute('aria-live') !== 'polite').map((el) => el.id),
+    allow: [...document.querySelectorAll('#section-permissions button')].map((b) => b.getAttribute('aria-label')),
+  })`), { lang: 'en', live: [], allow: ['Allow Accessibility', 'Allow Screen Recording'] });
   const before = ctx.buddy.window().getBounds();
   const r = await win.webContents.executeJavaScript("window.buddy.set({ size: 'large' })");
   assert.strictEqual(r.ok, true, 'size saved');
@@ -293,5 +374,7 @@ module.exports = async function settingsCheck(ctx, { assert, waitFor }) {
 
   await aiFormCheck(ctx, win, { assert, waitFor });
   await sectionsAndShortcutCheck(ctx, win, { assert, waitFor });
-  await closingWhileRecordingCheck(ctx, win, { assert, waitFor }); // and the window is gone: the next check may open Settings again
+  await statusLinesCheck(ctx, win, { assert, waitFor });
+  await closingWhileRecordingCheck(ctx, win, { assert, waitFor }); // and the window is gone
+  await loadFailureCheck(ctx, { assert, delay, waitFor }); // in a window of its own, gone too: the next check may open Settings again
 };

@@ -19,6 +19,7 @@ async function mountAiForm(root) {
   const saveKey = el('button', { type: 'button', textContent: 'Save key' });
   const getKey = el('a', { href: '#', textContent: 'Get a key' });
   const status = el('span', { className: 'muted' });
+  status.setAttribute('aria-live', 'polite'); // what a check of the key found is read out as it changes
   const model = el('select', { id: 'ai-model' });
   const refresh = el('button', { type: 'button', textContent: 'Refresh' });
 

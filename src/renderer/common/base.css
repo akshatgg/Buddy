@@ -187,6 +187,9 @@ footer { margin-top: 16px; }
 
 /* A soft, accent-tinted box for something worth knowing. */
 .note { margin: 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--fg); }
+/* What went wrong, in the error tint. The tint is laid over the card's colour, so that the red words read at 4.5:1 on
+   the window's grey too. */
+.note.error { background: linear-gradient(var(--error-soft), var(--error-soft)), var(--card); color: var(--error); }
 
 /* ---- Grouped rows: a rounded panel of rows, each with its title on the left and its control on the right ---- */
 

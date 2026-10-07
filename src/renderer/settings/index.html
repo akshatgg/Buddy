@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://*.googleusercontent.com; style-src 'self'; script-src 'self'">
@@ -30,14 +30,14 @@
     <div class="sidebar-foot">
       <button id="sign-in" class="btn primary block" type="button" hidden>Sign in with Google</button>
       <button id="sign-out" class="btn block" type="button" hidden>Sign out</button>
-      <p id="account-status" class="status small"></p>
+      <p id="account-status" class="status small" aria-live="polite"></p>
     </div>
   </aside>
   <main class="content">
     <section id="section-buddy" class="section">
       <h1>Buddy</h1>
       <div id="buddies" class="buddies"></div>
-      <p id="buddy-status" class="status small"></p>
+      <p id="buddy-status" class="status small" aria-live="polite"></p>
       <div class="group">
         <div class="group-row">
           <label for="name" class="row-title">Name</label>
@@ -52,18 +52,18 @@
           </div>
         </div>
       </div>
-      <p id="name-status" class="status small"></p>
-      <p id="size-status" class="status small"></p>
+      <p id="name-status" class="status small" aria-live="polite"></p>
+      <p id="size-status" class="status small" aria-live="polite"></p>
     </section>
     <section id="section-shortcut" class="section" hidden>
       <h1>Shortcut</h1>
       <p class="lead">Press it in any app to open your buddy.</p>
       <button id="shortcut" class="recorder" type="button" aria-describedby="shortcut-hint">
-        <span id="shortcut-keys" class="keys"></span>
+        <span id="shortcut-keys" class="keys" aria-live="polite"></span>
       </button>
       <p id="shortcut-hint" class="muted small">Click the box, then press the keys you want. Esc cancels.</p>
       <div class="row">
-        <span id="shortcut-status" class="status small"></span>
+        <span id="shortcut-status" class="status small" aria-live="polite"></span>
         <span class="spacer"></span>
         <button id="shortcut-reset" class="btn quiet small" type="button">Reset to ⌥ Space</button>
       </div>
@@ -82,7 +82,7 @@
             <p class="muted small">Read the text you select, and paste answers.</p>
           </div>
           <span id="perm-accessibility" class="badge"></span>
-          <button id="perm-accessibility-btn" class="btn small" type="button">Allow</button>
+          <button id="perm-accessibility-btn" class="btn small" type="button" aria-label="Allow Accessibility">Allow</button>
         </div>
         <div class="group-row">
           <div class="grow">
@@ -90,10 +90,10 @@
             <p class="muted small">See the window you're in, for Check screen.</p>
           </div>
           <span id="perm-screenRecording" class="badge"></span>
-          <button id="perm-screenRecording-btn" class="btn small" type="button">Allow</button>
+          <button id="perm-screenRecording-btn" class="btn small" type="button" aria-label="Allow Screen Recording">Allow</button>
         </div>
       </div>
-      <p id="perm-status" class="status small"></p>
+      <p id="perm-status" class="status small" aria-live="polite"></p>
     </section>
     <section id="section-general" class="section" hidden>
       <h1>General</h1>
@@ -101,7 +101,7 @@
         <div class="group-row">
           <div class="grow">
             <p class="row-title">Always on</p>
-            <p id="power-status" class="muted small"></p>
+            <p id="power-status" class="muted small" aria-live="polite"></p>
           </div>
           <input id="power" class="switch" type="checkbox" role="switch" aria-label="Always on">
         </div>

@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { buildMenuTemplate, createTray, trayIcon } = require('../src/main/tray');
+const { buildMenuTemplate, createTray, trayIcon, updateMenuState } = require('../src/main/tray');
 
 const ASSETS = path.join(__dirname, '..', 'assets');
 
@@ -132,4 +132,30 @@ test('the Windows tray icon is an .ico with a PNG picture for each scale Windows
     sizes.push(size);
   }
   assert.deepStrictEqual(sizes, [16, 20, 24, 32, 40, 48]);
+});
+
+test('a newer Buddy puts Update now at the top of the menu', () => {
+  const h = { ...handlers(), updateNow: () => h.calls.push(['updateNow']) };
+  const t = buildMenuTemplate({ buddyOn: true, visible: true, update: { version: '1.3.0', busy: false } }, h);
+  assert.deepStrictEqual(labels(t), ['Update now (Buddy 1.3.0)', 'Hide buddy', 'Settings…', 'Turn off buddy', 'Quit Buddy']);
+  assert.strictEqual(t[1].type, 'separator');
+  t[0].click();
+  assert.deepStrictEqual(h.calls, [['updateNow']]);
+});
+
+test('while the update downloads after Update now, the item says how far it got and cannot be pressed again', () => {
+  const t = buildMenuTemplate({ buddyOn: true, visible: true, update: { version: '1.3.0', busy: true, progress: 0.42 } }, handlers());
+  assert.strictEqual(t[0].label, 'Updating… 42%');
+  assert.strictEqual(t[0].enabled, false);
+});
+
+test('the menu offers Update now only while a newer Buddy is out', () => {
+  const latest = { version: '1.3.0' };
+  assert.strictEqual(updateMenuState({ status: 'current', latest }), null);
+  assert.strictEqual(updateMenuState({ status: 'checking', latest: null }), null);
+  assert.strictEqual(updateMenuState({ status: 'error', latest: null }), null);
+  assert.deepStrictEqual(updateMenuState({ status: 'available', latest }), { version: '1.3.0', busy: false, progress: null });
+  assert.deepStrictEqual(updateMenuState({ status: 'ready', latest, pending: true }), { version: '1.3.0', busy: false, progress: null });
+  assert.deepStrictEqual(updateMenuState({ status: 'downloading', latest, pending: true, progress: 0.5 }), { version: '1.3.0', busy: true, progress: 0.5 });
+  assert.deepStrictEqual(updateMenuState({ status: 'downloading', latest, pending: false, progress: 0.5 }), { version: '1.3.0', busy: false, progress: 0.5 });
 });

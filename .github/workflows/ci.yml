@@ -1,0 +1,52 @@
+name: CI
+
+# Every push to master and every pull request: lint and the unit tests, and
+# both native helpers built, so a compile break in either shows up here
+# instead of at release time. Releases are a separate workflow (release.yml).
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mac:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build the Swift helper
+        run: npm run build:native
+
+      - name: Check the helper is for Apple Silicon
+        run: lipo -archs bin/buddy-helper | grep -q arm64
+
+      - run: npm test
+
+  windows-helper:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # tools/build-native.js needs nothing from node_modules: only the C#
+      # compiler that comes with Windows.
+      - name: Build the C# helper
+        run: npm run build:native
+
+      - name: Check the helper was built
+        shell: pwsh
+        run: |
+          if (-not (Test-Path bin/buddy-helper.exe)) { Write-Error "bin/buddy-helper.exe was not built"; exit 1 }
+          Get-Item bin/buddy-helper.exe | Format-List Name, Length

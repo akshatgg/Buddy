@@ -8,6 +8,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { defaultShortcut } = require('./platform');
 
 const DEFAULTS = Object.freeze({
   onboarded: false,
@@ -15,7 +16,7 @@ const DEFAULTS = Object.freeze({
   buddyId: 'boy-1',
   buddyName: '',
   size: 'medium',
-  shortcut: 'Alt+Space',
+  shortcut: defaultShortcut,
   provider: 'anthropic',
   models: {},
   positions: {},

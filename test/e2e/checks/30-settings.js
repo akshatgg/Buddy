@@ -259,9 +259,10 @@ async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
 async function closingWhileRecordingCheck(ctx, win, { assert, waitFor }) {
   const page = (script) => win.webContents.executeJavaScript(script);
   const registered = () => [...ctx.globalShortcut.registered.keys()];
+  const saved = ctx.store.get('shortcut'); // ⌥Space on the Mac, Ctrl+Shift+Space on Windows
 
   await page(`document.querySelector('.nav-item[data-section="shortcut"]').click()`); // a recording stops when the section is left
-  assert.deepStrictEqual(registered(), ['Alt+Space'], 'the saved shortcut is registered before recording');
+  assert.deepStrictEqual(registered(), [saved], 'the saved shortcut is registered before recording');
   await page("document.getElementById('shortcut').click()");
   assert.strictEqual(await page("document.getElementById('shortcut').classList.contains('recording')"), true, 'the box waits for keys');
   await waitFor(() => registered().length === 0, 'the shortcut to be let go while recording');
@@ -269,8 +270,8 @@ async function closingWhileRecordingCheck(ctx, win, { assert, waitFor }) {
   win.destroy();
   await waitFor(() => win.isDestroyed(), 'the Settings window to be gone');
   await waitFor(() => registered().length === 1, 'the saved shortcut to be registered again once Settings has closed');
-  assert.deepStrictEqual(registered(), ['Alt+Space'], 'the shortcut that was saved is the one that came back');
-  assert.strictEqual(ctx.store.get('shortcut'), 'Alt+Space', 'and nothing was saved meanwhile');
+  assert.deepStrictEqual(registered(), [saved], 'the shortcut that was saved is the one that came back');
+  assert.strictEqual(ctx.store.get('shortcut'), saved, 'and nothing was saved meanwhile');
 }
 
 // A section says how a change went on one line at a time: a new line takes the place of what the section said before.
@@ -378,8 +379,12 @@ module.exports = async function settingsCheck(ctx, { assert, delay, waitFor }) {
   assert.deepStrictEqual(perms, { ok: true, accessibility: true, screenRecording: true });
 
   await aiFormCheck(ctx, win, { assert, waitFor });
-  await sectionsAndShortcutCheck(ctx, win, { assert, waitFor });
-  await statusLinesCheck(ctx, win, { assert, waitFor });
+  // These two press the Mac's keys (⌘⇧B, ⌃⌘K) and read its symbols. Windows' keys and names are in
+  // test/shortcut-keys.test.js, and 36-platform-pages checks what its Settings show.
+  if (process.platform !== 'win32') {
+    await sectionsAndShortcutCheck(ctx, win, { assert, waitFor });
+    await statusLinesCheck(ctx, win, { assert, waitFor });
+  }
   await closingWhileRecordingCheck(ctx, win, { assert, waitFor }); // and the window is gone
   await loadFailureCheck(ctx, { assert, delay, waitFor }); // in a window of its own, gone too: the next check may open Settings again
 };

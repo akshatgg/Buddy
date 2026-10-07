@@ -9,7 +9,7 @@ const SRC = path.join(__dirname, '..', 'src');
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 /** Just enough of BrowserWindow and app to see what createSettingsWindows asks of them. */
-function setup({ loadFile = () => Promise.resolve() } = {}) {
+function setup({ loadFile = () => Promise.resolve(), platform = 'darwin' } = {}) {
   const created = [];
   const focusCalls = [];
   class FakeWindow {
@@ -67,7 +67,7 @@ function setup({ loadFile = () => Promise.resolve() } = {}) {
       this.destroyed = true;
     }
   }
-  const windows = createSettingsWindows({ app: { focus: (options) => focusCalls.push(options) }, BrowserWindow: FakeWindow });
+  const windows = createSettingsWindows({ app: { focus: (options) => focusCalls.push(options) }, BrowserWindow: FakeWindow, platform });
   return { windows, created, focusCalls };
 }
 
@@ -211,4 +211,14 @@ test('no options, null or empty options all mean no section, for a new window an
     windows.close('settings');
   }
   assert.strictEqual(created.length, 5, 'each round opened a window of its own');
+});
+
+test('on Windows the window comes forward by itself: app.focus, which would focus whichever window of Buddy comes first, is left alone', () => {
+  const { windows, created, focusCalls } = setup({ platform: 'win32' });
+  const first = windows.open('settings');
+  created[0].onceHandlers['ready-to-show']();
+  assert.strictEqual(first.shown, 1);
+  windows.open('settings');
+  assert.strictEqual(first.focused, 1);
+  assert.deepStrictEqual(focusCalls, []);
 });

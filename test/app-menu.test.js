@@ -54,7 +54,7 @@ function setup() {
   const settingsPage = { name: 'the Settings page' };
   const alive = { webContents: settingsPage, isDestroyed: () => false, closed: 0, close() { this.closed += 1; } };
   const windows = { owns: (webContents) => webContents === settingsPage };
-  installAppMenu({ windows, Menu });
+  installAppMenu({ windows, Menu, platform: 'darwin' });
   const template = installed[0].template;
   const close = allItems(template).find((item) => item.accelerator === 'CommandOrControl+W');
   return { installed, close, alive, windows };
@@ -85,4 +85,14 @@ test('Cmd+W does nothing in a window that is already gone', () => {
   alive.isDestroyed = () => true;
   assert.doesNotThrow(() => close.click({}, alive));
   assert.strictEqual(alive.closed, 0);
+});
+
+test('on Windows there is no application menu: text boxes have their keys without one, and Settings gets no menu bar', () => {
+  const installed = [];
+  const Menu = {
+    buildFromTemplate: (template) => ({ template }),
+    setApplicationMenu: (menu) => installed.push(menu),
+  };
+  installAppMenu({ windows: { owns: () => false }, Menu, platform: 'win32' });
+  assert.deepStrictEqual(installed, [null]);
 });

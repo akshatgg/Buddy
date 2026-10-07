@@ -50,7 +50,7 @@ const refused = (code, message) => ({ ok: false, error: { code, message } });
  */
 function setup({
   stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut,
-  signedIn = true, free = null, signInFails = null, cloudFails = null, cloudSignsOut = false,
+  signedIn = true, free = null, signInFails = null, cloudFails = null, cloudSignsOut = false, platform,
 } = {}) {
   const data = { ...structuredClone(DEFAULTS), ...stored };
   const store = {
@@ -141,6 +141,7 @@ function setup({
     cloud,
     canSignIn: true,
     version: '0.1.0',
+    platform,
   });
   const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
   const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
@@ -977,4 +978,10 @@ test("the snapshot carries the person's photo and the app's version", async () =
   assert.strictEqual(r.account.photo, 'https://lh3.googleusercontent.com/a/rahul');
   assert.strictEqual(r.version, '0.1.0');
   assert.deepStrictEqual((await setup({ signedIn: false }).call('settings:get')).account, { signedIn: false });
+});
+
+test('settings:get says which system Buddy runs on, so the pages leave out what it does not have', async () => {
+  assert.strictEqual((await setup({ platform: 'win32' }).call('settings:get')).platform, 'win32');
+  assert.strictEqual((await setup({ platform: 'darwin' }).call('settings:get')).platform, 'darwin');
+  assert.strictEqual((await setup().call('settings:get')).platform, process.platform);
 });

@@ -63,6 +63,7 @@ module.exports = {
   id: 'gemini',
   label: 'Google Gemini',
   keyUrl: 'https://aistudio.google.com/apikey',
+  keyPrefixes: ['AIza'],
   fallbackModels: ['gemini-flash-latest', 'gemini-pro-latest'],
   isVisionModel: (m) => /^gemini/.test(m),
   complete,

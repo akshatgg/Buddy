@@ -196,6 +196,15 @@ done). Their lines move to Task 6.
   over the canvas; `place` from the projected top of the Head on load and resize; `play`/`stop` when the pose's
   `effect` changes; colour = the character's accent, which `buddy:model` now returns as `{ bytes, accent }`).
   Expose `window.__buddyMood` (the mood's name) for the e2e test.
+- Notes from Tasks 2 and 4 (their reports are in ~/projects/buddy/.superpowers/sdd/feelings/):
+  - Ease from one mood's pose to the next over about 0.2 s (blend every numeric pose field from the pose shown when the
+    mood changed), so wake-from-drowsy, wobble-to-dizzy and any mood cut short never jump in one frame.
+  - Smooth the voice level that arrives about 10 times a second before passing it as `level`.
+  - Pass `since` to `isActive` and `fpsFor`; call `fidgeter.reset(t)` whenever the mood changes and on any use.
+  - Pet detector: feed `screenX` only while the pointer is on the Head and not pressed; `reset()` when it leaves the
+    head or a press starts; ignore a detection while `love` is playing. Shake detector: feed `screenX`/`screenY` while
+    dragging; `reset()` when a drag starts.
+  - `createSleep` with its default timers keeps real 60 s / 120 s timers alive: tests that build one pass fake timers.
 - Main: `buddy-window.js` gains `voiceLevel(level)` (clamped 0–1, sent on `buddy:voice-level`, never queued for a
   page that is loading); `registerBuddyIpc` takes an optional `sleep` (default: one whose `poke` and `hold` do
   nothing) and tells it about use: `hold('hover', over)`, `hold('drag', true|false)`, `poke()` on click.

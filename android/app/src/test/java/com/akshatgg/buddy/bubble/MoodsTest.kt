@@ -50,6 +50,13 @@ class MoodsTest {
         assertEquals(0f, Moods.floatOffset(3.0), 1e-5f)
     }
 
+    @Test fun aPickerHeadTurnsSlowlyFromSideToSide() {
+        assertEquals(0f, Moods.turn(0.0), 1e-6f)
+        assertEquals(0.5f, Moods.turn(2.0), 1e-6f)
+        assertEquals(-0.5f, Moods.turn(6.0), 1e-6f)
+        assertEquals(0f, Moods.turn(8.0), 1e-5f)
+    }
+
     @Test fun theWaveTurnsTheHeadAndSmiles() {
         val p = Moods.pose(Mood.WAVE, 0.5)
         assertEquals(0.8f, p.smile)

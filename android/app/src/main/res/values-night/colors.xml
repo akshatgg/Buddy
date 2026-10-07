@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The Mac's dark card, text and hairline colours (src/renderer/common/base.css). -->
+<!-- The Mac's dark window grey, card, text and hairline colours (src/renderer/common/base.css). -->
 <resources>
+    <color name="buddy_bg">#1E1E20</color>
     <color name="buddy_card">#2C2C2F</color>
     <color name="buddy_fg">#F5F5F7</color>
     <color name="buddy_line">#4A4A4E</color>

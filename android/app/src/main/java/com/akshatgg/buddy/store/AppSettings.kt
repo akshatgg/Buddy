@@ -48,6 +48,14 @@ class AppSettings(private val kv: KeyValue) {
         get() = (kv.getString("bubbleY")?.toFloatOrNull()?.takeIf { it.isFinite() } ?: 0.35f).coerceIn(0f, 1f)
         set(v) = kv.putString("bubbleY", (if (v.isFinite()) v.coerceIn(0f, 1f) else 0.35f).toString())
 
+    /**
+     * Whether Android's own "Allow notifications?" has been asked. Android stops asking after the person says no twice,
+     * and a request then comes back refused at once: from then on only the phone's settings can allow them.
+     */
+    var notificationsAsked: Boolean
+        get() = flag("notificationsAsked", false)
+        set(v) = kv.putString("notificationsAsked", v.toString())
+
     /** The server's last answer about free mode, null when there is none. */
     var cloud: FreeSettings?
         get() = FreeSettings.fromJson(kv.getString("cloud"))

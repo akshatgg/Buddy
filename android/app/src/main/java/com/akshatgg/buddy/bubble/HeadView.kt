@@ -54,6 +54,17 @@ class HeadView(context: Context) : FrameLayout(context) {
             wake()
         }
 
+    /**
+     * True in the buddy picker: the head turns slowly from side to side, at no less than the settling rate, so that
+     * the turn looks smooth.
+     */
+    var turning: Boolean = false
+        @MainThread set(value) {
+            if (field == value) return
+            field = value
+            wake()
+        }
+
     /** True while the head is touched: it draws at the full rate. */
     var pressing: Boolean = false
         @MainThread set(value) {
@@ -114,7 +125,7 @@ class HeadView(context: Context) : FrameLayout(context) {
         lastTick = t
         if (currentMood != Mood.IDLE || pressing) lastActive = t
         val fps = Moods.fpsFor(currentMood, pressing, blinker.soon(t, BLINK_LOOKAHEAD), t - lastActive)
-        schedule(1.0 / fps - (now() - t))
+        schedule(1.0 / (if (turning) max(fps, Moods.IDLE_FPS) else fps) - (now() - t))
 
         val renderer = renderer ?: return
         val pose = Moods.pose(currentMood, t - moodSince)
@@ -122,7 +133,8 @@ class HeadView(context: Context) : FrameLayout(context) {
             currentMood = Mood.IDLE
             moodSince = t
         }
-        renderer.setPose(pose, blinker.value(t), Moods.floatOffset(t))
+        val shown = if (turning) pose.copy(yaw = pose.yaw + Moods.turn(t)) else pose
+        renderer.setPose(shown, blinker.value(t), Moods.floatOffset(t))
         renderer.render(frameTimeNanos)
     }
 

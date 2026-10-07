@@ -145,7 +145,19 @@ class BubbleService : LifecycleService() {
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_CAPTURE) foreground(capturing = !intent.getBooleanExtra(EXTRA_DONE, false))
+        if (intent?.action == ACTION_LOOK) showLook()
         return START_STICKY
+    }
+
+    /** Another buddy, or another size, chosen in Settings: shown at once, as the Mac reloads its model and resizes. */
+    private fun showLook() {
+        val view = head ?: return
+        view.characterId = settings.characterId
+        if (drag?.dragging == true) return // where it is let go is snapped at the new size
+        glide?.cancel()
+        speech?.hide()
+        placeHead()
+        windows.updateViewLayout(view, headPlace)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -462,6 +474,8 @@ class BubbleService : LifecycleService() {
         const val ACTION_CAPTURE = "com.akshatgg.buddy.CAPTURE"
         const val EXTRA_DONE = "done"
 
+        private const val ACTION_LOOK = "com.akshatgg.buddy.LOOK"
+
         /** Show the buddy, and keep it on screen until stop() or the person turns it off. */
         fun start(context: Context) {
             try {
@@ -469,6 +483,16 @@ class BubbleService : LifecycleService() {
             } catch (e: IllegalStateException) {
                 // Android allows it from the app on screen, at boot and after an update, but not from the background.
                 Log.w(TAG, "bubble: not started (${e.javaClass.simpleName})")
+            }
+        }
+
+        /** The buddy or its size changed in Settings: the floating one shows it. Nothing happens while Buddy is off. */
+        fun lookChanged(context: Context) {
+            if (!AppGraph.instance.settings.buddyOn) return
+            try {
+                ContextCompat.startForegroundService(context, Intent(context, BubbleService::class.java).setAction(ACTION_LOOK))
+            } catch (e: IllegalStateException) {
+                Log.w(TAG, "bubble: not told (${e.javaClass.simpleName})")
             }
         }
 

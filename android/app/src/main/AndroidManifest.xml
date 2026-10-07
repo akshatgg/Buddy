@@ -14,7 +14,14 @@
         android:allowBackup="false"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
-        <activity android:name=".ui.MainActivity" android:exported="true">
+        <!-- One instance: "Open Settings" in the panel or a Fix sheet reaches the Settings already open, which scrolls to
+             the part it names. -->
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.Buddy"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

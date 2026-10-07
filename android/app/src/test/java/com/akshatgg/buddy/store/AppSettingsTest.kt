@@ -6,6 +6,7 @@ import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppSettingsTest {
@@ -15,6 +16,7 @@ class AppSettingsTest {
         assertEquals("boy-1", s.characterId); assertEquals("Aarav", s.buddyName)
         assertEquals(BuddySize.MEDIUM, s.size); assertEquals("anthropic", s.provider)
         assertNull(s.model("openai")); assertNull(s.cloud)
+        assertFalse(s.notificationsAsked)
     }
 
     @Test fun namesAreTrimmedCutAndFallBackToTheCharacters() {
@@ -29,8 +31,9 @@ class AppSettingsTest {
 
     @Test fun everythingSurvivesANewInstance() {
         val kv = MemoryKeyValue()
-        AppSettings(kv).apply { setModel("openai", "gpt-4.1"); bubbleRight = false; bubbleY = 1.7f; size = BuddySize.LARGE }
+        AppSettings(kv).apply { setModel("openai", "gpt-4.1"); bubbleRight = false; bubbleY = 1.7f; size = BuddySize.LARGE; notificationsAsked = true }
         val again = AppSettings(kv)
+        assertTrue(again.notificationsAsked)
         assertEquals("gpt-4.1", again.model("openai")); assertFalse(again.bubbleRight)
         assertEquals(1f, again.bubbleY); assertEquals(BuddySize.LARGE, again.size)
     }

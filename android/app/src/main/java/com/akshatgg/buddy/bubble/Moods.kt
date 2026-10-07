@@ -52,6 +52,13 @@ object Moods {
         (amplitude * sin(2 * PI * t / period)).toFloat()
 
     /**
+     * The slow turn of a head in the buddy picker, from side to side (radians of yaw): it shows that the buddy is 3D,
+     * as the Mac's turntable previews did, while its face stays in view.
+     */
+    fun turn(t: Double, amplitude: Double = 0.5, period: Double = 8.0): Float =
+        (amplitude * sin(2 * PI * t / period)).toFloat()
+
+    /**
      * How shut the eyes are, 0 (open) to 1 (shut): fully shut when the pose closes them, else
      * the blinker's value, except while smiling. The blink and the smile both reshape the same
      * eye, and on top of each other they tear it, so the happy "∩" eyes never blink.

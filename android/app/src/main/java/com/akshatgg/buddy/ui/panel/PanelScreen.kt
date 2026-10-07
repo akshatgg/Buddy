@@ -194,7 +194,7 @@ private fun Header(buddyName: String, onSettings: () -> Unit) {
 
 /** The Mac's segmented control: a groove with the chosen segment raised in it, and hairlines between the others. */
 @Composable
-private fun <T> Segmented(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit, role: Role, modifier: Modifier = Modifier) {
+internal fun <T> Segmented(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit, role: Role, modifier: Modifier = Modifier) {
     val colors = Buddy.colors
     Row(modifier.fillMaxWidth().background(colors.track, RoundedCornerShape(9.dp)).padding(2.dp)) {
         options.forEachIndexed { i, (value, label) ->
@@ -242,14 +242,15 @@ internal val ROUNDED = RoundedCornerShape(BuddyRadius)
 private val BUTTON_PADDING = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
 
 @Composable
-internal fun Primary(label: String, enabled: Boolean = true, onClick: () -> Unit) {
-    Button(onClick, enabled = enabled, shape = ROUNDED, contentPadding = BUTTON_PADDING) { Text(label, fontWeight = FontWeight.Medium) }
+internal fun Primary(label: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    Button(onClick, modifier, enabled = enabled, shape = ROUNDED, contentPadding = BUTTON_PADDING) { Text(label, fontWeight = FontWeight.Medium) }
 }
 
 @Composable
-internal fun Secondary(label: String, onClick: () -> Unit) {
+internal fun Secondary(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     OutlinedButton(
         onClick,
+        modifier,
         shape = ROUNDED,
         contentPadding = BUTTON_PADDING,
         border = BorderStroke(1.dp, Buddy.colors.line),
@@ -270,7 +271,7 @@ private fun WriteTab(state: PanelState, on: PanelCallbacks) {
 private fun FixTab(state: PanelState, on: PanelCallbacks) {
     Field(state.fixText, on.setFixText, "Text to fix", 3..6)
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Secondary("Paste", on.paste)
+        Secondary("Paste", onClick = on.paste)
         Spacer(Modifier.weight(1f))
         Primary("Fix", enabled = !state.busy, onClick = on.submit)
     }
@@ -295,7 +296,7 @@ private fun CheckTab(state: PanelState, on: PanelCallbacks) {
     }
     Field(state.question, on.setQuestion, "Ask something (optional), e.g. is this mail okay?", 1..1)
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Secondary("Take a picture of the screen", on.takePicture)
+        Secondary("Take a picture of the screen", onClick = on.takePicture)
         Spacer(Modifier.weight(1f))
         Primary("Check", enabled = !state.busy, onClick = on.submit)
     }

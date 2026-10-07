@@ -1,6 +1,6 @@
 # Manual checklist
 
-Phase 1 is the sections from Paste-back to Look and feel. Phase 2 is the section
+Phase 1 is the sections from The chat panel to Look and feel (the chat panel replaced the three tabs). Phase 2 is the section
 "Phase 2: sign-in and free mode". The section "Settings: the sidebar and the
 shortcut recorder" is the Settings polish, and the last one, "Single-key shortcut",
 is the shortcut that is one key tapped on its own.
@@ -14,30 +14,38 @@ terminal.
 ## Connect an AI
 - [ ] Welcome → Connect an AI shows all four AIs; paste a Gemini key while Claude is chosen → Save key switches to Google Gemini and lists Gemini models.
 
-## Paste-back
-- [ ] TextEdit: select `i am go to market yesterday`, click the buddy → Fix tab shows it → Fix → Replace replaces it.
-- [ ] TextEdit, empty line: ⌥Space → Write → `boss ko mail likho kal chutti chahiye` → Write → Insert puts the email at the cursor.
-- [ ] Gmail in Chrome, nothing selected: ⌥Space → Fix → Use the whole box → Fix → Replace replaces the whole body.
-- [ ] Gmail in Safari: same as above.
-- [ ] WhatsApp Desktop: select a Hinglish message, ⌥Space → Fix → Replace gives an English message in the box (not sent).
-- [ ] Gmail and WhatsApp Desktop: Fix → Use the whole box, close the panel and type a letter → the draft is not replaced, and the caret is at its end.
-- [ ] ⌥Space with a selection in WhatsApp and in Chrome → Fix shows the selection.
-- [ ] Notes and Mail: Write → Insert works.
+## The chat panel
+- [ ] Open the panel → it greets you by your first name ("Hi Akshat! What should we do?") and the box has the keyboard.
+- [ ] TextEdit: select `i am go to market yesterday`, open the panel → the selection card shows it → press ↩ in the empty box → the fix replaces the selection, the panel stays hidden, the bubble says "Done! It's in TextEdit ✅".
+- [ ] Open the panel again within 5 minutes → the same chat, with "✅ Put it in TextEdit" and Undo → Undo puts the old text back.
+- [ ] TextEdit, empty line: `boss ko mail, kal chutti chahiye` → the mail goes in at the cursor (or, if the AI only shows it, Insert puts it there).
+- [ ] Then `make it shorter` → the shorter mail takes the place of the first one (not a second copy).
+- [ ] `what does "per my last email" mean?` → an answer with Copy only; nothing goes into the app. In Hinglish (`iska matlab kya hai`) the answer is in Hinglish.
+- [ ] Gmail in Chrome, nothing selected, a draft with mistakes: `fix my English` → "📖 Read your text in Google Chrome" → the whole draft is replaced. Same in Safari.
+- [ ] Gmail, a received mail open: `reply to this` → "👀 Looked at Google Chrome" → a reply. With the cursor in the reply box it goes in; with the cursor on the mail itself, it is copied ("Copied — press ⌘V") and Buddy does not say "Done!".
+- [ ] `reply and send it` in WhatsApp Desktop → the reply goes in, then "Send it?" → Send → it is sent, the bubble says "Sent ✅", and Undo is gone. Not now → nothing is sent.
+- [ ] Mail: write a reply, then `send it` → Send → Mail sends it (⌘⇧D). In an app Buddy doesn't know (Notes) → "I don't know how to send in Notes. Press Send yourself."
+- [ ] Ask something, then click somewhere else while Buddy is thinking → nothing is typed into the app; the bubble says "Your answer is ready. Open me to see it."
+- [ ] ✕ or Esc ends the chat: opening the panel again starts a new one. A click on the buddy does the same.
 - [ ] After each paste, the clipboard still holds what it held before.
 - [ ] Copy an image (in Preview or Finder), open the panel with nothing selected and close it, then paste in Notes → the image is still on the clipboard.
 
-## Check screen
-- [ ] Gmail compose with mistakes → Check screen → the thumbnail shows the Chrome window → Check shows "Has problems", a list and a corrected version → Copy works.
-- [ ] With a model that cannot see images (Groq `llama-3.3-70b-versatile`): Check → "This model can't read screenshots. Pick another in Settings." with an "Open Settings" button.
+## Remembers you
+- [ ] `mail to my boss Mr. Sharma, kal chutti chahiye` → "📝 Remembered: Your boss is Mr. Sharma." → the mail is to Mr. Sharma. Undo on that line forgets it.
+- [ ] A new chat: `boss ko mail, I'm sick today` → the mail is to Mr. Sharma, with no [Name].
+- [ ] Settings → Memory lists it; ✕ removes it; Add saves one by hand; "Forget everything" asks once more, then empties the list.
+- [ ] `my ATM PIN is 4321` → nothing is remembered. Adding "My card number is 4111 1111 1111 1111" in Settings is refused.
+- [ ] "Learn about me from chats" off → a chat saves nothing new, and what is saved is still used.
+
 
 ## Safety and errors
 - [ ] Cursor in a password field in Safari, in Chrome and in one native app (Notes → Lock Note asks for a password),
   open the panel → "I don't read password fields." and nothing is read.
-- [ ] With the cursor still in that native password field, Write something in the panel → Insert copies the answer ("Copied — press ⌘V") and types nothing into the field.
+- [ ] With the cursor still in that native password field, ask the panel to write something → it copies the answer ("Copied — press ⌘V") and types nothing into the field.
 - [ ] Accessibility switched off for Buddy, then Insert → "Copied — press ⌘V" and the text is on the clipboard.
-- [ ] Wi-Fi off → Write → "Couldn't reach …"; the buddy looks sleepy, then wakes up after a few seconds.
+- [ ] Wi-Fi off → send a message → "Couldn't reach …" with Try again; the buddy looks sleepy, then wakes up after a few seconds.
 - [ ] A wrong key in Settings → "Your … key was rejected. Check it in Settings."
-- [ ] With no key saved, and again with a wrong key → Write → the error comes with an "Open Settings" button; it opens Settings, and the panel steps aside.
+- [ ] With no key saved, and again with a wrong key → send a message → the error comes with an "Open Settings" button; it opens Settings, and the panel steps aside.
 
 ## Always on
 These apply to the installed Buddy.app: a development run never adds a login item.
@@ -65,13 +73,13 @@ Run with the installed Buddy.app built with a real `cloud.json`, against the dep
 - [ ] Restart the Mac: still signed in.
 - [ ] Signed in as akshatg9636@gmail.com, the menu bar has "Admin…"; signed in with another Google account, it does not.
 - [ ] Sign in with a second Google account: no Admin… item in the menu bar, and the Admin window cannot be opened.
-- [ ] Admin → Free mode on, Unlimited, Save. Reopen Settings: the AI card says "Free AI is on. No key needed." With no key saved, Write → Insert in Gmail works.
+- [ ] Admin → Free mode on, Unlimited, Save. Reopen Settings: the AI card says "Free AI is on. No key needed." With no key saved, a chat in Gmail (`boss ko mail, kal chutti chahiye`) works.
 - [ ] Admin → Daily limit 2, Save. The third Write says "You've used today's 2 free requests. They come back at midnight."
 - [ ] Admin → also let users add their own key. With a key saved, the third Write still answers; with none, it says to add one, with Open Settings.
 - [ ] Admin → Users lists you, and "Today" counts up. Block → Write says "Your free access is paused."; Unblock → it works again.
 - [ ] Block yourself while signed in as the admin, then Unblock: the Admin window keeps working (blocking stops free answers only).
 - [ ] Admin → Free mode off, Save. Settings shows the key form again, and a key saved earlier is still there.
-- [ ] Check screen with free mode on works (the free model can read screenshots).
+- [ ] `what does this mean?` with a mail open, free mode on → Buddy looks at the screen and answers (the free model can read screenshots); it costs one free request, not two.
 - [ ] Wi-Fi off with free mode on: Write says "Couldn't reach Buddy's server. Check your internet." and the buddy looks sleepy.
 - [ ] With the server deliberately broken (for example FIREBASE_SERVICE_ACCOUNT removed and redeployed), using Buddy shows a server problem and nobody is signed out; put it back and redeploy.
 - [ ] Firestore console: users/{uid} holds only email, name, joined, lastActive, blocked, usedDay and usedCount — no text.
@@ -85,7 +93,7 @@ Run with the installed Buddy.app, signed in with a real Google account. The keys
 - [ ] ⇧⌘B → "Saved ✓". In TextEdit, ⇧⌘B opens the panel and ⌥ Space no longer does. Reset to ⌥ Space → ⌥ Space opens it again; Reset once more says "Already ⌥ Space."
 - [ ] The sidebar shows your Google photo, round. (Signed in before photos were kept, it shows your initials until you sign in again.)
 - [ ] Sign out at the bottom of the sidebar → "Not signed in", and Sign in with Google in its place; Sign in with Google → finish in the browser → back in Settings, your name, email, photo and Sign out. The button doesn't jump when a line appears under it.
-- [ ] Every window in light and dark mode (System Settings → Appearance): Settings (each section), the Welcome (each step), Admin, the panel (each tab, with an answer and with an error) and the bubble.
+- [ ] Every window in light and dark mode (System Settings → Appearance): Settings (each section), the Welcome (each step), Admin, the panel (empty, a long chat, an error, "Send it?") and the bubble.
 
 ## Releases and Update now
 

@@ -40,7 +40,9 @@ function createAi({ store, secrets, cloud, account, providers = providerRegistry
       throw new BuddyError('no_vision', "This model can't read screenshots. Pick another in Settings.");
     }
     const out = await provider.complete({ apiKey, model, ...prompt, maxTokens: MAX_TOKENS, fetchImpl, signal });
-    return action === 'check' ? { ...out, check: prompts.parseCheck(out.text) } : out;
+    if (action === 'check') return { ...out, check: prompts.parseCheck(out.text) };
+    if (action === 'chat') return { ...out, chat: prompts.parseChat(out.text) };
+    return out;
   }
 
   /**

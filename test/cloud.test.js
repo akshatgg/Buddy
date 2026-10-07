@@ -216,6 +216,38 @@ test("ask: a Check answer is read here, from its text, as on the own-key route: 
   assert.deepStrictEqual(await s.cloud.ask('fix', { text: 'x' }), { text: 'Fixed', model: 'm' }, 'only a Check has one');
 });
 
+test('ask: a chat posts every chat input it has, and nothing else', async () => {
+  const input = {
+    message: 'fix my English',
+    selection: 'me go home',
+    box: 'Dear sir, i will not come.',
+    image: 'IMG',
+    history: [{ from: 'you', text: 'hi' }, { from: 'buddy', text: 'Hi Rahul! What should we do?' }],
+    facts: ['Your boss is Mr. Sharma.'],
+    appName: 'Gmail',
+    userName: 'Rahul',
+    step: 2,
+  };
+  const s = setup({ answers: [ok({ text: '{"kind":"answer","say":"Hi!"}', model: 'm' }), ok({ text: 'x', model: 'm' })] });
+  await s.cloud.ask('chat', { ...input, secret: 'not for the server', tone: undefined });
+  assert.deepStrictEqual(s.requests[0].body, { action: 'chat', ...input });
+  await s.cloud.ask('chat', { message: 'hi', selection: undefined });
+  assert.deepStrictEqual(s.requests[1].body, { action: 'chat', message: 'hi' }, 'only the inputs it has');
+});
+
+test("ask: a chat answer is read here, from its text, as on the own-key route: the server's reading never reaches the panel", async () => {
+  const chat = { kind: 'fix', say: 'Ho gaya!', text: 'I am going home.', notes: ['"go" → "going"'], doIt: true, send: false, remember: [] };
+  const text = `\`\`\`json\n${JSON.stringify(chat)}\n\`\`\``;
+  const s = setup({ answers: [
+    ok({ text, model: 'm', chat: { kind: 'send', say: 'not this' } }),
+    ok({ text: 'Dear Sir,', model: 'm' }),
+  ] });
+  assert.deepStrictEqual(await s.cloud.ask('chat', { message: 'fix this' }), { text, model: 'm', chat });
+  assert.deepStrictEqual(await s.cloud.ask('chat', { message: 'leave mail' }), {
+    text: 'Dear Sir,', model: 'm', chat: { kind: 'write', say: '', text: 'Dear Sir,', notes: [], doIt: false, send: false, remember: [] },
+  });
+});
+
 test('no internet, a server that takes too long, and a cancelled request', async () => {
   await assert.rejects(setup().cloud.ask('fix', { text: 'x' }), { code: 'network', message: "Couldn't reach Buddy's server. Check your internet." });
   const slow = Object.assign(new Error('timed out'), { name: 'TimeoutError' });

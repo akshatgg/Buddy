@@ -76,7 +76,7 @@ SWIRL_IN, SWIRL_OUT = 0.016, 0.078  # swirl: the spiral's radius where it starts
 SWIRL_W, SWIRL_TURNS = 0.0135, 1.5  # the pen's half-thickness, and how many times it goes round. The pen is a
                                     # little thinner than BLINK_W, so the gaps between the turns stay half as wide as it
 SAD_LID = (0.08, 0.36)             # sad: how much of the eye's height the lid hides at its inner and at its outer edge
-SLEEP_SAG = 0.027                  # sleep: how much lower the middle of its line is than its ends (the smile's is 0.073)
+SLEEP_SAG = 0.027                  # sleep: how much lower its middle is than its ends (the smile's is 0.073)
 
 BODY_Z, BODY_SIZE = 0.45, (0.36, 0.3, 0.37)  # body centre height and half-sizes: 55 % of the head's width
 BODY_ROUND = 2.4
@@ -441,7 +441,7 @@ def eye_shapes(side):
     # Half: the open eye with its top half under a level lid through the centre.
     half = [Vector((p.x, min(p.y, 0.0))) for p in open_eye]
 
-    # Sleep is a calm closed eye, "◡": a thin line like the blink's and as long, but its middle sags
+    # Sleep is a calm closed eye, "‿": a thin line like the blink's and as long, but its middle sags
     # SLEEP_SAG below its ends: the middle half a sag under the blink line, the ends half a sag over it.
     # The line runs along a wide circle through its ends and its middle.
     sleep_r = (BLINK_L ** 2 + SLEEP_SAG ** 2) / (2 * SLEEP_SAG)  # that circle's radius
@@ -771,16 +771,16 @@ def render_preview(path):
         bpy.data.objects.remove(obj)
 
 
-def stage(size, centre, extent, depth, turn=0.0):
+def stage(pixels, centre, extent, depth, turn=0.0):
     """Set the scene up to render as the previews do (art/render_faces.py shares this), and return the camera.
 
-    The picture is `size` pixels square: a transparent PNG, tone-mapped with the app's curve. The camera
+    The picture is `pixels` pixels square: a transparent PNG, tone-mapped with the app's curve. The camera
     looks at `centre` from the front (-Y), turned `turn` around Z, close enough that `extent` fills the
     picture, and further back by half the subject's `depth`. The lights are studio(centre).
     """
     scene = bpy.context.scene
     pick_engine(scene)
-    scene.render.resolution_x = scene.render.resolution_y = size
+    scene.render.resolution_x = scene.render.resolution_y = pixels
     scene.render.resolution_percentage = 100
     scene.render.film_transparent = True
     scene.render.image_settings.file_format = "PNG"
@@ -839,8 +839,10 @@ def export_glb(path):
         export_format="GLB",
         export_apply=True,
         export_morph=True,
-        # The eyes and the mouth are flat glowing sheets on the glass, so their keys need no normals of
-        # their own (the lids of sad and half fold some cells, whose normals would face backward).
+        # The eyes are flat glowing sheets on the glass, so their keys need no normals of their own (the
+        # lids of sad and half fold some cells, whose normals would face backward). The cost: the mouth's
+        # "o" keeps its shut normal, which faces up, so mouthO lights it a little paler; at the app's size
+        # nobody can see it.
         export_morph_normal=False,
         export_yup=True,
         export_cameras=False,

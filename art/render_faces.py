@@ -7,8 +7,8 @@ Run from the repo root:
 
 For every character this writes <out>/faces-<id>.png: its head from the front, first with
 the eyes open, then with each key in FACES, left to right, each named under it. The robot
-is built by art/build_buddies.py, so the pictures show exactly the shapes the app gets, and
-rendered with the previews' settings, camera and lights, so the two cannot drift apart.
+is built by art/build_buddies.py, so the pictures show exactly the shapes the app gets. They are
+rendered with the previews' render settings, lens and lights (stage()), so the two cannot drift apart.
 """
 
 import math

@@ -200,6 +200,9 @@ done). Their lines move to Task 6.
   - Ease from one mood's pose to the next over about 0.2 s (blend every numeric pose field from the pose shown when the
     mood changed), so wake-from-drowsy, wobble-to-dizzy and any mood cut short never jump in one frame.
   - Smooth the voice level that arrives about 10 times a second before passing it as `level`.
+  - Fidgets draw at the full rate while they play, but must not restart the 10 s settling rate afterwards: leave the
+    FIDGETS out of the page's `lastActive`. Otherwise a fidget every ~20 s keeps an awake buddy near 12 frames a second
+    instead of today's 6 (Task 2's review).
   - Pass `since` to `isActive` and `fpsFor`; call `fidgeter.reset(t)` whenever the mood changes and on any use.
   - Pet detector: feed `screenX` only while the pointer is on the Head and not pressed; `reset()` when it leaves the
     head or a press starts; ignore a detection while `love` is playing. Shake detector: feed `screenX`/`screenY` while

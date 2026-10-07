@@ -33,7 +33,8 @@ for (const c of characters.list) {
     for (const name of ['Root', 'Head', 'ArmL', 'ArmR', 'Face']) assert.ok(names.includes(name), `has node ${name}`);
     const face = gltf.meshes[gltf.nodes.find((n) => n.name === 'Face').mesh];
     assert.deepStrictEqual(face.extras.targetNames, TARGETS);
-    assert.ok((face.weights || face.extras.targetNames.map(() => 0)).every((w) => w === 0), 'every morph target starts at rest');
+    const rest = TARGETS.map(() => 0);
+    assert.deepStrictEqual(face.weights ?? rest, rest, 'every morph target starts at rest');
   });
 }
 

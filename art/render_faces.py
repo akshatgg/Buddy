@@ -7,7 +7,8 @@ Run from the repo root:
 
 For every character this writes <out>/faces-<id>.png: its head from the front, first with
 the eyes open, then with each key in FACES, left to right, each named under it. The robot
-is built by art/build_buddies.py, so the pictures show exactly the shapes the app gets.
+is built by art/build_buddies.py, so the pictures show exactly the shapes the app gets, and
+rendered with the previews' settings, camera and lights, so the two cannot drift apart.
 """
 
 import math
@@ -39,19 +40,11 @@ def head_box():
 
 
 def set_up(scene):
-    """Camera, lights and a name label for the head; returns the label's text."""
-    buddies.pick_engine(scene)
-    scene.render.resolution_x = scene.render.resolution_y = TILE
-    scene.render.resolution_percentage = 100
-    scene.render.film_transparent = True
-    scene.render.image_settings.file_format = "PNG"
-    scene.render.image_settings.color_mode = "RGBA"
-    for view in ("Khronos PBR Neutral", "Standard"):  # Neutral is the curve the app tone-maps with
-        try:
-            scene.view_settings.view_transform = view
-            break
-        except TypeError:
-            continue
+    """Set the scene up to render the head alone, TILE pixels square, and return the name label's text.
+
+    It hides Body, Feet and the arms; gives the scene the previews' render settings, camera and lights
+    (build_buddies.stage), with the camera straight in front of the head; and puts a name label under it.
+    """
     for name in HIDDEN:
         scene.objects[name].hide_render = True
 
@@ -59,16 +52,7 @@ def set_up(scene):
     low, high = head_box()
     room = 0.32
     centre = Vector(((low.x + high.x) / 2, (low.y + high.y) / 2, (low.z - room + high.z) / 2))
-    extent = max(high.x - low.x, high.z - low.z + room) * 1.08
-    cam_data = bpy.data.cameras.new("FacesCam")
-    cam_data.lens = 90
-    half_fov = math.atan(cam_data.sensor_width / 2 / cam_data.lens)
-    cam = bpy.data.objects.new("FacesCam", cam_data)
-    bpy.context.collection.objects.link(cam)
-    cam.location = centre + Vector((0, -(extent / 2 / math.tan(half_fov) + (high.y - low.y) / 2), 0))
-    cam.rotation_euler = (math.pi / 2, 0, 0)  # looking along +Y, at the face
-    scene.camera = cam
-    buddies.studio(centre)
+    buddies.stage(TILE, centre, max(high.x - low.x, high.z - low.z + room) * 1.08, high.y - low.y)
 
     text = bpy.data.curves.new("Name", "FONT")
     text.align_x = "CENTER"

@@ -16,7 +16,7 @@ module.exports = [
   {
     // Main process, preloads, shared code, tools and tests: CommonJS on Node.
     files: ['**/*.js'],
-    ignores: ['src/renderer/**'],
+    ignores: ['src/renderer/**', 'web/public/**'],
     languageOptions: { ecmaVersion: 2024, sourceType: 'commonjs', globals: { ...globals.node } },
     rules,
   },
@@ -31,6 +31,12 @@ module.exports = [
     // The buddy page and its animation maths are ES modules; the .mjs tests import them.
     files: ['src/renderer/buddy/**/*.js', 'test/**/*.mjs'],
     languageOptions: { ecmaVersion: 2024, sourceType: 'module', globals: { ...globals.browser, ...globals.node } },
+    rules,
+  },
+  {
+    // The website's one script: a plain browser script that also hands its helpers to the tests.
+    files: ['web/public/**/*.js'],
+    languageOptions: { ecmaVersion: 2024, sourceType: 'script', globals: { ...globals.browser, module: 'writable' } },
     rules,
   },
 ];

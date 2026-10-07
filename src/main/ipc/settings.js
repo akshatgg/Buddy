@@ -3,7 +3,7 @@
 /** IPC for the Settings and Welcome windows. */
 
 const { BuddyError } = require('../../../shared/errors');
-const { PROVIDERS, PROVIDER_IDS, getProvider } = require('../../../shared/providers');
+const { PROVIDERS, PROVIDER_IDS, getProvider, providerForKey } = require('../../../shared/providers');
 const { AI_TIMEOUT_MS } = require('../ai');
 const { SIZES } = require('../geometry');
 const { guarded } = require('./result');
@@ -128,12 +128,18 @@ function registerSettingsIpc({
   });
 
   handle('settings:save-key', async (providerId, key) => {
-    const provider = getProvider(providerId);
+    getProvider(providerId); // an unknown name is refused before anything else is looked at
     const apiKey = typeof key === 'string' ? key.trim() : '';
     if (!apiKey) throw new BuddyError('bad_request', 'Paste your key first.');
     if (!KEY_SHAPE.test(apiKey)) {
       throw new BuddyError('bad_key', "That doesn't look like an API key. Copy only the key and paste it again.");
     }
+    // A key says by how it starts which AI it is for. If that is not the AI that was asked for, the key is
+    // that AI's: it is checked there, kept there, and Buddy switches to it. A key that starts like none of
+    // them is checked with the AI that was asked for.
+    const ownerId = providerForKey(apiKey) ?? providerId;
+    const switched = ownerId !== providerId;
+    const provider = getProvider(ownerId);
     let live = null;
     try {
       live = await provider.listModels({ apiKey, signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
@@ -141,12 +147,19 @@ function registerSettingsIpc({
       // A wrong key is refused; being offline is not the key's fault.
       if (err.code !== 'network') throw err;
     }
-    secrets.set(providerId, apiKey);
+    // From here the key is kept: before this, a refused key or a check that ran out of time has changed
+    // nothing, and the chosen AI is still the one it was. The key is saved first, so that a Mac with no
+    // keychain does not end up switched to an AI it has no key for.
+    secrets.set(ownerId, apiKey);
     const models = live && live.length ? live : provider.fallbackModels;
-    const model = chooseModel(models, provider.fallbackModels, store.get('models')[providerId]);
-    store.set({ models: { ...store.get('models'), [providerId]: model } });
+    const model = chooseModel(models, provider.fallbackModels, store.get('models')[ownerId]);
+    const changes = { models: { ...store.get('models'), [ownerId]: model } };
+    if (switched) changes.provider = ownerId;
+    store.set(changes);
     // verified: the provider answered, so the key is known to work (false: saved but not checked).
-    return { ...snapshot(), models, verified: live !== null };
+    const answer = { ...snapshot(), models, verified: live !== null };
+    if (switched) answer.switchedFrom = providerId;
+    return answer;
   });
 
   handle('settings:clear-key', (providerId) => {

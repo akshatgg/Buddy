@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { fakeFetch, offlineFetch } = require('./helpers/fake-fetch');
 const { BuddyError } = require('../shared/errors');
-const { PROVIDERS, PROVIDER_IDS, getProvider } = require('../shared/providers');
+const { PROVIDERS, PROVIDER_IDS, getProvider, providerForKey } = require('../shared/providers');
 
 const ASK = { apiKey: 'k-123', system: 'SYS', user: 'USER', image: null, maxTokens: 1024 };
 
@@ -27,6 +27,51 @@ test('getProvider knows the registered ids only, not names every object has', ()
   for (const bad of notProviders) {
     assert.throws(() => getProvider(bad), { code: 'bad_request' }, `getProvider(${JSON.stringify(bad)})`);
   }
+});
+
+test('every provider says how its keys begin', () => {
+  assert.deepStrictEqual(
+    Object.fromEntries(PROVIDER_IDS.map((id) => [id, PROVIDERS[id].keyPrefixes])),
+    { anthropic: ['sk-ant-'], openai: ['sk-'], gemini: ['AIza'], groq: ['gsk_'] },
+  );
+});
+
+test('providerForKey names the provider a key begins like, and null when it begins like none', () => {
+  const cases = [
+    ['sk-ant-api03-x', 'anthropic'],
+    ['sk-proj-x', 'openai'],
+    ['sk-x', 'openai'],
+    ['AIzaSyx', 'gemini'],
+    ['gsk_x', 'groq'],
+    ['hello', null],
+    ['', null],
+    [undefined, null],
+    [42, null],
+    // Only the start counts, and exactly as written: keys are case-sensitive.
+    ['my-sk-ant-key', null],
+    ['AIZASYX', null],
+    ['SK-ANT-x', null],
+    ['sk', null],
+    ['gsk', null],
+    // Anything that is not text.
+    [null, null],
+    [true, null],
+    [{}, null],
+    [['sk-ant-x'], null],
+    [{ toString: () => 'sk-ant-x' }, null],
+  ];
+  for (const [key, id] of cases) assert.strictEqual(providerForKey(key), id, JSON.stringify(key) ?? String(key));
+});
+
+test('providerForKey: the longest matching start wins, whichever provider is listed first', () => {
+  PROVIDER_IDS.reverse(); // now OpenAI's short "sk-" is met before Claude's "sk-ant-"
+  try {
+    assert.strictEqual(providerForKey('sk-ant-api03-x'), 'anthropic');
+    assert.strictEqual(providerForKey('sk-proj-x'), 'openai');
+  } finally {
+    PROVIDER_IDS.reverse();
+  }
+  assert.deepStrictEqual(PROVIDER_IDS, ['anthropic', 'openai', 'gemini', 'groq']);
 });
 
 test('claude: builds a Messages request and reads text and usage', async () => {

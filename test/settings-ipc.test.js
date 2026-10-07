@@ -27,6 +27,10 @@ const CHARACTERS = [
   { id: 'girl-1', defaultName: 'Anaya' },
 ];
 const CLAUDE = PROVIDERS.anthropic;
+const GEMINI = PROVIDERS.gemini;
+// Made-up keys with the starts the real ones have (shared/providers keyPrefixes).
+const GEMINI_KEY = 'AIzaSy-not-a-real-gemini-key';
+const GEMINI_MODELS = ['gemini-pro-latest', 'gemini-flash-latest', 'gemini-2.5-flash'];
 const SETTINGS_PAGE = 'ours';
 const WELCOME_PAGE = 'welcome';
 const ADMIN_PAGE = 'admin';
@@ -288,6 +292,143 @@ test('save-key: without a keychain the key is not saved and no model is chosen',
   assert.strictEqual(r.ok, false);
   assert.strictEqual(r.error.code, 'no_keychain');
   assert.deepStrictEqual(s.store.get('models'), {});
+});
+
+// A key says by how it starts which AI it is for. When that is not the AI that was asked for, Buddy uses
+// the AI the key belongs to: it checks the key there, keeps it there, and switches to it.
+
+/**
+ * Every provider's check of a key, faked with t.mock.method(PROVIDERS.<id>, 'listModels', ...) so that a test that
+ * asks the wrong AI fails on its assertions instead of calling a real one. `fakes` replaces some of the answers.
+ */
+function fakeKeyChecks(t, fakes = {}) {
+  return Object.fromEntries(PROVIDER_IDS.map((id) => [
+    id,
+    t.mock.method(PROVIDERS[id], 'listModels', fakes[id] || (async () => PROVIDERS[id].fallbackModels)),
+  ]));
+}
+
+/** The ids of the providers whose check was called. */
+const asked = (checks) => PROVIDER_IDS.filter((id) => checks[id].mock.callCount() > 0);
+
+test('save-key: a key that belongs to another AI is checked with that AI, kept under it, and switches to it', async (t) => {
+  t.mock.method(AbortSignal, 'timeout', () => 'the 60 s signal');
+  const checks = fakeKeyChecks(t, { gemini: async () => GEMINI_MODELS });
+  const s = setup({ stored: { models: { anthropic: 'claude-opus-5-5' } } });
+  const r = await s.call('settings:save-key', 'anthropic', `  ${GEMINI_KEY} \n`);
+  assert.deepStrictEqual(asked(checks), ['gemini'], "only Gemini is asked: it is not Claude's key");
+  assert.deepStrictEqual(checks.gemini.mock.calls.map((c) => c.arguments), [[{ apiKey: GEMINI_KEY, signal: 'the 60 s signal' }]]);
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.verified, true);
+  assert.strictEqual(r.switchedFrom, 'anthropic');
+  assert.deepStrictEqual(s.keys, { gemini: GEMINI_KEY }, 'kept under Gemini, trimmed, and not under Claude');
+  assert.strictEqual(r.settings.provider, 'gemini');
+  assert.strictEqual(s.store.get('provider'), 'gemini');
+  assert.deepStrictEqual(r.models, GEMINI_MODELS);
+  assert.strictEqual(r.settings.models.gemini, 'gemini-flash-latest', "Gemini's own default, since the key can use it");
+  assert.strictEqual(r.settings.models.anthropic, 'claude-opus-5-5', 'the model picked for Claude is left alone');
+  assert.deepStrictEqual(r.providers.map((p) => [p.id, p.hasKey]), [
+    ['anthropic', false], ['openai', false], ['gemini', true], ['groq', false],
+  ]);
+});
+
+test('save-key: a key for another AI that the AI refuses, or cannot check in time, changes nothing', async (t) => {
+  const checks = fakeKeyChecks(t);
+  for (const [code, message] of [
+    ['bad_key', 'Your Google Gemini key was rejected. Check it in Settings.'],
+    ['timeout', 'Gemini took too long to answer. Try again.'],
+  ]) {
+    checks.gemini.mock.mockImplementation(async () => {
+      throw new BuddyError(code, message);
+    });
+    const s = setup({ stored: { models: { anthropic: 'claude-opus-5-5' } } });
+    const before = s.store.all();
+    assert.deepStrictEqual(await s.call('settings:save-key', 'anthropic', GEMINI_KEY), refused(code, message), code);
+    assert.deepStrictEqual(s.keys, {}, `${code}: no key is kept, for Gemini or for Claude`);
+    assert.deepStrictEqual(s.store.all(), before, `${code}: the AI is still Claude, and no model was chosen`);
+  }
+  assert.deepStrictEqual(asked(checks), ['gemini'], 'and Claude was never asked');
+});
+
+test('save-key: a key for another AI, with no internet, is kept under that AI unchecked, and switches to it', async (t) => {
+  const checks = fakeKeyChecks(t, {
+    gemini: async () => {
+      throw new BuddyError('network', "Couldn't reach Google Gemini. Check your internet.");
+    },
+  });
+  const s = setup();
+  const r = await s.call('settings:save-key', 'anthropic', GEMINI_KEY);
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.verified, false);
+  assert.strictEqual(r.switchedFrom, 'anthropic');
+  assert.deepStrictEqual(s.keys, { gemini: GEMINI_KEY });
+  assert.strictEqual(r.settings.provider, 'gemini');
+  assert.strictEqual(s.store.get('provider'), 'gemini');
+  assert.deepStrictEqual(r.models, GEMINI.fallbackModels);
+  assert.strictEqual(r.settings.models.gemini, GEMINI.fallbackModels[0]);
+  assert.deepStrictEqual(asked(checks), ['gemini']);
+});
+
+test('save-key: a key of another AI that cannot be kept (no keychain) does not switch the AI either', async (t) => {
+  fakeKeyChecks(t, { gemini: async () => GEMINI_MODELS });
+  const s = setup({ keychain: false });
+  const before = s.store.all();
+  const r = await s.call('settings:save-key', 'anthropic', GEMINI_KEY);
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.error.code, 'no_keychain');
+  assert.deepStrictEqual(s.keys, {});
+  assert.deepStrictEqual(s.store.all(), before);
+});
+
+test('save-key: a key that belongs to the AI that was asked for does not switch, and the answer has no switchedFrom', async (t) => {
+  const checks = fakeKeyChecks(t);
+  const s = setup();
+  const r = await s.call('settings:save-key', 'anthropic', 'sk-ant-api03-abc');
+  assert.strictEqual(r.ok, true);
+  assert.ok(!('switchedFrom' in r), 'left out, not even undefined');
+  assert.strictEqual(r.settings.provider, 'anthropic');
+  assert.deepStrictEqual(s.keys, { anthropic: 'sk-ant-api03-abc' });
+  assert.deepStrictEqual(asked(checks), ['anthropic']);
+});
+
+test('save-key: a key that starts like none of them is checked with the AI that was asked for, and does not switch', async (t) => {
+  const checks = fakeKeyChecks(t);
+  const s = setup({ stored: { provider: 'groq' } });
+  const r = await s.call('settings:save-key', 'groq', 'not-a-known-start-123');
+  assert.strictEqual(r.ok, true);
+  assert.ok(!('switchedFrom' in r));
+  assert.strictEqual(r.settings.provider, 'groq');
+  assert.deepStrictEqual(s.keys, { groq: 'not-a-known-start-123' });
+  assert.deepStrictEqual(asked(checks), ['groq']);
+});
+
+test('save-key: each AI recognises its own keys, whichever AI was asked for', async (t) => {
+  const checks = fakeKeyChecks(t);
+  const keys = { anthropic: 'sk-ant-api03-abc', openai: 'sk-proj-abc', gemini: GEMINI_KEY, groq: 'gsk_abc' };
+  for (const [owner, key] of Object.entries(keys)) {
+    for (const chosen of PROVIDER_IDS) {
+      for (const check of Object.values(checks)) check.mock.resetCalls();
+      const s = setup({ stored: { provider: chosen } }); // the AI that is chosen on screen is the one that is asked for
+      const r = await s.call('settings:save-key', chosen, key);
+      const when = `${key} with ${chosen} chosen`;
+      assert.strictEqual(r.ok, true, when);
+      assert.strictEqual(r.settings.provider, owner, when);
+      assert.deepStrictEqual(s.keys, { [owner]: key }, when);
+      assert.strictEqual(r.switchedFrom, owner === chosen ? undefined : chosen, when);
+      assert.deepStrictEqual(asked(checks), [owner], `${when}: only its own AI is asked`);
+    }
+  }
+});
+
+test('save-key: the check for stray characters still comes first, for a key of another AI too', async (t) => {
+  const checks = fakeKeyChecks(t);
+  const s = setup();
+  for (const key of ['“AIzaSy-abc”', 'AIzaSy-abc…', 'AIzaSy-abc\nAIzaSy-def', 'AIzaSy abc']) {
+    assert.deepStrictEqual(await s.call('settings:save-key', 'anthropic', key), refused('bad_key', STRAY_KEY), JSON.stringify(key));
+  }
+  assert.deepStrictEqual(asked(checks), []);
+  assert.deepStrictEqual(s.keys, {});
+  assert.strictEqual(s.store.get('provider'), 'anthropic');
 });
 
 test('keys and models: only real provider names are accepted', async () => {

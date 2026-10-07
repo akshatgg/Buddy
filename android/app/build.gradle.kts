@@ -53,7 +53,7 @@ val checkCloud = tasks.register("checkCloudProperties") {
     doLast {
         val missing = listOf("serverUrl", "firebaseApiKey", "googleWebClientId").filter { cloudValue(it).isEmpty() }
         if (missing.isNotEmpty()) {
-            throw GradleException("android/cloud.properties is missing ${missing.joinToString()} (copy cloud.example.properties)")
+            throw GradleException("android/cloud.properties is missing ${missing.joinToString()} (copy cloud.example.properties and fill it in)")
         }
     }
 }

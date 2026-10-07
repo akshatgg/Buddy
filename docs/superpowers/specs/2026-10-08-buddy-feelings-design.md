@@ -15,7 +15,7 @@ listens while the person talks. It works the same on the Mac and on Windows.
 | Feeling | When | What it looks like | How long |
 |---|---|---|---|
 | `drowsy` | 1 min without use | A yawn (mouth open, eyes shut, arms out a little), then half-closed eyes and a slower float | until asleep or used |
-| `asleep` | 2 min without use | Sleeping eyes ◡ ◡, head down, slow breathing, "z" letters rising, the eyes' and ears' glow at half; it stops following the pointer | until used |
+| `asleep` | 2 min without use | Sleeping eyes ‿ ‿, head down, slow breathing, "z" letters rising, the eyes' and ears' glow at half; it stops following the pointer | until used |
 | `wake` | used while drowsy or asleep | Eyes blink open, both arms stretch up, a little shake | 1.2 s |
 | `love` | the pointer rubbed back and forth over its head | Heart eyes, small hearts rising, a gentle sway | 2 s |
 | `dizzy` | shaken fast while dragged, on release | Swirl eyes, stars circling above its head, the head circling, then it shakes it off | 2 s |

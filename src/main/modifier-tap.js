@@ -54,15 +54,17 @@ function createTapDetector({ tapMs = TAP_MS } = {}) {
   let pressed = new Set(); // the name of every key pressed since the first one went down
   let since = 0; // when the first one went down
   let spoiled = false; // something else was pressed meanwhile
-  let lastCaps = -Infinity; // the last Caps Lock tap
+  let lastCaps = -Infinity; // the last Caps Lock report
 
   function capsLock(flags, t) {
+    // Every report counts, tap or not: a press that something else spoiled is still the same press when it is reported again.
+    const again = t - lastCaps < CAPS_REPEAT_MS;
+    lastCaps = t;
     if (held.size) {
       spoiled = true;
       return null;
     }
-    if (flags & HELD_KINDS || t - lastCaps < CAPS_REPEAT_MS) return null;
-    lastCaps = t;
+    if (flags & HELD_KINDS || again) return null;
     return tapValue(['CapsLock']);
   }
 
@@ -87,6 +89,10 @@ function createTapDetector({ tapMs = TAP_MS } = {}) {
     if (event.keyCode === CAPS_LOCK) return capsLock(flags, t);
     if (!key) return null;
     if (isDown(key, flags, held.has(key))) {
+      // A key that is down already does not go down a second time: its release went unheard, and this is a new press of
+      // it. Dropped first, so that on its own it starts a tap afresh. (A keyboard that does not say which side is down
+      // never gets here for a held key: the report flips it to up.)
+      held.delete(key);
       if (!held.size) {
         pressed = new Set();
         since = t;

@@ -122,6 +122,16 @@ test('a key whose release was never heard does not stop the next tap', () => {
   ]), ['Tap:RightOption']);
 });
 
+// The key goes down, its release is lost, and the next time it goes down is the next report about it. A keyboard that says
+// which side is down never reports a second "down" for a key that is down, so this one is a press after a lost release.
+test('a key whose release was never heard, pressed again on its own, is a tap', () => {
+  assert.deepStrictEqual(taps([
+    change(61, OPT | R_OPT, 1000), // goes down, and its release is never heard
+    change(61, OPT | R_OPT, 9000), // goes down again
+    change(61, 0, 9080),
+  ]), ['Tap:RightOption']);
+});
+
 test('a key whose release was never heard does not spoil Caps Lock either', () => {
   assert.deepStrictEqual(taps([change(55, CMD | L_CMD, 1000), change(57, CAPS, 9000)]), ['Tap:CapsLock']);
 });
@@ -168,6 +178,23 @@ test("Caps Lock with a modifier held is no tap, and it spoils that modifier's ta
     change(56, SHIFT | L_SHIFT, 1000), change(57, SHIFT | L_SHIFT | CAPS, 1050), change(56, CAPS, 1100),
   ]), []);
   assert.deepStrictEqual(taps([change(57, SHIFT | CAPS, 1000)]), [], '⇧ held from before');
+});
+
+// Some keyboards report a Caps Lock press twice. A press that ⇧ spoiled is still that press when it is reported again,
+// even if ⇧ has been let go by then.
+test('a Caps Lock press spoiled by a held modifier is not a tap when it is reported a second time', () => {
+  assert.deepStrictEqual(taps([
+    change(56, SHIFT | L_SHIFT, 1000),
+    change(57, SHIFT | L_SHIFT | CAPS, 1050), // Caps Lock with ⇧ held: no tap
+    change(56, CAPS, 1100), // ⇧ let go
+    change(57, CAPS, 1200), // the same press, reported again
+  ]), []);
+  assert.deepStrictEqual(taps([
+    change(56, SHIFT | L_SHIFT, 1000),
+    change(57, SHIFT | L_SHIFT | CAPS, 1050),
+    change(56, CAPS, 1100),
+    change(57, CAPS, 1050 + CAPS_REPEAT_MS), // a new press, 400 ms after the last report
+  ]), ['Tap:CapsLock']);
 });
 
 test('reset() forgets a tap on its way', () => {

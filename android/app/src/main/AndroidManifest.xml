@@ -31,11 +31,14 @@
             android:windowSoftInputMode="adjustResize" />
         <!-- "Fix with Buddy" in any app's text menu, and Buddy in the share sheet. It opens in the task of the app that
              asked, so that Replace can hand the fixed text back to it; started in a task of its own (a share sent with
-             a new task), it is apart from Buddy's screens and kept out of Recents, as the panel is. -->
+             a new task), it is apart from Buddy's screens and kept out of Recents, as the panel is. A second share finds
+             that task again: singleTop gives the sheet there the new text, where it would otherwise show the last one.
+             singleTop still lets a result go back to the app that asked. -->
         <activity
             android:name=".ui.fix.FixActivity"
             android:exported="true"
             android:excludeFromRecents="true"
+            android:launchMode="singleTop"
             android:taskAffinity=""
             android:theme="@style/Theme.Buddy.Panel">
             <intent-filter android:label="Fix with Buddy">

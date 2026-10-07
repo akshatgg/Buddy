@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ActivityScenario
@@ -82,6 +83,25 @@ class FixActivityTest {
             compose.onNodeWithText("Replace").assertDoesNotExist()
         }
         assertEquals(listOf(Action.FIX to AskInput(text = "she go to school")), asked)
+    }
+
+    // As the share sheet sends it: in a task of its own, which the next share finds again.
+    private fun share(text: String) = Intent(context, FixActivity::class.java)
+        .setAction(Intent.ACTION_SEND)
+        .setType("text/plain")
+        .putExtra(Intent.EXTRA_TEXT, text)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    @Test fun aSecondShareFixesTheNewText() {
+        ActivityScenario.launch<FixActivity>(share("alpha share one")).use {
+            compose.onNodeWithText("alpha share one").assertIsDisplayed()
+            context.startActivity(share("beta share two"))
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("beta share two").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("alpha share one").assertDoesNotExist()
+            compose.onNodeWithText("I went to the market.").assertIsDisplayed()
+            compose.onNodeWithText("Replace").assertDoesNotExist()
+        }
+        assertEquals(listOf(Action.FIX to AskInput(text = "alpha share one"), Action.FIX to AskInput(text = "beta share two")), asked)
     }
 
     @Test fun signedOutShowsThePanelsErrorWithOpenSettings() {

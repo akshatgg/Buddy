@@ -450,6 +450,29 @@ test('an empty message with nothing selected asks what to do, without asking the
   assert.deepStrictEqual(moods(s.log), []);
 });
 
+test('a message or a selection that is too long is refused before it joins the chat, so that the page gives the words back', async () => {
+  const s = setup({ replies: { captureSelection: { text: 'x'.repeat(8001) } } });
+  await s.actions.open();
+  await assert.rejects(s.actions.send('y'.repeat(1001)), {
+    code: 'bad_request', message: 'That message is too long (over 1000 characters). Try a shorter one.',
+  });
+  await assert.rejects(s.actions.send('fix this'), {
+    code: 'bad_request', message: 'Your selection is too long (over 8000 characters). Select less, or press ✕ to leave it out.',
+  });
+  await assert.rejects(s.actions.send(''), { code: 'bad_request' }, 'an empty message fixes the selection, which is too long');
+  assert.deepStrictEqual([chatOf(s), asked(s.log), moods(s.log)], [[], [], []]);
+  assert.strictEqual(s.actions.state().busy, false);
+
+  // Up to the limits, and without the selection (✕), it goes.
+  s.actions.dropSelection();
+  await s.actions.send(` ${'y'.repeat(1000)} `);
+  assert.strictEqual(asked(s.log).length, 1);
+  const fits = setup({ replies: { captureSelection: { text: ` ${'x'.repeat(8000)}\n` } } });
+  await fits.actions.open();
+  await fits.actions.send('fix this');
+  assert.strictEqual(asked(fits.log).length, 1);
+});
+
 test('one message at a time: a second one waits for the answer to the first', async () => {
   let answer;
   const s = setup({ ask: () => new Promise((resolve) => { answer = () => resolve({ text: 'Hi', chat: reply({ text: 'Hi' }) }); }) });

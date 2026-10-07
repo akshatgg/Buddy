@@ -13,6 +13,7 @@
  */
 
 const { BuddyError } = require('../../shared/errors');
+const { LIMITS } = require('../../shared/prompts');
 const { AI_TIMEOUT_MS } = require('./ai');
 const platform = require('./platform');
 
@@ -402,6 +403,14 @@ function createActions({
       stop(c, 'bad_request', 'Tell me what to do first.');
       push(c);
       return {};
+    }
+    // The AI's limits, checked before the message joins the chat: refused here, the page gives the person their words
+    // back to make shorter, instead of a message in the chat that can never be answered.
+    if (text.length > LIMITS.instruction) {
+      throw new BuddyError('bad_request', `That message is too long (over ${LIMITS.instruction} characters). Try a shorter one.`);
+    }
+    if (c.selection.trim().length > LIMITS.text) {
+      throw new BuddyError('bad_request', `Your selection is too long (over ${LIMITS.text} characters). Select less, or press ✕ to leave it out.`);
     }
     await talk(c, add(c, { type: 'you', text }));
     return {};

@@ -15,8 +15,11 @@ of CHARACTERS) picks the glow colour, the top piece and the colour of the feet.
 
 Every .glb follows the contract in docs/superpowers/specs (section 3):
 nodes Root, Head, ArmL, ArmR, and a mesh Face with morph targets blink,
-smile, mouthO, eyeLUp and eyeRUp, in that order. The app animates those by
-name, so keep them.
+smile, mouthO, eyeLUp and eyeRUp, in that order, then the eye shapes for the
+buddy's feelings: heart, swirl, sad, half and sleep. The app animates those by
+name, so keep them. (The last five are optional for the app: an older model
+without them still loads.) art/render_faces.py renders every eye shape side
+by side, to judge them.
 """
 
 import json
@@ -68,6 +71,10 @@ ARC_R, ARC_W, ARC_DIP = 0.056, 0.034, 0.3  # smile: arc radius, half-thickness, 
 BLINK_L, BLINK_W, BLINK_DZ = 0.07, 0.015, -0.02  # blink: the line's half-length, half-thickness and height
 MOUTH_DZ, MOUTH_R = -0.135, (0.018, 0.036)  # mouthO: the "o"'s height, inner and outer radius
 EYE_SWEEP = 0.17                   # eyeLUp, eyeRUp: how far up the screen they move an eye (31 % of its inner height)
+HEART_W = 0.08                     # heart: half-width; the heart is 1.1 times as wide as tall
+SWIRL_IN, SWIRL_OUT = 0.016, 0.078  # swirl: the spiral's radius where it starts and where it ends,
+SWIRL_W, SWIRL_TURNS = 0.0135, 1.5  # the pen's half-thickness, and how many times it goes round
+SAD_LID = (0.08, 0.36)             # sad: how much of the eye's height the lid hides at its inner and at its outer edge
 
 BODY_Z, BODY_SIZE = 0.45, (0.36, 0.3, 0.37)  # body centre height and half-sizes: 55 % of the head's width
 BODY_ROUND = 2.4
@@ -265,6 +272,20 @@ def squircle(w, h, power, count):
     return resample(dense, count)
 
 
+def reach(outline, direction):
+    """How far from (0, 0) the ray along the unit 2D `direction` last crosses the closed 2D `outline`."""
+    far = 0.0
+    for p, q in zip(outline, outline[1:] + outline[:1]):
+        e = q - p
+        across = direction.x * e.y - direction.y * e.x
+        if abs(across) < 1e-12:
+            continue  # this edge runs along the ray
+        k = (p.x * direction.y - p.y * direction.x) / across  # where the ray meets the edge: 0 at p, 1 at q
+        if 0.0 <= k <= 1.0:
+            far = max(far, (p.x * e.y - p.y * e.x) / across)
+    return far
+
+
 def tube(points, normals, radius, sides=10):
     """A round tube along a closed path of points, its rings square to the path and to `normals`."""
     count = len(points)
@@ -344,11 +365,23 @@ def stroke(line, normal, width):
     return points
 
 
-def eye_shapes():
-    """One eye in 2D (x across, y up, from the eye's centre): its points open, blinking and smiling."""
+def heart_outline(count=1024):
+    """The classic heart curve, point down, HEART_W either side of the middle, its box centred
+    on (0, 0): `count` points around it."""
+    curve = [Vector((16 * math.sin(t) ** 3,
+                     13 * math.cos(t) - 5 * math.cos(2 * t) - 2 * math.cos(3 * t) - math.cos(4 * t)))
+             for t in (2 * math.pi * k / count for k in range(count))]
+    middle = (min(p.y for p in curve) + max(p.y for p in curve)) / 2
+    return [Vector((p.x, p.y - middle)) * (HEART_W / 16) for p in curve]
+
+
+def eye_shapes(side):
+    """One eye in 2D (x across, y up, from the eye's centre): its points open, and for each key
+    that reshapes it. `side` is which eye, -1 or 1 as in build_face; only sad differs between them."""
     tall = EYE_W * EYE_TALL
     open_eye = [Vector((EYE_W * math.cos(a), tall * math.sin(a))) * tau
                 for tau in EYE_RINGS for a in oval_angles()]
+    rim = open_eye[-len(oval_angles()):]  # the outer ring
     blink = stroke(lambda s: Vector((BLINK_L * (2 * s - 1), BLINK_DZ)), lambda s: Vector((0.0, 1.0)), BLINK_W)
     # The smile is the reference's happy eye: a thick arc over the top whose round ends
     # dip a little, like "^ ^". It keeps the open eye's top edge and pulls the rest up under it.
@@ -359,10 +392,64 @@ def eye_shapes():
 
     smile = stroke(lambda s: centre + Vector((math.cos(angle(s)), math.sin(angle(s)))) * ARC_R,
                    lambda s: Vector((math.cos(angle(s)), math.sin(angle(s)))), ARC_W)
-    return open_eye, blink, smile
+
+    # The heart is filled like the open eye, its rings scaled from the centre. Each point of
+    # the oval moves straight out or in onto the heart, so one grows into the other without a twist.
+    outline = heart_outline()
+    heart_rim = [p.normalized() * reach(outline, p.normalized()) for p in rim]
+    heart = [p * tau for tau in EYE_RINGS for p in heart_rim]
+
+    # The swirl is a spiral drawn out from near the centre, counter-clockwise, its turns evenly
+    # apart. A side of the stroke has only EYE_ALONG steps, spread so its corners stand out
+    # equally little everywhere: long steps round the tight middle, short ones round the outside.
+    grow = (SWIRL_OUT - SWIRL_IN) / (2 * math.pi * SWIRL_TURNS)  # how far out it moves per radian
+    inner, outer = (SWIRL_IN + SWIRL_W) ** 1.5, (SWIRL_OUT + SWIRL_W) ** 1.5
+
+    def spiral(s):  # the angle and the radius at s
+        r = (inner + (outer - inner) * s) ** (2 / 3) - SWIRL_W
+        return math.pi + (r - SWIRL_IN) / grow, r
+
+    def spiral_point(s):
+        a, r = spiral(s)
+        return Vector((math.cos(a), math.sin(a))) * r
+
+    def spiral_normal(s):  # to the left of the way the pen moves, as stroke() wants
+        a, r = spiral(s)
+        way = Vector((math.cos(a), math.sin(a))) * grow + Vector((-math.sin(a), math.cos(a))) * r
+        return Vector((-way.y, way.x)).normalized()
+
+    swirl = stroke(spiral_point, spiral_normal, SWIRL_W)
+    # A spiral reaches further on the side where it ends: centre its box on the eye.
+    middle = Vector([(min(p[i] for p in swirl) + max(p[i] for p in swirl)) / 2 for i in (0, 1)])
+    swirl = [p - middle for p in swirl]
+
+    # Sad: the open eye under a straight lid that slopes down toward the outer side, so it is
+    # mirrored between the two eyes. Points above the lid are pulled down onto it.
+    def lid(x):
+        out = side * x / EYE_W  # -1 at the eye's inner edge, 1 at its outer edge
+        hidden = SAD_LID[0] + (SAD_LID[1] - SAD_LID[0]) * (out + 1) / 2
+        return tall - 2 * tall * hidden
+
+    sad = [Vector((p.x, min(p.y, lid(p.x)))) for p in open_eye]
+    # Half: the open eye with its top half under a level lid through the centre.
+    half = [Vector((p.x, min(p.y, 0.0))) for p in open_eye]
+
+    # Sleep is the smile turned over: an arc under the bottom whose ends rise a little, like
+    # "◡". It keeps the open eye's bottom edge, so it sits a little below the eye's centre.
+    below = Vector((0.0, -centre.y))
+
+    def under(s):
+        return math.pi - ARC_DIP + s * (math.pi + 2 * ARC_DIP)
+
+    sleep = stroke(lambda s: below + Vector((math.cos(under(s)), math.sin(under(s)))) * ARC_R,
+                   lambda s: -Vector((math.cos(under(s)), math.sin(under(s)))), ARC_W)
+    return open_eye, {"blink": blink, "smile": smile, "heart": heart, "swirl": swirl,
+                      "sad": sad, "half": half, "sleep": sleep}
 
 
-KEYS = ("blink", "smile", "mouthO", "eyeLUp", "eyeRUp")  # the Face's morph targets, in the contract's order
+# The Face's morph targets, in the contract's order. The last five are the eye shapes for the
+# buddy's feelings; the app treats them as optional.
+KEYS = ("blink", "smile", "mouthO", "eyeLUp", "eyeRUp", "heart", "swirl", "sad", "half", "sleep")
 
 
 def build_face(head, mats):
@@ -379,10 +466,10 @@ def build_face(head, mats):
     def on_glass(x, y):
         return head_front(x, y, FACE_LIFT)[0]
 
-    open_eye, blink, smile = eye_shapes()
     for side in (-1, 1):
+        open_eye, looks = eye_shapes(side)
         start = len(shapes["basis"])
-        for key, points in (("basis", open_eye), ("blink", blink), ("smile", smile), ("mouthO", open_eye)):
+        for key, points in (("basis", open_eye), ("mouthO", open_eye), *looks.items()):
             shapes[key] += [on_glass(side * EYE_X + p.x, EYE_DZ + p.y) for p in points]
         # eyeLUp moves the eye on the viewer's left (the character's right: -X here, -x in
         # three.js after the Y-up export) straight up the screen; eyeRUp moves the other eye.
@@ -391,7 +478,7 @@ def build_face(head, mats):
         # down to the line moved up. It then slides straight, on the curved glass or just in
         # front of it, never sinking into it.
         shift = [(on_glass(side * EYE_X + p.x, EYE_DZ + p.y + EYE_SWEEP)
-                  - on_glass(side * EYE_X + p.x, EYE_DZ + p.y - EYE_SWEEP)) / 2 for p in blink]
+                  - on_glass(side * EYE_X + p.x, EYE_DZ + p.y - EYE_SWEEP)) / 2 for p in looks["blink"]]
         rest = shapes["basis"][start:]
         moving, still = ("eyeLUp", "eyeRUp") if side < 0 else ("eyeRUp", "eyeLUp")
         shapes[moving] += [co + d for co, d in zip(rest, shift)]
@@ -690,7 +777,16 @@ def render_preview(path):
     cam.location = centre + Matrix.Rotation(PREVIEW_TURN, 3, "Z") @ Vector((0, -distance, 0))
     cam.rotation_euler = (centre - cam.location).to_track_quat("-Z", "Y").to_euler()
     scene.camera = cam
+    studio(centre)
 
+    bpy.ops.render.render(write_still=True)
+    for obj in (cam, *[o for o in scene.objects if o.type == "LIGHT"]):
+        bpy.data.objects.remove(obj)
+
+
+def studio(centre):
+    """The previews' warm, soft studio around `centre`, for a camera in front (-Y)."""
+    scene = bpy.context.scene
     world = bpy.data.worlds.new("PreviewStudio")
     world.use_nodes = True
     sky = next(n for n in world.node_tree.nodes if n.type == "BACKGROUND")
@@ -714,10 +810,6 @@ def render_preview(path):
         light.location = centre + Vector(offset)
         light.rotation_euler = (-Vector(offset)).to_track_quat("-Z", "Y").to_euler()
         bpy.context.collection.objects.link(light)
-
-    bpy.ops.render.render(write_still=True)
-    for obj in (cam, *[o for o in scene.objects if o.type == "LIGHT"]):
-        bpy.data.objects.remove(obj)
 
 
 def export_glb(path):

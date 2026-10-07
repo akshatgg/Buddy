@@ -9,6 +9,10 @@ const { loadCharacters, BUDDIES_DIR } = require('../src/main/characters');
 
 const characters = loadCharacters();
 
+// The Face's morph targets, in the contract's order: the first five the app has always used,
+// then the eye shapes for the buddy's feelings.
+const TARGETS = ['blink', 'smile', 'mouthO', 'eyeLUp', 'eyeRUp', 'heart', 'swirl', 'sad', 'half', 'sleep'];
+
 test('the manifest lists a boy and a girl, with names, models and previews', () => {
   assert.ok(characters.list.some((c) => c.gender === 'boy'));
   assert.ok(characters.list.some((c) => c.gender === 'girl'));
@@ -28,7 +32,7 @@ for (const c of characters.list) {
     const names = gltf.nodes.map((n) => n.name);
     for (const name of ['Root', 'Head', 'ArmL', 'ArmR', 'Face']) assert.ok(names.includes(name), `has node ${name}`);
     const face = gltf.meshes[gltf.nodes.find((n) => n.name === 'Face').mesh];
-    assert.deepStrictEqual(face.extras.targetNames, ['blink', 'smile', 'mouthO', 'eyeLUp', 'eyeRUp']);
+    assert.deepStrictEqual(face.extras.targetNames, TARGETS);
     assert.ok((face.weights || face.extras.targetNames.map(() => 0)).every((w) => w === 0), 'every morph target starts at rest');
   });
 }

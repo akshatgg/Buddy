@@ -99,6 +99,42 @@ test('a phone number with its country code and a PIN code (the postal code) are 
   assert.strictEqual(cleanFact('Your PIN is 1234, the code for the door.'), null);
 });
 
+test('a PIN code is kept only as the postal code: six digits near it, and no card, ATM, bank or UPI in the fact', () => {
+  for (const fact of [
+    'Your ATM PIN code is 4321.',
+    'Your debit card pin code is 4567.',
+    'Your credit card PIN code is 110001.', // six digits, but a card's
+    'Your UPI pin code is 123456.',
+    'Your net banking PIN code is 560001.',
+    'Your netbanking pincode is 560001.',
+    'Your Bank PIN-code is 400001.',
+    'Your PIN code for both cards is 482913.',
+    'Your phone PIN code is 4321.',
+    'Your PIN code is 1234.',
+    'Your pincode is 98765.',
+    'Your PIN code is 1100011.',
+    'Your PIN code is 012345.', // a postal code never starts with 0
+    'Your PIN code is 4 3 2 1.',
+    '4321 is your PIN code.',
+    'Your PIN code for the locker at your office is 4321.',
+    'Your PIN code is 110001, and the one for your phone is 4321.',
+  ]) {
+    assert.strictEqual(cleanFact(fact), null, fact);
+  }
+  for (const fact of [
+    'Your PIN code is 110001.',
+    'Your pincode is 560037.',
+    'Your PIN code is 110 001.',
+    '411001 is your PIN code.',
+    'You live in Pune, PIN code 411001.',
+    'You live in Bankura, PIN code 722101.', // whole words only: "Bankura" is not "bank"
+    "Your clinic's PIN code is 110029, and you work in cardiology.",
+    'You want to know the PIN code of your new office.',
+  ]) {
+    assert.strictEqual(cleanFact(fact), fact, fact);
+  }
+});
+
 test('the add box in Settings takes no more than a fact can hold', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'settings', 'index.html'), 'utf8');
   const box = html.match(/<input id="memory-new"[^>]*>/);

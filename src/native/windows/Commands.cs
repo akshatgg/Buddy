@@ -107,12 +107,13 @@ namespace BuddyHelper
             if (via == null) throw new HelperError("not_frontmost", "Could not switch back to that app.");
             // Where a paste would go wrong the answer goes to the clipboard instead (src/main/actions.js), which is what
             // a paste that fails does: a terminal runs every line it is given, Windows drops the keys sent to an app
-            // that runs as administrator without a word, and Buddy never types into a password field (and "Replace
-            // all" would wipe what is in it).
+            // that runs as administrator without a word, Buddy never types into a password field (and "Replace all"
+            // would wipe what is in it), and a paste where the focus is surely not a place to type would do nothing.
             FieldKind field = FocusedField.Read();
             if (Front.IsTerminal(Native.GetForegroundWindow()) || field.Terminal) throw new HelperError("terminal", "I don't type into terminals.");
             if (Front.RunsAboveUs(pid)) throw new HelperError("elevated", "That app runs as administrator, so I can't type into it.");
             if (field.Password) throw new HelperError("secure_field", "I don't type into password fields.");
+            if (FocusedField.ReadOnly()) throw new HelperError("not_editable", "Click in the box where it should go, then try again.");
 
             List<SavedFormat> saved = ClipboardStore.Save();
             try

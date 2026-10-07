@@ -142,7 +142,7 @@ As on the Mac, with these Android-only lines:
 | When | Says |
 |---|---|
 | Display over other apps not allowed | "Let Buddy float: allow Display over other apps." with *Open settings* |
-| The person says no to the screen picture | "Check screen needs a picture of your screen. Try again and tap Start." |
+| The person says no to the screen picture | "Check screen needs a picture of your screen. Try again and allow it." |
 | Replace not allowed by the other app | the sheet shows Copy only |
 | No Google account on the phone | Android's own "Add an account" screen |
 

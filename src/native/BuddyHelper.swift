@@ -339,9 +339,10 @@ func screenshot(_ args: [String: Any]) throws -> [String: Any] {
 
 // While Buddy's shortcut is a modifier key tapped on its own (or Settings is recording one), a listen-only event tap
 // reports each change of the modifier keys: which key, and all the flags, whose low bits say which side is down, with
-// the time in milliseconds since the Mac started. A key or a click is reported, as "other", while a modifier flag is on
-// (macOS also puts the fn flag on the arrow and function keys, so those count too): it spoils a tap, and which key it
-// was is none of Buddy's business. The tap lives on the main run loop, and is looked at every 5 seconds (checkKeyTap).
+// the time in milliseconds since the Mac started. A key, a media key (volume, brightness, play), a scroll or a click is
+// reported, as "other", while a modifier flag is on (macOS also puts the fn flag on the arrow and function keys, so
+// those count too): it spoils a tap, and which key it was is none of Buddy's business. The tap lives on the main run
+// loop, and is looked at every 5 seconds (checkKeyTap).
 
 var keyTap: CFMachPort?
 var keyTapSource: CFRunLoopSource?
@@ -361,6 +362,8 @@ func onKeyEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refco
               "flags": Int(event.flags.rawValue),
               "t": Int(ProcessInfo.processInfo.systemUptime * 1000)])
     default:
+        // A scroll that goes on by itself after the fingers have left the trackpad is not the person doing anything.
+        if type == .scrollWheel && event.getIntegerValueField(.scrollWheelEventMomentumPhase) != 0 { break }
         if event.flags.rawValue & heldModifiers != 0 { send(["event": "keys", "kind": "other"]) }
     }
     return Unmanaged.passUnretained(event)
@@ -400,7 +403,10 @@ func setKeyTap(_ on: Bool) throws {
     let noAccess = HelperError(code: "no_accessibility", message: "Buddy needs Accessibility permission to hear a single key.")
     // Without Accessibility the tap would hear no keys (and macOS could ask for Input Monitoring instead).
     guard accessibilityTrusted(prompt: false) else { throw noAccess }
-    let types: [CGEventType] = [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+    // Volume, brightness and play are not key presses to macOS but system-defined events (type 14), and a scroll is not
+    // a click: held with a modifier (⌥ and volume, fn and F12, ⌃ and scroll) each still spoils a tap.
+    var types: [CGEventType] = [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+    if let systemDefined = CGEventType(rawValue: 14) { types.append(systemDefined) } // media keys: volume, brightness, play
     let mask = types.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
     guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
                                       eventsOfInterest: mask, callback: onKeyEvent, userInfo: nil) else { throw noAccess }

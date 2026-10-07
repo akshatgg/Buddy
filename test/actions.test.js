@@ -819,6 +819,34 @@ test('Send: Buddy finds the send key for the app and its window, steps aside and
   assert.strictEqual(moods(s.log).at(-1), 'happy');
 });
 
+test('once it is sent, what Buddy put in the app has no Undo any more: ⌘Z would undo something else by now', async () => {
+  const s = setup({
+    replies: { windowTitle: { title: '' } },
+    answers: [reply({ text: 'Thanks!', doIt: true }), reply({ text: 'See you.', doIt: true, send: true })],
+  });
+  await s.actions.open();
+  await s.actions.send('reply thanks');
+  await s.actions.open();
+  await s.actions.send('and see you, then send it');
+  assert.deepStrictEqual(chatOf(s).filter((item) => item.type === 'buddy').map((item) => item.buttons), [['undo', 'copy'], ['undo', 'copy']]);
+  const question = lastItem(s);
+  assert.strictEqual(question.text, 'Send it?');
+  await s.actions.act(question.id, 'send');
+  assert.deepStrictEqual(chatOf(s).filter((item) => item.type === 'buddy').map((item) => item.buttons), [['copy'], ['copy']]);
+  assert.deepStrictEqual(entries(s.log, 'state').at(-1)[1].chat.filter((item) => item.type === 'buddy').map((item) => item.buttons), [['copy'], ['copy']]);
+});
+
+test('a Send that could not press the key keeps the Undo buttons', async () => {
+  const s = setup({
+    replies: { windowTitle: { title: '' }, press: failure('not_frontmost', 'Could not switch back to that app.') },
+    answers: [reply({ text: 'See you.', doIt: true, send: true })],
+  });
+  await s.actions.open();
+  await s.actions.send('reply see you and send it');
+  await s.actions.act(lastItem(s).id, 'send');
+  assert.deepStrictEqual(chatOf(s)[1].buttons, ['undo', 'copy']);
+});
+
 test('a second press of Send while the first is under way is refused: one send, not two', async () => {
   let release;
   const gate = new Promise((resolve) => { release = resolve; });

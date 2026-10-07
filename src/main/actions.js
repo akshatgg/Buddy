@@ -140,6 +140,11 @@ function createActions({
     return added;
   }
 
+  /** A buddy's text that is no longer Buddy's last change in the app: ⌘Z there would undo something else. */
+  function dropUndo(item) {
+    item.buttons = item.buttons.filter((button) => button !== 'undo');
+  }
+
   /** An item that becomes another one in its place ("Send it?" becomes "✅ Sent"), keeping its id. */
   function swap(c, item, fields) {
     c.items[c.items.indexOf(item)] = { id: item.id, ...fields };
@@ -479,7 +484,7 @@ function createActions({
       await comeBack(c);
       return;
     }
-    item.buttons = item.buttons.filter((button) => button !== 'undo');
+    dropUndo(item);
     ui.bubble('Undone');
     push(c);
   }
@@ -513,6 +518,8 @@ function createActions({
       return;
     }
     swap(c, item, { type: 'event', text: '✅ Sent', buttons: [] });
+    // What Buddy put in the app has gone with it: none of it can be undone any more.
+    for (const i of c.items) if (i.type === 'buddy') dropUndo(i);
     ui.bubble('Sent ✅');
     if (c === chat) ui.mood('happy'); // not for a chat closed meanwhile (Buddy turned off), as in talk()
     push(c);

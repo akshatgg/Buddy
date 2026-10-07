@@ -12,6 +12,9 @@ const TAP_KEY_NOTES = {
   Fn: 'If fn also opens emoji or dictation, set “Press 🌐 key to” to “Do Nothing” in System Settings → Keyboard.',
 };
 const CANNOT_HEAR = 'Buddy needs Accessibility to hear this key. Allow it in Permissions.';
+// While the box waits for keys and Buddy has no Accessibility: a key tapped on its own would never come, and the box
+// would just go on waiting. Keys pressed together are heard by the page, and can still be recorded.
+const CANNOT_HEAR_TAPS = 'Buddy needs Accessibility to hear a key tapped on its own. Allow it in Permissions.';
 let snap = null;
 let gridBuilt = false;
 let signingIn = 0; // sign-ins that wait for the browser: pressing the button again starts a newer one
@@ -160,12 +163,16 @@ function showHeld(held) {
 async function renderShortcutNote() {
   const permissions = ShortcutKeys.isTap(snap.settings.shortcut) ? await window.buddy.permissions() : null;
   const keys = ShortcutKeys.tapKeys(snap.settings.shortcut); // after the wait: the shortcut may have changed meanwhile
+  const deaf = Boolean(keys && permissions?.ok && !permissions.accessibility);
+  // No words while it is hidden: hidden or not, it is part of what describes the Shortcut box (aria-describedby).
+  const lines = keys ? [deaf ? CANNOT_HEAR : TAP_NOTE, ...keys.map((k) => TAP_KEY_NOTES[k]).filter(Boolean)] : [];
+  const text = lines.join(' ');
   const note = $('shortcut-note');
   note.hidden = !keys;
-  if (!keys) return;
-  const deaf = Boolean(permissions?.ok && !permissions.accessibility);
-  note.classList.toggle('error', deaf);
-  note.textContent = [deaf ? CANNOT_HEAR : TAP_NOTE, ...keys.map((k) => TAP_KEY_NOTES[k]).filter(Boolean)].join(' ');
+  // This runs on every focus and every save, and a screen reader reads the note out whenever it is written: so the
+  // words and the red are written only when they change.
+  if (note.textContent !== text) note.textContent = text;
+  if (note.classList.contains('error') !== deaf) note.classList.toggle('error', deaf);
 }
 
 /** Show `snap`. With `fields: false` the text boxes are left alone: a refresh must not throw away what is being typed. */
@@ -219,6 +226,8 @@ async function startRecording() {
   showHeld([]);
   showStatus('shortcut-status', '');
   await window.buddy.pauseShortcut();
+  const permissions = await window.buddy.permissions();
+  if (recording && permissions.ok && !permissions.accessibility) showStatus('shortcut-status', CANNOT_HEAR_TAPS);
 }
 
 /** Stop waiting for keys and keep the saved shortcut. A key refused while it waited no longer matters, so its line goes. */

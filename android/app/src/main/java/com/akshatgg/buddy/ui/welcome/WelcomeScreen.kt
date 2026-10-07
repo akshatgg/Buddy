@@ -1,6 +1,7 @@
 package com.akshatgg.buddy.ui.welcome
 
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -76,6 +77,8 @@ class WelcomeCallbacks(
 fun WelcomeScreen(model: WelcomeModel, free: StateFlow<FreeSettings?>, ai: AiFormModel, on: WelcomeCallbacks) {
     val state by model.state.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
     val freeNow by free.collectAsStateWithLifecycle()
+    // Back goes to the step before, as the Back button does; on the first step it leaves the app.
+    BackHandler(enabled = state.index > 0) { model.back() }
     val colors = Buddy.colors
     // A Surface, so that every word on the page is in the text colour, in light and dark.
     Surface(Modifier.fillMaxSize(), color = colors.bg, contentColor = colors.fg) {
@@ -101,7 +104,7 @@ fun WelcomeScreen(model: WelcomeModel, free: StateFlow<FreeSettings?>, ai: AiFor
                     when (state.step) {
                         Step.SIGN_IN -> SignInStep(state, on)
                         Step.BUDDY -> BuddyStep(state, model)
-                        Step.FLOAT -> FloatStep(on, model::next)
+                        Step.FLOAT -> FloatStep(state.floatNote, on, model::next)
                         Step.AI -> AiStep(aiSection(freeNow).note, ai)
                         Step.DONE -> DoneStep(state)
                     }
@@ -208,12 +211,14 @@ private fun BuddyStep(state: WelcomeState, model: WelcomeModel) {
 }
 
 @Composable
-private fun FloatStep(on: WelcomeCallbacks, skip: () -> Unit) {
+private fun FloatStep(note: String?, on: WelcomeCallbacks, skip: () -> Unit) {
     val allowed by rememberAllowed()
     val context = LocalContext.current
     Heading("Let Buddy float")
     Body("Buddy floats over your apps so you can tap it anywhere.")
     if (allowed.float) Allowed() else Primary("Allow", modifier = Modifier.fillMaxWidth()) { context.openFloatSettings() }
+    // Sent back here by "Start my buddy": why, until it is allowed.
+    if (note != null && !allowed.float) Note(note, error = true)
     // Android 13 and later ask for notifications: without them the notification's "Turn off" is not shown.
     if (Build.VERSION.SDK_INT >= 33) {
         Spacer(Modifier.size(12.dp))

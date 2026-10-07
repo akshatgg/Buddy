@@ -45,8 +45,13 @@ class KeySaver(private val settings: AppSettings, private val secrets: Secrets, 
         }
         // From here the key is kept: before this, a refused key or a check that ran out of time has changed nothing, and
         // the chosen AI is still the one it was. The key is saved first, so that a phone whose keystore fails does not
-        // end up switched to an AI it has no key for.
-        secrets.set(ownerId, apiKey)
+        // end up switched to an AI it has no key for. A keystore that fails says so in plain words, as the Mac's
+        // secrets.js does when its keychain is not available.
+        try {
+            secrets.set(ownerId, apiKey)
+        } catch (e: Exception) {
+            throw BuddyError("no_keychain", "Your phone can't keep your key safe right now, so the key can't be saved.")
+        }
         val models = live?.ifEmpty { null } ?: provider.facts.fallbackModels
         settings.setModel(ownerId, chooseModel(models, provider.facts.fallbackModels, settings.model(ownerId)))
         if (switched) settings.provider = ownerId

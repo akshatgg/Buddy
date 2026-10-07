@@ -76,6 +76,7 @@ import com.akshatgg.buddy.ui.theme.BuddyRadius
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlin.time.Duration.Companion.seconds
 
 /** A part of Settings to scroll to ("ai", "account" or "buddy"). A new one each time, so the same part can be asked again. */
 class SectionRequest(val name: String)
@@ -157,7 +158,8 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
                 }
 
                 Title("Buddy", Modifier.section("buddy"))
-                BuddyPicker(state.characterId, onPick = { if (model.pick(it)) on.lookChanged() })
+                // Settings can stay open: the heads turn for a few seconds on opening, then rest facing front.
+                BuddyPicker(state.characterId, onPick = { if (model.pick(it)) on.lookChanged() }, turnFor = 5.seconds)
                 Group {
                     Row(Modifier.rowPadding(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Name", Modifier.weight(1f))

@@ -9,12 +9,14 @@ import com.akshatgg.buddy.net.HttpResponse
 import com.akshatgg.buddy.store.AppSettings
 import com.akshatgg.buddy.store.MemoryKeyValue
 import com.akshatgg.buddy.store.MemorySecrets
+import com.akshatgg.buddy.store.Secrets
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
+import java.security.KeyStoreException
 import java.net.SocketTimeoutException
 
 class KeySaverTest {
@@ -98,6 +100,18 @@ class KeySaverTest {
         assertEquals("AIzaKEY", secrets.get("gemini"))
         assertEquals("gemini", settings.provider)
         assertEquals("gemini-flash-latest", settings.model("gemini"))
+    }
+
+    @Test fun aKeystoreThatFailsSaysSoAndChangesNothing() = runTest {
+        val broken = object : Secrets {
+            override fun get(id: String): String? = null
+            override fun set(id: String, value: String) = throw KeyStoreException("no keystore")
+            override fun clear(id: String) {}
+        }
+        val e = error { KeySaver(settings, broken, Providers(TestShared.shared, http)).save("anthropic", "AIzaKEY") }
+        assertEquals(listOf("no_keychain", "Your phone can't keep your key safe right now, so the key can't be saved."), listOf(e.code, e.message))
+        assertEquals("not switched to an AI it has no key for", "anthropic", settings.provider)
+        assertNull(settings.model("gemini"))
     }
 
     @Test fun anEmptyLiveListMeansTheFallbackList() = runTest {

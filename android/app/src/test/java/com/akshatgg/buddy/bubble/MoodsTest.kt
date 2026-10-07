@@ -57,6 +57,13 @@ class MoodsTest {
         assertEquals(0f, Moods.turn(8.0), 1e-5f)
     }
 
+    @Test fun aHeadToldToStopTurningFinishesItsSwingFacingFront() {
+        assertEquals(4.0, Moods.turnEnd(0.1), 1e-9)
+        assertEquals(8.0, Moods.turnEnd(5.0), 1e-9)
+        assertEquals(8.0, Moods.turnEnd(8.0), 1e-9)
+        for (t in listOf(0.3, 2.0, 5.5, 13.7)) assertEquals(0f, Moods.turn(Moods.turnEnd(t)), 1e-5f)
+    }
+
     @Test fun theWaveTurnsTheHeadAndSmiles() {
         val p = Moods.pose(Mood.WAVE, 0.5)
         assertEquals(0.8f, p.smile)

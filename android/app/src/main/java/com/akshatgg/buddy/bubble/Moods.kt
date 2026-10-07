@@ -2,6 +2,7 @@ package com.akshatgg.buddy.bubble
 
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -30,6 +31,7 @@ object Moods {
     const val REST_FPS = 6
 
     private const val SETTLE_SECONDS = 10.0 // how long the settling rate lasts, before the rest rate
+    private const val TURN_PERIOD = 8.0 // seconds for a picker head to turn one way and back
 
     // Thinking: each eye is a glowing line (the blink shape) sweeping up and down SWEEP_HZ times
     // a second, the right line SWEEP_LAG radians behind the left, so together they read as one
@@ -55,8 +57,11 @@ object Moods {
      * The slow turn of a head in the buddy picker, from side to side (radians of yaw): it shows that the buddy is 3D,
      * as the Mac's turntable previews did, while its face stays in view.
      */
-    fun turn(t: Double, amplitude: Double = 0.5, period: Double = 8.0): Float =
+    fun turn(t: Double, amplitude: Double = 0.5, period: Double = TURN_PERIOD): Float =
         (amplitude * sin(2 * PI * t / period)).toFloat()
+
+    /** When a head told at `t` to stop turning faces front again: the end of the swing it is in, so it never snaps back. */
+    fun turnEnd(t: Double, period: Double = TURN_PERIOD): Double = ceil(t / (period / 2)) * (period / 2)
 
     /**
      * How shut the eyes are, 0 (open) to 1 (shut): fully shut when the pose closes them, else

@@ -12,6 +12,7 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.akshatgg.buddy.AppGraph
@@ -33,10 +34,13 @@ import kotlinx.coroutines.launch
 // "buddy" (SheetActions.kt).
 private const val SECTION = "section"
 
-/** Keeps the Welcome's steps, Settings and the AI form through a turn of the phone. */
-class MainViewModel : ViewModel() {
+/**
+ * Keeps the Welcome's steps, Settings and the AI form through a turn of the phone; the Welcome's step, buddy and name
+ * through the end of the process too (`saved`).
+ */
+class MainViewModel(saved: SavedStateHandle) : ViewModel() {
     val graph = AppGraph.instance
-    val welcome = WelcomeModel(graph.settings, viewModelScope)
+    val welcome = WelcomeModel(graph.settings, viewModelScope, saved)
     val settings = SettingsModel(graph.account, graph.cloud, graph.settings, viewModelScope)
     val ai = AiFormModel(
         graph.settings, graph.secrets, graph.providers, graph.keySaver, graph.router::listModels, graph.router::modelFor, viewModelScope,
@@ -103,9 +107,12 @@ class MainActivity : ComponentActivity() {
         if (settings.onboarded && settings.buddyOn && Settings.canDrawOverlays(this)) BubbleService.start(this)
     }
 
-    /** The Welcome's last step: Buddy on, and the person back on their phone with the buddy waving. */
+    /**
+     * The Welcome's last step: Buddy on, and the person back on their phone with the buddy waving. Without "Display over
+     * other apps" there would be no buddy to see: the Welcome goes back to Let Buddy float instead.
+     */
     private fun done() {
-        if (!kept.welcome.finish()) return
+        if (!kept.welcome.finish(canFloat = Settings.canDrawOverlays(this))) return
         BubbleService.start(this)
         finish()
     }

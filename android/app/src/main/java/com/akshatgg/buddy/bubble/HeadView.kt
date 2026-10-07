@@ -56,12 +56,13 @@ class HeadView(context: Context) : FrameLayout(context) {
 
     /**
      * True in the buddy picker: the head turns slowly from side to side, at no less than the settling rate, so that
-     * the turn looks smooth.
+     * the turn looks smooth. Set back to false, it finishes the swing it is in and stops facing front.
      */
     var turning: Boolean = false
         @MainThread set(value) {
             if (field == value) return
             field = value
+            turnUntil = if (value) Double.POSITIVE_INFINITY else Moods.turnEnd(now())
             wake()
         }
 
@@ -86,6 +87,7 @@ class HeadView(context: Context) : FrameLayout(context) {
     private var lastTick = Double.NEGATIVE_INFINITY // when the last frame was drawn, in now() seconds
     private var scheduled = false // the one pending frame; false while the loop is stopped
     private var visible = false
+    private var turnUntil = 0.0 // the head turns until then, in now() seconds
 
     private val frame = Choreographer.FrameCallback { tick(it) }
 
@@ -125,7 +127,8 @@ class HeadView(context: Context) : FrameLayout(context) {
         lastTick = t
         if (currentMood != Mood.IDLE || pressing) lastActive = t
         val fps = Moods.fpsFor(currentMood, pressing, blinker.soon(t, BLINK_LOOKAHEAD), t - lastActive)
-        schedule(1.0 / (if (turning) max(fps, Moods.IDLE_FPS) else fps) - (now() - t))
+        val turns = t < turnUntil
+        schedule(1.0 / (if (turns) max(fps, Moods.IDLE_FPS) else fps) - (now() - t))
 
         val renderer = renderer ?: return
         val pose = Moods.pose(currentMood, t - moodSince)
@@ -133,7 +136,7 @@ class HeadView(context: Context) : FrameLayout(context) {
             currentMood = Mood.IDLE
             moodSince = t
         }
-        val shown = if (turning) pose.copy(yaw = pose.yaw + Moods.turn(t)) else pose
+        val shown = if (turns) pose.copy(yaw = pose.yaw + Moods.turn(t)) else pose
         renderer.setPose(shown, blinker.value(t), Moods.floatOffset(t))
         renderer.render(frameTimeNanos)
     }

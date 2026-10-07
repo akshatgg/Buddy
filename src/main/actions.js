@@ -88,10 +88,21 @@ function createActions({
 
   /**
    * A chat: the app it is about, its items, the selection the next message uses, the notice about that selection, and
-   * whether the buddy is thinking. `live` once the panel has opened on it; `resumed` when an opening came back to it.
+   * whether the buddy is waiting for the AI (`busy`, which the page shows) or still working on a message at all
+   * (`talking`, until what the answer says is done). `live` once the panel has opened on it; `resumed` when an opening
+   * came back to it.
    */
   function newChat(app = null) {
-    return { app, items: [], nextId: 1, selection: '', notice: '', busy: false, resumed: false, live: false };
+    return { app, items: [], nextId: 1, selection: '', notice: '', busy: false, talking: false, resumed: false, live: false };
+  }
+
+  /**
+   * A new chat in place of the one on screen. The old one's answer, if it is still on its way, will be dropped: the
+   * buddy stops thinking about it now, since that answer leaves the mood alone (talk()).
+   */
+  function replaceChat(next) {
+    if (chat.talking) ui.mood('idle');
+    chat = next;
   }
 
   /** Text as it goes on the clipboard, with the system's line breaks. */
@@ -157,7 +168,7 @@ function createActions({
     // again all the same, since the person may have selected something else meanwhile.
     const sameApp = (app?.pid ?? null) === (chat.app?.pid ?? null);
     const resumed = chat.live && sameApp && now() - ui.panelHiddenAt() < RESUME_MS;
-    if (!resumed) chat = newChat(app);
+    if (!resumed) replaceChat(newChat(app));
     Object.assign(chat, { app, selection, notice, resumed, live: true });
     await showPanel(stateOf(chat));
   }
@@ -185,7 +196,7 @@ function createActions({
    */
   async function dismiss() {
     const { app } = chat;
-    chat = newChat();
+    replaceChat(newChat());
     ui.hidePanel();
     if (!helperMovesFocus || !app) return;
     try {
@@ -366,7 +377,11 @@ function createActions({
     return true;
   }
 
-  /** One message through to its answer, the buddy thinking meanwhile; what goes wrong becomes a line in the chat. */
+  /**
+   * One message through to its answer, the buddy thinking meanwhile; what goes wrong becomes a line in the chat. The
+   * mood after it is only for the chat on screen: a closed chat's late answer must not make the buddy of a new chat
+   * happy, idle or sleepy.
+   */
   async function talk(c, you) {
     if (sleepy !== null) {
       cancelLater(sleepy); // it would flip a busy or happy buddy back to idle
@@ -374,11 +389,15 @@ function createActions({
     }
     ui.mood('thinking');
     c.busy = true;
+    c.talking = true;
     push(c);
     try {
-      ui.mood((await answer(c, you)) ? 'happy' : 'idle');
+      const answered = await answer(c, you);
+      if (c === chat) ui.mood(answered ? 'happy' : 'idle');
     } catch (err) {
-      if (err.code === 'network') {
+      if (c !== chat) {
+        // Closed meanwhile: the buddy stopped thinking about it then (replaceChat).
+      } else if (err.code === 'network') {
         ui.mood('sleepy');
         sleepy = later(() => {
           sleepy = null;
@@ -390,6 +409,7 @@ function createActions({
       failed(c, err, you);
     } finally {
       c.busy = false;
+      c.talking = false;
       push(c);
     }
   }
@@ -494,7 +514,7 @@ function createActions({
     }
     swap(c, item, { type: 'event', text: '✅ Sent', buttons: [] });
     ui.bubble('Sent ✅');
-    ui.mood('happy');
+    if (c === chat) ui.mood('happy'); // not for a chat closed meanwhile (Buddy turned off), as in talk()
     push(c);
   }
 

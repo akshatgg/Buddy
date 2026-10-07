@@ -858,6 +858,20 @@ test('Send that cannot press the key: the panel comes back with the reason, and 
   assert.strictEqual(entries(s.log, 'showPanel').at(-1)[1].resumed, true);
 });
 
+test('a Send that finishes after its chat was closed (Buddy turned off meanwhile) leaves the mood alone', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const s = await askedToSend({ replies: { windowTitle: { title: '' }, press: () => gate.then(() => ({ via: 'test' })) } });
+  const sending = s.actions.act(2, 'send');
+  while (!entries(s.log, 'helper').some((e) => e[1] === 'press')) await new Promise(setImmediate);
+  await s.actions.dismiss();
+  const before = moods(s.log);
+  release();
+  await sending;
+  assert.deepStrictEqual(moods(s.log), before);
+  assert.deepStrictEqual(entries(s.log, 'bubble').at(-1), ['bubble', 'Sent ✅'], 'it was sent all the same, and the bubble says so');
+});
+
 test('Not now: nothing is sent', async () => {
   const s = await askedToSend();
   await s.actions.act(2, 'not-now');
@@ -1018,6 +1032,51 @@ test('other errors put the buddy back to idle, an answer that takes too long too
     assert.deepStrictEqual(moods(s.log), ['thinking', 'idle'], err.code);
     assert.strictEqual(s.timers.length, 0, 'no "sleepy for a while" timer');
   }
+});
+
+test("a closed chat's late answer leaves the buddy's mood alone: the buddy stops thinking when the chat ends", async () => {
+  for (const late of [reply({ text: 'Dear Sir,' }), failure('network', "Couldn't reach Claude.")]) {
+    let answer;
+    const s = setup({
+      ask: (action, given) => new Promise((resolve, reject) => {
+        s.log.push(['ask', action, given]);
+        answer = () => (late instanceof Error ? reject(late) : resolve({ text: '', chat: late }));
+      }),
+    });
+    await s.actions.open();
+    const sending = s.actions.send('mail to my boss');
+    await new Promise(setImmediate);
+    await s.actions.dismiss();
+    assert.deepStrictEqual(moods(s.log), ['thinking', 'idle'], 'closing the chat ends the thinking');
+    await s.actions.open(); // a new chat, which the late answer must not touch
+    answer();
+    await sending;
+    assert.deepStrictEqual(moods(s.log), ['thinking', 'idle'], late.code || 'an answer');
+    assert.strictEqual(s.timers.length, 0, 'and no "sleepy for a while" timer');
+  }
+});
+
+test('a new chat in place of one still thinking (opened from another app) ends the thinking too', async () => {
+  let answer;
+  const s = setup({ ask: () => new Promise((resolve) => { answer = () => resolve({ text: '', chat: reply({ text: 'Hi' }) }); }) });
+  await s.actions.open();
+  const sending = s.actions.send('say hi');
+  await new Promise(setImmediate);
+  s.blur();
+  s.helper.lastApp = MAIL;
+  await s.actions.open();
+  assert.deepStrictEqual(moods(s.log), ['thinking', 'idle']);
+  answer();
+  await sending;
+  assert.deepStrictEqual(moods(s.log), ['thinking', 'idle']);
+});
+
+test('closing a chat that is not thinking leaves the mood as it is', async () => {
+  const s = setup();
+  await s.actions.open();
+  await s.actions.send('hi');
+  await s.actions.dismiss();
+  assert.deepStrictEqual(moods(s.log), ['thinking', 'happy']);
 });
 
 test('a new message cancels the pending "sleepy, then idle" timer', async () => {

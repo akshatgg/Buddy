@@ -832,6 +832,106 @@ test('"send it" while the person hid the panel: the question waits in the chat, 
   assert.deepStrictEqual(lastItem(s), { id: 2, type: 'question', text: 'Send it?', buttons: ['send', 'not-now'] });
 });
 
+// A new version of the text Buddy put in the app ("make it shorter"): parseChat's `again`.
+
+test('"make it shorter" after Buddy put text in at the cursor: it is undone there, and the new version goes in its place', async () => {
+  const s = setup({
+    answers: [reply({ text: 'Dear Sir, I need leave tomorrow.', doIt: true }), reply({ text: 'Leave tomorrow?', doIt: true, again: true })],
+  });
+  await s.actions.open();
+  await s.actions.send('write to my boss here');
+  await s.actions.open();
+  const from = s.log.length;
+  await s.actions.send('make it shorter');
+  assert.deepStrictEqual(steps(s.log, from), ['ask', 'hidePanel', 'press', 'paste', 'bubble']);
+  assert.deepStrictEqual(entries(s.log, 'helper').slice(-2), [
+    ['helper', 'press', { pid: 7, key: 'z', modifiers: ['cmd'] }],
+    ['helper', 'paste', { pid: 7, text: 'Leave tomorrow?', selectAll: false }],
+  ]);
+  assert.deepStrictEqual(chatOf(s).filter((item) => item.type === 'buddy').map((item) => [item.text, item.buttons]), [
+    ['Dear Sir, I need leave tomorrow.', ['copy']], // it is out of the app: nothing to undo
+    ['Leave tomorrow?', ['undo', 'copy']],
+  ]);
+});
+
+test('"make it shorter" after Buddy replaced the whole box: the box is simply replaced again', async () => {
+  const s = setup({
+    replies: { captureSelection: (args) => ({ text: args.selectAll ? 'me go home tomorow' : '' }) },
+    answers: [
+      reply({ kind: 'box' }),
+      reply({ kind: 'fix', text: 'I am going home tomorrow.', doIt: true }),
+      reply({ text: 'Home tomorrow.', doIt: true, again: true }),
+    ],
+  });
+  await s.actions.open();
+  await s.actions.send('fix my english');
+  await s.actions.open();
+  const from = s.log.length;
+  await s.actions.send('shorter');
+  assert.deepStrictEqual(steps(s.log, from), ['ask', 'hidePanel', 'paste', 'bubble'], 'no ⌘Z');
+  assert.deepStrictEqual(entries(s.log, 'helper').at(-1), ['helper', 'paste', { pid: 7, text: 'Home tomorrow.', selectAll: true }]);
+  assert.deepStrictEqual(chatOf(s).filter((item) => item.type === 'buddy').map((item) => item.buttons), [['copy'], ['undo', 'copy']]);
+});
+
+test('"make it shorter" after Buddy replaced the selection: undone, then put in the same way; when it cannot go in, it is copied', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const s = setup({
+    replies: {
+      captureSelection: { text: 'me go home' },
+      paste: (args) => { if (args.text === 'Home.') throw failure('not_frontmost'); return {}; },
+    },
+    answers: [reply({ kind: 'fix', text: 'I am going home.', doIt: true }), reply({ text: 'Home.', doIt: true, again: true })],
+  });
+  await s.actions.open();
+  await s.actions.send('');
+  await s.actions.open();
+  s.actions.dropSelection();
+  await s.actions.send('shorter');
+  assert.deepStrictEqual(entries(s.log, 'helper').slice(-2), [
+    ['helper', 'press', { pid: 7, key: 'z', modifiers: ['cmd'] }],
+    ['helper', 'paste', { pid: 7, text: 'Home.', selectAll: false }],
+  ]);
+  assert.strictEqual(s.clipboard.text, 'Home.');
+  assert.deepStrictEqual(chatOf(s).filter((item) => item.type === 'buddy').map((item) => item.buttons), [
+    ['copy'], // undone
+    ['replace', 'copy'], // over the selection the undo brought back, as the first one went in
+  ]);
+});
+
+test('a new version goes in as a second text when it is not one, or when the last one can no longer be undone', async () => {
+  const cases = {
+    'not a new version': [false, () => {}],
+    'the last one was undone': [true, (s) => s.actions.act(2, 'undo')],
+  };
+  for (const [what, [again, between]] of Object.entries(cases)) {
+    const s = setup({ answers: [reply({ text: 'Dear Sir,', doIt: true }), reply({ text: 'Yours,', doIt: true, again })] });
+    await s.actions.open();
+    await s.actions.send('write it here');
+    await s.actions.open();
+    await between(s);
+    await s.actions.open(); // an Undo leaves the panel hidden
+    const from = s.log.length;
+    await s.actions.send('and sign it');
+    assert.deepStrictEqual(steps(s.log, from), ['ask', 'hidePanel', 'paste', 'bubble'], what);
+    assert.deepStrictEqual(chatOf(s)[1].buttons, again ? ['copy'] : ['undo', 'copy'], what);
+  }
+});
+
+test('a new version whose ⌘Z cannot be pressed is copied, and the last text keeps its Undo', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const s = setup({
+    replies: { press: failure('not_frontmost') },
+    answers: [reply({ text: 'Dear Sir,', doIt: true }), reply({ text: 'Sir,', doIt: true, again: true })],
+  });
+  await s.actions.open();
+  await s.actions.send('write it here');
+  await s.actions.open();
+  await s.actions.send('shorter');
+  assert.deepStrictEqual(entries(s.log, 'helper').filter((e) => e[1] === 'paste').map((e) => e[2].text), ['Dear Sir,'], 'no second copy');
+  assert.strictEqual(s.clipboard.text, 'Sir,');
+  assert.deepStrictEqual(chatOf(s).filter((item) => item.type === 'buddy').map((item) => item.buttons), [['undo', 'copy'], ['insert', 'copy']]);
+});
+
 test('with no app known, "do it" copies the text', async () => {
   const s = setup({ lastApp: null, answers: [reply({ text: 'Dear Sir,', doIt: true })] });
   await s.actions.open();

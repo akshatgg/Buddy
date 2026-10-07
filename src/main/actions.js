@@ -91,11 +91,13 @@ function createActions({
   /**
    * A chat: the app it is about, its items, the selection the next message uses, the notice about that selection, and
    * whether the buddy is waiting for the AI (`busy`, which the page shows) or still working on a message at all
-   * (`talking`, until what the answer says is done). `live` once the panel has opened on it; `resumed` when an opening
-   * came back to it.
+   * (`talking`, until what the answer says is done). `lastPut` is the buddy item Buddy last put in the app, which a new
+   * version of it replaces. `live` once the panel has opened on it; `resumed` when an opening came back to it.
    */
   function newChat(app = null) {
-    return { app, items: [], nextId: 1, selection: '', notice: '', busy: false, talking: false, resumed: false, live: false };
+    return {
+      app, items: [], nextId: 1, selection: '', notice: '', busy: false, talking: false, lastPut: null, resumed: false, live: false,
+    };
   }
 
   /**
@@ -365,6 +367,9 @@ function createActions({
     return finish(c, reply, from);
   }
 
+  /** The buttons of a buddy's text that can go in the app: Insert at the cursor, Replace over a selection or the box. */
+  const putButtons = (mode) => [mode === 'insert' ? 'insert' : 'replace', 'copy'];
+
   /**
    * Read the whole text box the person is writing in: the panel steps aside for it and comes back on the same chat.
    * Answers the text, or null when Buddy stopped short (the reason is in the chat).
@@ -405,14 +410,25 @@ function createActions({
     if (from === 'box') mode = 'replaceAll';
     else if (from === 'selection' && reply.kind === 'fix') mode = 'replace';
     let buttons = [];
-    if (reply.text) buttons = reply.kind === 'answer' ? ['copy'] : [mode === 'insert' ? 'insert' : 'replace', 'copy'];
+    if (reply.text) buttons = reply.kind === 'answer' ? ['copy'] : putButtons(mode);
     const item = add(c, { type: 'buddy', say: reply.say, text: reply.text, notes: reply.notes, buttons, mode });
     if (reply.kind !== 'answer' && reply.doIt && reply.text) {
       // In its turn, after any other step in the app; and only while the person is still with Buddy. When they hid the
       // panel meanwhile, the answer waits in the chat, with Insert (or Replace) and Copy, and the bubble says so.
       await inApp(async () => {
-        if (present(c)) await put(c, item, { askToSend: reply.send });
-        else if (c === chat) ui.bubble(READY);
+        if (!present(c)) {
+          if (c === chat) ui.bubble(READY);
+          return;
+        }
+        // A new version of the text Buddy put in the app ("make it shorter") takes that text's place, the same way it
+        // went in, while it can still be undone there. (A chat is about one app, so that text is in this one.)
+        const last = c.lastPut;
+        const over = reply.again === true && last?.buttons.includes('undo') ? last : null;
+        if (over) {
+          item.mode = over.mode;
+          item.buttons = putButtons(over.mode);
+        }
+        await put(c, item, { over, askToSend: reply.send });
       }, { wait: true });
     }
     return true;
@@ -482,15 +498,22 @@ function createActions({
    * Put a buddy's text in the app the panel was opened from: at the cursor, over the selection, or over the whole box,
    * as the item's mode says. The panel steps aside for it and stays hidden: the bubble says what happened. When the
    * text cannot go in (no app, a password field, a terminal, an app run as administrator), it goes on the clipboard
-   * instead. Answers whether it went in. `askToSend`: the message asked to send it too, so once it is in, the panel
-   * comes back with "Send it?" (Buddy never sends by itself).
+   * instead. Answers whether it went in. `over`: the earlier text of Buddy's in the app that this one replaces.
+   * `askToSend`: the message asked to send it too, so once it is in, the panel comes back with "Send it?" (Buddy never
+   * sends by itself).
    */
-  async function put(c, item, { askToSend = false } = {}) {
+  async function put(c, item, { over = null, askToSend = false } = {}) {
     const { app } = c;
     return stepAside(async () => {
       let pasted = false;
       if (app) {
         try {
+          // A whole box is simply pasted over again. Anything else is undone first, which brings back what was there
+          // before it: the selection it replaced (the paste goes over it again), or the cursor where it went in.
+          if (over && over.mode !== 'replaceAll') {
+            await helper.call('press', { pid: app.pid, ...undoKey(system) });
+            dropUndo(over);
+          }
           await helper.call('paste', { pid: app.pid, text: item.text, selectAll: item.mode === 'replaceAll' });
           pasted = true;
         } catch (err) {
@@ -499,7 +522,9 @@ function createActions({
         }
       }
       if (pasted) {
+        if (over) dropUndo(over); // its text is not in the app any more
         item.buttons = ['undo', 'copy'];
+        c.lastPut = item;
         add(c, { type: 'event', text: `✅ Put it in ${appName(c)}`, buttons: [] });
         ui.bubble(`Done! It's in ${appName(c)} ✅`);
       } else {

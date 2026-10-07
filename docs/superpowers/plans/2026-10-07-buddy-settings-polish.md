@@ -18,7 +18,7 @@
 - The Settings page's content-security policy allows images from `'self'` and `https://*.googleusercontent.com` only; nothing else is widened.
 - Messages a person sees are plain words. Logs carry codes and kinds only.
 - Light and dark mode both work (`prefers-color-scheme`); the accent stays the existing teal (`#1f7a70` light, `#5ad1c3` dark).
-- No `Co-Authored-By` line and no mention of Claude as an author in any commit (the user's rule).
+- No `Co-Authored-By` line and no AI-assistant credit in any commit (the owner's rule).
 - `npm test` must stay lint-clean and green; `npm run test:e2e` must pass (it opens Buddy's windows briefly, fakes only).
 
 ## File map

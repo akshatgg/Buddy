@@ -92,10 +92,10 @@ class HeadView(context: Context) : FrameLayout(context) {
     private val frame = Choreographer.FrameCallback { tick(it) }
 
     init {
-        // A view that is tapped becomes focusable on its own, and the head would then take focus when the screen
-        // leaves touch mode (a keyboard is typed on) or the head shows again, and draw Android's focus highlight: a
-        // grey square over its whole window. The head is only ever touched, so it never takes focus. A view set not
-        // focusable stays so when a click listener makes it clickable later.
+        // A view with a click listener becomes focusable on its own, and the head would then take focus when the
+        // screen leaves touch mode (a keyboard is typed on) or the head shows again, and draw Android's focus
+        // highlight: a grey square over its whole window. The head is only ever touched, so it never takes focus. A
+        // view set not focusable stays so when a click listener is added later.
         isFocusable = false
         defaultFocusHighlightEnabled = false
     }
@@ -121,8 +121,8 @@ class HeadView(context: Context) : FrameLayout(context) {
             return false
         } catch (e: LinkageError) {
             // Filament could not start on this phone (its graphics, or its native code): the first try fails with an
-            // ExceptionInInitializerError, and every later one with a NoClassDefFoundError. The buddy then has no
-            // head, rather than crashing each time Android starts it again.
+            // ExceptionInInitializerError or an UnsatisfiedLinkError, and every later one with a NoClassDefFoundError.
+            // The buddy then has no head, rather than crashing each time Android starts it again.
             Log.w("Buddy", "head: no 3D engine (${e.javaClass.simpleName})")
             return false
         }

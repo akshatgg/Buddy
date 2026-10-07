@@ -145,6 +145,24 @@ module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
     assert.strictEqual(ctx.cloud.recordings.length, 3, 'nothing more was sent');
     await page('window.e2eHidden = null; delete document.hidden');
 
+    // A microphone that cannot be opened (refused here): listening by itself as the panel opens, the panel says
+    // nothing, or it would at every opening; on 🎤 it says what to do.
+    await ctx.actions.dismiss();
+    await page(`window.e2eTries = 0;
+      navigator.mediaDevices.getUserMedia = async () => { window.e2eTries += 1; throw new DOMException('refused', 'NotAllowedError'); };
+      true`);
+    await openPanel();
+    await waitFor(() => page('window.e2eTries === 1'), 'the panel to try the microphone as it opens');
+    await delay(300);
+    assert.strictEqual(await redLine(), '', 'started by itself, it says nothing');
+    await page("document.getElementById('mic').click()");
+    const allow = process.platform === 'win32'
+      ? 'Turn on the microphone in Windows Settings → Privacy & security → Microphone.'
+      : 'Allow the microphone in Settings.';
+    await waitFor(async () => (await redLine()) === allow, 'on 🎤, what to do');
+    assert.strictEqual(await page("!document.getElementById('send-error-settings').hidden"), true, 'with Open Settings');
+    await page('delete navigator.mediaDevices.getUserMedia');
+
     // Voice off for this person, then "Listen when the panel opens" off: opened again, the panel does not listen.
     for (const [what, change, undo] of [
       ['voice off', () => { ctx.cloud.free = { ...free, voiceOn: false }; }, () => { ctx.cloud.free = { ...free, voiceOn: true }; }],

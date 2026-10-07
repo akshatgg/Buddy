@@ -267,9 +267,28 @@ test('on the Mac, once macOS has asked, it is not asked again: the switch is in 
   }
 });
 
-test('Windows does not ask per app: the microphone is unknown, and nothing is asked', async () => {
+test("on Windows the microphone stands as Windows' privacy switch says, and nothing is asked: Windows does not ask per app", async () => {
+  for (const [status, mic] of [
+    ['granted', 'granted'], ['denied', 'denied'], ['restricted', 'restricted'],
+    // Windows that cannot say how it stands: the page tries, and recording shows it.
+    ['not-determined', 'unknown'], ['unknown', 'unknown'], ['sure', 'unknown'], [undefined, 'unknown'],
+  ]) {
+    const system = preferences(status, 'granted');
+    const microphone = createMicrophone({ systemPreferences: system, platform: 'win32' });
+    assert.strictEqual(microphone.status(), mic, String(status));
+    assert.strictEqual(await microphone.ask(), mic, String(status));
+    assert.deepStrictEqual(system.log, [['status', 'microphone'], ['status', 'microphone']], 'Windows is never asked');
+  }
+});
+
+test('a Windows that fails to say how the microphone stands: unknown', () => {
+  const system = { getMediaAccessStatus() { throw new Error('not on this Windows'); } };
+  assert.strictEqual(createMicrophone({ systemPreferences: system, platform: 'win32' }).status(), 'unknown');
+});
+
+test('elsewhere the microphone is unknown, and nothing is asked', async () => {
   const system = preferences('granted');
-  const microphone = createMicrophone({ systemPreferences: system, platform: 'win32' });
+  const microphone = createMicrophone({ systemPreferences: system, platform: 'linux' });
   assert.strictEqual(microphone.status(), 'unknown');
   assert.strictEqual(await microphone.ask(), 'unknown');
   assert.deepStrictEqual(system.log, []);

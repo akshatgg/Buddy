@@ -129,7 +129,8 @@ const globalShortcut = {
 };
 
 // Nor may it ask this Mac about the microphone: the app gets this in place of Electron's systemPreferences. A check sets
-// what macOS says (`microphone`), and what it says once it has asked the person (`answer`). Windows never asks it.
+// what macOS (or Windows' privacy switch) says (`microphone`), and what macOS says once it has asked the person
+// (`answer`). Windows is never asked.
 const systemPreferences = {
   microphone: 'granted',
   answer: 'granted',

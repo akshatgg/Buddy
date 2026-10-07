@@ -337,6 +337,13 @@ async function startListening({ byItself = false } = {}) {
   const system = state.voice.system;
   const turn = ++voiceTurn;
   const stillMine = () => turn === voiceTurn; // not stopped meanwhile (typing, 🎤, Esc, the panel hidden or opened again)
+  // Listening by itself, a microphone that cannot be used says nothing: the person did not ask for it, and would see
+  // the same red line at every opening. On 🎤 it says what to do.
+  const problem = (message, settingsCode = '') => (byItself ? setVoice('idle') : voiceProblem(message, settingsCode));
+  const micFix = (err) => {
+    const fix = micProblem(err, system);
+    return problem(fix.message, fix.settings ? MIC_SETTINGS : '');
+  };
   showSendError('');
   setVoice('starting');
 
@@ -347,8 +354,9 @@ async function startListening({ byItself = false } = {}) {
     access = { ok: false, error: { message: VOICE_WORDS.micFailed } };
   }
   if (!stillMine()) return;
-  if (!access.ok) return voiceProblem(access.error.message);
-  if (['denied', 'restricted', 'not-determined'].includes(access.mic)) return voiceProblem(VOICE_WORDS.allowMac, MIC_SETTINGS);
+  if (!access.ok) return problem(access.error.message);
+  // Refused by the system (macOS, or Windows' privacy switch): said as a refused recording would be.
+  if (['denied', 'restricted', 'not-determined'].includes(access.mic)) return micFix({ name: 'NotAllowedError' });
 
   let stream;
   try {
@@ -357,10 +365,7 @@ async function startListening({ byItself = false } = {}) {
     });
   } catch (err) {
     if (!stillMine()) return;
-    // Opening by itself on a computer with no microphone says nothing: there is nothing to fix.
-    if (byItself && err?.name === 'NotFoundError') return setVoice('idle');
-    const problem = micProblem(err, system);
-    return voiceProblem(problem.message, problem.settings ? MIC_SETTINGS : '');
+    return micFix(err);
   }
   if (!stillMine()) {
     for (const track of stream.getTracks()) track.stop(); // it came too late: let go of it at once
@@ -369,7 +374,7 @@ async function startListening({ byItself = false } = {}) {
   try {
     listen = record(stream);
   } catch {
-    return voiceProblem(VOICE_WORDS.micFailed);
+    return problem(VOICE_WORDS.micFailed);
   }
   setVoice('listening');
   window.buddy.listening(true);

@@ -15,14 +15,32 @@ const { sectionFor } = require('../actions');
 const WINDOWS_MICROPHONE = 'ms-settings:privacy-microphone';
 
 /**
+ * How Windows' privacy switch for the microphone stands, as V2 has it. Windows never asks per app, so an answer that
+ * it has not decided, or none at all (an older Windows, a failure), is 'unknown': the page then tries, and recording
+ * shows whether it may.
+ */
+function windowsMicrophone(systemPreferences) {
+  let status;
+  try {
+    status = systemPreferences.getMediaAccessStatus('microphone');
+  } catch {
+    return 'unknown';
+  }
+  return ['granted', 'denied', 'restricted'].includes(status) ? status : 'unknown';
+}
+
+/**
  * The microphone as the system sees it. On the Mac, whether macOS lets Buddy use it: 'granted', 'denied',
- * 'not-determined' (never asked yet) or 'restricted' (the Mac's owner decides). Windows does not ask per app, so there
- * it is 'unknown': a microphone switched off in Windows Settings shows only when the page tries to record.
- * `systemPreferences` is Electron's (the end-to-end test passes its own).
+ * 'not-determined' (never asked yet) or 'restricted' (the Mac's owner decides). On Windows, its privacy switch for
+ * desktop apps ('granted', 'denied', 'restricted' or 'unknown'), which it never asks the person about per app.
+ * Elsewhere 'unknown'. `systemPreferences` is Electron's (the end-to-end test passes its own).
  */
 function createMicrophone({ systemPreferences, platform = process.platform }) {
   const mac = platform === 'darwin';
-  const status = () => (mac ? systemPreferences.getMediaAccessStatus('microphone') : 'unknown');
+  const status = () => {
+    if (mac) return systemPreferences.getMediaAccessStatus('microphone');
+    return platform === 'win32' ? windowsMicrophone(systemPreferences) : 'unknown';
+  };
   return {
     status,
     /**

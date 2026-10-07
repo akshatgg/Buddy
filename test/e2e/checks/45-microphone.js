@@ -12,9 +12,9 @@ module.exports = async function microphoneCheck(ctx, { assert, delay, waitFor })
 
   try {
     // The state's voice: on only for someone signed in whose server can write down what is said, the "listen when
-    // the panel opens" switch, and the microphone as macOS says (Windows does not ask per app).
+    // the panel opens" switch, and the microphone as macOS (or Windows' privacy switch) says.
     const voice = () => ctx.actions.state().voice;
-    assert.deepStrictEqual(voice(), { on: false, auto: true, mic: mac ? 'granted' : 'unknown', system: process.platform },
+    assert.deepStrictEqual(voice(), { on: false, auto: true, mic: 'granted', system: process.platform },
       'the fake server has no Groq key');
     ctx.cloud.free = { ...free, voiceOn: true };
     assert.strictEqual(voice().on, true);
@@ -28,7 +28,7 @@ module.exports = async function microphoneCheck(ctx, { assert, delay, waitFor })
     assert.strictEqual(voice().auto, false);
     ctx.store.set({ listenOnOpen: true });
     prefs.microphone = 'denied';
-    assert.strictEqual(voice().mic, mac ? 'denied' : 'unknown');
+    assert.strictEqual(voice().mic, 'denied');
     prefs.microphone = 'granted';
     ctx.cloud.free = free;
 

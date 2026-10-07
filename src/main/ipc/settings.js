@@ -207,7 +207,7 @@ function registerSettingsIpc({
   });
 
   // Accessibility and Screen Recording are the helper's to ask about; the microphone is Buddy's own (Electron asks
-  // macOS), and is 'unknown' on Windows, which does not ask per app.
+  // macOS). Windows does not ask per app, and has no Permissions section.
   handle('permissions:get', async () => ({ ...(await helper.call('permissions')), microphone: microphone.status() }));
 
   handle('permissions:request', async (which) => {

@@ -20,8 +20,8 @@ Static files in `web/public/`, served by the existing Vercel project `buddy-serv
 `outputDirectory: "public"`). The API routes under `/api/` do not change. Plain HTML, CSS and one small
 script, no build step, no framework (the Loupe and Souffleur sites work the same way).
 
-Address: a free `*.vercel.app` name added to the project (first choice `buddyapp.vercel.app`, else the closest
-free one). The app's `serverUrl` (`cloud.json`) stays as it is.
+Address: `https://buddywrites.vercel.app`, a free `*.vercel.app` name added to the project (`buddyapp`,
+`buddy-app`, `getbuddy` and `trybuddy` were taken). The app's `serverUrl` (`cloud.json`) stays as it is.
 
 ```
 web/public/
@@ -74,13 +74,15 @@ The Mac button links to
 
     https://github.com/akshatgg/Buddy/releases/latest/download/Buddy-arm64.dmg
 
-so it always gives the newest release with no change to the site. For that the DMG gets a fixed name:
-`electron-builder.config.js` sets `dmg.artifactName: 'Buddy-${arch}.${ext}'`, and the README follows.
+so it always gives the newest release with no change to the site. The fixed names (`Buddy-arm64.dmg`,
+`Buddy-Setup-x64.exe`) are produced by the release pipeline (its own spec: tag → GitHub Actions → release,
+and Update now in the app).
 
 `site.js` (all optional):
 
 - Reads `https://api.github.com/repos/akshatgg/Buddy/releases/latest`. When the release has
-  `Buddy-arm64.dmg`, it shows "Version 0.1.0 · 120 MB" under the button. When the release has no such file,
+  `Buddy-arm64.dmg`, it shows "Version 0.1.0 · 120 MB" under the button. When it also has
+  `Buddy-Setup-x64.exe`, the Windows tile's "Coming soon" becomes a **Download for Windows** button. When the release has no such file,
   the Mac buttons lead to the releases page instead. When the request fails, nothing changes.
 - On Windows: a note under the hero buttons, "Buddy for Windows is coming soon. Right now it runs on Mac."
   On an iPhone, iPad or Android phone: "Buddy is for Mac right now. iPhone and Android are coming soon."
@@ -110,7 +112,8 @@ pages; `site.webmanifest` with the cream theme colour.
 `test/site.test.js` (runs in `npm test`):
 
 - every local `src`/`href` in both pages points to a file that exists in `web/public/`;
-- the Mac download link's file name equals the name `electron-builder.config.js` produces for arm64;
+- every Mac download link is the `releases/latest/download/Buddy-arm64.dmg` URL;
+- `site.js`'s helpers: release facts (version, sizes, missing installers) and the device note;
 - no `{{` placeholders are left, and every `<img>` has an `alt`.
 
 ESLint covers `web/public/site.js` as a browser script. Before going live: the pages are checked at 1280,
@@ -118,6 +121,5 @@ ESLint covers `web/public/site.js` as a browser script. Before going live: the p
 
 ## 8. Going live (each step asks the owner first)
 
-1. `npm run dist:mac` → `release/Buddy-arm64.dmg`.
-2. `gh release create v0.1.0` with the DMG.
-3. `npm run deploy:server` (deploys site and server together), then add the `*.vercel.app` name.
+1. The first release comes from the release pipeline (tag `v0.1.0` or higher).
+2. `npm run deploy:server` (deploys site and server together), then add the `*.vercel.app` name.

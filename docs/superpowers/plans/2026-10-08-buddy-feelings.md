@@ -212,6 +212,8 @@ done). Their lines move to Task 6.
     bow included) and its width (the ears included), in CSS pixels; call it on load and resize only (the keyframes
     read its values, so calling it every frame restyles running animations). `index.html` must link `symbols.css`:
     one-shot symbols remove themselves on `animationend`. `play()` starts together with the mood.
+  - The `z` letters exist only about 4.9 s of every 12 s cycle (then a rest with nothing animating): an e2e check
+    must look right after `asleep` starts.
   - The sleep countdown's own moods (`drowsy`, `asleep`, `wake`) must not count as use: only the app's moods and the
     buddy's IPC poke it (Task 6 wires the app's moods). Its `onMood` runs from a timer, so it must not throw when the
     buddy window is gone (buddy-window's `mood()` already ignores a missing window; keep it that way).

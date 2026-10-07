@@ -55,10 +55,11 @@ input = {
 
 ```js
 { kind: 'write'|'fix'|'answer'|'box'|'screen'|'send', say: string, text: string, notes: string[] /* ≤5 */,
-  doIt: boolean, send: boolean, remember: string[] /* ≤5, each ≤200 */ }
+  doIt: boolean, send: boolean, remember: string[] /* ≤5, each ≤200 */,
+  again: boolean /* a new version of the last text Buddy wrote or fixed in this chat ("make it shorter") */ }
 ```
 Code fences are stripped. Not JSON, or an unknown kind → `{ kind: 'write', say: '', text: raw, notes: [], doIt: false,
-send: false, remember: [] }`. `kind: 'answer'` with an empty `text` takes `say` as its text (and `say` becomes '').
+send: false, remember: [], again: false }`. `kind: 'answer'` with an empty `text` takes `say` as its text (and `say` becomes '').
 
 App routes return `{ text, model, chat: parseChat(text) }` for `chat` (own key: `src/main/ai.js`; free: `src/main/cloud.js`,
 which posts every chat field). Server (`web/lib/handlers.js` `ask`): `chat` works like the other actions; when

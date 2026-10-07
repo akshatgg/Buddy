@@ -52,8 +52,10 @@ remembers what you tell it about yourself, and listens when you speak. There are
   box on a second step (≤ 8000); the last 6 chat messages (each ≤ 2000); what the buddy knows about the person (§5);
   the app's name and the person's first name; on a second step only, a screenshot.
 - The AI answers in JSON:
-  `{"kind": "write"|"fix"|"answer"|"box"|"screen"|"send", "say": "…", "text": "…", "notes": ["…"], "doIt": true|false, "send": true|false, "remember": ["…"]}`
+  `{"kind": "write"|"fix"|"answer"|"box"|"screen"|"send", "say": "…", "text": "…", "notes": ["…"], "doIt": true|false, "send": true|false, "remember": ["…"], "again": true|false}`
   - `send`: with `write` or `fix`, true when the person also asked to send it ("reply and send it").
+  - `again`: with `write` or `fix`, true when the text is a new version of the last text the buddy wrote or fixed in
+    this chat ("make it shorter"). When that text was put in the app and still has Undo, the new one takes its place.
   - `say`: one or two short friendly sentences to the person, in the language and script they wrote in (Hinglish gets
     Hinglish, in English letters).
   - `text`: the written or fixed text, in English unless the person asked for another language. Never invented facts:

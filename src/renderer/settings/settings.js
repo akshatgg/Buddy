@@ -2,7 +2,7 @@
 /* global mountAiForm, renderBuddyGrid, ShortcutKeys, updateView */
 
 const $ = (id) => document.getElementById(id);
-const SECTIONS = ['buddy', 'shortcut', 'ai', 'permissions', 'general'];
+const SECTIONS = ['buddy', 'shortcut', 'ai', 'memory', 'permissions', 'general'];
 // Windows asks for no permissions, and writes its shortcuts with Ctrl, Alt and Shift (shortcut-keys.js).
 const onWindows = () => snap?.platform === 'win32';
 const shortcutKeys = () => ShortcutKeys.forPlatform(snap?.platform);
@@ -24,6 +24,8 @@ let recording = false; // the Shortcut box is waiting for keys
 let blurEnd = null; // the timer that ends a recording BLUR_GRACE_MS after the window loses the focus
 let loadFailed = false; // the settings could not be loaded: the page only says why
 let updates = null; // Update now's state (src/main/updates.js), as the main process last sent it
+let memory = { facts: [], learning: true }; // Settings → Memory: what Buddy knows (src/main/memory.js), as last sent
+let addingFact = false; // a fact typed into Memory is on its way: Return pressed again does not send it twice
 const FADE_AFTER_MS = 3000; // how long a success ("Saved ✓") is shown before it fades
 // A recording does not end the moment the window loses the focus, but this long after: with "Press 🌐 key to: Show Emoji
 // & Symbols", tapping fn opens the emoji picker, which takes the focus before the tap has reached the page.
@@ -76,6 +78,7 @@ function showSection(name) {
   if (loadFailed) return; // there is no section to show
   const section = SECTIONS.includes(name) && !(name === 'permissions' && onWindows()) ? name : 'buddy';
   if (recording && section !== 'shortcut') stopRecording();
+  if (section !== 'memory') closeForgetAll(); // "Forget all N things?" is not left waiting in a section out of sight
   for (const s of SECTIONS) {
     $(`section-${s}`).hidden = s !== section;
     const item = document.querySelector(`.nav-item[data-section="${s}"]`);
@@ -260,6 +263,127 @@ async function updateCall(call) {
   showStatus('update-status', r.ok ? '' : r.error.message, r.ok ? 'muted' : 'error');
   return r;
 }
+
+// ---- memory ----
+
+/** Settings → Memory: the facts, each with ✕, or the line that says there are none yet, and the learning switch. */
+function renderMemory({ facts = memory.facts, learning = memory.learning }) {
+  memory = { facts, learning };
+  // The list is made again on every change: the ✕ that had the keyboard focus gets it back, if its fact is still there.
+  const focused = document.activeElement?.closest('#memory-list li')?.dataset.id;
+  $('memory-list').replaceChildren(...facts.map(factRow));
+  if (focused) [...$('memory-list').children].find((li) => li.dataset.id === focused)?.querySelector('button').focus();
+  $('memory-list').hidden = !facts.length;
+  $('memory-empty').hidden = facts.length > 0;
+  $('memory-learning').checked = learning;
+  $('memory-forget').disabled = !facts.length;
+  if (!facts.length) closeForgetAll();
+  else $('memory-confirm-text').textContent = forgetAllQuestion(facts.length);
+}
+
+function factRow(fact) {
+  const text = Object.assign(document.createElement('p'), { className: 'fact', textContent: fact.text });
+  const forget = Object.assign(document.createElement('button'), {
+    type: 'button', className: 'btn quiet small forget', textContent: '✕', title: 'Forget this',
+  });
+  forget.setAttribute('aria-label', `Forget: ${fact.text}`);
+  forget.addEventListener('click', () => forgetFact(fact.id));
+  const row = Object.assign(document.createElement('li'), { className: 'group-row' });
+  row.dataset.id = fact.id;
+  row.append(text, forget);
+  return row;
+}
+
+const forgetAllQuestion = (n) => (n === 1 ? 'Forget the 1 thing?' : `Forget all ${n} things?`);
+
+async function forgetFact(id) {
+  const rows = [...$('memory-list').children];
+  const at = rows.findIndex((li) => li.dataset.id === id);
+  const r = await window.buddy.removeMemory(id);
+  if (!r.ok) {
+    showStatus('memory-status', r.error.message, 'error');
+    return;
+  }
+  showStatus('memory-status', '');
+  renderMemory(r);
+  // The ✕ that was clicked is gone: the keyboard focus moves to the ✕ now in its place, or to the add box.
+  const left = $('memory-list').querySelectorAll('.forget');
+  (left[Math.min(at, left.length - 1)] || $('memory-new')).focus();
+}
+
+async function addFact() {
+  const text = $('memory-new').value.trim();
+  if (!text || addingFact) return;
+  addingFact = true;
+  let r;
+  try {
+    r = await window.buddy.addMemory(text);
+  } finally {
+    addingFact = false;
+  }
+  if (!r.ok) {
+    showStatus('memory-status', r.error.message, 'error');
+    return;
+  }
+  $('memory-new').value = '';
+  $('memory-add').disabled = true;
+  renderMemory(r);
+  showStatus('memory-status', 'Saved ✓', 'good');
+}
+
+/** Forget everything asks once more, in its own place: "Forget all N things?" with Cancel and Forget. */
+function askForgetAll() {
+  $('memory-confirm-text').textContent = forgetAllQuestion(memory.facts.length);
+  $('memory-forget').hidden = true;
+  $('memory-confirm').hidden = false;
+  showStatus('memory-forget-status', '');
+  $('memory-confirm-cancel').focus();
+}
+
+function closeForgetAll({ focus = false } = {}) {
+  if ($('memory-confirm').hidden) return;
+  $('memory-confirm').hidden = true;
+  $('memory-forget').hidden = false;
+  if (focus) $('memory-forget').focus();
+}
+
+$('memory-new').addEventListener('input', () => { $('memory-add').disabled = !$('memory-new').value.trim(); });
+$('memory-new').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.isComposing) return; // Return belongs to the input method while it is composing
+  e.preventDefault();
+  addFact();
+});
+$('memory-add').addEventListener('click', () => addFact());
+$('memory-learning').addEventListener('change', async () => {
+  const want = $('memory-learning').checked;
+  const r = await window.buddy.setMemoryLearning(want);
+  if (r.ok) {
+    renderMemory(r);
+    showStatus('memory-learning-status', 'Saved ✓', 'good');
+  } else {
+    $('memory-learning').checked = !want;
+    showStatus('memory-learning-status', r.error.message, 'error');
+  }
+});
+$('memory-forget').addEventListener('click', () => askForgetAll());
+$('memory-confirm-cancel').addEventListener('click', () => closeForgetAll({ focus: true }));
+$('memory-confirm').addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  e.preventDefault();
+  closeForgetAll({ focus: true });
+});
+$('memory-confirm-forget').addEventListener('click', async () => {
+  const r = await window.buddy.clearMemory();
+  if (!r.ok) {
+    showStatus('memory-forget-status', r.error.message, 'error');
+    return;
+  }
+  renderMemory(r); // nothing left: the question closes
+  showStatus('memory-forget-status', 'Buddy forgot everything.', 'good');
+  $('memory-new').focus();
+});
+// A chat taught Buddy something, or Undo took it back: the list follows.
+window.buddy.onMemory((facts) => renderMemory({ facts }));
 
 // ---- the shortcut recorder ----
 
@@ -452,6 +576,9 @@ window.addEventListener('focus', async () => {
     return;
   }
   render();
+  const known = await window.buddy.memory();
+  if (known.ok) renderMemory(known);
+  else showStatus('memory-status', known.error.message, 'error');
   const update = await window.buddy.updates();
   if (update.ok) renderUpdates(update);
   await renderPermissions();

@@ -9,6 +9,7 @@ const { SIZES } = require('../geometry');
 const { guarded } = require('./result');
 const { aiSection } = require('../free-state');
 const { isTap, tapKeys } = require('../../renderer/common/shortcut-keys');
+const { cleanFact } = require('../../../shared/memory-rules');
 
 const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models'];
 const NAME_MAX = 24;
@@ -20,6 +21,8 @@ const PERMISSION_PANES = {
 // line that came along with the paste make the request fail, and that failure looks just
 // like having no internet.
 const KEY_SHAPE = /^[\x21-\x7e]+$/;
+// Settings → Memory refuses a fact in the same words, whether it is empty, too long or a secret (memory-rules.js).
+const CANT_SAVE = "I can't save that. Passwords, PINs, OTPs and long numbers are never saved.";
 
 /** True when `name` is one of the object's own names. "constructor" and "__proto__" are not. */
 const isOwnName = (object, name) => typeof name === 'string' && Object.hasOwn(object, name);
@@ -51,6 +54,8 @@ function checkPermission(which) {
 function registerSettingsIpc({
   ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch, onFinishOnboarding, shell,
   account, cloud, canSignIn, version,
+  // What Buddy knows about the person (memory.js), for Settings → Memory.
+  memory,
   // True on the first launch after an update (updates.js firstLaunchOfNewVersion): the Permissions page says why macOS
   // asks again.
   justUpdated = false,
@@ -88,6 +93,9 @@ function registerSettingsIpc({
     delete settings.positions;
     delete settings.lastDisplayId;
     delete settings.cloud; // the server's free-mode settings: the page gets what they mean, in `ai`
+    // What Buddy knows about the person, and its switch: the Memory section asks for them (settings:memory).
+    delete settings.memory;
+    delete settings.learnFromChats;
     const user = account.user();
     return {
       settings,
@@ -281,6 +289,36 @@ function registerSettingsIpc({
   handleSettings('shortcut:resume', () => {
     resumeShortcut();
     return {};
+  });
+
+  // Settings → Memory: the facts, oldest first, and "Learn about me from chats". Every call answers both, so the page
+  // shows what is kept now. For the Settings window only: the Welcome has no Memory section.
+  const memoryState = () => ({ facts: memory.list(), learning: memory.learning() });
+
+  handleSettings('settings:memory', () => memoryState());
+
+  handleSettings('settings:memory-add', (text) => {
+    const fact = cleanFact(text);
+    if (!fact) throw new BuddyError('bad_request', CANT_SAVE);
+    // Typed in by the person, so it is kept with learning off too.
+    if (!memory.add(fact, { source: 'settings' })) throw new BuddyError('bad_request', 'I already know that.');
+    return memoryState();
+  });
+
+  handleSettings('settings:memory-remove', (id) => {
+    memory.remove(id); // gone already (forgotten in another way meanwhile): the answer shows what is left
+    return memoryState();
+  });
+
+  handleSettings('settings:memory-clear', () => {
+    memory.clear();
+    return memoryState();
+  });
+
+  handleSettings('settings:memory-learning', (on) => {
+    if (typeof on !== 'boolean') throw new BuddyError('bad_request', 'Learning from chats must be on or off.');
+    memory.setLearning(on);
+    return memoryState();
   });
 
   return { resumeShortcut };

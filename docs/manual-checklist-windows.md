@@ -2,16 +2,24 @@
 
 What only a person can check on Windows. Run it on a Windows 10 or 11 PC, first with
 `npm start`, then with the installed Buddy (`npm run dist:win`, then run
-`release\Buddy Setup <version>.exe`). Use a real API key. The Mac's list is
-`docs/manual-checklist.md`.
+`release\Buddy Setup <version>.exe`). Use a real API key. A valid `cloud.json` must be at the
+repository root before either (copy it from the Mac). The Mac's list is `docs/manual-checklist.md`.
 
 ## Start
 - [ ] `npm install`, then `npm run build:native` and `node tools/helper-smoke.js`: ping, frontmost and permissions answer, and clicking between apps names each one.
 - [ ] `npm test` and `npm run test:e2e` pass, and the e2e ends by itself.
-- [ ] `npm start` builds `bin\buddy-helper.exe` and opens the Welcome window: pick a buddy → Next → Connect an AI (no permission steps) → Start my buddy.
+- [ ] `npm start` builds `bin\buddy-helper.exe` and opens the Welcome window: Sign in with Google → pick a buddy → Next → Connect an AI, unless free mode covers you (no permission steps) → Start my buddy.
 - [ ] The buddy floats at the bottom right, above the taskbar. No black console window opened. Buddy is not in the taskbar and not in Alt+Tab.
 - [ ] The buddy's icon is in the corner of the taskbar (maybe under the ^ arrow); a left click and a right click both open its menu.
-- [ ] Settings has no Permissions card, says "comes back every time your PC starts", and has no menu bar.
+- [ ] Settings has no Permissions in its sidebar, General says "comes back every time your PC starts", and there is no menu bar.
+
+## Sign-in, free mode and Settings
+- [ ] Sign in with Google opens your default browser (Chrome or Edge); after you pick the account the browser says you can go back, and Buddy shows your name, email and photo. Windows Firewall did not ask anything.
+- [ ] Settings → Sign out, then Sign in again: it works, and quitting and starting Buddy keeps you signed in.
+- [ ] As the admin (akshatg9636@gmail.com): the tray menu has Admin…; it opens the Admin window, switches free mode and lists the users. Esc or the ✕ closes it.
+- [ ] Free mode on: the AI section says no key is needed, and Write works without a key of your own.
+- [ ] Settings → Shortcut: click the box and press Ctrl+Shift+B → it shows Ctrl Shift B and works from any app. Ctrl+C says it is used by every app; Win+B and Ctrl+Alt+B are refused, saying why; Reset to Ctrl Shift Space puts the default back.
+- [ ] Settings → General shows the version; the sidebar's sections move with ↑ and ↓ and skip Permissions.
 
 ## Paste-back
 - [ ] Notepad: select `i am go to market yesterday`, click the buddy → Fix tab shows it → Fix → Replace replaces it.

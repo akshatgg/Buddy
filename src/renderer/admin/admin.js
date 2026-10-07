@@ -82,7 +82,9 @@ function lastActiveText(iso) {
 
 /** One row of the users table, with the button that blocks or unblocks that person. */
 function userRow(user) {
-  const button = el('button', { type: 'button', textContent: user.blocked ? 'Unblock' : 'Block' });
+  const button = el('button', {
+    type: 'button', className: 'btn small', textContent: user.blocked ? 'Unblock' : 'Block',
+  });
   const row = el('tr', { className: user.blocked ? 'blocked' : '' }, [
     el('td', { textContent: user.name || '—' }),
     el('td', { textContent: user.email }),

@@ -7,51 +7,75 @@
   <link rel="stylesheet" href="../common/base.css">
   <link rel="stylesheet" href="admin.css">
 </head>
-<body>
+<body class="admin">
 <main>
-  <p id="load-error" class="error" hidden></p>
+  <p id="load-error" class="note error" hidden></p>
 
-  <!-- Both cards stay hidden until the settings have arrived (admin.js shows them): nothing in them works without those. -->
-  <section id="free-card" class="card" hidden>
+  <!-- Both sections stay hidden until the settings have arrived (admin.js shows them): nothing works without those. -->
+  <section id="free-card" class="section" hidden>
     <h2>Free AI</h2>
-    <p class="muted">These switches apply to every Buddy app and every user, the next time they open Buddy.</p>
-    <p id="no-keys" class="error" hidden>No AI key is set on the server yet, so free mode can't be turned on.</p>
+    <p class="lead">These switches apply to every Buddy app and every user, the next time they open Buddy.</p>
+    <p id="no-keys" class="note error" hidden>No AI key is set on the server yet, so free mode can't be turned on.</p>
 
-    <label class="check"><input id="enabled" type="checkbox"> Free mode: everyone uses your AI key</label>
-
-    <label class="check"><input type="radio" name="limitMode" value="unlimited"> Unlimited</label>
-    <label class="check"><input type="radio" name="limitMode" value="daily"> Daily limit</label>
-    <div id="daily-row" class="row indent">
-      <input id="daily" type="number" min="1" max="10000" step="1">
-      <span class="muted grow">free requests per user per day</span>
+    <div class="group">
+      <div class="group-row">
+        <div class="grow">
+          <label for="enabled" class="row-title">Free mode</label>
+          <p id="enabled-note" class="muted small">Everyone uses your AI key.</p>
+        </div>
+        <input id="enabled" class="switch" type="checkbox" role="switch" aria-describedby="enabled-note">
+      </div>
+      <div class="group-row">
+        <span id="limit-label" class="row-title">Free requests</span>
+        <div class="segmented" role="radiogroup" aria-labelledby="limit-label">
+          <label><input type="radio" name="limitMode" value="unlimited"><span>Unlimited</span></label>
+          <label><input type="radio" name="limitMode" value="daily"><span>Daily limit</span></label>
+        </div>
+      </div>
+      <div id="daily-row" class="group-row indent">
+        <label for="daily" class="row-title">Requests per user per day</label>
+        <input id="daily" type="number" min="1" max="10000" step="1">
+      </div>
+      <div id="own-row" class="group-row indent">
+        <div class="grow">
+          <label for="own" class="row-title">Also let users add their own key</label>
+          <p id="own-note" class="muted small">Used after their free requests run out.</p>
+        </div>
+        <input id="own" class="switch" type="checkbox" role="switch" aria-describedby="own-note">
+      </div>
+      <div class="group-row">
+        <label for="provider" class="row-title">AI provider</label>
+        <select id="provider"></select>
+      </div>
+      <div class="group-row">
+        <div class="grow">
+          <label for="model" class="row-title">Model</label>
+          <p id="models-note" class="muted"></p>
+        </div>
+        <select id="model"></select>
+        <button id="models-refresh" class="btn" type="button">Refresh</button>
+      </div>
     </div>
-    <label id="own-row" class="check indent"><input id="own" type="checkbox"> Also let users add their own key (used after their free requests run out)</label>
 
-    <label for="provider">AI provider</label>
-    <select id="provider"></select>
-    <label for="model">Model</label>
-    <div class="row">
-      <select id="model"></select>
-      <button id="models-refresh" type="button">Refresh</button>
-    </div>
-    <p id="models-note" class="muted"></p>
-
-    <div class="row">
-      <button id="save" class="primary" type="button">Save</button>
+    <div class="row actions">
       <span id="save-status" class="muted"></span>
+      <button id="save" class="btn primary" type="button">Save</button>
     </div>
   </section>
 
-  <section id="users-card" class="card" hidden>
-    <div class="row">
-      <h2 class="grow">Users</h2>
-      <button id="users-refresh" type="button">Refresh</button>
+  <section id="users-card" class="section" hidden>
+    <div class="row section-head">
+      <h2>Users</h2>
+      <p id="users-status" class="muted"></p>
+      <span class="spacer"></span>
+      <button id="users-refresh" class="btn" type="button">Refresh</button>
     </div>
-    <p id="users-status" class="muted"></p>
-    <table>
-      <thead><tr><th>Name</th><th>Email</th><th class="num">Today</th><th>Last active</th><th></th></tr></thead>
-      <tbody id="users"></tbody>
-    </table>
+    <div class="group users">
+      <table>
+        <thead><tr><th>Name</th><th>Email</th><th class="num">Today</th><th>Last active</th><th></th></tr></thead>
+        <tbody id="users"></tbody>
+      </table>
+    </div>
   </section>
 </main>
 <script src="admin.js"></script>

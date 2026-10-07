@@ -40,6 +40,17 @@ function setSteps() {
   step = Math.min(step, steps.length - 1);
 }
 
+/** The steps as dots above the card: the ones done, the one shown (longer, in the accent) and the ones to come. */
+function renderSteps(n) {
+  $('steps').replaceChildren(...steps.map((name, i) => {
+    const li = document.createElement('li');
+    li.className = i < n ? 'done' : (i === n ? 'current' : '');
+    li.setAttribute('aria-label', `Step ${i + 1} of ${steps.length}`);
+    if (i === n) li.setAttribute('aria-current', 'step');
+    return li;
+  }));
+}
+
 function go(n) {
   step = n;
   for (const name of ALL_STEPS) $(`step-${name}`).hidden = name !== steps[n];
@@ -49,6 +60,7 @@ function go(n) {
   // brought back to it when the window gets the focus again, and finishing is refused to anyone signed out.
   $('next').disabled = steps[n] === 'signin' && !snap?.account.signedIn;
   if (steps[n] === 'accessibility' || steps[n] === 'screen') checkPermissions();
+  renderSteps(n);
 }
 
 function renderSignIn() {

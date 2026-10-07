@@ -42,3 +42,10 @@ test('a damaged file falls back to the defaults', (t) => {
   fs.writeFileSync(file, '{not json');
   assert.deepStrictEqual(createStore({ file }).all(), DEFAULTS);
 });
+
+test('updates are checked for unless turned off, and no version has run yet', (t) => {
+  const store = createStore({ file: tmpFile(t) });
+  assert.strictEqual(store.get('checkForUpdates'), true);
+  assert.strictEqual(store.get('lastUpdateCheck'), 0);
+  assert.strictEqual(store.get('lastRunVersion'), null);
+});

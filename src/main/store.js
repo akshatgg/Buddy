@@ -21,6 +21,9 @@ const DEFAULTS = Object.freeze({
   positions: {},
   lastDisplayId: null,
   cloud: null, // this person's free-mode settings as the server last gave them (src/main/cloud.js)
+  checkForUpdates: true, // look for a newer Buddy on GitHub at launch and every hour (src/main/updates.js)
+  lastUpdateCheck: 0, // when that last worked, in ms
+  lastRunVersion: null, // the version that ran last, so the first launch after an update is known
 });
 
 function writeAtomic(file, text, mode) {

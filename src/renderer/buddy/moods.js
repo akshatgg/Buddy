@@ -145,9 +145,17 @@ function ease(x) {
   return k * k * (3 - 2 * k);
 }
 
+/**
+ * Up from 0 to 1 and back down to 0, an S-curve each way. `rising` and `falling` are how far along the way up and
+ * the way down it is, from 0 (not started) to 1 (done), as ease takes it.
+ */
+function upThenDown(rising, falling) {
+  return Math.min(ease(rising), 1 - ease(falling));
+}
+
 /** Up from 0 to 1 over the first `rise` seconds, and back to 0 over the last `fall` seconds of `length`. */
 function fadeInOut(since, length, rise, fall) {
-  return Math.min(ease(since / rise), 1 - ease((since - length + fall) / fall));
+  return upThenDown(since / rise, (since - length + fall) / fall);
 }
 
 /** A swell from `start` to `end`: 0 at both, 1 halfway, and gentle at both ends (a sine squared). */
@@ -168,6 +176,11 @@ function shake(since, start, end, hz) {
   return Math.sin(2 * Math.PI * hz * (since - start)) * (1 - ease((since - start) / (end - start)));
 }
 
+/** The body squashed by `k` (0.05: 5 % shorter; below 0: taller), and wider by half as much with it. */
+function bodyScale(k) {
+  return { scaleY: 1 - k, scaleX: 1 + k / 2 };
+}
+
 // Drowsy gives way to asleep, and asleep to wake. Each starts where the one before it
 // leaves the head, the glow and the float, so the hand-overs do not jump.
 const DROWSY_PITCH = 0.08;
@@ -182,10 +195,10 @@ const SLEEP_FLOAT = 0.5;
 const SAD = 2.5;
 function sad(since) {
   const down = fadeInOut(since, SAD, 0.6, 0.5);
-  const sigh = 0.012 * hump(since, 0.1, 0.7) - 0.03 * hump(since, 0.5, 1.5);
+  const sink = 0.03 * hump(since, 0.5, 1.5) - 0.012 * hump(since, 0.1, 0.7);
   return {
     ...REST, sad: fadeInOut(since, SAD, 0.4, 0.3), headPitch: 0.18 * down, armL: -0.1 * down, armR: -0.1 * down,
-    scaleY: 1 + sigh, scaleX: 1 - sigh / 2, effect: 'drop', done: since >= SAD,
+    ...bodyScale(sink), effect: 'drop', done: since >= SAD,
   };
 }
 
@@ -195,8 +208,8 @@ function sad(since) {
 // Then the half-shut eyes, the head a little down and a slower float, until it falls asleep
 // or is used.
 function drowsy(since) {
-  const yawn = Math.min(ease(since / 0.5), 1 - ease((since - 1.05) / 0.5));
-  const arms = 0.5 * Math.min(ease((since - 0.1) / 0.5), 1 - ease((since - 1) / 0.5));
+  const yawn = upThenDown(since / 0.5, (since - 1.05) / 0.5);
+  const arms = 0.5 * upThenDown((since - 0.1) / 0.5, (since - 1) / 0.5);
   const shut = since >= 0.2 && since < 1.4;
   return {
     ...REST,
@@ -232,7 +245,7 @@ function asleep(since) {
 // back from all of it by the end.
 const WAKE = 1.2;
 function wake(since) {
-  const stretch = Math.min(ease((since - 0.25) / 0.28), 1 - ease((since - 0.59) / 0.26));
+  const stretch = upThenDown((since - 0.25) / 0.28, (since - 0.59) / 0.26);
   const shut = since < 0.25;
   return {
     ...REST,
@@ -262,7 +275,7 @@ function love(since) {
 // it off while the swirls fade. Stars circle above.
 const DIZZY = 2;
 function dizzy(since) {
-  const circling = Math.min(ease(since / 0.3), 1 - ease((since - 1.25) / 0.35));
+  const circling = upThenDown(since / 0.3, (since - 1.25) / 0.35);
   return {
     ...REST,
     swirl: fadeInOut(since, DIZZY, 0.2, 0.3),
@@ -280,10 +293,10 @@ const CELEBRATE = 1.6;
 function celebrate(since) {
   const air = arc(since, 0.12, 0.6);
   const squash = 0.05 * hump(since, 0, 0.16) + 0.08 * hump(since, 0.6, 0.95) - 0.04 * air;
-  const arms = 2.1 * Math.min(ease(since / 0.3), 1 - ease((since - 0.7) / 0.9));
+  const arms = 2.1 * upThenDown(since / 0.3, (since - 0.7) / 0.9);
   return {
     ...REST,
-    lift: 0.15 * air, scaleY: 1 - squash, scaleX: 1 + squash / 2,
+    lift: 0.15 * air, ...bodyScale(squash),
     smile: fadeInOut(since, CELEBRATE, 0.15, 0.25), armL: arms, armR: arms,
     effect: 'sparkles', done: since >= CELEBRATE,
   };
@@ -343,7 +356,7 @@ const HOP = 0.8;
 function hop(since) {
   const air = arc(since, 0.15, 0.5);
   const squash = 0.05 * hump(since, 0, 0.2) + 0.06 * hump(since, 0.5, 0.75) - 0.03 * air;
-  return { ...REST, lift: 0.06 * air, scaleY: 1 - squash, scaleX: 1 + squash / 2, done: since >= HOP };
+  return { ...REST, lift: 0.06 * air, ...bodyScale(squash), done: since >= HOP };
 }
 
 /**

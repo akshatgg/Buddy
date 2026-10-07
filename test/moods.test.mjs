@@ -216,7 +216,7 @@ test('sleepy, which the app sends for "no internet", is now the sad pose, and en
   assert.strictEqual(moodPose('sleepy', 2.5).done, true);
 });
 
-test('thinking tilts the head; unknown moods rest', () => {
+test('thinking tilts the head; an unknown mood keeps it level', () => {
   assert.ok(moodPose('thinking', 0).headTilt > 0.1);
   assert.strictEqual(moodPose('confused', 1).headTilt, 0);
 });
@@ -547,19 +547,57 @@ test('the hop fidget: one small hop, with a squash', () => {
   assert.ok(Math.min(...times(0, 0.8).map((t) => moodPose('hop', t).scaleY)) < 0.96, 'with a squash');
 });
 
-test('no mood jumps: from one moment to the next, nothing moves by more than a little', () => {
-  // Shut eyes are all or nothing, so where the eyes shut or open the eye shapes may change at once.
-  const step = 1 / 240;
+// The only snaps that are meant. Shut eyes are all or nothing (eyesClosed is a boolean), so the eyes cannot fade into
+// them: where drowsy shuts its eyes (0.2 s) and where it opens them again (1.4 s), and where wake opens its eyes
+// (0.25 s), the half-shut eyes (`half`) are swapped for them, or back, in one step. Nothing else may snap.
+const EYE_SWITCHES = [
+  { mood: 'drowsy', field: 'half', at: 0.2 },
+  { mood: 'drowsy', field: 'half', at: 1.4 },
+  { mood: 'wake', field: 'half', at: 0.25 },
+];
+
+/**
+ * For each numeric field of a mood, the biggest change between two samples `gap` seconds apart, from 0 to `end`, and
+ * the time it ends at. The step over a meant snap (EYE_SWITCHES) is left out.
+ */
+function biggestSteps(name, end, gap) {
+  const meant = EYE_SWITCHES.filter((s) => s.mood === name);
+  const biggest = Object.fromEntries(NUMBERS.map((field) => [field, { step: 0, at: 0 }]));
+  const count = Math.round(end / gap);
+  let before = moodPose(name, 0, { level: 0.5 });
+  for (let i = 1; i <= count; i += 1) {
+    const at = i * gap;
+    const pose = moodPose(name, at, { level: 0.5 });
+    for (const field of NUMBERS) {
+      if (meant.some((s) => s.field === field && (i - 1) * gap < s.at && s.at <= at)) continue;
+      const step = Math.abs(pose[field] - before[field]);
+      if (step > biggest[field].step) biggest[field] = { step, at };
+    }
+    before = pose;
+  }
+  return biggest;
+}
+
+test('no mood snaps: in every field, the step between two samples shrinks with the time between them', () => {
+  // A smooth curve moves in proportion to the time between two samples: samples 100 times closer move 100 times less.
+  // A snap does not shrink: the two samples around it still see all of it, however close they are. So a hundred times
+  // the biggest step at 1/24000 s may not be more than about twice the biggest step at 1/240 s. That catches a snap in
+  // any field, however little the field moves: a limit on the step cannot (scaleX, scaleY, lift and headPitch never
+  // move by 0.1 in one step).
+  const SHRINK = 100; // how many times closer together the fine samples are than the coarse ones
+  for (const { mood, at } of EYE_SWITCHES) {
+    assert.notStrictEqual(moodPose(mood, at - 0.001).eyesClosed, moodPose(mood, at).eyesClosed, `${mood}: no switch of the eyes at ${at} s`);
+  }
   for (const name of MOODS) {
-    let before = moodPose(name, 0, { level: 0.5 });
-    for (let i = 1; i * step <= (LENGTHS[name] ?? 10); i += 1) {
-      const pose = moodPose(name, i * step, { level: 0.5 });
-      const fields = pose.eyesClosed === before.eyesClosed ? NUMBERS : NUMBERS.filter((field) => !SHAPES.includes(field));
-      for (const field of fields) {
-        const jump = Math.abs(pose[field] - before[field]);
-        assert.ok(jump <= 0.1, `${name} at ${(i * step).toFixed(3)} s: ${field} jumps by ${jump}`);
-      }
-      before = pose;
+    const end = LENGTHS[name] ?? 5; // the others last until another mood replaces them
+    const coarse = biggestSteps(name, end, 1 / 240);
+    const fine = biggestSteps(name, end, 1 / (240 * SHRINK));
+    for (const field of NUMBERS) {
+      // The 1e-9 is for rounding, where a field hardly moves at all.
+      assert.ok(
+        fine[field].step * SHRINK <= 2 * coarse[field].step + 1e-9,
+        `${name}: ${field} snaps at about ${fine[field].at.toFixed(3)} s: it moves by ${fine[field].step} in 1/24000 s and ${coarse[field].step} in 1/240 s, not ${SHRINK} times less`,
+      );
     }
   }
 });

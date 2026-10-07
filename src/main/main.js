@@ -162,10 +162,10 @@ async function start(options = {}) {
     // Buddy's server writes down what was said into the panel, for someone signed in.
     cloud,
     signedIn: () => account.isSignedIn(),
-    // Whether the panel may listen: voice is on for this person (the server has a Groq key), "Listen when the panel
-    // opens" (Settings → General), and the microphone.
+    // Whether the panel may listen: voice is on for this person (the server has a Groq key, and they are not blocked),
+    // "Listen when the panel opens" (Settings → General), and the microphone.
     voice: () => ({
-      on: account.isSignedIn() && cloud.last()?.voiceOn === true,
+      on: account.isSignedIn() && cloud.last()?.voiceOn === true && cloud.last()?.blocked !== true,
       auto: store.get('listenOnOpen') === true,
       mic: microphone.status(),
     }),

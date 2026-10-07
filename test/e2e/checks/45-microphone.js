@@ -21,6 +21,9 @@ module.exports = async function microphoneCheck(ctx, { assert, delay, waitFor })
     ctx.account.signedIn = false; // only for this line: nobody is told, so nothing else changes
     assert.strictEqual(voice().on, false, 'nobody signed in');
     ctx.account.signedIn = true;
+    ctx.cloud.free = { ...free, voiceOn: true, blocked: true };
+    assert.strictEqual(voice().on, false, 'a blocked person');
+    ctx.cloud.free = { ...free, voiceOn: true };
     ctx.store.set({ listenOnOpen: false });
     assert.strictEqual(voice().auto, false);
     ctx.store.set({ listenOnOpen: true });

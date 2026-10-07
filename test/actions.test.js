@@ -105,12 +105,16 @@ function setup({
       return { text: JSON.stringify(chat), model: 'test-model', chat };
     }),
   };
-  // Buddy's server, for what was said in a recording (cloud.transcribe).
+  // Buddy's server, for what was said in a recording (cloud.transcribe), and this person's settings fetched again.
   const cloud = {
     async transcribe(recording, options) {
       log.push(['transcribe', recording, options]);
       if (heard instanceof Error) throw heard;
       return heard;
+    },
+    async settings(options) {
+      log.push(['settings', options]);
+      return {};
     },
   };
   const timers = [];
@@ -146,6 +150,7 @@ function setup({
     actions,
     helper,
     log,
+    cloud,
     clipboard,
     memory,
     timers,
@@ -1666,6 +1671,30 @@ test("the server's refusals come through in its own words", async () => {
   const busy = failure('voice_busy', 'Voice is busy right now. Type, or try again in a minute.');
   const s = setup({ heard: busy });
   await assert.rejects(s.actions.transcribe('QUJD', 'audio/webm'), busy);
+});
+
+test('voice off on the server, or a blocked person: their settings are fetched again, so that the next state turns voice off', async () => {
+  for (const err of [failure('voice_off', "Voice isn't set up yet."), failure('blocked', 'Your free access is paused.')]) {
+    const s = setup({ heard: err });
+    await assert.rejects(s.actions.transcribe('QUJD', 'audio/webm'), err);
+    assert.deepStrictEqual(entries(s.log, 'settings'), [['settings', { force: true }]], err.code);
+    assert.deepStrictEqual(s.log.map((e) => e[0]), ['transcribe', 'settings'], 'fetched before the page hears why');
+  }
+  // Any other refusal leaves them alone.
+  for (const err of [failure('voice_busy', 'Voice is busy right now.'), failure('upstream', "I couldn't write down what you said."), failure('network', 'No internet.')]) {
+    const s = setup({ heard: err });
+    await assert.rejects(s.actions.transcribe('QUJD', 'audio/webm'), err);
+    assert.deepStrictEqual(entries(s.log, 'settings'), [], err.code);
+  }
+});
+
+test('settings that cannot be fetched then are logged by their kind, and the page still hears why voice is off', async (t) => {
+  const warned = t.mock.method(console, 'warn', () => {});
+  const off = failure('voice_off', "Voice isn't set up yet.");
+  const s = setup({ heard: off });
+  s.cloud.settings = async () => { throw failure('network', "Couldn't reach Buddy's server. Check your internet."); };
+  await assert.rejects(s.actions.transcribe('QUJD', 'audio/webm'), off);
+  assert.deepStrictEqual(warned.mock.calls.map((c) => c.arguments), [['[buddy] could not fetch the free settings:', 'network']]);
 });
 
 test('a recording that is not text, or has no kind, is refused before it goes anywhere', async () => {

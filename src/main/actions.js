@@ -39,6 +39,8 @@ const EXPLAINED = new Set(['secure_field', 'elevated', 'keys_held']);
 // not ask per app (Windows).
 const MIC = ['granted', 'denied', 'not-determined', 'restricted', 'unknown'];
 const NOT_RECORDED = "That recording didn't come through. Try again.";
+// The server's answers to a recording that mean voice is off for this person now: no Groq key, or they are blocked.
+const VOICE_TURNED_OFF = ['voice_off', 'blocked'];
 
 // Errors whose fix is in Settings, which come with an "Open Settings" button: no key yet, a key that was refused, an
 // account out of credit, a model that cannot be used (not there for this key, or it cannot read screenshots), today's
@@ -72,8 +74,8 @@ const SHOWN = {
  * (platform.js, process.platform); tests pass either system's. Besides showing and hiding the panel, `ui` has
  * panelState(state), which hands the page a changed state; panelHiddenAt(), when the panel last hid (for the 5-minute
  * resume); openSettings(section); bubble(text); mood(name); and on Windows panelWindowHandle(): the panel window's
- * handle, for the helper to bring it forward. `cloud` is Buddy's server (cloud.js), which writes down what was said,
- * and `signedIn()` whether someone is. `voice()` gives { on, auto, mic }: voice is on for this person, the panel
+ * handle, for the helper to bring it forward. `cloud` is Buddy's server (cloud.js), which writes down what was said
+ * and has this person's settings, and `signedIn()` whether someone is. `voice()` gives { on, auto, mic }: voice is on for this person, the panel
  * listens as it opens, and how the microphone stands.
  */
 function createActions({
@@ -683,13 +685,21 @@ function createActions({
    * What the person said into the panel, written down by Buddy's server: { text }, '' when it heard no words. `audio`
    * is the recording as base64 and `mime` its kind. The chat and the buddy are left alone: the page puts the words in
    * the box and sends them. The deadline is longer than the server's own wait for Groq, so that the server's answer
-   * ("I couldn't write down what you said") comes first.
+   * ("I couldn't write down what you said") comes first. When the server says voice is off, or that the person is
+   * blocked, their settings are fetched again first, so that the next state turns voice off; the page still hears why.
    */
   async function transcribe(audio, mime) {
     if (!signedIn()) throw new BuddyError('signed_out', 'Sign in to use Buddy.');
     if (typeof audio !== 'string' || !audio || typeof mime !== 'string') throw new BuddyError('bad_request', NOT_RECORDED);
-    const text = await cloud.transcribe({ audio, mime }, { signal: AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS) });
-    return { text };
+    try {
+      const text = await cloud.transcribe({ audio, mime }, { signal: AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS) });
+      return { text };
+    } catch (err) {
+      if (VOICE_TURNED_OFF.includes(err.code)) {
+        await cloud.settings({ force: true }).catch((e) => console.warn('[buddy] could not fetch the free settings:', e.code || e.name));
+      }
+      throw err;
+    }
   }
 
   return { open, toggle, dismiss, send, act, dropSelection, transcribe, state: () => stateOf(chat) };

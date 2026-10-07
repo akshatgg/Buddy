@@ -79,9 +79,10 @@ function createTapDetector({ tapMs = TAP_MS } = {}) {
     const key = Object.hasOwn(MODIFIERS, event.keyCode) ? MODIFIERS[event.keyCode] : null;
     // Every report has all the flags, so it also says which keys are up. A release that was never heard (macOS switches
     // the key tap off while a password field takes the keys, or when it is slow) must not leave a key held for good:
-    // no tap would be heard again. The key this report is about is dealt with below.
-    for (const other of held) {
-      if (other !== key && isUp(other, flags)) held.delete(other);
+    // no tap would be heard again. The key this report is about is left to the code below, since its own report says
+    // whether it went down or up.
+    for (const heldKey of held) {
+      if (heldKey !== key && isUp(heldKey, flags)) held.delete(heldKey);
     }
     if (event.keyCode === CAPS_LOCK) return capsLock(flags, t);
     if (!key) return null;

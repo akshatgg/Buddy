@@ -339,8 +339,9 @@ func screenshot(_ args: [String: Any]) throws -> [String: Any] {
 
 // While Buddy's shortcut is a modifier key tapped on its own (or Settings is recording one), a listen-only event tap
 // reports each change of the modifier keys: which key, and all the flags, whose low bits say which side is down, with
-// the time in milliseconds since the Mac started. A key or a click is reported only while a modifier is held, as
-// "other": it spoils a tap, and which key it was is none of Buddy's business. The tap lives on the main run loop.
+// the time in milliseconds since the Mac started. A key or a click is reported, as "other", while a modifier flag is on
+// (macOS also puts the fn flag on the arrow and function keys, so those count too): it spoils a tap, and which key it
+// was is none of Buddy's business. The tap lives on the main run loop.
 
 var keyTap: CFMachPort?
 var keyTapSource: CFRunLoopSource?

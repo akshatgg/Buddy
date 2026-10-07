@@ -151,6 +151,10 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
 
 .compose { display: flex; flex: none; flex-direction: column; gap: 6px; padding: 8px 10px 10px; border-top: 1px solid var(--line-soft); }
 .compose .note { padding: 6px 10px; font-size: 12px; line-height: 1.4; }
+/* What did not go through, with Open Settings when the fix is there (the microphone). */
+.compose .note.error { display: flex; align-items: center; gap: 8px; }
+.compose .note.error p { margin: 0; }
+.compose .note.error:has(.btn:not([hidden])) { padding-block: 4px; padding-right: 4px; }
 
 /* The text selected in the app, which the next message is about; ✕ leaves it out. */
 .selection {
@@ -166,7 +170,7 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
 .selection .icon { width: 22px; height: 22px; }
 .selection .cross::before, .selection .cross::after { width: 10px; margin-left: -5px; }
 
-/* The box: it grows with the words up to four lines, then scrolls; the round send button sits inside it. */
+/* The box: it grows with the words up to four lines, then scrolls; 🎤 and the round send button sit inside it. */
 .box {
   display: flex;
   align-items: flex-end;
@@ -216,3 +220,67 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
   background: currentColor;
   clip-path: path("M6 0L12 6L10.6 7.4L7 3.8V13H5V3.8L1.4 7.4L0 6Z");
 }
+
+/* ---- Voice: 🎤 in the box; while it listens, it glows and pulses and three small bars follow the voice ---- */
+
+.mic {
+  position: relative;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+}
+.mic:hover { background: var(--hover); color: var(--fg); }
+.mic:active { background: var(--track); }
+/* A microphone, cut out like the gear and the arrow. */
+.mic::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 16px;
+  margin: -8px 0 0 -6px;
+  background: currentColor;
+  clip-path: path("M6 0A2.5 2.5 0 0 1 8.5 2.5V7.5A2.5 2.5 0 0 1 3.5 7.5V2.5A2.5 2.5 0 0 1 6 0ZM0.8 7H2.2A3.8 3.8 0 0 0 9.8 7H11.2A5.2 5.2 0 0 1 0.8 7ZM5.3 12H6.7V14.6H5.3ZM3 14.4H9V16H3Z");
+}
+.mic[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); box-shadow: 0 0 0 3px var(--accent-soft); }
+.box.listening { border-color: var(--accent); }
+.box.listening .mic::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  animation: pulse 1.4s ease-out infinite;
+}
+@keyframes pulse {
+  from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 50%, transparent); }
+  to { box-shadow: 0 0 0 9px transparent; }
+}
+
+/* The bars: panel.js sets each one's height (--level, 0.2 to 1) from how loud the voice is. While what was said is
+   written down, a small spinner stands in their place. */
+.bars { display: flex; flex: none; align-items: center; justify-content: center; gap: 2px; width: 15px; height: 26px; }
+.bars i {
+  width: 3px;
+  height: 16px;
+  border-radius: 1.5px;
+  background: var(--accent);
+  transform: scaleY(var(--level, 0.2));
+  transition: transform 100ms linear;
+}
+.box.writing .bars i { display: none; }
+.box.writing .bars::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--track);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.box textarea:disabled { opacity: 1; color: var(--muted); }

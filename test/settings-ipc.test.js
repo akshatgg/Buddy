@@ -6,6 +6,7 @@ const { BuddyError } = require('../shared/errors');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
 const { DEFAULTS } = require('../src/main/store');
 const { createShortcut } = require('../src/main/shortcut');
+const { tapKeys } = require('../src/renderer/common/shortcut-keys');
 const { chooseModel, registerSettingsIpc } = require('../src/main/ipc/settings');
 
 test('keeps the model the user picked when the key can use it', () => {
@@ -101,6 +102,20 @@ function setup({
       return free;
     },
   };
+  // Stands in for key-watch.js: `log` is 'start' and 'stop', in order; `recorder` is where taps go while recording.
+  const keyWatch = {
+    log: [],
+    recorder: null,
+    startRecording(onTap) {
+      this.recorder = onTap;
+      this.log.push('start');
+    },
+    stopRecording() {
+      this.recorder = null;
+      this.log.push('stop');
+    },
+  };
+  const sent = []; // [kind, channel, ...args] for each thing sent to a window's page
   const ipc = registerSettingsIpc({
     ipcMain: { handle: (channel, fn) => { handlers[channel] = fn; } },
     windows: {
@@ -109,6 +124,7 @@ function setup({
       owns: (webContents, kind) => (kind === undefined
         ? [SETTINGS_PAGE, WELCOME_PAGE, ADMIN_PAGE].includes(webContents)
         : webContents === { settings: SETTINGS_PAGE, onboarding: WELCOME_PAGE, admin: ADMIN_PAGE }[kind]),
+      send: (kind, channel, ...args) => sent.push([kind, channel, ...args]),
     },
     store,
     secrets,
@@ -135,6 +151,7 @@ function setup({
         current = null;
       },
     },
+    keyWatch,
     shell: { openExternal: async (url) => { opened.push(url); } },
     onFinishOnboarding: () => calls.push(['finished']),
     account,
@@ -144,7 +161,7 @@ function setup({
   });
   const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
   const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
-  return { call, callFromWelcome, handlers, store, keys, calls, opened, ipc, shortcutNow: () => current };
+  return { call, callFromWelcome, handlers, store, keys, calls, opened, ipc, shortcutNow: () => current, keyWatch, sent };
 }
 
 test('settings:get answers the settings without positions or lastDisplayId, the buddies and the providers', async () => {
@@ -970,6 +987,47 @@ test('shortcut:resume says nothing when the shortcut is back, was never let go, 
   await off.call('shortcut:resume');
   assert.deepStrictEqual(off.calls, [], 'Buddy is off: no attempt, so nothing failed');
   assert.strictEqual(warn.mock.callCount(), 0);
+});
+
+test('shortcut:pause also has a key tapped on its own heard, and sends each tap to the Settings page', async () => {
+  const s = setup({ buddyOn: true });
+  await s.call('shortcut:pause');
+  assert.deepStrictEqual(s.keyWatch.log, ['start']);
+  s.keyWatch.recorder('Tap:RightOption');
+  assert.deepStrictEqual(s.sent, [['settings', 'shortcut:tap', 'Tap:RightOption']]);
+});
+
+test('shortcut:resume, and resumeShortcut when Settings closes, stop the recording, whether Buddy is on or off', async () => {
+  const on = setup({ buddyOn: true });
+  await on.call('shortcut:pause');
+  await on.call('shortcut:resume');
+  assert.deepStrictEqual(on.keyWatch.log, ['start', 'stop']);
+  const off = setup({ buddyOn: false });
+  off.ipc.resumeShortcut();
+  assert.deepStrictEqual(off.keyWatch.log, ['stop']);
+});
+
+test('set: a single-key shortcut is saved like any other, and one that is not well formed is refused', async () => {
+  const keyWatch = {
+    shortcut: null,
+    setShortcut(value) {
+      if (value !== null && !tapKeys(value)) return false;
+      this.shortcut = value;
+      return true;
+    },
+  };
+  const globalShortcut = { register: () => true, unregister() {} };
+  const s = setup({ buddyOn: true, realShortcut: createShortcut({ globalShortcut, keyWatch, onPress() {} }) });
+  const r = await s.call('settings:set', { shortcut: 'Tap:RightOption' });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(s.store.get('shortcut'), 'Tap:RightOption');
+  assert.strictEqual(keyWatch.shortcut, 'Tap:RightOption');
+  assert.deepStrictEqual(
+    await s.call('settings:set', { shortcut: 'Tap:Bogus' }),
+    refused('shortcut_taken', '"Tap:Bogus" can\'t be used. Try another one.'),
+  );
+  assert.strictEqual(s.store.get('shortcut'), 'Tap:RightOption', 'nothing changed');
+  assert.strictEqual(keyWatch.shortcut, 'Tap:RightOption');
 });
 
 test("the snapshot carries the person's photo and the app's version", async () => {

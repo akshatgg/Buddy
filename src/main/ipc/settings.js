@@ -48,7 +48,7 @@ function checkPermission(which) {
 }
 
 function registerSettingsIpc({
-  ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, onFinishOnboarding, shell,
+  ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch, onFinishOnboarding, shell,
   account, cloud, canSignIn, version,
 }) {
   // The Settings and Welcome windows only: the Admin window has calls of its own (ipc/admin.js).
@@ -242,19 +242,23 @@ function registerSettingsIpc({
   });
 
   /**
-   * The saved shortcut, registered again while Buddy is on (after a recording, or when Settings closes). If another app
-   * took it while it was let go, that is logged (as main.js does when Buddy starts) and nothing else happens.
+   * Recording is over: taps open the panel again, and the saved shortcut is registered again while Buddy is on (after
+   * a recording, or when Settings closes). If another app took it while it was let go, that is logged (as main.js does
+   * when Buddy starts) and nothing else happens.
    */
   function resumeShortcut() {
+    keyWatch.stopRecording();
     const saved = store.get('shortcut');
     if (!power.isOn() || shortcut.current() === saved) return;
     if (!shortcut.register(saved)) console.warn('[buddy] could not take the shortcut back');
   }
 
   // While the Settings page records a new shortcut, Buddy lets go of its own, so that pressing the current one is
-  // heard by the page instead of opening the panel.
+  // heard by the page instead of opening the panel. A key tapped on its own is heard by the Mac helper instead (the
+  // page does not see fn or Caps Lock), and each tap is sent to the page.
   handleSettings('shortcut:pause', () => {
     shortcut.unregister();
+    keyWatch.startRecording((value) => windows.send('settings', 'shortcut:tap', value));
     return {};
   });
 

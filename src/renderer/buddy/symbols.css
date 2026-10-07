@@ -49,8 +49,8 @@
 
 /* "z": a staircase of letters, each rising a little, growing and fading in turn. They play
    once and are removed, a burst; symbols.js starts the next one after a long rest. Nothing
-   loops, so while they rest nothing on the page is animating, and a buddy that sleeps for
-   hours costs the battery less than one at rest. */
+   loops, so while they rest (most of each cycle) nothing on the page is animating. Z_CYCLE in
+   symbols.js sets how long a cycle is. */
 .buddy-symbol--z {
   animation-name: buddy-symbol-z;
   animation-duration: 2.5s; /* Z_LETTER in symbols.js, which counts on it; a test checks they match */

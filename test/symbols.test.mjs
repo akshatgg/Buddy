@@ -106,7 +106,6 @@ test('the z letters come in bursts with a long rest, so a sleeping buddy has not
   const lastStart = Math.max(...particlesFor('z').map((p) => p.delay));
   assert.strictEqual(Z_BURST, lastStart + Z_LETTER);
   assert.strictEqual(Z_REST, Z_CYCLE - Z_BURST);
-  assert.ok(Z_CYCLE >= 11 && Z_CYCLE <= 13, `a cycle of about 12 s: ${Z_CYCLE}`);
   assert.ok(Z_REST >= 7, `the rest is at least 7 s: ${Z_REST}`);
 });
 

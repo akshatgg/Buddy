@@ -57,8 +57,8 @@ order) on the `Face` mesh of both `.glb` files, all starting at weight 0.
   - `sad`: the open oval with its top cut by a straight lid sloping down toward the OUTER side of each eye (so it is
     mirrored: build it per side, `side * x`), hiding about the top third at the outer corner and less at the inner one.
   - `half`: the open oval with its top half hidden by a level lid (points above the lid line pulled down onto it).
-  - `sleep`: a `stroke()` along an arc curving down ("◡", the opposite of `smile`'s "∩"), the same pen width and size
-    as `smile`, sitting a little below the eye's centre.
+  - `sleep`: a thin `stroke()` (pen about `BLINK_W`) along a shallow arc curving down ("‿"), its sag about a third of
+    `smile`'s depth, sitting about where the blink line sits: calm closed eyes.
 - The mouth's vertices stay shut (on one point) in every new key, as they do in `blink` and `smile`.
 - Each `.glb` stays under 1 MB.
 - **Pictures for the owner:** add a `--faces` option (or a separate small script under `art/`) that renders, for each

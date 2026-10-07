@@ -45,7 +45,7 @@ listens while the person talks. It works the same on the Mac and on Windows.
   - `swirl`: each eye a glowing spiral stroke, about one and a half turns.
   - `sad`: each eye the open oval with its top cut by a lid that slopes down toward the outer side (mirrored per eye).
   - `half`: each eye the open oval with its top half hidden by a level lid.
-  - `sleep`: each eye a thick arc curving down, like "◡", the opposite of the happy "∩".
+  - `sleep`: each eye a thin, shallow arc curving down, like "‿": calm closed eyes, about as thin as the blink line.
 - They are made by `art/build_buddies.py` (headless Blender, `npm run build:buddies`), so both buddies stay
   reproducible. Each `.glb` stays under 1 MB. The previews in `assets/buddies/previews/` do not change.
 - **Pictures for the owner:** a render of each character's face with each eye shape, side by side, before the shapes

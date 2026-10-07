@@ -101,6 +101,8 @@ Buddy on → it starts again after the phone restarts. Buddy off → it does not
 Kotlin, Jetpack Compose, Android 8.0 (API 26) and up, target API 36. In `android/` at the repository root
 (Gradle, Kotlin DSL). Package `com.akshatgg.buddy`.
 
+Runs on 64-bit and 32-bit ARM phones, Android 8.0+, OpenGL ES 3.0 (the APK also has x86_64, for the emulator).
+
 | Part | What it does |
 |---|---|
 | `BuddyApp` | starts the parts below; one place that wires real or fake dependencies |
@@ -124,8 +126,9 @@ Gradle takes the `.glb` files from `assets/buddies/` into the APK's assets at bu
 previews and `buddies.json`, which the app does not read), so the Mac and Android share one copy.
 
 `android/cloud.properties` (not in git, like `cloud.json`) holds the server URL, the Firebase Web API key and the
-Google **web** client ID; the build fails without it. `npm run sync:android` writes it from `cloud.json` plus the
-web client ID.
+Google **web** client ID; the build fails while any of them is missing. It is made by hand: copy
+`android/cloud.example.properties` and fill it in (the first two are in `cloud.json`). `npm run sync:android` writes
+only `shared.json`.
 
 ### Firebase setup (done once, from the command line)
 
@@ -144,7 +147,7 @@ As on the Mac, with these Android-only lines:
 | Display over other apps not allowed | "Let Buddy float: allow Display over other apps." with *Open settings* |
 | The person says no to the screen picture | "Check screen needs a picture of your screen. Try again and allow it." |
 | Replace not allowed by the other app | the sheet shows Copy only |
-| No Google account on the phone | Android's own "Add an account" screen |
+| No Google account on the phone | "Add a Google account to this phone, then try again." (when Google's picker has none to offer) |
 
 ## 6. Privacy
 

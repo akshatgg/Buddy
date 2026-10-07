@@ -5,7 +5,8 @@
  * them: while such a shortcut is Buddy's, and while Settings records a new one. The reports go through a tap detector
  * (modifier-tap.js): a tap of the shortcut opens the panel, and while Settings records, every tap goes to Settings
  * instead. A helper that restarts is told again; one that cannot listen (Buddy has no Accessibility yet) is asked again
- * every 10 seconds, so that the shortcut starts working once the permission is given.
+ * every 10 seconds, so that the shortcut starts working once the permission is given. So is one that did not answer in
+ * time: it may still carry the call out later, so until it answers it is not known whether it listens.
  */
 
 const { tapKeys, tapValue } = require('../renderer/common/shortcut-keys');
@@ -17,7 +18,7 @@ function createKeyWatch({ helper, onPress, later = setTimeout, cancelLater = cle
   const detector = createTapDetector();
   let shortcut = null; // the tap that opens the panel, or null
   let recorder = null; // while Settings records a shortcut: where the taps go
-  let listening = false; // the helper was told to listen, and said yes
+  let listening = false; // does the helper listen? true or false as it said; null when a call ran out of time (not known)
   let telling = null; // the helper is being told; this settles once it has been
   let again = false; // what the helper should do changed while it was being told
   let retry = null; // the timer that asks again after the helper could not listen
@@ -34,25 +35,31 @@ function createKeyWatch({ helper, onPress, later = setTimeout, cancelLater = cle
         await helper.call('watchKeys', { on: want });
         listening = want;
         failed = false;
+        stopAskingAgain(); // it answered
       } catch (err) {
-        listening = false; // it could not listen, or could not be told to stop: either way it is not listening for Buddy
-        // Nothing wanted any more (it changed while the helper was being told): nothing to log, nothing to ask again.
-        if (want && wanted()) {
+        // A call that ran out of time may still be carried out when the helper catches up: it may listen or not, and
+        // only an answer will say. Any other failure: it could not listen, or could not be told to stop, and either way
+        // it is not listening for Buddy.
+        const unknown = err.code === 'timeout';
+        listening = unknown ? null : false;
+        // Nothing wanted any more (it changed while the helper was being told): nothing to log, and nothing to ask again
+        // unless it is not known what the helper does: then it is asked again whatever is wanted by then.
+        const stillWanted = want && wanted();
+        if (stillWanted) {
           // One line for as long as it keeps failing, not one every 10 seconds.
           if (!failed) console.warn('[buddy] could not listen for the shortcut key:', err.code);
           failed = true;
-          askAgainLater();
         }
+        if (stillWanted || unknown) askAgainLater();
       }
     } while (again);
   }
 
   /** Have the helper listen, or not, as Buddy now needs. Asked again while it is being told, it is told again after. */
   function sync() {
-    if (!wanted() && retry !== null) {
-      cancelLater(retry);
-      retry = null;
-    }
+    // With nothing wanted there is nothing to ask again later. (A helper that may still be listening is told to stop below,
+    // and asked again if that runs out of time too.)
+    if (!wanted()) stopAskingAgain();
     if (telling) {
       again = true;
       return telling;
@@ -63,6 +70,12 @@ function createKeyWatch({ helper, onPress, later = setTimeout, cancelLater = cle
       if (again) sync();
     });
     return telling;
+  }
+
+  function stopAskingAgain() {
+    if (retry === null) return;
+    cancelLater(retry);
+    retry = null;
   }
 
   function askAgainLater() {

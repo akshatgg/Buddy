@@ -173,6 +173,18 @@ test('when the helper cannot listen, it is asked again every 10 seconds until it
   assert.deepStrictEqual(s.presses, ['open']);
 });
 
+test('an answer from the helper, before the next time it would be asked, ends the asking', async (t) => {
+  const s = setup(t, { failing: 'no_accessibility' });
+  s.watch.setShortcut('Tap:RightOption');
+  await tick();
+  assert.strictEqual(s.timers.size, 1);
+  s.helper.failing = null; // the permission is given
+  s.watch.setShortcut('Tap:Fn'); // the shortcut is changed: the helper is told again at once, not in 10 seconds
+  await tick();
+  assert.deepStrictEqual(s.told(), [true, true]);
+  assert.strictEqual(s.timers.size, 0, 'it answered: nothing more to ask');
+});
+
 test('a helper that keeps failing is logged once, and again only after it has worked in between', async (t) => {
   const s = setup(t, { failing: 'no_accessibility' });
   s.watch.setShortcut('Tap:RightOption');
@@ -205,6 +217,56 @@ test('a failure that comes when nothing is wanted any more is not logged, and no
   assert.deepStrictEqual(s.told(), [true], 'and it is told nothing more');
   assert.deepStrictEqual(s.warnings, []);
   assert.strictEqual(s.timers.size, 0);
+});
+
+// A call that ran out of time may still be carried out when the helper catches up (a screenshot, or an app that does not
+// answer, can hold its queue for seconds). So after one it is not known whether the helper listens.
+test('after a call that timed out it is not known whether the helper listens: it is asked again, with what is wanted by then', async (t) => {
+  const s = setup(t, { failing: 'timeout' });
+  s.watch.setShortcut('Tap:RightOption');
+  await tick();
+  assert.deepStrictEqual([...s.timers.values()].map((timer) => timer.ms), [RETRY_MS], 'asked again later');
+  s.watch.setShortcut(null); // before that: the helper is still stuck, so this call runs out of time too
+  await tick();
+  assert.strictEqual(s.timers.size, 1, 'it is still not known, so it is still asked again, though nothing is wanted');
+  s.helper.failing = null; // it has caught up
+  s.fireTimer();
+  await tick();
+  assert.deepStrictEqual(s.told(), [true, false, false], 'on, off (stuck) and, when the retry fires, off again');
+  assert.strictEqual(s.timers.size, 0, 'it answered: nothing more to ask');
+});
+
+test('after a call that timed out, the next change is told at once, and the helper answering it ends the asking', async (t) => {
+  const s = setup(t, { failing: 'timeout' });
+  s.watch.setShortcut('Tap:RightOption');
+  await tick();
+  s.helper.failing = null; // the helper is back
+  s.watch.setShortcut(null);
+  await tick();
+  assert.deepStrictEqual(s.told(), [true, false], 'it may have carried out the first call, so it is told to stop');
+  assert.strictEqual(s.timers.size, 0, 'it answered: nothing more to ask');
+});
+
+test('a call that timed out when nothing is wanted any more is not logged, but it is asked again', async (t) => {
+  const s = setup(t, { failing: 'timeout' });
+  s.watch.setShortcut('Tap:RightOption');
+  s.watch.setShortcut(null); // before the helper has answered
+  await tick();
+  await tick();
+  assert.deepStrictEqual(s.warnings, []);
+  assert.strictEqual(s.timers.size, 1, 'the helper may still be listening, so it is asked again');
+});
+
+test('a call that timed out while a key is wanted is logged once, like any other failure to listen', async (t) => {
+  const s = setup(t, { failing: 'timeout' });
+  s.watch.setShortcut('Tap:RightOption');
+  await tick();
+  const logged = ['[buddy] could not listen for the shortcut key:', 'timeout'];
+  assert.deepStrictEqual(s.warnings, [logged]);
+  s.fireTimer();
+  await tick();
+  assert.deepStrictEqual(s.warnings, [logged], 'not again every 10 seconds');
+  assert.strictEqual(s.timers.size, 1);
 });
 
 test('asking again stops when the shortcut is no longer a single key', async (t) => {

@@ -20,6 +20,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Its own task (no affinity), kept out of Recents: the panel is a card over another app, not a screen of Buddy's. -->
+        <activity
+            android:name=".ui.panel.PanelActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Buddy.Panel"
+            android:windowSoftInputMode="adjustResize" />
         <service
             android:name=".bubble.BubbleService"
             android:exported="false"

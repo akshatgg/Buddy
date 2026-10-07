@@ -36,6 +36,7 @@ import com.akshatgg.buddy.AppGraph
 import com.akshatgg.buddy.R
 import com.akshatgg.buddy.store.AppSettings
 import com.akshatgg.buddy.ui.MainActivity
+import com.akshatgg.buddy.ui.panel.PanelActivity
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -274,8 +275,7 @@ class BubbleService : LifecycleService() {
     private fun headBounds() = Rect(headPlace.x, headPlace.y, headPlace.x + headPlace.width, headPlace.y + headPlace.height)
 
     private fun openPanel() {
-        // The panel is not made yet: until it is, a tap opens the app.
-        startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        startActivity(Intent(this, PanelActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     /**

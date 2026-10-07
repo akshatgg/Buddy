@@ -1,7 +1,8 @@
 // How the buddy is petted and shaken: detectors that the page feeds with each move of the pointer, with nothing of the
 // page in them, so they can be tested in Node. Positions are screen points and times are milliseconds (from any clock:
 // only the differences count). Both gestures are the pointer going back and forth, and are found the same way: by
-// counting its turns.
+// counting its turns. Petting is a rub from side to side, so it counts the turns of x; a shake can go any way (across,
+// up and down, on a diagonal, round and round), so it counts the turns of the pointer's stroke wherever it goes.
 
 /**
  * Finds the turns of a pointer along one axis. A turn is a change of direction after at least `step` points of travel
@@ -40,6 +41,59 @@ function createAxis(step) {
       way = 0;
       low = Infinity;
       high = -Infinity;
+    },
+  };
+}
+
+/**
+ * Finds the turns of a pointer going anywhere on the screen. It travels in strokes. A stroke starts where the pointer
+ * last turned (or was first seen) and goes on while the pointer gets further from there: the furthest it got is the
+ * stroke's tip, and the stroke's direction is from its start to its tip. A turn is the pointer coming back from the tip
+ * by `step` points along that direction; the next stroke then starts at the old tip. Along one axis it finds what
+ * `createAxis` finds; on a diagonal it counts one turn for each reversal, and round a circle two for each time round. Less
+ * than that is not a turn: going back and forth by under `step` is jitter, and a corner, where the pointer goes off to the
+ * side, is not a reversal (the stroke goes on round it).
+ */
+function createStrokes(step) {
+  let start = null; // {x, y}: where the stroke began; the first position seen, until the pointer has travelled `step` from it
+  let tip = null; // {x, y}: the furthest from the start the pointer got in this stroke; null until there is a first stroke
+  let far = 0; // how far the tip is from the start
+
+  return {
+    /** The pointer is at (x, y): is this a turn? */
+    feed(x, y) {
+      if (!start) {
+        start = { x, y };
+        return false;
+      }
+      const distance = Math.hypot(x - start.x, y - start.y);
+      if (!tip) {
+        if (distance >= step) {
+          tip = { x, y };
+          far = distance;
+        }
+        return false;
+      }
+      if (distance > far) {
+        // Further from the start: the stroke goes on, and its tip and direction with it.
+        tip = { x, y };
+        far = distance;
+        return false;
+      }
+      // How far the pointer has come back from the tip, along the stroke's direction.
+      const back = ((tip.x - x) * (tip.x - start.x) + (tip.y - y) * (tip.y - start.y)) / far;
+      if (back >= step) {
+        start = tip;
+        tip = { x, y };
+        far = Math.hypot(x - start.x, y - start.y);
+        return true;
+      }
+      return false;
+    },
+    reset() {
+      start = null;
+      tip = null;
+      far = 0;
     },
   };
 }
@@ -85,29 +139,22 @@ export function createPetDetector({ turns = 3, withinMs = 1500, step = 6 } = {})
 }
 
 /**
- * Shaking: the buddy dragged back and forth, on either axis. feed(x, y, t) takes the pointer's screen position in points
- * and the time in ms, and answers true once, when `turns` turns, on either axis and in any mix, fall within `withinMs`.
- * A move is one turn at most, whether x turns on it, or y, or both: a diagonal shake at 45 degrees turns both at once,
- * and needs as many reversals as a straight one. Two axes that turn on two moves, one after the other (a diagonal at
- * another angle, a shaky hand), are two turns. Then it counts afresh. reset() forgets what it has seen, for when a drag
- * starts.
+ * Shaking: the buddy dragged back and forth, along a line at any angle, or round and round. feed(x, y, t) takes the
+ * pointer's screen position in points and the time in ms, and answers true once, when `turns` turns fall within
+ * `withinMs` (from the first of them to the last; a turn is dated by the move that shows it). A turn is the pointer
+ * reversing its stroke, wherever the stroke goes, and it is one turn however it shows on x and y: a diagonal shake needs
+ * as many reversals as a straight one, and a circle gives two turns for each time round. Then it counts afresh. reset()
+ * forgets what it has seen, for when a drag starts.
  */
 export function createShakeDetector({ turns = 4, withinMs = 1000, step = 24 } = {}) {
-  const horizontal = createAxis(step);
-  const vertical = createAxis(step);
+  const strokes = createStrokes(step);
   const count = createTurnCount(turns, withinMs);
   return {
     feed(x, y, t) {
-      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(t)) return false;
-      // Each axis sees every move, whether the other has just turned or not: so both are fed before anything is decided.
-      const horizontalTurn = horizontal.feed(x);
-      const verticalTurn = vertical.feed(y);
-      // And a move is one turn, whichever of them turned on it, or both.
-      return (horizontalTurn || verticalTurn) && count.add(t);
+      return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(t) && strokes.feed(x, y) && count.add(t);
     },
     reset() {
-      horizontal.reset();
-      vertical.reset();
+      strokes.reset();
       count.reset();
     },
   };

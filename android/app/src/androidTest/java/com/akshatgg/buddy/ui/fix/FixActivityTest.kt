@@ -9,6 +9,7 @@ import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -60,6 +61,9 @@ class FixActivityTest {
             compose.onNodeWithText("Replace").performClick()
             assertEquals(Activity.RESULT_OK, scenario.result.resultCode)
             assertEquals("I went to the market.", scenario.result.resultData.getStringExtra(Intent.EXTRA_PROCESS_TEXT))
+            // Replace closes the sheet. Closed while it is still going, the scenario would close it again, and wait out
+            // its 45 s timeout for an activity of its own; once it is gone, there is nothing to close.
+            compose.waitUntil(5_000) { scenario.state == Lifecycle.State.DESTROYED }
         }
         assertEquals(listOf(Action.FIX to AskInput(text = "i am go to market")), asked)
     }

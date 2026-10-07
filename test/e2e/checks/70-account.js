@@ -52,6 +52,32 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
   const typeName = (text) => page(`document.getElementById('name').value = ${JSON.stringify(text)}`);
   const nameBox = () => page("document.getElementById('name').value");
   let answerFetch = null;
+  // The panel, as the shortcut opens it, and its page.
+  let panel = null;
+  const panelPage = (script) => panel.webContents.executeJavaScript(script);
+  async function openPanel() {
+    await waitFor(() => !ctx.panel.justClosed(), 'the panel to be ready to open again');
+    await ctx.actions.toggle();
+    panel = ctx.panel.window();
+    await waitFor(() => panel.isVisible(), 'the panel to open');
+  }
+  /** Write `message` in the panel's box and press the send button, as the person does. */
+  async function sendInPanel(message) {
+    await panelPage(`(() => {
+      const box = document.getElementById('box');
+      box.focus();
+      box.value = ${JSON.stringify(message)};
+      box.dispatchEvent(new Event('input'));
+    })()`);
+    await waitFor(() => panelPage("!document.getElementById('send').disabled"), 'the send button to come on');
+    await panelPage("document.getElementById('send').click()");
+    assert.strictEqual(await panelPage("document.getElementById('box').value"), '', `"${message}" left the box`);
+  }
+  /** The labels of the buttons on the newest chat item in the panel that shows `text`; null when there is none. */
+  const panelButtonsOn = (text) => panelPage(`(() => {
+    const item = [...document.querySelectorAll('#items > li')].findLast((li) => li.innerText.includes(${JSON.stringify(text)}));
+    return item ? [...item.querySelectorAll('button')].map((b) => b.textContent) : null;
+  })()`);
 
   try {
     await waitFor(loaded, 'the Settings window to load');
@@ -107,16 +133,18 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
     await cardShows({ note: 'Free AI is on. No key needed.', form: false }, "the server's answer");
     assert.strictEqual(await nameBox(), 'Typed while it asks', 'what was typed while Settings asked stays');
 
-    // With free mode on, the panel's answer comes from the server.
+    // With free mode on, the panel's answer comes from the server. The person writes in the panel's box and presses
+    // its send button; what the page shows of the answer is its words and its buttons.
     ctx.cloud.server = { ...server, freeOn: true, limitMode: 'unlimited', limit: null };
-    await ctx.actions.toggle();
-    const panel = ctx.panel.window();
-    await waitFor(() => panel.isVisible(), 'the panel to open');
-    const sent = await panel.webContents.executeJavaScript("window.buddy.send('mail to my boss')");
-    assert.deepStrictEqual(sent, { ok: true });
+    await openPanel();
+    const asked = ctx.cloud.asks.length;
+    await sendInPanel('mail to my boss');
+    await waitFor(() => ctx.actions.state().chat.at(-1)?.type === 'buddy', 'the free answer');
+    assert.strictEqual(ctx.cloud.asks.length, asked + 1);
     assert.deepStrictEqual([ctx.cloud.asks.at(-1).action, ctx.cloud.asks.at(-1).input.message], ['chat', 'mail to my boss']);
     const answer = ctx.actions.state().chat.at(-1);
     assert.deepStrictEqual([answer.type, answer.text, answer.buttons], ['buddy', 'A free answer', ['insert', 'copy']]);
+    await waitFor(async () => JSON.stringify(await panelButtonsOn('A free answer')) === '["Insert","Copy"]', 'the answer to show');
 
     // Signed out from Settings: the app forgets this person's free settings, Settings offers Sign in (and keeps what is
     // being typed), and the panel sends the person there.
@@ -134,12 +162,15 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
     assert.deepStrictEqual(await profile(), SIGNED_OUT, 'and so it does after loading again');
     const signInAt = await signInTop();
     assert.deepStrictEqual(await aiCard(), { note: null, form: true }, 'signed out: no free settings apply');
-    assert.deepStrictEqual(await panel.webContents.executeJavaScript("window.buddy.send('mail to my boss')"), { ok: true });
+    if (!panel.isVisible()) await openPanel(); // Settings took the focus, which hid the panel
+    await sendInPanel('mail to my boss');
+    await waitFor(() => ctx.actions.state().chat.at(-1)?.type === 'error', 'the panel to refuse');
     const refused = ctx.actions.state().chat.at(-1);
     assert.deepStrictEqual([refused.type, refused.text, refused.buttons], ['error', 'Sign in to use Buddy.', ['retry', 'settings']]);
+    // The page shows it with the way to Settings, where signing in is.
     await waitFor(
-      async () => (await panel.webContents.executeJavaScript('document.body.innerText')).includes('Sign in to use Buddy.'),
-      'the error to show',
+      async () => JSON.stringify(await panelButtonsOn('Sign in to use Buddy.')) === '["Try again","Open Settings"]',
+      'the error to show, with Open Settings',
     );
     ctx.panel.hide();
 

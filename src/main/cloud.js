@@ -11,7 +11,7 @@ const { BuddyError } = require('../../shared/errors');
 const prompts = require('../../shared/prompts');
 const { notSetUp } = require('./cloud-config');
 
-const FRESH_MS = 60_000; // settings fetched (or found out of reach) less than this long ago are not fetched again
+const FRESH_MS = 60_000; // settings fetched (or found out of reach, with some kept) less than this long ago are not fetched again
 const CALL_TIMEOUT_MS = 30_000; // for calls that bring no deadline of their own
 const CONFIG_TIMEOUT_MS = 8_000; // for the settings, which a request waits for before it goes anywhere
 const UNREACHABLE = ['network', 'timeout', 'server']; // the server cannot be used now: fall back to what is kept
@@ -46,7 +46,7 @@ function readSettings(j) {
 }
 
 function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now }) {
-  let fetchedAt = 0; // when the settings were last fetched in this run of the app, or found out of reach
+  let fetchedAt = 0; // when the settings were last fetched in this run of the app, or found out of reach with some kept
   let generation = 0; // one more with each forget(): settings fetched for an earlier one are not kept
   const listeners = [];
   const changed = () => {
@@ -124,7 +124,9 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
   /**
    * This person's free-mode settings: fetched again when the ones fetched in this run are a minute old (or with
    * `force`); the last known ones while the server cannot be reached (null if it never was). A server out of reach is
-   * not asked again for a minute either, so that a server that hangs does not hold up every request until its deadline.
+   * not asked again for a minute either, so that a server that hangs does not hold up every request until its deadline
+   * -- but only when there are last known settings to go on with. With none, the next call asks again, so that the
+   * first answer comes as soon as the server can give one.
    */
   async function settings({ force = false } = {}) {
     if (!force && fetchedAt && now() - fetchedAt < FRESH_MS) return last();
@@ -133,8 +135,9 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
       return await refresh();
     } catch (err) {
       if (!UNREACHABLE.includes(err.code)) throw err;
-      if (mine === generation) fetchedAt = now();
-      return last();
+      const kept = last();
+      if (kept && mine === generation) fetchedAt = now();
+      return kept;
     }
   }
 

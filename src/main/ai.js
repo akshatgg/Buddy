@@ -18,6 +18,8 @@ const AI_TIMEOUT_MS = 60_000;
 // What the server says when it will not answer for free; the settings are fetched again after each.
 const FREE_REFUSALS = ['free_limit', 'free_off', 'blocked'];
 
+const signedOut = () => new BuddyError('signed_out', 'Sign in to use Buddy.');
+
 function createAi({ store, secrets, cloud, account, providers = providerRegistry, fetchImpl }) {
   function modelFor(providerId) {
     const provider = providers.getProvider(providerId);
@@ -65,8 +67,11 @@ function createAi({ store, secrets, cloud, account, providers = providerRegistry
   }
 
   async function ask(action, input, options = {}) {
-    if (!account.isSignedIn()) throw new BuddyError('signed_out', 'Sign in to use Buddy.');
+    if (!account.isSignedIn()) throw signedOut();
     const free = await cloud.settings();
+    // Signed out while the settings were being fetched: signing out forgets them, so the fetch comes back with none,
+    // which is not "the server was never reached" (nor a reason to use either route).
+    if (!account.isSignedIn()) throw signedOut();
     if (!free) {
       // The server has never been reached: the user's own key, when there is one.
       if (hasOwnKey()) return askOwn(action, input, options);

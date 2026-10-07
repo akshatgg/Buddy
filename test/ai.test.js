@@ -11,11 +11,12 @@ const FREE_ON = { ...FREE_OFF, freeOn: true };
 /**
  * createAi with fakes. `calls` records the own-key provider's calls, `cloudCalls` the server's. `free` is what the
  * server's settings say (null: never reached); `fresh` what they say when fetched again with force, or `freshFails`
- * the error that fetch fails with; `freeAsk` decides the server's answer.
+ * the error that fetch fails with; `freeAsk` decides the server's answer. With `signOutDuring`, the person signs out
+ * while the settings are being fetched, and the fetch still comes back with what `free` says.
  */
 function setup({
   key = 'k-1', model, vision = true, answer = 'Fixed text', live = ['m-live'], signedIn = true, free = FREE_OFF, fresh, freshFails,
-  freeAsk,
+  freeAsk, signOutDuring = false,
 } = {}) {
   const calls = [];
   const cloudCalls = [];
@@ -34,6 +35,7 @@ function setup({
   const cloud = {
     async settings(options = {}) {
       cloudCalls.push(['settings', options]);
+      if (signOutDuring) signedIn = false;
       if (options.force && freshFails) throw freshFails;
       return options.force && fresh !== undefined ? fresh : free;
     },
@@ -124,6 +126,19 @@ test('signed out: nothing is asked of anyone', async () => {
   const { ai, calls, cloudCalls } = setup({ signedIn: false });
   await assert.rejects(ai.ask('fix', { text: 'x' }), { code: 'signed_out', message: 'Sign in to use Buddy.' });
   assert.deepStrictEqual([calls, cloudCalls], [[], []]);
+});
+
+test('signed out while the settings are being fetched: that is the answer, not "the server was never reached"', async () => {
+  // Signing out forgets the settings, so the fetch that was under way comes back with none (cloud.forget() in cloud.js).
+  for (const [what, free] of [['none', null], ['some', FREE_ON]]) {
+    for (const key of ['k-1', null]) {
+      const s = setup({ free, key, signOutDuring: true });
+      await assert.rejects(s.ai.ask('fix', { text: 'x' }), { code: 'signed_out', message: 'Sign in to use Buddy.' },
+        `settings: ${what}, own key: ${key}`);
+      assert.deepStrictEqual(s.calls, [], 'the own key is not used');
+      assert.deepStrictEqual(s.cloudCalls, [['settings', {}]], 'the server is not asked for an answer');
+    }
+  }
 });
 
 test("free mode on: Buddy's server answers, with the deadline it is given", async () => {

@@ -104,6 +104,23 @@ test('settings: a server that cannot be reached, or hangs, is not asked again fo
   assert.strictEqual(s.requests.length, 3, 'a minute later, it is asked again');
 });
 
+test('settings: only kept settings hold off the next try; a server never reached is asked again at once', async () => {
+  const slow = Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+  for (const failure of [slow, new TypeError('fetch failed'), { status: 500 }]) {
+    const never = setup({ answers: [failure, ok(SETTINGS)] });
+    assert.strictEqual(await never.cloud.settings(), null, 'nothing was ever kept, so there is nothing to go on with');
+    never.clock.t += FRESH_MS - 1;
+    assert.deepStrictEqual(await never.cloud.settings(), SETTINGS, 'asked again within the minute, and this time answered');
+    assert.strictEqual(never.requests.length, 2);
+  }
+
+  const kept = setup({ answers: [slow, ok({ ...SETTINGS, usedToday: 9 })], kept: SETTINGS });
+  assert.deepStrictEqual(await kept.cloud.settings(), SETTINGS);
+  kept.clock.t += FRESH_MS - 1;
+  assert.deepStrictEqual(await kept.cloud.settings(), SETTINGS, 'the kept ones, at once');
+  assert.strictEqual(kept.requests.length, 1, 'not asked again within the minute');
+});
+
 test('settings: their call has a deadline of its own, shorter than the other calls have', async (t) => {
   const timeout = t.mock.method(AbortSignal, 'timeout');
   const s = setup({ answers: [ok(SETTINGS), ok({ users: [] })] });

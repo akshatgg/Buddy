@@ -14,6 +14,7 @@
 
 import AppKit
 import ApplicationServices
+import Carbon // the keyboard layouts (Text Input Sources) and UCKeyTranslate
 import ScreenCaptureKit
 
 let ownerPid: pid_t = {
@@ -97,6 +98,8 @@ func accessibilityTrusted(prompt: Bool) -> Bool {
 
 // MARK: - keyboard and clipboard
 
+/// The keys the helper presses, by their place on an American keyboard. A letter's key is looked up in the person's
+/// own keyboard layout before it is pressed (keyCode below): these places are only what is used when that fails.
 enum Key: CGKeyCode {
     case a = 0x00
     case c = 0x08
@@ -105,13 +108,71 @@ enum Key: CGKeyCode {
     case z = 0x06
     case returnKey = 0x24
     case rightArrow = 0x7C // 124
+
+    /// The letter the key types; nil for ↩ and →, which are in the same place on every keyboard.
+    var letter: String? {
+        switch self {
+        case .a: return "a"
+        case .c: return "c"
+        case .d: return "d"
+        case .v: return "v"
+        case .z: return "z"
+        case .returnKey, .rightArrow: return nil
+        }
+    }
+}
+
+/// The key that types `letter` in the keyboard layout `source`, or nil when none does. With `command` it is the key
+/// that types it while ⌘ is held, which is what a shortcut uses ("Dvorak – QWERTY ⌘" turns into QWERTY then).
+func keyCode(typing letter: String, in source: TISInputSource, command: Bool) -> CGKeyCode? {
+    guard let property = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+    let data = Unmanaged<CFData>.fromOpaque(property).takeUnretainedValue() as Data
+    let modifiers = command ? UInt32(cmdKey >> 8) & 0xFF : 0
+    let keyboard = UInt32(LMGetKbdType())
+    return data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> CGKeyCode? in
+        guard let layout = bytes.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return nil }
+        for code in 0..<128 {
+            var deadKeys: UInt32 = 0
+            var chars = [UniChar](repeating: 0, count: 4)
+            var length = 0
+            let status = UCKeyTranslate(layout, UInt16(code), UInt16(kUCKeyActionDown), modifiers, keyboard,
+                                        OptionBits(kUCKeyTranslateNoDeadKeysMask), &deadKeys, chars.count, &length, &chars)
+            if status == noErr, length > 0, String(utf16CodeUnits: chars, count: length).lowercased() == letter {
+                return CGKeyCode(code)
+            }
+        }
+        return nil
+    }
+}
+
+/// The key code to press for `key` with `flags` held. Key codes are places on the keyboard, not letters: where an
+/// American keyboard has Z a French one has W, so ⌘Z sent by the American code would close the person's window
+/// there, and ⌘A would be ⌘Q. So a letter is looked up in the keyboard layout in use, then in the one macOS uses for
+/// shortcuts while a layout without Latin letters is in use (Russian, say), and only then taken from the list above.
+func keyCode(_ key: Key, _ flags: CGEventFlags) -> CGKeyCode {
+    guard let letter = key.letter else { return key.rawValue }
+    let lookUp = { () -> CGKeyCode? in
+        let layouts: [() -> Unmanaged<TISInputSource>?] = [
+            TISCopyCurrentKeyboardLayoutInputSource, TISCopyCurrentASCIICapableKeyboardLayoutInputSource,
+        ]
+        for copy in layouts {
+            guard let source = copy()?.takeRetainedValue() else { continue }
+            if let code = keyCode(typing: letter, in: source, command: flags.contains(.maskCommand)) { return code }
+        }
+        return nil
+    }
+    // The keyboard layouts are asked on the main thread, as macOS wants: it only runs the run loop, while the commands
+    // run on `work`.
+    let found = Thread.isMainThread ? lookUp() : DispatchQueue.main.sync(execute: lookUp)
+    return found ?? key.rawValue
 }
 
 /// `key` with the modifier keys `flags` held, into the app in front.
 func pressKeys(_ key: Key, _ flags: CGEventFlags) {
     let source = CGEventSource(stateID: .combinedSessionState)
-    let down = CGEvent(keyboardEventSource: source, virtualKey: key.rawValue, keyDown: true)
-    let up = CGEvent(keyboardEventSource: source, virtualKey: key.rawValue, keyDown: false)
+    let code = keyCode(key, flags)
+    let down = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true)
+    let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false)
     down?.flags = flags
     up?.flags = flags
     down?.post(tap: .cghidEventTap)
@@ -125,8 +186,9 @@ func pressCommand(_ key: Key) {
 /// A key on its own, with no modifiers, sent straight to the app `pid`.
 func pressKey(_ key: Key, toPid pid: pid_t) {
     let source = CGEventSource(stateID: .combinedSessionState)
-    let down = CGEvent(keyboardEventSource: source, virtualKey: key.rawValue, keyDown: true)
-    let up = CGEvent(keyboardEventSource: source, virtualKey: key.rawValue, keyDown: false)
+    let code = keyCode(key, [])
+    let down = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true)
+    let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false)
     down?.flags = []
     up?.flags = []
     down?.postToPid(pid)

@@ -175,14 +175,21 @@ async function ask(req, deps) {
     await giveBack(who.uid, day, deps);
     throw new BuddyError('upstream', "Buddy couldn't answer. Try again.");
   }
-  const chat = body.action === 'chat' ? parseChat(out.text) : null;
+  let chat = body.action === 'chat' ? parseChat(out.text) : null;
+  let { text } = out;
   // A chat whose first answer only asks for the person's text box or a screenshot is given back: the app asks again at
-  // once with it, and one question costs one free request (the chat panel design, §3).
-  if (chat && body.step !== 2 && (chat.kind === 'box' || chat.kind === 'screen')) await giveBack(who.uid, day, deps);
+  // once with it, and one question costs one free request (the chat panel design, §3). Such an answer carries nothing
+  // else: whatever text the AI put in it is dropped, so that a copy of the app that always says "step 1" gets no free
+  // answers out of it.
+  if (chat && body.step !== 2 && (chat.kind === 'box' || chat.kind === 'screen')) {
+    await giveBack(who.uid, day, deps);
+    chat = { kind: chat.kind, say: '', text: '', notes: [], doIt: false, send: false, remember: [] };
+    text = JSON.stringify(chat);
+  }
   return answer({
-    text: out.text,
+    text,
     model: out.model,
-    ...(body.action === 'check' ? { check: parseCheck(out.text) } : {}),
+    ...(body.action === 'check' ? { check: parseCheck(text) } : {}),
     ...(chat ? { chat } : {}),
   });
 }

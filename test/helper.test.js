@@ -174,8 +174,8 @@ test('a helper that does not answer in time is stopped and started afresh: a hun
   helper.stop();
 });
 
-test('reading the selection and pasting wait on the person\'s app, so they get 10 seconds; other calls get 5', () => {
-  assert.deepStrictEqual(DEFAULT_TIMEOUTS, { screenshot: 10_000, captureSelection: 10_000, paste: 10_000, default: 5_000 });
+test('reading the selection, pasting and pressing keys wait on the person\'s app, so they get 10 seconds; other calls get 5', () => {
+  assert.deepStrictEqual(DEFAULT_TIMEOUTS, { screenshot: 10_000, captureSelection: 10_000, paste: 10_000, press: 10_000, default: 5_000 });
 });
 
 test('says when a helper has started: the first time, and after each restart', async () => {

@@ -85,6 +85,20 @@ test('a 10-digit phone number and shorter numbers are kept', () => {
   }
 });
 
+test('a phone number with its country code and a PIN code (the postal code) are kept', () => {
+  for (const fact of [
+    'Your phone is +91 98765 43210.',
+    'Your office phone is +44 (20) 7946 0958.',
+    'Your PIN code is 110001.',
+    'Your pin-code is 400001.',
+  ]) {
+    assert.strictEqual(cleanFact(fact), fact, fact);
+  }
+  // A card number does not become a phone number by starting with "+", nor a PIN by being near a code.
+  assert.strictEqual(cleanFact('Your card is +4111 1111 1111 1111.'), null);
+  assert.strictEqual(cleanFact('Your PIN is 1234, the code for the door.'), null);
+});
+
 test('the add box in Settings takes no more than a fact can hold', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'settings', 'index.html'), 'utf8');
   const box = html.match(/<input id="memory-new"[^>]*>/);

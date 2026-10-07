@@ -197,6 +197,28 @@ func focusedIsSecure(_ pid: pid_t) -> Bool {
     }
 }
 
+/// True only when the focused element is surely not a place to type: a web page, a mail being read, plain text or a
+/// link that was clicked or selected. Then a paste would do nothing, and Buddy would say "Done!" for nothing: the text
+/// goes to the clipboard instead (src/main/actions.js). Anything Buddy cannot tell about counts as a place to type, as
+/// before, so that a paste is never refused by mistake.
+func focusedIsReadOnly(_ pid: pid_t) -> Bool {
+    let app = AXUIElementCreateApplication(pid)
+    AXUIElementSetMessagingTimeout(app, 1.0)
+    var focused: CFTypeRef?
+    let status = AXUIElementCopyAttributeValue(app, "AXFocusedUIElement" as CFString, &focused)
+    guard status == .success, let value = focused, CFGetTypeID(value) == AXUIElementGetTypeID() else { return false }
+    let element = value as! AXUIElement
+    var role: CFTypeRef?
+    AXUIElementCopyAttributeValue(element, "AXRole" as CFString, &role)
+    guard let name = role as? String, ["AXWebArea", "AXStaticText", "AXLink", "AXHeading", "AXImage"].contains(name) else { return false }
+    // Inside something editable after all (a box in a web page), or its text can be set: a place to type.
+    var ancestor: CFTypeRef?
+    if AXUIElementCopyAttributeValue(element, "AXEditableAncestor" as CFString, &ancestor) == .success, ancestor != nil { return false }
+    var settable: DarwinBoolean = false
+    if AXUIElementIsAttributeSettable(element, "AXValue" as CFString, &settable) == .success, settable.boolValue { return false }
+    return true
+}
+
 // MARK: - commands
 
 func pidArg(_ args: [String: Any]) throws -> pid_t {
@@ -254,6 +276,7 @@ func paste(_ args: [String: Any]) throws -> [String: Any] {
     // Buddy never types into a password field (and "Replace all" would wipe what is in it): the
     // answer goes to the clipboard instead, which is what a paste that fails does.
     if focusedIsSecure(pid) { throw HelperError(code: "secure_field", message: "I don't type into password fields.") }
+    if focusedIsReadOnly(pid) { throw HelperError(code: "not_editable", message: "Click in the box where it should go, then try again.") }
 
     let pb = NSPasteboard.general
     let saved = saveClipboard()

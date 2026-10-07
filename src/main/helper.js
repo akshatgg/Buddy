@@ -20,7 +20,7 @@ const readline = require('node:readline');
 const { BuddyError } = require('../../shared/errors');
 
 // Reading the selection and pasting wait on the person's app (and, on Windows, for them to let go of the shortcut's keys).
-const DEFAULT_TIMEOUTS = { screenshot: 10_000, captureSelection: 10_000, paste: 10_000, default: 5_000 };
+const DEFAULT_TIMEOUTS = { screenshot: 10_000, captureSelection: 10_000, paste: 10_000, press: 10_000, default: 5_000 };
 const MAX_RESTART_MS = 30_000;
 
 class Helper extends EventEmitter {

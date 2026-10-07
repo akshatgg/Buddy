@@ -18,7 +18,7 @@
  */
 
 const { BuddyError } = require('../shared/errors');
-const { buildPrompt, parseCheck, MAX_TOKENS } = require('../shared/prompts');
+const { buildPrompt, parseCheck, parseChat, MAX_TOKENS } = require('../shared/prompts');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
 const { dayKey } = require('./day');
 const { withDefaults, isFreeOn, applyPatch } = require('./free-config');
@@ -121,6 +121,15 @@ async function config(req, deps) {
   });
 }
 
+/** Give a counted request back. When that fails too, only its kind is logged, and the request stays counted. */
+async function giveBack(uid, day, deps) {
+  try {
+    await deps.db.refundRequest({ uid, day });
+  } catch (err) {
+    console.error(`[ask] could not give the request back: ${kindOf(err)}`);
+  }
+}
+
 /** POST /api/ask: one answer with the admin's key, counted against the person's day before the AI is asked. */
 async function ask(req, deps) {
   allowMethods(req, 'POST');
@@ -163,17 +172,18 @@ async function ask(req, deps) {
   } catch (err) {
     // Only the kind of failure is logged, never what the person sent.
     console.warn(`[ask] ${cfg.provider} failed: ${kindOf(err)}`);
-    try {
-      await deps.db.refundRequest({ uid: who.uid, day });
-    } catch (refundErr) {
-      console.error(`[ask] could not give the request back: ${kindOf(refundErr)}`);
-    }
+    await giveBack(who.uid, day, deps);
     throw new BuddyError('upstream', "Buddy couldn't answer. Try again.");
   }
+  const chat = body.action === 'chat' ? parseChat(out.text) : null;
+  // A chat whose first answer only asks for the person's text box or a screenshot is given back: the app asks again at
+  // once with it, and one question costs one free request (the chat panel design, §3).
+  if (chat && body.step !== 2 && (chat.kind === 'box' || chat.kind === 'screen')) await giveBack(who.uid, day, deps);
   return answer({
     text: out.text,
     model: out.model,
     ...(body.action === 'check' ? { check: parseCheck(out.text) } : {}),
+    ...(chat ? { chat } : {}),
   });
 }
 

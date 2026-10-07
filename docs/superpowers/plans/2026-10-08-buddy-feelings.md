@@ -205,6 +205,9 @@ done). Their lines move to Task 6.
     head or a press starts; ignore a detection while `love` is playing. Shake detector: feed `screenX`/`screenY` while
     dragging; `reset()` when a drag starts.
   - `createSleep` with its default timers keeps real 60 s / 120 s timers alive: tests that build one pass fake timers.
+  - The sleep countdown's own moods (`drowsy`, `asleep`, `wake`) must not count as use: only the app's moods and the
+    buddy's IPC poke it (Task 6 wires the app's moods). Its `onMood` runs from a timer, so it must not throw when the
+    buddy window is gone (buddy-window's `mood()` already ignores a missing window; keep it that way).
 - Main: `buddy-window.js` gains `voiceLevel(level)` (clamped 0–1, sent on `buddy:voice-level`, never queued for a
   page that is loading); `registerBuddyIpc` takes an optional `sleep` (default: one whose `poke` and `hold` do
   nothing) and tells it about use: `hold('hover', over)`, `hold('drag', true|false)`, `poke()` on click.

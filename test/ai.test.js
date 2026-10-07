@@ -10,10 +10,13 @@ const FREE_ON = { ...FREE_OFF, freeOn: true };
 
 /**
  * createAi with fakes. `calls` records the own-key provider's calls, `cloudCalls` the server's. `free` is what the
- * server's settings say (null: never reached); `fresh` what they say when fetched again with force; `freeAsk`
- * decides the server's answer.
+ * server's settings say (null: never reached); `fresh` what they say when fetched again with force, or `freshFails`
+ * the error that fetch fails with; `freeAsk` decides the server's answer.
  */
-function setup({ key = 'k-1', model, vision = true, answer = 'Fixed text', live = ['m-live'], signedIn = true, free = FREE_OFF, fresh, freeAsk } = {}) {
+function setup({
+  key = 'k-1', model, vision = true, answer = 'Fixed text', live = ['m-live'], signedIn = true, free = FREE_OFF, fresh, freshFails,
+  freeAsk,
+} = {}) {
   const calls = [];
   const cloudCalls = [];
   const provider = {
@@ -31,6 +34,7 @@ function setup({ key = 'k-1', model, vision = true, answer = 'Fixed text', live 
   const cloud = {
     async settings(options = {}) {
       cloudCalls.push(['settings', options]);
+      if (options.force && freshFails) throw freshFails;
       return options.force && fresh !== undefined ? fresh : free;
     },
     async ask(action, input, options) {
@@ -169,6 +173,42 @@ test("today's free requests used up, own keys not allowed: the server's words, a
   const s = setup({ free: FREE_ON, freeAsk: () => { throw LIMIT; } });
   await assert.rejects(s.ai.ask('fix', { text: 'x' }), LIMIT);
   assert.strictEqual(s.calls.length, 0);
+});
+
+test("today's free requests already used up by the kept settings, own keys allowed and one saved: straight to the own key", async () => {
+  const s = setup({ free: { ...FREE_ON, allowOwnKey: true, usedToday: 30 } });
+  assert.strictEqual((await s.ai.ask('fix', { text: 'x' })).text, 'Fixed text');
+  assert.deepStrictEqual(s.cloudCalls, [['settings', {}]], 'the server is not asked for an answer, nor for the settings again');
+});
+
+test('…but the server is asked first with free requests left, no daily limit, own keys not allowed, or none saved', async () => {
+  const usedUp = { ...FREE_ON, allowOwnKey: true, usedToday: 30 };
+  for (const [what, options] of [
+    ['free requests left', { free: { ...usedUp, usedToday: 29 } }],
+    ['unlimited', { free: { ...usedUp, limitMode: 'unlimited', limit: null } }],
+    ['no limit known', { free: { ...usedUp, limit: null } }],
+    ['own keys not allowed', { free: { ...usedUp, allowOwnKey: false } }],
+    ['no own key saved', { free: usedUp, key: null }],
+  ]) {
+    const s = setup(options);
+    assert.strictEqual((await s.ai.ask('fix', { text: 'x' })).text, 'Free answer', what);
+    assert.strictEqual(s.calls.length, 0, `${what}: the own key is not used`);
+  }
+});
+
+test('signed out while the settings are fetched again after a refusal: that is the answer, and the own key is not used', async () => {
+  const signedOut = new BuddyError('signed_out', 'Sign in to use Buddy.');
+  for (const err of [LIMIT, new BuddyError('blocked', 'Your free access is paused.'), new BuddyError('free_off', 'Free AI is off.')]) {
+    const s = setup({ free: { ...FREE_ON, allowOwnKey: true }, freshFails: signedOut, freeAsk: () => { throw err; } });
+    await assert.rejects(s.ai.ask('fix', { text: 'x' }), signedOut, err.code);
+    assert.strictEqual(s.calls.length, 0, `${err.code}: the own key is not used`);
+  }
+});
+
+test('any other failure to fetch the settings again after a refusal: the settings from before the request decide', async () => {
+  const s = setup({ free: { ...FREE_ON, allowOwnKey: true }, freshFails: new BuddyError('network', "Couldn't reach Buddy's server."),
+    freeAsk: () => { throw LIMIT; } });
+  assert.strictEqual((await s.ai.ask('fix', { text: 'x' })).text, 'Fixed text', 'own keys allowed, one saved');
 });
 
 test('free mode turned off meanwhile: the own key, once the settings say so', async () => {

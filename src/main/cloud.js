@@ -3,19 +3,34 @@
 /**
  * Buddy's server (web/): this person's free-mode settings (GET /api/config), free answers (POST /api/ask) and the
  * admin's calls (/api/admin/*). Every call carries the signed-in person's ID token; one the server turns down is
- * renewed and the call made once more. The last settings are kept in the store (`cloud`), so Buddy still knows
- * them after a restart without internet.
+ * renewed and the call made once more, and only the server's own "unauthenticated" after that signs the person out.
+ * The last settings are kept in the store (`cloud`), so Buddy still knows them after a restart without internet.
  */
 
 const { BuddyError } = require('../../shared/errors');
+const prompts = require('../../shared/prompts');
 const { notSetUp } = require('./cloud-config');
 
-const FRESH_MS = 60_000; // settings fetched less than this long ago are not fetched again
+const FRESH_MS = 60_000; // settings fetched (or found out of reach) less than this long ago are not fetched again
 const CALL_TIMEOUT_MS = 30_000; // for calls that bring no deadline of their own
+const CONFIG_TIMEOUT_MS = 8_000; // for the settings, which a request waits for before it goes anywhere
 const UNREACHABLE = ['network', 'timeout', 'server']; // the server cannot be used now: fall back to what is kept
+// The codes Buddy's server answers errors with: the keys of STATUS in web/lib/handlers.js, and `server` (which its
+// handle() also answers for a failure of its own). test/cloud.test.js checks that the two lists agree. An error
+// answer with any other code comes from something in front of the server, such as the hosting platform.
+const SERVER_CODES = [
+  'bad_request', 'free_no_vision', 'unauthenticated', 'blocked', 'free_off', 'not_admin', 'not_found',
+  'method_not_allowed', 'free_limit', 'upstream', 'server',
+];
 
 const serverProblem = () => new BuddyError('server', "Buddy's server had a problem. Try again.");
 const tookTooLong = () => new BuddyError('timeout', "Buddy's server took too long to answer. Try again.");
+
+/** Buddy's server's own error in an answer, { code, message } with a code it sends; null for anything else. */
+function serverError(j) {
+  const e = j?.error;
+  return e && SERVER_CODES.includes(e.code) && typeof e.message === 'string' ? e : null;
+}
 
 /** The settings as the app keeps them, from the server's answer: anything missing or odd reads as off. */
 function readSettings(j) {
@@ -31,13 +46,21 @@ function readSettings(j) {
 }
 
 function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now }) {
-  let fetchedAt = 0; // when the settings were last fetched in this run of the app
+  let fetchedAt = 0; // when the settings were last fetched in this run of the app, or found out of reach
+  let generation = 0; // one more with each forget(): settings fetched for an earlier one are not kept
   const listeners = [];
   const changed = () => {
-    for (const fn of listeners) fn();
+    for (const fn of listeners) {
+      try {
+        fn();
+      } catch (err) {
+        // A broken listener must not undo keeping the settings, or keep the others from hearing (as in account.js).
+        console.error(`[buddy] a settings listener failed: ${err?.code || err?.name || 'error'}`);
+      }
+    }
   };
 
-  async function call(path, { method = 'GET', body, signal } = {}, retried = false) {
+  async function call(path, { method = 'GET', body, signal, timeoutMs = CALL_TIMEOUT_MS } = {}, retried = false) {
     if (!config) throw notSetUp();
     const idToken = await account.idToken({ force: retried });
     const headers = { authorization: `Bearer ${idToken}` };
@@ -48,7 +71,7 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: signal || AbortSignal.timeout(CALL_TIMEOUT_MS),
+        signal: signal || AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
       if (err?.name === 'AbortError') throw err;
@@ -62,14 +85,19 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
       if (err?.name === 'TimeoutError') throw tookTooLong(); // the deadline covers reading the answer too
       // not JSON: judged by the status below
     }
+    const own = serverError(j);
     if (res.status === 401) {
-      if (!retried) return call(path, { method, body, signal }, true); // a token the server no longer takes: renew it once
+      // A token the server no longer takes: renew it once.
+      if (!retried) return call(path, { method, body, signal, timeoutMs }, true);
+      // Turned down again, with a token just renewed. Only the server's own answer means the sign-in is over: any other
+      // 401 comes from something in front of it (a hosting page that wants a login of its own), and signing the
+      // person out would not help them.
+      if (own?.code !== 'unauthenticated') throw serverProblem();
       account.signOut();
-      throw new BuddyError('signed_out', typeof j?.error?.message === 'string' ? j.error.message : 'Sign in to use Buddy.');
+      throw new BuddyError('signed_out', own.message);
     }
     if (!res.ok) {
-      const e = j?.error;
-      if (e && typeof e.code === 'string' && typeof e.message === 'string') throw new BuddyError(e.code, e.message);
+      if (own) throw new BuddyError(own.code, own.message);
       throw serverProblem();
     }
     if (!j || typeof j !== 'object') throw serverProblem();
@@ -78,9 +106,15 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
 
   const last = () => store.get('cloud') || null;
 
-  /** Fetch the settings now, keep them, and say they changed. */
+  /**
+   * Fetch the settings now, keep them, and say they changed. Settings that arrive after forget() are not kept: they
+   * belong to the person who was signed out (or who someone else signed in over).
+   */
   async function refresh() {
-    const settings = readSettings(await call('/api/config'));
+    const mine = generation;
+    const j = await call('/api/config', { timeoutMs: CONFIG_TIMEOUT_MS });
+    if (mine !== generation) return last();
+    const settings = readSettings(j);
     store.set({ cloud: settings });
     fetchedAt = now();
     changed();
@@ -89,20 +123,27 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
 
   /**
    * This person's free-mode settings: fetched again when the ones fetched in this run are a minute old (or with
-   * `force`); the last known ones while the server cannot be reached (null if it never was).
+   * `force`); the last known ones while the server cannot be reached (null if it never was). A server out of reach is
+   * not asked again for a minute either, so that a server that hangs does not hold up every request until its deadline.
    */
   async function settings({ force = false } = {}) {
     if (!force && fetchedAt && now() - fetchedAt < FRESH_MS) return last();
+    const mine = generation;
     try {
       return await refresh();
     } catch (err) {
-      if (UNREACHABLE.includes(err.code)) return last();
-      throw err;
+      if (!UNREACHABLE.includes(err.code)) throw err;
+      if (mine === generation) fetchedAt = now();
+      return last();
     }
   }
 
-  /** Forget the settings: on sign-out, so the next person does not inherit them (or the admin's menu). */
+  /**
+   * Forget the settings: when the person signs out, or someone else signs in, so that the next person does not
+   * inherit them (or the admin's menu).
+   */
   function forget() {
+    generation += 1;
     store.set({ cloud: null });
     fetchedAt = 0;
     changed();
@@ -114,7 +155,10 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
     for (const name of ['instruction', 'tone', 'text', 'image']) if (input[name] !== undefined) body[name] = input[name];
     const j = await call('/api/ask', { method: 'POST', body, signal });
     if (typeof j.text !== 'string') throw serverProblem();
-    return { text: j.text, model: typeof j.model === 'string' ? j.model : '', ...(j.check ? { check: j.check } : {}) };
+    const out = { text: j.text, model: typeof j.model === 'string' ? j.model : '' };
+    // A Check is read here from the text, with the function the own-key route uses: what the server sends as its own
+    // reading never reaches the panel.
+    return action === 'check' ? { ...out, check: prompts.parseCheck(j.text) } : out;
   }
 
   const admin = {
@@ -138,4 +182,4 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
   };
 }
 
-module.exports = { createCloud, readSettings, FRESH_MS };
+module.exports = { createCloud, readSettings, FRESH_MS, CONFIG_TIMEOUT_MS, SERVER_CODES };

@@ -2,16 +2,21 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { createCloud, readSettings, FRESH_MS } = require('../src/main/cloud');
+const { createCloud, readSettings, FRESH_MS, CONFIG_TIMEOUT_MS, SERVER_CODES } = require('../src/main/cloud');
+const { STATUS } = require('../web/lib/handlers');
 
 const CONFIG = { serverUrl: 'https://buddy.example', firebaseApiKey: 'k', googleClientId: 'c', googleClientSecret: 's' };
 const SETTINGS = { freeOn: true, limitMode: 'daily', limit: 30, usedToday: 2, allowOwnKey: false, blocked: false, isAdmin: false };
 const ok = (body) => ({ status: 200, body });
+const SERVER_PROBLEM = { code: 'server', message: "Buddy's server had a problem. Try again." };
+// What the hosting platform answers for a path it does not know, in JSON of its own.
+const PLATFORM_404 = { status: 404, body: { error: { code: 'NOT_FOUND', message: 'The page could not be found.' } } };
 
 /**
- * createCloud with fakes. `answers` are what the server gives, in turn: { status, body } (no body: not JSON), or an
- * Error the fetch throws; with none left the fetch fails like no internet. The account hands out 'token', or
- * 'fresh-token' when asked to renew. `kept` is what the store holds from an earlier run.
+ * createCloud with fakes. `answers` are what the server gives, in turn: { status, body } (no body: not JSON, like an
+ * HTML page), a promise of one (an answer that is held back), or an Error the fetch throws; with none left the fetch
+ * fails like no internet. The account hands out 'token', or 'fresh-token' when asked to renew. `kept` is what the
+ * store holds from an earlier run.
  */
 function setup({ answers = [], kept = null, config = CONFIG } = {}) {
   const requests = [];
@@ -30,7 +35,7 @@ function setup({ answers = [], kept = null, config = CONFIG } = {}) {
   };
   async function fetchImpl(url, init) {
     requests.push({ url, method: init.method, headers: init.headers, body: init.body === undefined ? undefined : JSON.parse(init.body), signal: init.signal });
-    const next = answers.shift();
+    const next = await answers.shift();
     if (!next) throw new TypeError('fetch failed');
     if (next instanceof Error) throw next;
     return {
@@ -79,6 +84,34 @@ test('settings: when the server cannot be reached, the last known ones (from an 
   assert.strictEqual(await setup().cloud.settings(), null);
   assert.deepStrictEqual(await setup({ answers: [{ status: 500 }], kept: SETTINGS }).cloud.settings(), SETTINGS,
     'a server that falls over is like no server');
+  assert.deepStrictEqual(await setup({ answers: [{ status: 503, body: { error: SERVER_PROBLEM } }], kept: SETTINGS }).cloud.settings(), SETTINGS,
+    'nor is a server that could not check the sign-in');
+  assert.deepStrictEqual(await setup({ answers: [PLATFORM_404], kept: SETTINGS }).cloud.settings(), SETTINGS,
+    "nor is the hosting platform's own error answer");
+});
+
+test('settings: a server that cannot be reached, or hangs, is not asked again for a minute, unless forced', async () => {
+  const slow = Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+  const s = setup({ answers: [slow], kept: SETTINGS }); // then no answers at all: like no internet
+  assert.deepStrictEqual(await s.cloud.settings(), SETTINGS);
+  s.clock.t += FRESH_MS - 1;
+  assert.deepStrictEqual(await s.cloud.settings(), SETTINGS, 'the last known ones, at once');
+  assert.strictEqual(s.requests.length, 1, 'not asked again');
+  assert.deepStrictEqual(await s.cloud.settings({ force: true }), SETTINGS);
+  assert.strictEqual(s.requests.length, 2, 'force still asks');
+  s.clock.t += FRESH_MS;
+  await s.cloud.settings();
+  assert.strictEqual(s.requests.length, 3, 'a minute later, it is asked again');
+});
+
+test('settings: their call has a deadline of its own, shorter than the other calls have', async (t) => {
+  const timeout = t.mock.method(AbortSignal, 'timeout');
+  const s = setup({ answers: [ok(SETTINGS), ok({ users: [] })] });
+  await s.cloud.settings();
+  await s.cloud.admin.users();
+  assert.deepStrictEqual(timeout.mock.calls.map((c) => c.arguments[0]), [CONFIG_TIMEOUT_MS, 30_000]);
+  assert.strictEqual(timeout.mock.calls[0].result, s.requests[0].signal, 'the settings fetch got that deadline');
+  assert.strictEqual(CONFIG_TIMEOUT_MS, 8_000);
 });
 
 test('a token the server turns down is renewed once; turned down again, the person is signed out', async () => {
@@ -95,6 +128,40 @@ test('a token the server turns down is renewed once; turned down again, the pers
   assert.strictEqual(twice.signedOut(), 1);
 });
 
+test("a second 401 that is not Buddy's own answer (a hosting page, an unknown answer) signs nobody out", async () => {
+  for (const body of [
+    undefined, // an HTML page, such as Vercel's Deployment Protection
+    { error: { code: 'NOT_AUTHORIZED', message: 'You are not authorized.' } },
+    { error: 'unauthenticated' },
+    { error: { code: 'unauthenticated' } }, // no message: not Buddy's
+  ]) {
+    const what = JSON.stringify(body) ?? 'not JSON';
+    const s = setup({ answers: [{ status: 401, body }, { status: 401, body }] });
+    await assert.rejects(s.cloud.ask('fix', { text: 'x' }), SERVER_PROBLEM, what);
+    assert.strictEqual(s.signedOut(), 0, what);
+    assert.deepStrictEqual(s.tokens, [false, true], `${what}: the token was renewed once`);
+  }
+  const kept = setup({ answers: [{ status: 401 }, { status: 401 }], kept: SETTINGS });
+  assert.deepStrictEqual(await kept.cloud.settings(), SETTINGS, 'the settings fall back to the last known ones');
+  assert.strictEqual(kept.signedOut(), 0);
+});
+
+test("only the codes Buddy's server sends are taken as its own; any other error answer is a server problem", async () => {
+  const s = setup({ answers: [
+    PLATFORM_404,
+    { status: 400, body: { error: { code: 'BAD_REQUEST', message: 'Invalid request.' } } },
+    { status: 503, body: { error: SERVER_PROBLEM } },
+  ] });
+  await assert.rejects(s.cloud.ask('fix', { text: 'x' }), SERVER_PROBLEM, 'the platform cannot find the path');
+  await assert.rejects(s.cloud.ask('fix', { text: 'x' }), SERVER_PROBLEM, 'a code the server never sends');
+  await assert.rejects(s.cloud.ask('fix', { text: 'x' }), SERVER_PROBLEM, "the server's own words for its own problem");
+});
+
+test("the codes the app takes as the server's own are exactly the ones web/lib/handlers.js sends", () => {
+  const sent = new Set([...Object.keys(STATUS), 'server']); // `server` is also what handle() answers for a failure of its own
+  assert.deepStrictEqual([...SERVER_CODES].sort(), [...sent].sort());
+});
+
 test("the server's refusals come through in its own words; anything else in Buddy's", async () => {
   const s = setup({ answers: [
     { status: 429, body: { error: { code: 'free_limit', message: "You've used today's 30 free requests. They come back at midnight." } } },
@@ -108,14 +175,28 @@ test("the server's refusals come through in its own words; anything else in Budd
 
 test('ask: posts the action with only the inputs it has, under the deadline it is given', async () => {
   const check = { verdict: 'good', problems: [], corrected: null };
-  const s = setup({ answers: [ok({ text: 'Fixed', model: 'claude-x', check })] });
+  const text = JSON.stringify(check);
+  const s = setup({ answers: [ok({ text, model: 'claude-x', check })] });
   const signal = AbortSignal.timeout(60_000);
   assert.deepStrictEqual(await s.cloud.ask('check', { image: 'IMG', instruction: 'ok?', text: undefined }, { signal }),
-    { text: 'Fixed', model: 'claude-x', check });
+    { text, model: 'claude-x', check });
   const [req] = s.requests;
   assert.deepStrictEqual([req.url, req.method, req.body], ['https://buddy.example/api/ask', 'POST', { action: 'check', image: 'IMG', instruction: 'ok?' }]);
   assert.strictEqual(req.headers['content-type'], 'application/json');
   assert.strictEqual(req.signal, signal);
+});
+
+test("ask: a Check answer is read here, from its text, as on the own-key route: the server's reading never reaches the panel", async () => {
+  const text = '```json\n{"verdict":"problems","problems":["A typo", 7],"corrected":"Fixed"}\n```';
+  const s = setup({ answers: [
+    ok({ text, model: 'm', check: { verdict: 'good', problems: 'not a list' } }),
+    ok({ text: 'Not JSON at all', model: 'm' }),
+    ok({ text: 'Fixed', model: 'm', check: { verdict: 'good', problems: [] } }),
+  ] });
+  assert.deepStrictEqual(await s.cloud.ask('check', { image: 'IMG' }),
+    { text, model: 'm', check: { verdict: 'problems', problems: ['A typo'], corrected: 'Fixed' } });
+  assert.deepStrictEqual(await s.cloud.ask('check', { image: 'IMG' }), { text: 'Not JSON at all', model: 'm', check: { raw: 'Not JSON at all' } });
+  assert.deepStrictEqual(await s.cloud.ask('fix', { text: 'x' }), { text: 'Fixed', model: 'm' }, 'only a Check has one');
 });
 
 test('no internet, a server that takes too long, and a cancelled request', async () => {
@@ -133,6 +214,42 @@ test('forget empties the kept settings and says so', () => {
   assert.strictEqual(s.cloud.last(), null);
   assert.strictEqual(s.data.cloud, null);
   assert.strictEqual(s.changes(), 1);
+});
+
+test('settings that arrive after forget() are not kept: they belong to the person who was forgotten', async () => {
+  let answer = null;
+  const held = new Promise((resolve) => {
+    answer = () => resolve(ok({ ...SETTINGS, isAdmin: true }));
+  });
+  const s = setup({ answers: [held], kept: SETTINGS });
+  const pending = s.cloud.settings({ force: true });
+  await new Promise((resolve) => setImmediate(resolve)); // the fetch is under way
+  s.cloud.forget();
+  answer();
+  assert.strictEqual(await pending, null, 'the last known settings, which are none now');
+  assert.strictEqual(s.data.cloud, null, 'nothing was kept');
+  assert.strictEqual(s.changes(), 1, 'only forget() said that the settings changed');
+  await s.cloud.settings();
+  assert.strictEqual(s.requests.length, 2, 'the next call asks the server again');
+});
+
+test('a settings listener that throws does not stop the others, or the settings from being kept; only its kind is logged', async (t) => {
+  const error = t.mock.method(console, 'error', () => {});
+  const s = setup({ answers: [ok(SETTINGS)] });
+  let heard = 0;
+  s.cloud.onChange(() => { throw Object.assign(new Error('a detail that must stay out of the log'), { code: 'EBROKEN' }); });
+  s.cloud.onChange(() => { throw new TypeError('another detail'); });
+  s.cloud.onChange(() => { heard += 1; });
+  assert.deepStrictEqual(await s.cloud.settings(), SETTINGS);
+  assert.deepStrictEqual(s.data.cloud, SETTINGS);
+  s.cloud.forget();
+  assert.strictEqual(heard, 2, 'the listener after the broken ones heard both changes');
+  assert.deepStrictEqual(error.mock.calls.map((c) => c.arguments.join(' ')), [
+    '[buddy] a settings listener failed: EBROKEN',
+    '[buddy] a settings listener failed: TypeError',
+    '[buddy] a settings listener failed: EBROKEN',
+    '[buddy] a settings listener failed: TypeError',
+  ]);
 });
 
 test("the admin's calls", async () => {

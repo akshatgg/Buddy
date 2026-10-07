@@ -63,15 +63,17 @@ const globalShortcut = {
 };
 
 // Nor may it sign in to Google or call Buddy's server: the app gets this account and this server. A check changes
-// cloud.server, as the admin would, to see the app follow once it asks again, and signs out and in again.
+// cloud.server, as the admin would, to see the app follow once it asks again, and signs out and in again (as someone
+// else, after changing account.uid).
 const account = {
   signedIn: true,
+  uid: 'e2e-user',
   listeners: [],
   isSignedIn() {
     return this.signedIn;
   },
   user() {
-    return this.signedIn ? { uid: 'e2e-user', email: 'e2e@example.com', name: 'E2E Tester' } : null;
+    return this.signedIn ? { uid: this.uid, email: 'e2e@example.com', name: 'E2E Tester' } : null;
   },
   async signIn() {
     this.signedIn = true;

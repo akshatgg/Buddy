@@ -41,9 +41,16 @@ function createAi({ store, secrets, cloud, account, providers = providerRegistry
     return action === 'check' ? { ...out, check: prompts.parseCheck(out.text) } : out;
   }
 
-  /** The server would not answer for free: carry on with the user's own key where the admin allows it. */
+  /**
+   * The server would not answer for free: carry on with the user's own key where the admin allows it. When the settings
+   * cannot be fetched again, the ones from before the request decide, unless the person has been signed out meanwhile.
+   */
   async function afterRefusal(err, before, action, input, options) {
-    const now = (await cloud.settings({ force: true }).catch(() => null)) || before;
+    const fresh = await cloud.settings({ force: true }).catch((fetchErr) => {
+      if (fetchErr.code === 'signed_out') throw fetchErr;
+      return null;
+    });
+    const now = fresh || before;
     if (err.code === 'free_off') {
       if (!now.freeOn) return askOwn(action, input, options);
       throw err;
@@ -70,6 +77,10 @@ function createAi({ store, secrets, cloud, account, providers = providerRegistry
       if (free.allowOwnKey && hasOwnKey()) return askOwn(action, input, options);
       throw new BuddyError('blocked', 'Your free access is paused.');
     }
+    // Today's free requests are used up and the admin lets this person go on with their own key: the server would only
+    // refuse (and the settings be fetched again), so the own key answers at once.
+    const usedUp = free.limitMode === 'daily' && free.limit !== null && free.usedToday >= free.limit;
+    if (usedUp && free.allowOwnKey && hasOwnKey()) return askOwn(action, input, options);
     prompts.buildPrompt(action, input); // input that is not valid is refused here, without a call to the server
     try {
       return await cloud.ask(action, input, options);

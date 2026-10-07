@@ -146,13 +146,16 @@ async function start(options = {}) {
     },
   });
 
-  // Signing out forgets this person's free-mode settings, so that the next person does not inherit them, and closes
-  // the Admin window.
+  // Whenever the person changes (signed out, or someone else signed in), their free-mode settings are forgotten, so
+  // that the next person does not inherit them (or the admin's menu). Signing out also closes the Admin window.
+  let uid = account.user()?.uid ?? null;
   account.onChange(() => {
-    if (!account.isSignedIn()) {
+    const current = account.user()?.uid ?? null;
+    if (current !== uid) {
+      uid = current;
       cloud.forget();
-      windows.close('admin');
     }
+    if (!account.isSignedIn()) windows.close('admin');
     tray.refresh();
   });
   cloud.onChange(() => tray.refresh());

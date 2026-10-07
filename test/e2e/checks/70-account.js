@@ -83,6 +83,17 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
     await waitFor(() => page("document.getElementById('sign-out').hidden === false"), 'Settings to show the person signed in');
     assert.strictEqual(ctx.account.isSignedIn(), true);
 
+    // Someone else signing in over this person, with no sign-out in between, makes the app forget the first person's
+    // free settings too. The same person signing in again forgets nothing.
+    const signedInBefore = ctx.cloud.forgets;
+    await ctx.account.signIn();
+    assert.strictEqual(ctx.cloud.forgets, signedInBefore, 'the same person again: nothing is forgotten');
+    ctx.account.uid = 'e2e-someone-else';
+    await ctx.account.signIn();
+    assert.strictEqual(ctx.cloud.forgets, signedInBefore + 1, "someone else: the first person's free settings are forgotten");
+    ctx.account.uid = 'e2e-user';
+    await ctx.account.signIn(); // and back
+
     // A sign-in that ends behind the page's back (it expired, or another window signed out) is shown when the window
     // gets the focus back, and "Signed in ✓", which the page said about the sign-in it knew of, goes.
     assert.strictEqual(await accountStatus(), 'Signed in ✓');
@@ -93,6 +104,7 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
   } finally {
     ctx.cloud.server = server;
     ctx.cloud.free = kept;
+    ctx.account.uid = 'e2e-user';
     if (!ctx.account.isSignedIn()) await ctx.account.signIn();
     ctx.panel.hide();
     ctx.windows.close('settings');

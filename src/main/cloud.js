@@ -22,6 +22,11 @@ const SERVER_CODES = [
   'bad_request', 'free_no_vision', 'unauthenticated', 'blocked', 'free_off', 'not_admin', 'not_found',
   'method_not_allowed', 'free_limit', 'upstream', 'server',
 ];
+// What a request may carry to the server (shared/prompts.js): the inputs of write, fix and check, then those of a chat.
+const ASK_INPUTS = [
+  'instruction', 'tone', 'text', 'image',
+  'message', 'selection', 'box', 'history', 'facts', 'appName', 'userName', 'step',
+];
 
 const serverProblem = () => new BuddyError('server', "Buddy's server had a problem. Try again.");
 const tookTooLong = () => new BuddyError('timeout', "Buddy's server took too long to answer. Try again.");
@@ -152,16 +157,18 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
     changed();
   }
 
-  /** One free answer from the server: { text, model, check? }. */
+  /** One free answer from the server: { text, model }, with `check` for a Check and `chat` for a chat. */
   async function ask(action, input = {}, { signal } = {}) {
     const body = { action };
-    for (const name of ['instruction', 'tone', 'text', 'image']) if (input[name] !== undefined) body[name] = input[name];
+    for (const name of ASK_INPUTS) if (input[name] !== undefined) body[name] = input[name];
     const j = await call('/api/ask', { method: 'POST', body, signal });
     if (typeof j.text !== 'string') throw serverProblem();
     const out = { text: j.text, model: typeof j.model === 'string' ? j.model : '' };
-    // A Check is read here from the text, with the function the own-key route uses: what the server sends as its own
-    // reading never reaches the panel.
-    return action === 'check' ? { ...out, check: prompts.parseCheck(j.text) } : out;
+    // A Check or a chat is read here from the text, with the function the own-key route uses: what the server sends as
+    // its own reading never reaches the panel.
+    if (action === 'check') return { ...out, check: prompts.parseCheck(j.text) };
+    if (action === 'chat') return { ...out, chat: prompts.parseChat(j.text) };
+    return out;
   }
 
   const admin = {

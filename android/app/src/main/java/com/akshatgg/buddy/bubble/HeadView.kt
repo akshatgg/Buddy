@@ -1,9 +1,11 @@
 package com.akshatgg.buddy.bubble
 
 import android.content.Context
+import android.util.Log
 import android.view.Choreographer
 import android.view.TextureView
 import android.widget.FrameLayout
+import androidx.annotation.MainThread
 import kotlin.math.max
 
 // A blink is drawn at the full rate from its first frame. At rest frames are 1 / REST_FPS
@@ -20,20 +22,33 @@ private const val EARLY_SECONDS = 0.004
  * the frame loop that animates it. It needs nothing from an Activity, so it works the same in an
  * Activity and in the bubble's overlay window: the loop runs while the view is attached and
  * visible, and release() frees the GPU side when its host is done with it.
+ *
+ * Like every view, it is used on the main thread only: the setters and release() say so with
+ * @MainThread, and the head is drawn there too.
  */
 class HeadView(context: Context) : FrameLayout(context) {
-    /** Which buddy: the name of its .glb in the assets. Changing it loads the new model. */
+    /**
+     * Which buddy: the name of its .glb in the assets. Changing it loads the new model on the same
+     * TextureView, so the old head stays on screen until the new one draws over it, as on the
+     * Mac. A model that fails to load leaves the old buddy in place, as the Mac keeps its old model.
+     */
     var characterId: String = "boy-1"
-        set(value) {
+        @MainThread set(value) {
             if (field == value) return
+            val previous = field
             field = value
-            if (renderer != null) build()
+            // Before the first attach there is nothing to replace: onAttachedToWindow loads it.
+            if (released || (renderer == null && !isAttachedToWindow)) return
+            if (!build()) {
+                field = previous
+                build()
+            }
         }
 
     /** What the head is doing. A short mood plays once and goes back to IDLE when its pose says done. */
     var mood: Mood
         get() = currentMood
-        set(value) {
+        @MainThread set(value) {
             currentMood = value
             moodSince = now()
             wake()
@@ -41,7 +56,7 @@ class HeadView(context: Context) : FrameLayout(context) {
 
     /** True while the head is touched: it draws at the full rate. */
     var pressing: Boolean = false
-        set(value) {
+        @MainThread set(value) {
             if (field == value) return
             field = value
             if (value) wake()
@@ -49,7 +64,9 @@ class HeadView(context: Context) : FrameLayout(context) {
 
     private val start = System.nanoTime()
     private val blinker = Blinker()
-    private var textureView: TextureView? = null
+    private var textureView: TextureView? = TextureView(context).also {
+        addView(it, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+    }
     private var renderer: HeadRenderer? = null
     private var released = false
     private var currentMood = Mood.IDLE
@@ -65,15 +82,25 @@ class HeadView(context: Context) : FrameLayout(context) {
 
     private fun seconds(nanos: Long): Double = (nanos - start) / 1e9
 
-    /** Make the renderer for the current character, on a fresh TextureView, replacing any old one. */
-    private fun build() {
-        renderer?.destroy()
-        textureView?.let { removeView(it) }
-        val surface = TextureView(context)
-        addView(surface, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        textureView = surface
-        renderer = HeadRenderer(context, surface, characterId)
+    /**
+     * Make the renderer for the current character, replacing any old one, on the same
+     * TextureView: it keeps showing the old head's last frame until the new head draws. False
+     * if the model failed to load; then there is no renderer, and nothing is left half made.
+     */
+    private fun build(): Boolean {
+        val surface = textureView ?: return false
+        val old = renderer
+        renderer = null
+        old?.destroy()
+        renderer = try {
+            HeadRenderer(context, surface, characterId)
+        } catch (e: Exception) {
+            Log.w("Buddy", "head: $characterId failed to load (${e.javaClass.simpleName})")
+            return false
+        }
         moodSince = now() // a mood set while the model was loading starts now
+        wake() // draw the new head at once, over the old one's last frame
+        return true
     }
 
     /**
@@ -106,9 +133,9 @@ class HeadView(context: Context) : FrameLayout(context) {
     }
 
     /**
-     * Something has just happened (a mood, a press): do not wait out a slow frame that is already
-     * asked for. Replace it with one at the soonest the full rate allows, so there is still a
-     * single pending frame. Does nothing while the loop is stopped.
+     * Something has just happened (a mood, a press, a new buddy): do not wait out a slow frame
+     * that is already asked for. Replace it with one at the soonest the full rate allows, so
+     * there is still a single pending frame. Does nothing while the loop is stopped.
      */
     private fun wake() {
         if (!scheduled) return
@@ -148,12 +175,14 @@ class HeadView(context: Context) : FrameLayout(context) {
      * Stop the loop and free this head's GPU side for good (the process's one engine stays, for
      * the next head). Call it when the host is done: onDestroy, or the service stopping.
      */
+    @MainThread
     fun release() {
         if (released) return
         released = true
         stopLoop()
-        renderer?.destroy()
+        val old = renderer
         renderer = null
+        old?.destroy()
         textureView?.let { removeView(it) }
         textureView = null
     }

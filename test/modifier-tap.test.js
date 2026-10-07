@@ -188,7 +188,19 @@ test('a Caps Lock press spoiled by a held modifier is not a tap when it is repor
     change(57, SHIFT | L_SHIFT | CAPS, 1050), // Caps Lock with ⇧ held: no tap
     change(56, CAPS, 1100), // ⇧ let go
     change(57, CAPS, 1200), // the same press, reported again
-  ]), []);
+  ]), [], '⇧ let go between the two reports');
+  assert.deepStrictEqual(taps([
+    change(56, SHIFT | L_SHIFT, 1000),
+    change(57, SHIFT | L_SHIFT | CAPS, 1050),
+    change(57, CAPS, 1200), // reported again, and the flags already show ⇧ up
+    change(56, CAPS, 1250), // its own report comes after
+  ]), [], 'whichever report of ⇧ going up comes first');
+  assert.deepStrictEqual(taps([
+    change(56, SHIFT | L_SHIFT, 1000),
+    change(57, SHIFT | L_SHIFT | CAPS, 1050),
+    change(57, SHIFT | L_SHIFT | CAPS, 1200), // reported again, with ⇧ still down
+    change(56, CAPS, 1250),
+  ]), [], 'and with ⇧ down for both reports');
   assert.deepStrictEqual(taps([
     change(56, SHIFT | L_SHIFT, 1000),
     change(57, SHIFT | L_SHIFT | CAPS, 1050),

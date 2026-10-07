@@ -8,8 +8,9 @@ const { ipcMain } = require('electron');
 // the box and sends them, as ↩ would. Buddy then reads the person's box and brings the panel back itself: that does not
 // listen. Opened again while the buddy is still answering, the panel does not listen by itself either, and words said
 // on 🎤 meanwhile wait in the box. A late "hidden" from before a listening began does not stop it; being hidden does.
-// Closed and opened again with voice off, or with "Listen when the panel opens" off, it does not listen. What the page
-// tells main about listening is heard here as main hears it.
+// A microphone that cannot be opened says nothing when the panel listens by itself, and says what to do on 🎤. While
+// what was said is written down, typing or 🎤 stops it. Closed and opened again with voice off, or with "Listen when
+// the panel opens" off, it does not listen. What the page tells main about listening is heard here as main hears it.
 //
 // This needs the panel page's voice (Task G of docs/superpowers/plans/2026-10-08-buddy-voice.md).
 module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
@@ -48,8 +49,8 @@ module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
     box.dispatchEvent(new Event('input'));
     box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
   })()`);
-  /** The page as if the system said it is hidden (true) or as it really is (null), and told so. */
-  const seemHidden = (hidden) => page(`window.e2eHidden = ${hidden}; document.dispatchEvent(new Event('visibilitychange'))`);
+  /** The page as if the system said it is hidden, and told so. */
+  const seemHidden = () => page("window.e2eHidden = true; document.dispatchEvent(new Event('visibilitychange'))");
 
   try {
     ctx.cloud.free = { ...free, voiceOn: true };
@@ -128,19 +129,23 @@ module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
     told.length = 0;
     await page("document.getElementById('mic').click()");
     await waitFor(listened, 'the panel to listen on 🎤');
-    await seemHidden(true);
-    await delay(30);
-    await seemHidden(null);
+    await page(`window.e2eHidden = true;
+      document.dispatchEvent(new Event('visibilitychange'));
+      setTimeout(() => {
+        window.e2eHidden = null;
+        document.dispatchEvent(new Event('visibilitychange'));
+      }, 30);
+      true`);
     await waitFor(() => ctx.cloud.recordings.length === 3, 'the recording to go to be written down', 15_000);
     await waitFor(() => chat().filter((item) => item.type === 'you' && item.text === HEARD).length === 1, 'the words to be sent');
     assert.deepStrictEqual(changes(), [true, false]);
 
-    // Hidden for real, it stops at once, and nothing is sent.
+    // Hidden for real, it stops a moment later, and nothing is sent.
     await waitFor(() => chat().at(-1)?.type === 'buddy', 'the answer');
     told.length = 0;
     await page("document.getElementById('mic').click()");
     await waitFor(listened, 'the panel to listen on 🎤');
-    await seemHidden(true);
+    await seemHidden();
     await waitFor(() => changes().at(-1) === false, 'the listening to stop', 1500);
     await delay(3000); // longer than the fake voice
     assert.strictEqual(ctx.cloud.recordings.length, 3, 'nothing more was sent');

@@ -4,7 +4,9 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /** What the rest of the app asks of the floating buddy. */
 sealed interface BubbleEvent {
@@ -23,12 +25,29 @@ object BubbleBus {
 
     val events: SharedFlow<BubbleEvent> = flow.asSharedFlow()
 
+    private val sheets = mutableSetOf<Any>()
+    private val anySheet = MutableStateFlow(false)
+
     /**
-     * True while the panel is on screen. The head steps out of its way, since it would cover the card and take its
-     * taps, and comes back when the panel goes. A state rather than an event, so that a buddy that starts meanwhile
-     * knows it too.
+     * True while the panel or a Fix sheet is on screen. The head steps out of their way, since it would cover the card
+     * and take its taps, and comes back when the last one goes: a Fix can open over the panel, from its own text box. A
+     * state rather than an event, so that a buddy that starts meanwhile knows it too.
      */
-    val panelOpen = MutableStateFlow(false)
+    val panelOpen: StateFlow<Boolean> = anySheet.asStateFlow()
+
+    /**
+     * A sheet is on screen. `sheet` is what it keeps through a turn of the phone (its ViewModel), so that the sheet made
+     * again then is the same one, not a second.
+     */
+    fun sheetShown(sheet: Any) = synchronized(sheets) {
+        sheets += sheet
+        anySheet.value = true
+    }
+
+    fun sheetGone(sheet: Any) = synchronized(sheets) {
+        sheets -= sheet
+        anySheet.value = sheets.isNotEmpty()
+    }
 
     fun mood(m: Mood) = send(BubbleEvent.SetMood(m))
 

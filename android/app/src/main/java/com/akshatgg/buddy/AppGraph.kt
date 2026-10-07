@@ -5,6 +5,9 @@ import com.akshatgg.buddy.account.Account
 import com.akshatgg.buddy.account.CredentialManagerGoogle
 import com.akshatgg.buddy.account.FirebaseAuthApi
 import com.akshatgg.buddy.account.GoogleIdTokens
+import com.akshatgg.buddy.ai.Action
+import com.akshatgg.buddy.ai.Answer
+import com.akshatgg.buddy.ai.AskInput
 import com.akshatgg.buddy.ai.KeySaver
 import com.akshatgg.buddy.ai.Prompts
 import com.akshatgg.buddy.ai.Router
@@ -25,9 +28,9 @@ import kotlinx.coroutines.launch
 
 /**
  * Every long-lived object, made once for the process and shared, as the Mac's main.js makes its store, secrets,
- * account, cloud and ai once. BuddyApp makes the real one at launch. The network, the stores and the Google picker
- * can be passed in, so that an instrumented test can make a graph with fakes and put it in `instance` before it
- * starts an activity.
+ * account, cloud and ai once. BuddyApp makes the real one at launch. The network, the stores, the Google picker and
+ * the AI's answers can be passed in, so that an instrumented test can make a graph with fakes and put it in `instance`
+ * before it starts an activity.
  */
 class AppGraph(
     context: Context,
@@ -36,6 +39,7 @@ class AppGraph(
     // One for the whole process: two could each make the keystore key at the same moment, and one would be lost.
     val secrets: Secrets = KeystoreSecrets(SharedPrefsKeyValue(context, "secrets")),
     val google: GoogleIdTokens = CredentialManagerGoogle(BuildConfig.GOOGLE_WEB_CLIENT_ID),
+    ask: (suspend (Action, AskInput) -> Answer)? = null,
 ) {
     val shared: Shared = Shared.load(context)
     val settings = AppSettings(kv)
@@ -45,6 +49,9 @@ class AppGraph(
     val cloud = CloudClient(http, BuildConfig.SERVER_URL, account, settings)
     val router = Router(account, cloud, settings, secrets, providers, prompts)
     val keySaver = KeySaver(settings, secrets, providers)
+
+    /** How the panel and the Fix sheet ask the AI: through the router, unless a test answers instead. */
+    val ask: suspend (Action, AskInput) -> Answer = ask ?: router::ask
 
     // Lives as long as the process, like the objects above.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)

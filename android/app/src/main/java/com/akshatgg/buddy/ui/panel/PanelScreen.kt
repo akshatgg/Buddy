@@ -9,6 +9,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -111,10 +112,30 @@ fun answerText(state: PanelState): String {
 
 /**
  * The panel: a card at the bottom of the screen with the buddy's name, the three tabs, and the answer, in the Mac
- * panel's order and words. A tap outside the card closes it, as a click anywhere else hides the Mac's.
+ * panel's order and words.
  */
 @Composable
 fun PanelScreen(state: PanelState, buddyName: String, on: PanelCallbacks) {
+    Sheet(on.close) {
+        Header(buddyName, on.settings)
+        Segmented(TABS, state.tab, on.select, Role.Tab)
+        when (state.tab) {
+            Tab.WRITE -> WriteTab(state, on)
+            Tab.FIX -> FixTab(state, on)
+            Tab.CHECK -> CheckTab(state, on)
+        }
+        if (state.busy) Busy()
+        state.error?.let { ErrorLine(it, on.openSettings) }
+        if (state.answer != null) AnswerSection(state, on)
+    }
+}
+
+/**
+ * Buddy's card over whatever app is on screen, at the bottom, with a handle bar: the panel's, and the Fix sheet's. A
+ * tap outside the card closes it, as a click anywhere else hides the Mac's panel.
+ */
+@Composable
+internal fun Sheet(onClose: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     val colors = Buddy.colors
     Box(Modifier.fillMaxSize()) {
         Spacer(
@@ -122,7 +143,7 @@ fun PanelScreen(state: PanelState, buddyName: String, on: PanelCallbacks) {
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClickLabel = "Close",
-                onClick = on.close,
+                onClick = onClose,
             ),
         )
         // A Surface takes every touch that lands on it, so a tap on the card never reaches the space behind it.
@@ -147,16 +168,7 @@ fun PanelScreen(state: PanelState, buddyName: String, on: PanelCallbacks) {
                     Modifier.align(Alignment.CenterHorizontally).size(width = 36.dp, height = 4.dp)
                         .background(colors.line, RoundedCornerShape(2.dp)),
                 )
-                Header(buddyName, on.settings)
-                Segmented(TABS, state.tab, on.select, Role.Tab)
-                when (state.tab) {
-                    Tab.WRITE -> WriteTab(state, on)
-                    Tab.FIX -> FixTab(state, on)
-                    Tab.CHECK -> CheckTab(state, on)
-                }
-                if (state.busy) Busy()
-                state.error?.let { ErrorLine(it, on.openSettings) }
-                if (state.answer != null) AnswerSection(state, on)
+                content()
             }
         }
     }
@@ -226,16 +238,16 @@ private fun Field(value: String, onChange: (String) -> Unit, placeholder: String
     )
 }
 
-private val ROUNDED = RoundedCornerShape(BuddyRadius)
+internal val ROUNDED = RoundedCornerShape(BuddyRadius)
 private val BUTTON_PADDING = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
 
 @Composable
-private fun Primary(label: String, enabled: Boolean = true, onClick: () -> Unit) {
+internal fun Primary(label: String, enabled: Boolean = true, onClick: () -> Unit) {
     Button(onClick, enabled = enabled, shape = ROUNDED, contentPadding = BUTTON_PADDING) { Text(label, fontWeight = FontWeight.Medium) }
 }
 
 @Composable
-private fun Secondary(label: String, onClick: () -> Unit) {
+internal fun Secondary(label: String, onClick: () -> Unit) {
     OutlinedButton(
         onClick,
         shape = ROUNDED,
@@ -290,7 +302,7 @@ private fun CheckTab(state: PanelState, on: PanelCallbacks) {
 }
 
 @Composable
-private fun Busy() {
+internal fun Busy() {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = Buddy.colors.accent, trackColor = Buddy.colors.track)
         Text("Buddy is thinking…", color = Buddy.colors.muted, style = MaterialTheme.typography.bodyMedium)
@@ -299,7 +311,7 @@ private fun Busy() {
 
 /** What went wrong, in the error colour on its soft tint, with the way to Settings beside it when the fix is there. */
 @Composable
-private fun ErrorLine(error: PanelError, onOpenSettings: (PanelError) -> Unit) {
+internal fun ErrorLine(error: PanelError, onOpenSettings: (PanelError) -> Unit) {
     val colors = Buddy.colors
     Row(
         Modifier.fillMaxWidth().background(colors.errorSoft, RoundedCornerShape(7.dp)).padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
@@ -318,7 +330,7 @@ private fun Label(text: String) {
 
 /** An answer's words, in a box like the Mac's, and selectable so that a part of it can be copied. */
 @Composable
-private fun AnswerText(text: String) {
+internal fun AnswerText(text: String) {
     SelectionContainer {
         Text(
             text,

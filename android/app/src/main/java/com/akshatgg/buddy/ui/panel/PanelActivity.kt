@@ -3,6 +3,7 @@ package com.akshatgg.buddy.ui.panel
 import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
@@ -50,9 +51,25 @@ private fun sectionFor(code: String?) = when (code) {
     else -> null
 }
 
+/** An answer's Copy, in the panel and the Fix sheet; Android 13 and later show their own "Copied" too. */
+internal fun Context.copyAnswer(text: String) {
+    getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Buddy", text))
+    BubbleBus.say(COPIED) // the buddy says how to paste it
+}
+
+/**
+ * Settings, at the part that fixes the error `code` (or at the top), in the app's own task: the panel's is apart and
+ * out of Recents, and the Fix sheet's is another app's.
+ */
+internal fun Context.openSettingsFor(code: String?) {
+    val intent = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    sectionFor(code)?.let { intent.putExtra(SECTION, it) }
+    startActivity(intent)
+}
+
 /** Keeps the panel's state, its picture and its request through a turn of the phone. */
 class PanelViewModel : ViewModel() {
-    val model = PanelModel(AppGraph.instance.router::ask, viewModelScope, BubbleBus::send).apply {
+    val model = PanelModel(AppGraph.instance.ask, viewModelScope, BubbleBus::send).apply {
         select(chosen.first)
         setTone(chosen.second)
     }
@@ -101,7 +118,7 @@ class PanelActivity : ComponentActivity() {
             copy = ::copy,
             share = ::share,
             retry = model::retry,
-            openSettings = { openSettings(sectionFor(it.code)) },
+            openSettings = { openSettings(it.code) },
             settings = { openSettings(null) },
             close = ::finish,
         )
@@ -118,11 +135,11 @@ class PanelActivity : ComponentActivity() {
     // the next one at once: the buddy stays hidden through it.
     override fun onStart() {
         super.onStart()
-        BubbleBus.panelOpen.value = true
+        BubbleBus.sheetShown(kept)
     }
 
     override fun onStop() {
-        if (!isChangingConfigurations) BubbleBus.panelOpen.value = false
+        if (!isChangingConfigurations) BubbleBus.sheetGone(kept)
         super.onStop()
     }
 
@@ -140,9 +157,7 @@ class PanelActivity : ComponentActivity() {
     }
 
     private fun copy(text: String) {
-        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Buddy", text))
-        // Android 13 and later show their own "Copied" too; the buddy says how to paste it.
-        BubbleBus.say(COPIED)
+        copyAnswer(text)
         finish()
     }
 
@@ -151,11 +166,9 @@ class PanelActivity : ComponentActivity() {
         startActivity(Intent.createChooser(send, null))
     }
 
-    /** Settings, in the app's own task (the panel's is apart and out of Recents), and the panel closes, as on the Mac. */
-    private fun openSettings(section: String?) {
-        val intent = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (section != null) intent.putExtra(SECTION, section)
-        startActivity(intent)
+    /** Settings, and the panel closes, as on the Mac. */
+    private fun openSettings(code: String?) {
+        openSettingsFor(code)
         finish()
     }
 

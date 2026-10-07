@@ -100,18 +100,26 @@ func accessibilityTrusted(prompt: Bool) -> Bool {
 enum Key: CGKeyCode {
     case a = 0x00
     case c = 0x08
+    case d = 0x02
     case v = 0x09
+    case z = 0x06
+    case returnKey = 0x24
     case rightArrow = 0x7C // 124
 }
 
-func pressCommand(_ key: Key) {
+/// `key` with the modifier keys `flags` held, into the app in front.
+func pressKeys(_ key: Key, _ flags: CGEventFlags) {
     let source = CGEventSource(stateID: .combinedSessionState)
     let down = CGEvent(keyboardEventSource: source, virtualKey: key.rawValue, keyDown: true)
     let up = CGEvent(keyboardEventSource: source, virtualKey: key.rawValue, keyDown: false)
-    down?.flags = .maskCommand
-    up?.flags = .maskCommand
+    down?.flags = flags
+    up?.flags = flags
     down?.post(tap: .cghidEventTap)
     up?.post(tap: .cghidEventTap)
+}
+
+func pressCommand(_ key: Key) {
+    pressKeys(key, .maskCommand)
 }
 
 /// A key on its own, with no modifiers, sent straight to the app `pid`.
@@ -262,6 +270,60 @@ func paste(_ args: [String: Any]) throws -> [String: Any] {
     // change count), so a check for a changed count would always say yes.
     restoreClipboard(saved)
     return ["via": via]
+}
+
+// The keys `press` may send and the modifiers it may hold, by the names Buddy uses (src/main/send-keys.js): ↩ sends,
+// ⌘Z undoes, and ⌘⇧D sends in Mail. Nothing else, so that Buddy can never be made to press just any key.
+let pressableKeys: [String: Key] = ["return": .returnKey, "z": .z, "d": .d]
+let modifierFlags: [String: CGEventFlags] = ["cmd": .maskCommand, "ctrl": .maskControl, "shift": .maskShift, "alt": .maskAlternate]
+
+func modifiersArg(_ args: [String: Any]) throws -> CGEventFlags {
+    let given = args["modifiers"] ?? NSNull()
+    if given is NSNull { return [] }
+    guard let names = given as? [String] else {
+        throw HelperError(code: "bad_request", message: "modifiers must be a list")
+    }
+    var flags: CGEventFlags = []
+    for name in names {
+        guard let flag = modifierFlags[name] else {
+            throw HelperError(code: "bad_request", message: "modifiers must be cmd, ctrl, shift or alt")
+        }
+        flags.insert(flag)
+    }
+    return flags
+}
+
+/// One key with its modifiers, like ⌘↩ (Send) or ⌘Z (Undo), into the app `pid`, brought to the front first. It is
+/// refused wherever Paste is: Buddy never types into a password field.
+func press(_ args: [String: Any]) throws -> [String: Any] {
+    let pid = try pidArg(args)
+    guard let name = args["key"] as? String, let key = pressableKeys[name] else {
+        throw HelperError(code: "bad_request", message: "key must be return, z or d")
+    }
+    let flags = try modifiersArg(args)
+    try needAccessibility()
+    guard let via = ensureFront(pid) else { throw HelperError(code: "not_frontmost", message: "Could not switch back to that app.") }
+    if focusedIsSecure(pid) { throw HelperError(code: "secure_field", message: "I don't type into password fields.") }
+    pressKeys(key, flags)
+    return ["via": via]
+}
+
+/// The title of the app's front window, which in a browser names the site that is open (src/main/send-keys.js tells
+/// Gmail from WhatsApp by it). "" when it has none or it cannot be read, as without Accessibility: never an error.
+/// The title is passed on, never logged.
+func windowTitle(_ args: [String: Any]) throws -> [String: Any] {
+    let pid = try pidArg(args)
+    guard accessibilityTrusted(prompt: false) else { return ["title": ""] }
+    let app = AXUIElementCreateApplication(pid)
+    for attribute in ["AXFocusedWindow", "AXMainWindow"] {
+        var window: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, attribute as CFString, &window) == .success,
+              let value = window, CFGetTypeID(value) == AXUIElementGetTypeID() else { continue }
+        var title: CFTypeRef?
+        AXUIElementCopyAttributeValue(value as! AXUIElement, kAXTitleAttribute as CFString, &title)
+        if let text = title as? String, !text.isEmpty { return ["title": text] }
+    }
+    return ["title": ""]
 }
 
 final class ResultBox: @unchecked Sendable {
@@ -461,6 +523,10 @@ func handle(_ msg: [String: Any]) {
             result = try captureSelection(args)
         case "paste":
             result = try paste(args)
+        case "press":
+            result = try press(args)
+        case "windowTitle":
+            result = try windowTitle(args)
         case "screenshot":
             result = try screenshot(args)
         case "watchKeys":

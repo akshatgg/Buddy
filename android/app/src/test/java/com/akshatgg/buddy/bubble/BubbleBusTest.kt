@@ -18,15 +18,15 @@ class BubbleBusTest {
         BubbleBus.sheetShown(panel)
         BubbleBus.sheetShown(fix)
         BubbleBus.sheetGone(fix)
-        assertTrue(BubbleBus.panelOpen.value)
+        assertTrue(BubbleBus.sheetOpen.value)
         BubbleBus.sheetGone(panel)
-        assertFalse(BubbleBus.panelOpen.value)
+        assertFalse(BubbleBus.sheetOpen.value)
     }
 
     @Test fun aSheetShownAgainAfterATurnOfThePhoneGoesAtOnce() {
         BubbleBus.sheetShown(fix)
         BubbleBus.sheetShown(fix)
         BubbleBus.sheetGone(fix)
-        assertFalse(BubbleBus.panelOpen.value)
+        assertFalse(BubbleBus.sheetOpen.value)
     }
 }

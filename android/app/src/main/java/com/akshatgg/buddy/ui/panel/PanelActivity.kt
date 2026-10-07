@@ -1,9 +1,8 @@
 package com.akshatgg.buddy.ui.panel
 
 import android.annotation.SuppressLint
-import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.Context
+import android.content.ComponentName
 import android.content.Intent
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
@@ -27,45 +26,17 @@ import com.akshatgg.buddy.AppGraph
 import com.akshatgg.buddy.bubble.BubbleBus
 import com.akshatgg.buddy.capture.ScreenCapture
 import com.akshatgg.buddy.core.BuddyError
-import com.akshatgg.buddy.ui.MainActivity
+import com.akshatgg.buddy.ui.fix.FixActivity
 import com.akshatgg.buddy.ui.theme.BuddyTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-private const val COPIED = "Copied — long-press the box and tap Paste"
 private const val NO_PICTURE = "Check screen needs a picture of your screen. Try again and allow it."
 private const val NOTHING_TO_PASTE = "Copy some text first, then tap Paste."
 // The buddy is already out of the panel's way while the panel is on screen; this keeps it out of the picture even
 // if the panel is sent to the background meanwhile.
 private const val HIDE_MS = 1500L
-
-// MainActivity scrolls Settings to this section: where a key, a model or free mode is set; the account; Buddy on.
-private const val SECTION = "section"
-private val AI_ERRORS = setOf("no_key", "bad_key", "no_credit", "bad_model", "no_vision", "need_key", "free_off")
-
-private fun sectionFor(code: String?) = when (code) {
-    in AI_ERRORS -> "ai"
-    "signed_out", "not_set_up" -> "account"
-    "buddy_off" -> "buddy"
-    else -> null
-}
-
-/** An answer's Copy, in the panel and the Fix sheet; Android 13 and later show their own "Copied" too. */
-internal fun Context.copyAnswer(text: String) {
-    getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Buddy", text))
-    BubbleBus.say(COPIED) // the buddy says how to paste it
-}
-
-/**
- * Settings, at the part that fixes the error `code` (or at the top), in the app's own task: the panel's is apart and
- * out of Recents, and the Fix sheet's is another app's.
- */
-internal fun Context.openSettingsFor(code: String?) {
-    val intent = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    sectionFor(code)?.let { intent.putExtra(SECTION, it) }
-    startActivity(intent)
-}
 
 /** Keeps the panel's state, its picture and its request through a turn of the phone. */
 class PanelViewModel : ViewModel() {
@@ -163,7 +134,9 @@ class PanelActivity : ComponentActivity() {
 
     private fun share(text: String) {
         val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
-        startActivity(Intent.createChooser(send, null))
+        // Buddy's own Share → Buddy would only fix the answer again: the person shares it with someone else.
+        val buddy = arrayOf(ComponentName(this, FixActivity::class.java))
+        startActivity(Intent.createChooser(send, null).putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, buddy))
     }
 
     /** Settings, and the panel closes, as on the Mac. */

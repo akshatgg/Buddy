@@ -29,11 +29,11 @@ object BubbleBus {
     private val anySheet = MutableStateFlow(false)
 
     /**
-     * True while the panel or a Fix sheet is on screen. The head steps out of their way, since it would cover the card
-     * and take its taps, and comes back when the last one goes: a Fix can open over the panel, from its own text box. A
-     * state rather than an event, so that a buddy that starts meanwhile knows it too.
+     * True while a sheet (the panel or a Fix sheet) is on screen. The head steps out of its way, since it would cover
+     * the card and take its taps, and comes back when the last one goes: a Fix can open over the panel, from its own
+     * text box. A state rather than an event, so that a buddy that starts meanwhile knows it too.
      */
-    val panelOpen: StateFlow<Boolean> = anySheet.asStateFlow()
+    val sheetOpen: StateFlow<Boolean> = anySheet.asStateFlow()
 
     /**
      * A sheet is on screen. `sheet` is what it keeps through a turn of the phone (its ViewModel), so that the sheet made

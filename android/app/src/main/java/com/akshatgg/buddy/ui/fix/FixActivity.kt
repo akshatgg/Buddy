@@ -52,15 +52,17 @@ class FixViewModel : ViewModel() {
     }
 }
 
-// Sent as it is, however long: the router says when it is too long, in the Mac's words.
+// Sent as it is, however long: the router says when it is too long, in the Mac's words. Any app can send this sheet
+// anything, and extras it packed badly (a class Buddy does not have) throw when read: that is no text, not a crash.
 private fun textOf(intent: Intent): String {
     val key = if (intent.action == Intent.ACTION_PROCESS_TEXT) Intent.EXTRA_PROCESS_TEXT else Intent.EXTRA_TEXT
-    return intent.getCharSequenceExtra(key)?.toString().orEmpty()
+    return runCatching { intent.getCharSequenceExtra(key)?.toString() }.getOrNull().orEmpty()
 }
 
-// Only a selection the app lets Buddy change can be replaced: shared or read-only text can only be copied.
-private fun replaceable(intent: Intent) =
-    intent.action == Intent.ACTION_PROCESS_TEXT && !intent.getBooleanExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, false)
+// Only a selection the app lets Buddy change can be replaced: shared or read-only text can only be copied, and so can
+// text whose read-only flag cannot be read.
+private fun replaceable(intent: Intent) = intent.action == Intent.ACTION_PROCESS_TEXT &&
+    runCatching { intent.getBooleanExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, false) }.getOrNull() == false
 
 /**
  * "Fix with Buddy" in any app's text menu, and Share → Buddy: a sheet over that app that fixes the text at once.

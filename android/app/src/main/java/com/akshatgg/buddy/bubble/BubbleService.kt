@@ -17,6 +17,7 @@ import android.graphics.Point
 import android.graphics.Rect
 import android.os.Build
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
@@ -50,6 +51,7 @@ private const val NOTIFICATION_ID = 1
 private const val ROOM = 1.6f // the head's window is this much bigger than the head: room for the float and the bounce
 private const val GLIDE_MS = 220L
 private const val SLEEPY_MS = 5000L // as the Mac's actions.js: a sleepy buddy wakes up on its own after a few seconds
+private const val HELD_MS = 5000L // words held while a sheet was open are said when it goes only if they are this new
 
 /**
  * The buddy over every app. A foreground service, so that Android keeps it running while Buddy is on, as the Mac's
@@ -71,7 +73,8 @@ class BubbleService : LifecycleService() {
 
     private var sleepyTimer: Job? = null
     private var hideTimer: Job? = null // while it runs the head is hidden for a picture of the screen
-    private var heldWords: String? = null // said while the head was out of the panel's way: said when the panel goes
+    private var heldWords: String? = null // said while the head was out of a sheet's way: said when the last one goes
+    private var heldAt = 0L // when they were said (elapsedRealtime)
 
     // The head draws only while it is visible, and an overlay stays "visible" with the screen off or locked, so it is
     // hidden then: the Mac's buddy:pause on lock-screen.
@@ -117,12 +120,14 @@ class BubbleService : LifecycleService() {
             }
         }
         lifecycleScope.launch {
-            BubbleBus.panelOpen.collect { open ->
+            BubbleBus.sheetOpen.collect { open ->
                 if (open) speech?.hide() // it would sit over the card
                 showOrHide()
                 if (!open) heldWords?.let {
                     heldWords = null
-                    say(it)
+                    // A Copy in a Fix sheet over the panel is held until the panel goes too, which can be much later:
+                    // by then "Copied — …" is about nothing the person just did.
+                    if (SystemClock.elapsedRealtime() - heldAt < HELD_MS) say(it)
                 }
             }
         }
@@ -392,9 +397,12 @@ class BubbleService : LifecycleService() {
     private fun say(text: String) {
         val view = head ?: return
         if (view.visibility != View.VISIBLE) {
-            // Out of the panel's way, and nothing else: kept until the panel goes, since Copy says "Copied — …" just
-            // before it closes the panel. Otherwise nobody would see it, or it would be in a picture of the screen.
-            if (!screenOff && hideTimer?.isActive != true && BubbleBus.panelOpen.value) heldWords = text
+            // Out of a sheet's way, and nothing else: kept until the last sheet goes, since Copy says "Copied — …"
+            // just before it closes its sheet. Otherwise nobody would see it, or it would be in a picture of the screen.
+            if (!screenOff && hideTimer?.isActive != true && BubbleBus.sheetOpen.value) {
+                heldWords = text
+                heldAt = SystemClock.elapsedRealtime()
+            }
             return
         }
         if (!Settings.canDrawOverlays(this)) return // taken away a moment ago: the watcher is about to stop the service
@@ -413,11 +421,11 @@ class BubbleService : LifecycleService() {
     }
 
     /**
-     * The head shows unless the screen is off or locked, the panel is open, or a picture of the screen is being taken.
-     * Hidden, it does not draw; its mood still changes, and shows when it comes back.
+     * The head shows unless the screen is off or locked, a sheet (the panel or a Fix sheet) is open, or a picture of the
+     * screen is being taken. Hidden, it does not draw; its mood still changes, and shows when it comes back.
      */
     private fun showOrHide() {
-        val hidden = screenOff || BubbleBus.panelOpen.value || hideTimer?.isActive == true
+        val hidden = screenOff || BubbleBus.sheetOpen.value || hideTimer?.isActive == true
         head?.visibility = if (hidden) View.INVISIBLE else View.VISIBLE
     }
 

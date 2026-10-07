@@ -1,6 +1,8 @@
 package com.akshatgg.buddy.ui.fix
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
@@ -102,6 +104,24 @@ class FixActivityTest {
             compose.onNodeWithText("Replace").assertDoesNotExist()
         }
         assertEquals(listOf(Action.FIX to AskInput(text = "alpha share one"), Action.FIX to AskInput(text = "beta share two")), asked)
+    }
+
+    @Test fun copyPutsTheFixedTextOnTheClipboard() {
+        val clipboard = context.getSystemService(ClipboardManager::class.java)
+        clipboard.setPrimaryClip(ClipData.newPlainText("test", "nothing copied yet"))
+        ActivityScenario.launch<FixActivity>(share("she go to school")).use {
+            compose.onNodeWithText("I went to the market.").assertIsDisplayed()
+            compose.onNodeWithText("Copy").performClick()
+        }
+        // Copy closes the sheet, and Android lets an app that is not in front read the clipboard only with this
+        // permission, which the shell has.
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.adoptShellPermissionIdentity("android.permission.READ_CLIPBOARD_IN_BACKGROUND")
+        try {
+            assertEquals("I went to the market.", clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+        } finally {
+            automation.dropShellPermissionIdentity()
+        }
     }
 
     @Test fun signedOutShowsThePanelsErrorWithOpenSettings() {

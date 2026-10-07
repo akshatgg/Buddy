@@ -311,7 +311,7 @@ test('a diagonal shake at any angle is shaking, and needs four reversals like an
   }
 });
 
-test('a turn on either axis counts: two turns on x and two on y make four', () => {
+test('turns along x, a corner, then turns along y: four reversals make a shake', () => {
   // Right, left, right (two turns on x); then down, up, down along the right edge (two turns on y).
   const route = [[300, 300], [420, 300], [300, 300], [420, 300], [420, 420], [420, 300], [420, 420]];
   const { events, reached } = hand(route, { speed: 15, jitter: 4 });
@@ -472,6 +472,13 @@ test('a reversal on a diagonal is one turn, not two: the fourth turn of a diagon
   const shake = createShakeDetector();
   const moves = [[0, 0, 0], [50, 50, 100], [0, 0, 200], [50, 50, 300], [0, 0, 400], [50, 50, 500]];
   assert.deepStrictEqual(moves.map(([x, y, t]) => shake.feed(x, y, t)), [false, false, false, false, false, true]);
+});
+
+test('a flick back past where the stroke began is a turn, not the stroke going on', () => {
+  // A short stroke of 30 points along x, then one fast move to 40 points behind its start: further from the start than
+  // the tip ever was, but the other way. That is a reversal.
+  const shake = createShakeDetector({ turns: 1 });
+  assert.deepStrictEqual([[0, 0, 0], [30, 0, 16], [-40, 0, 32]].map(([x, y, t]) => shake.feed(x, y, t)), [false, false, true]);
 });
 
 test('a turn is the pointer coming back 24 points along its stroke: a corner is not one, a reversal at any angle is', () => {

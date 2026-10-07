@@ -50,7 +50,8 @@ function createAxis(step) {
  * last turned (or was first seen) and goes on while the pointer gets further from there: the furthest it got is the
  * stroke's tip, and the stroke's direction is from its start to its tip. A turn is the pointer coming back from the tip
  * by `step` points along that direction; the next stroke then starts at the old tip. Along one axis it finds what
- * `createAxis` finds; on a diagonal it counts one turn for each reversal, and round a circle two for each time round. Less
+ * `createAxis` finds for strokes of about 40 points or more (shorter ones, from a shaky hand, a little less often); on a
+ * diagonal it counts one turn for each reversal, and round a circle two for each time round. Less
  * than that is not a turn: going back and forth by under `step` is jitter, and a corner, where the pointer goes off to the
  * side, is not a reversal (the stroke goes on round it).
  */
@@ -74,7 +75,9 @@ function createStrokes(step) {
         }
         return false;
       }
-      if (distance > far) {
+      // Ahead of the start, not behind it: a fast flick back past the start is further from it than the tip, but a reversal.
+      const ahead = (x - start.x) * (tip.x - start.x) + (y - start.y) * (tip.y - start.y) >= 0;
+      if (distance > far && ahead) {
         // Further from the start: the stroke goes on, and its tip and direction with it.
         tip = { x, y };
         far = distance;

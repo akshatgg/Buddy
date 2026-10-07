@@ -26,8 +26,9 @@ android {
         buildConfigField("String", "SERVER_URL", quoted(cloudValue("serverUrl")))
         buildConfigField("String", "FIREBASE_API_KEY", quoted(cloudValue("firebaseApiKey")))
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", quoted(cloudValue("googleWebClientId")))
-        // Phones are arm64; x86_64 is for an Intel emulator. Leaving out 32-bit keeps Filament's native code small.
-        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        // Most phones are arm64, but many budget ones (Android Go) still run 32-bit ARM; x86_64 is for an Intel
+        // emulator. Each one adds Filament's native code for it to the APK.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
     signingConfigs {
         // One debug key in the repository, so that every build has the SHA-1 Firebase knows for Google sign-in.

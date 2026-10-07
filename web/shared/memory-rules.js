@@ -24,7 +24,7 @@ const MONEY_WORDS = /\b(?:cards?|atms?|debit|credit|bank(?:s|ing)?|net-?banking|
 // that do not start with 0.
 const NUMBER = /\d(?:[\s.\-‐‑‒–—]?\d)*/g;
 const POSTAL_CODE = /^[1-9]\d{5}$/;
-// How far before the words "PIN code" a number still goes with them ("4321 is your PIN code").
+// How far before the words "PIN code" a number still goes with them ("411001 is your PIN code").
 const NEAR_CHARS = 30;
 // 12 or more digits in a row once spaces, dots and dashes are taken out: "4111 1111 1111 1111" or "1234-5678-9012".
 // A 10-digit phone number is kept, and so is one written with its country code ("+91 98765 43210"): a phone number
@@ -39,16 +39,20 @@ const withoutPhones = (fact) => fact.replace(PHONE, (phone) => (phone.replace(/\
 
 /**
  * Whether the PIN code a fact names is the postal code: the fact says nothing of a card, an ATM, a bank or UPI, and
- * every number near the words (from 30 characters before them to the end of the fact) is six digits, as a postal code
- * is. A fact is one short sentence, so a number after the words is near them; one that is not a postal code makes it
- * a PIN, which is refused.
+ * every number after the words is six digits, as a postal code is ("PIN code 411001", "PIN code is 411 001"); with none
+ * after them, the one just before them is ("411001 is your PIN code"). A number earlier in the fact, such as the house
+ * number of an address ("12 MG Road, Pune, PIN code 411001"), does not matter.
  */
 function isPostalCode(fact) {
   if (MONEY_WORDS.test(fact)) return false;
-  const from = fact.search(PIN_CODE) - NEAR_CHARS;
-  return [...fact.matchAll(NUMBER)]
-    .filter((number) => number.index + number[0].length > from)
-    .every((number) => POSTAL_CODE.test(number[0].replace(NUMBER_GAPS, '')));
+  const words = PIN_CODE.exec(fact);
+  const numbers = [...fact.matchAll(NUMBER)];
+  const isPostal = (number) => POSTAL_CODE.test(number[0].replace(NUMBER_GAPS, ''));
+  const after = numbers.filter((number) => number.index >= words.index + words[0].length);
+  if (after.length) return after.every(isPostal);
+  const before = numbers.filter((number) => number.index + number[0].length <= words.index
+    && words.index - (number.index + number[0].length) <= NEAR_CHARS).pop();
+  return !before || isPostal(before);
 }
 
 /** The fact trimmed and on one line, or null when it is empty, too long, or a secret. */

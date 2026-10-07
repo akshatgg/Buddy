@@ -99,7 +99,7 @@ test('a phone number with its country code and a PIN code (the postal code) are 
   assert.strictEqual(cleanFact('Your PIN is 1234, the code for the door.'), null);
 });
 
-test('a PIN code is kept only as the postal code: six digits near it, and no card, ATM, bank or UPI in the fact', () => {
+test('a PIN code is kept only as the postal code: six digits with it, and no card, ATM, bank or UPI in the fact', () => {
   for (const fact of [
     'Your ATM PIN code is 4321.',
     'Your debit card pin code is 4567.',
@@ -130,6 +130,8 @@ test('a PIN code is kept only as the postal code: six digits near it, and no car
     'You live in Bankura, PIN code 722101.', // whole words only: "Bankura" is not "bank"
     "Your clinic's PIN code is 110029, and you work in cardiology.",
     'You want to know the PIN code of your new office.',
+    'You live at 12 MG Road, Pune, PIN code 411001.', // the house number is not the PIN code's number
+    'Your office is on the 3rd floor, 221 Park Street, Kolkata, PIN code 700016.',
   ]) {
     assert.strictEqual(cleanFact(fact), fact, fact);
   }

@@ -2,10 +2,13 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const { EventEmitter } = require('node:events');
 const { BuddyError } = require('../shared/errors');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
 const { DEFAULTS } = require('../src/main/store');
+const { createKeyWatch } = require('../src/main/key-watch');
 const { createShortcut } = require('../src/main/shortcut');
+const { tapKeys } = require('../src/renderer/common/shortcut-keys');
 const { chooseModel, registerSettingsIpc } = require('../src/main/ipc/settings');
 
 test('keeps the model the user picked when the key can use it', () => {
@@ -37,19 +40,20 @@ const ADMIN_PAGE = 'admin';
 const STRAY_KEY = "That doesn't look like an API key. Copy only the key and paste it again.";
 const FAILED = { ok: false, error: { code: 'failed', message: 'Something went wrong. Try again.' } };
 const refused = (code, message) => ({ ok: false, error: { code, message } });
+const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 /**
  * registerSettingsIpc with fakes. `registered` is the shortcut that is
  * registered right now (null: none, as when it failed at launch, or while Buddy is
  * off); `taken` are shortcuts another app owns; `buddyOn` is whether Buddy is on.
- * `realShortcut` replaces the fake shortcut. Provider calls are faked per test
+ * `realShortcut` replaces the fake shortcut and `realKeyWatch` the fake key watch. Provider calls are faked per test
  * with t.mock.method(PROVIDERS.anthropic, 'listModels', ...). `signedIn` is whether someone is signed in; `free` is
  * the server's free-mode settings as the app last got them; `signInFails` and `cloudFails` make signing in or
  * fetching those settings fail; `cloudSignsOut` makes that fetch sign the person out first, as the real one does
  * when the server turns their sign-in down twice.
  */
 function setup({
-  stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut,
+  stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut, realKeyWatch,
   signedIn = true, free = null, signInFails = null, cloudFails = null, cloudSignsOut = false,
 } = {}) {
   const data = { ...structuredClone(DEFAULTS), ...stored };
@@ -101,6 +105,20 @@ function setup({
       return free;
     },
   };
+  // Stands in for key-watch.js: `log` is 'start' and 'stop', in order; `recorder` is where taps go while recording.
+  const keyWatch = {
+    log: [],
+    recorder: null,
+    startRecording(onTap) {
+      this.recorder = onTap;
+      this.log.push('start');
+    },
+    stopRecording() {
+      this.recorder = null;
+      this.log.push('stop');
+    },
+  };
+  const sent = []; // [kind, channel, ...args] for each thing sent to a window's page
   const ipc = registerSettingsIpc({
     ipcMain: { handle: (channel, fn) => { handlers[channel] = fn; } },
     windows: {
@@ -109,6 +127,7 @@ function setup({
       owns: (webContents, kind) => (kind === undefined
         ? [SETTINGS_PAGE, WELCOME_PAGE, ADMIN_PAGE].includes(webContents)
         : webContents === { settings: SETTINGS_PAGE, onboarding: WELCOME_PAGE, admin: ADMIN_PAGE }[kind]),
+      send: (kind, channel, ...args) => sent.push([kind, channel, ...args]),
     },
     store,
     secrets,
@@ -135,6 +154,7 @@ function setup({
         current = null;
       },
     },
+    keyWatch: realKeyWatch || keyWatch,
     shell: { openExternal: async (url) => { opened.push(url); } },
     onFinishOnboarding: () => calls.push(['finished']),
     account,
@@ -144,7 +164,7 @@ function setup({
   });
   const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
   const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
-  return { call, callFromWelcome, handlers, store, keys, calls, opened, ipc, shortcutNow: () => current };
+  return { call, callFromWelcome, handlers, store, keys, calls, opened, ipc, shortcutNow: () => current, keyWatch, sent };
 }
 
 test('settings:get answers the settings without positions or lastDisplayId, the buddies and the providers', async () => {
@@ -970,6 +990,103 @@ test('shortcut:resume says nothing when the shortcut is back, was never let go, 
   await off.call('shortcut:resume');
   assert.deepStrictEqual(off.calls, [], 'Buddy is off: no attempt, so nothing failed');
   assert.strictEqual(warn.mock.callCount(), 0);
+});
+
+test('shortcut:pause also has a key tapped on its own heard, and sends each tap to the Settings page', async () => {
+  const s = setup({ buddyOn: true });
+  await s.call('shortcut:pause');
+  assert.deepStrictEqual(s.keyWatch.log, ['start']);
+  s.keyWatch.recorder('Tap:RightOption');
+  assert.deepStrictEqual(s.sent, [['settings', 'shortcut:tap', 'Tap:RightOption']]);
+});
+
+test('shortcut:resume, and resumeShortcut when Settings closes, stop the recording, whether Buddy is on or off', async () => {
+  const on = setup({ buddyOn: true });
+  await on.call('shortcut:pause');
+  await on.call('shortcut:resume');
+  assert.deepStrictEqual(on.keyWatch.log, ['start', 'stop']);
+  const off = setup({ buddyOn: false });
+  off.ipc.resumeShortcut();
+  assert.deepStrictEqual(off.keyWatch.log, ['stop']);
+});
+
+// The real key watch and shortcut, with a helper that records what it is told. A single key that is saved is heard by
+// the helper; recording must not switch the helper off and on again (a key tapped in that gap would be missed).
+test('recording with a single key saved leaves the helper listening: it is told once, and nothing after', async () => {
+  const told = [];
+  const helper = Object.assign(new EventEmitter(), {
+    async call(cmd, args) {
+      told.push([cmd, args]);
+      return { watching: args.on };
+    },
+  });
+  const keyWatch = createKeyWatch({ helper, onPress() {} });
+  const globalShortcut = { register: () => true, unregister() {} };
+  const shortcut = createShortcut({ globalShortcut, keyWatch, onPress() {} });
+  const s = setup({ buddyOn: true, stored: { shortcut: 'Tap:RightOption' }, realShortcut: shortcut, realKeyWatch: keyWatch });
+  assert.strictEqual(shortcut.register('Tap:RightOption'), true); // as main.js does when Buddy starts
+  await tick();
+  const toldOnce = [['watchKeys', { on: true }]];
+  assert.deepStrictEqual(told, toldOnce);
+
+  await s.call('shortcut:pause');
+  await tick();
+  assert.strictEqual(shortcut.current(), null, 'its own shortcut is let go');
+  assert.deepStrictEqual(told, toldOnce, 'pausing tells the helper nothing');
+  await s.call('shortcut:resume');
+  await tick();
+  assert.strictEqual(shortcut.current(), 'Tap:RightOption', 'and taken back');
+  assert.deepStrictEqual(told, toldOnce, 'neither does resuming');
+});
+
+test('set: a single-key shortcut is saved like any other, and one that is not well formed is refused', async () => {
+  const keyWatch = {
+    shortcut: null,
+    setShortcut(value) {
+      if (value !== null && !tapKeys(value)) return false;
+      this.shortcut = value;
+      return true;
+    },
+  };
+  const globalShortcut = { register: () => true, unregister() {} };
+  const s = setup({ buddyOn: true, realShortcut: createShortcut({ globalShortcut, keyWatch, onPress() {} }) });
+  const r = await s.call('settings:set', { shortcut: 'Tap:RightOption' });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(s.store.get('shortcut'), 'Tap:RightOption');
+  assert.strictEqual(keyWatch.shortcut, 'Tap:RightOption');
+  assert.deepStrictEqual(
+    await s.call('settings:set', { shortcut: 'Tap:Bogus' }),
+    refused('shortcut_taken', '"Tap:Bogus" can\'t be used. Try another one.'),
+  );
+  assert.strictEqual(s.store.get('shortcut'), 'Tap:RightOption', 'nothing changed');
+  assert.strictEqual(keyWatch.shortcut, 'Tap:RightOption');
+});
+
+// A key tapped on its own can never be another app's, so with Buddy off it is only looked at, not registered and let go:
+// that would switch the helper on and off for nothing.
+test('set: while Buddy is off a single-key shortcut is saved and the helper is told nothing; one that is not well formed is refused', async () => {
+  const told = [];
+  const helper = Object.assign(new EventEmitter(), {
+    async call(cmd, args) {
+      told.push([cmd, args]);
+      return { watching: args.on };
+    },
+  });
+  const keyWatch = createKeyWatch({ helper, onPress() {} });
+  const globalShortcut = { register: () => true, unregister() {} };
+  const shortcut = createShortcut({ globalShortcut, keyWatch, onPress() {} });
+  const s = setup({ buddyOn: false, realShortcut: shortcut, realKeyWatch: keyWatch });
+  const r = await s.call('settings:set', { shortcut: 'Tap:RightOption' });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(s.store.get('shortcut'), 'Tap:RightOption');
+  assert.strictEqual(shortcut.current(), null, 'it is not taken until Buddy is turned on');
+  assert.deepStrictEqual(
+    await s.call('settings:set', { shortcut: 'Tap:Bogus' }),
+    refused('shortcut_taken', '"Tap:Bogus" can\'t be used. Try another one.'),
+  );
+  assert.strictEqual(s.store.get('shortcut'), 'Tap:RightOption', 'nothing changed');
+  await tick();
+  assert.deepStrictEqual(told, [], 'the helper is told nothing');
 });
 
 test("the snapshot carries the person's photo and the app's version", async () => {

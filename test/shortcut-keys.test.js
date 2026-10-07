@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { fromKeyEvent, heldSymbols, symbols, keyFor } = require('../src/renderer/common/shortcut-keys');
+const { fromKeyEvent, heldSymbols, symbols, keyFor, isTap, tapKeys, tapValue } = require('../src/renderer/common/shortcut-keys');
 
 /** A keydown as the page sees it: the physical key's code and the modifiers held. */
 const ev = (code, mods = {}) => ({ code, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...mods });
@@ -175,4 +175,41 @@ test('symbols: names it has no key cap for are shown as written, and no object p
   assert.deepStrictEqual(symbols('constructor+B'), ['B'], 'a word that is no modifier is no modifier, whatever an object has by that name');
   assert.deepStrictEqual(symbols('__proto__+B'), ['B']);
   assert.deepStrictEqual(symbols('Command+F25'), ['⌘', 'F25'], 'there is no F25');
+});
+
+// ---- a single-key shortcut: modifier keys tapped on their own ----
+
+const TAP_NAMES = ['Fn', 'LeftControl', 'RightControl', 'LeftOption', 'RightOption', 'LeftShift', 'RightShift', 'LeftCommand', 'RightCommand', 'CapsLock'];
+
+test('a single-key shortcut is "Tap:" and the key, for every key that can be one', () => {
+  for (const name of TAP_NAMES) {
+    assert.strictEqual(isTap(`Tap:${name}`), true, name);
+    assert.deepStrictEqual(tapKeys(`Tap:${name}`), [name], name);
+    assert.strictEqual(tapValue([name]), `Tap:${name}`, name);
+  }
+});
+
+test('keys tapped together are written in one order, whatever order they come in', () => {
+  assert.strictEqual(tapValue(['LeftCommand', 'LeftShift']), 'Tap:LeftShift+LeftCommand');
+  assert.strictEqual(tapValue(['RightCommand', 'Fn', 'LeftControl']), 'Tap:Fn+LeftControl+RightCommand');
+  assert.deepStrictEqual(tapKeys('Tap:LeftCommand+LeftShift'), ['LeftShift', 'LeftCommand']);
+});
+
+test('a single-key shortcut that is not well formed has no keys', () => {
+  for (const value of ['Tap:', 'Tap:Command', 'Tap:leftcommand', 'Tap:LeftCommand+LeftCommand', 'Tap:CapsLock+LeftShift',
+    'Tap:LeftCommand+', 'Tap:constructor', 'tap:LeftCommand', 'Alt+Space', '', null, undefined, 42]) {
+    assert.strictEqual(tapKeys(value), null, String(value));
+  }
+  assert.strictEqual(isTap('Alt+Space'), false);
+  assert.strictEqual(isTap('tap:LeftCommand'), false, 'the prefix is written exactly so');
+  assert.strictEqual(isTap(null), false);
+});
+
+test('a single-key shortcut shows its keys as caps, with their side', () => {
+  assert.deepStrictEqual(symbols('Tap:RightOption'), ['Right ⌥']);
+  assert.deepStrictEqual(symbols('Tap:LeftShift+LeftCommand'), ['Left ⇧', 'Left ⌘']);
+  assert.deepStrictEqual(symbols('Tap:LeftControl+RightCommand'), ['Left ⌃', 'Right ⌘']);
+  assert.deepStrictEqual(symbols('Tap:Fn'), ['fn']);
+  assert.deepStrictEqual(symbols('Tap:CapsLock'), ['⇪ Caps Lock']);
+  assert.deepStrictEqual(symbols('Tap:Bogus'), [], 'one that is not well formed has none');
 });

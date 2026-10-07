@@ -19,5 +19,6 @@ contextBridge.exposeInMainWorld('buddy', {
   finishOnboarding: (choice) => ipcRenderer.invoke('onboarding:finish', choice),
   pauseShortcut: () => ipcRenderer.invoke('shortcut:pause'),
   resumeShortcut: () => ipcRenderer.invoke('shortcut:resume'),
+  onShortcutTap: (fn) => ipcRenderer.on('shortcut:tap', (_event, value) => fn(value)),
   onSection: (fn) => ipcRenderer.on('settings:section', (_event, name) => fn(name)),
 });

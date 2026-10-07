@@ -25,11 +25,17 @@ const loginCalls = [];
 const helper = Object.assign(new EventEmitter(), {
   lastApp: null,
   calls: [],
+  accessibility: true, // what the helper says about the Accessibility permission (a check turns it off and on)
+  watching: false, // whether the app has the helper listen to the modifier keys (a single-key shortcut)
   start() {},
   stop() {},
   async call(cmd, args) {
     this.calls.push({ cmd, args });
-    if (cmd === 'permissions') return { accessibility: true, screenRecording: true };
+    if (cmd === 'permissions') return { accessibility: this.accessibility, screenRecording: true };
+    if (cmd === 'watchKeys') {
+      this.watching = args.on;
+      return { watching: args.on };
+    }
     const err = new Error('There is no app to paste into in the e2e test.');
     err.code = 'not_frontmost';
     throw err;

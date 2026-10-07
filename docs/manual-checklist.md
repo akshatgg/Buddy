@@ -1,8 +1,9 @@
 # Manual checklist
 
 Phase 1 is the sections from Paste-back to Look and feel. Phase 2 is the section
-"Phase 2: sign-in and free mode". The last section, "Settings: the sidebar and the
-shortcut recorder", is the Settings polish.
+"Phase 2: sign-in and free mode". The section "Settings: the sidebar and the
+shortcut recorder" is the Settings polish, and the last one, "Single-key shortcut",
+is the shortcut that is one key tapped on its own.
 
 Run Phase 1 before calling it done, and again after any change to
 `src/native/`, `src/main/actions.js` or the panel. Run it with the installed
@@ -85,3 +86,25 @@ Run with the installed Buddy.app, signed in with a real Google account. The keys
 - [ ] The sidebar shows your Google photo, round. (Signed in before photos were kept, it shows your initials until you sign in again.)
 - [ ] Sign out at the bottom of the sidebar → "Not signed in", and Sign in with Google in its place; Sign in with Google → finish in the browser → back in Settings, your name, email, photo and Sign out. The button doesn't jump when a line appears under it.
 - [ ] Every window in light and dark mode (System Settings → Appearance): Settings (each section), the Welcome (each step), Admin, the panel (each tab, with an answer and with an error) and the bubble.
+
+## Single-key shortcut
+
+- [ ] Settings → Shortcut: click the box and tap Right ⌥ on its own → saved as "Right ⌥", with the note "Tap it on its own to open your buddy: press and let go, with no other key."
+- [ ] In TextEdit, tap Right ⌥ → the panel opens; tap it again → it closes.
+- [ ] Hold Right ⌥ for a second and let go → nothing. Type ⌥ with a letter (a special character) → nothing. ⌥-click → nothing. Tap Left ⌥ → nothing.
+- [ ] A volume, brightness or play key, and scrolling, spoil a tap like any other key: with Right ⌥ recorded, ⌥ + volume up and ⇧ ⌥ + volume change the volume and do not open Buddy; with fn recorded, fn + F12 does not; with ⌃ or ⌥ recorded, ⌃- or ⌥-scrolling does not. A tap while a page is still gliding after a flick-scroll still opens Buddy.
+- [ ] Record Left ⌘: ⌘C, ⌘V and ⌘-click in other apps never open Buddy; a ⌘ tap does.
+- [ ] Record ⇧ and ⌘ tapped together → "Left ⇧ Left ⌘"; tapping both opens Buddy, ⇧ alone or ⌘ alone does not.
+- [ ] Record fn → "fn" and the note about emoji and dictation; tapping fn opens Buddy (after setting "Press 🌐 key to" to "Do Nothing" if macOS opens emoji instead).
+- [ ] With "Press 🌐 key to: Show Emoji & Symbols", click the box and tap fn: it is still saved as "fn" (the emoji picker may open and take the focus; close it), and the note says how to turn that off.
+- [ ] Record Caps Lock → "⇪ Caps Lock" and its note; each press opens or closes Buddy once, and capitals toggle as the note says.
+- [ ] While recording, press ⌘ and B together → saved as "⌘ B", not as a ⌘ tap.
+- [ ] Buddy has Accessibility but is not in System Settings → Privacy & Security → Input Monitoring: the single key still works (macOS lets an app with Accessibility listen to the keys).
+- [ ] With Buddy's Accessibility off, click the Shortcut box: the line under it says "Buddy needs Accessibility to hear a key tapped on its own. Allow it in Permissions.", and ⇧ ⌘ B can still be recorded.
+- [ ] With a single key saved and working, turn Buddy's Accessibility off in System Settings and on again: the note turns red ("Buddy needs Accessibility to hear this key. Allow it in Permissions."), and within 10 seconds of turning it back on the key works again, without restarting Buddy.
+- [ ] Quit the helper (`pkill buddy-helper`): within a few seconds the key works again.
+- [ ] Quit and reopen Buddy with Right ⌥ saved: tapping it opens the panel without visiting Settings.
+- [ ] Type in a password field (a browser's login form), then tap the key: it opens the panel.
+- [ ] Sleep and wake the Mac: the key still works.
+- [ ] Turn Buddy off (General): tapping the key does nothing; on again: it works.
+- [ ] Reset to ⌥ Space: ⌥ Space works again and tapping the key does nothing.

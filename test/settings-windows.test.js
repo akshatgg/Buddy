@@ -212,3 +212,17 @@ test('no options, null or empty options all mean no section, for a new window an
   }
   assert.strictEqual(created.length, 5, 'each round opened a window of its own');
 });
+
+test('send() reaches the page of the open window of that kind, and no other', () => {
+  const { windows, created } = setup();
+  windows.open('settings');
+  windows.open('admin');
+  const [settings, admin] = created;
+  windows.send('settings', 'shortcut:tap', 'Tap:Fn');
+  assert.deepStrictEqual(settings.sent, [['shortcut:tap', 'Tap:Fn']]);
+  assert.deepStrictEqual(admin.sent, []);
+  settings.close();
+  windows.send('settings', 'shortcut:tap', 'Tap:Fn');
+  assert.deepStrictEqual(settings.sent, [['shortcut:tap', 'Tap:Fn']], 'a closed window is sent nothing');
+  windows.send('onboarding', 'shortcut:tap', 'Tap:Fn'); // never opened: nothing happens, nothing throws
+});

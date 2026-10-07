@@ -205,8 +205,10 @@ done). Their lines move to Task 6.
     head or a press starts; ignore a detection while `love` is playing. Shake detector: feed `screenX`/`screenY` while
     dragging; `reset()` when a drag starts.
   - `createSleep` with its default timers keeps real 60 s / 120 s timers alive: tests that build one pass fake timers.
-  - Symbols (Task 3's report): `place()` takes the top centre of the Head's bounding box (the sprout or bow included)
-    and its width (the ears included), in CSS pixels.
+  - Symbols (Task 3's report and review): `place()` takes the top centre of the Head's bounding box (the sprout or
+    bow included) and its width (the ears included), in CSS pixels; call it on load and resize only (the keyframes
+    read its values, so calling it every frame restyles running animations). `index.html` must link `symbols.css`:
+    one-shot symbols remove themselves on `animationend`. `play()` starts together with the mood.
   - The sleep countdown's own moods (`drowsy`, `asleep`, `wake`) must not count as use: only the app's moods and the
     buddy's IPC poke it (Task 6 wires the app's moods). Its `onMood` runs from a timer, so it must not throw when the
     buddy window is gone (buddy-window's `mood()` already ignores a missing window; keep it that way).

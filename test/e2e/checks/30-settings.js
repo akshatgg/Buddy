@@ -205,6 +205,55 @@ async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
   assert.strictEqual(saves, 0, 'nothing was saved');
   assert.deepStrictEqual(registered(), ['Alt+Space']);
 
+  // A key tapped on its own. While the box waits, the Mac helper (the fake in ctx.helper) listens to the modifier keys;
+  // the tap it reports is saved at once, and from then on the helper listens for it, not Electron. Tapped on its own it
+  // opens the panel; with another key pressed meanwhile it does not. The reports are the real helper's: a key code, the
+  // flags after the change (their bits say which side is down) and the time in milliseconds.
+  const keys = (...events) => {
+    for (const event of events) ctx.helper.emit('keys', event);
+  };
+  const change = (keyCode, flags, t) => ({ kind: 'flags', keyCode, flags, t });
+  const RIGHT_OPTION_DOWN = 0x80040; // an ⌥ is down, and it is the right one
+  const note = () => page("document.getElementById('shortcut-note').hidden ? null : document.getElementById('shortcut-note').textContent");
+  const TAP_NOTE = 'Tap it on its own to open your buddy: press and let go, with no other key.';
+  assert.strictEqual(await note(), null, 'no note for keys pressed together');
+  await page("document.getElementById('shortcut').click()");
+  await waitFor(() => registered().length === 0 && ctx.helper.watching === true, 'the helper to listen while the box waits');
+  keys(change(61, RIGHT_OPTION_DOWN, 1000), change(61, 0, 1120));
+  await waitFor(() => ctx.store.get('shortcut') === 'Tap:RightOption', 'the tapped key to be saved');
+  await waitFor(async () => (await status()) === 'Saved ✓', 'the Shortcut box to say it is saved');
+  assert.deepStrictEqual(await caps(), ['Right ⌥'], 'the key is shown with its side');
+  assert.strictEqual(await recording(), false);
+  assert.deepStrictEqual(registered(), [], 'nothing is registered with Electron');
+  await waitFor(async () => (await note()) === TAP_NOTE, 'the note under the box');
+  assert.strictEqual(ctx.helper.watching, true, 'the helper listens for the shortcut');
+
+  keys(change(61, RIGHT_OPTION_DOWN, 5000), { kind: 'other' }, change(61, 0, 5100)); // ⌥ with a letter
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.strictEqual(ctx.panel.isVisible(), false, 'Right ⌥ with another key does not open the panel');
+  keys(change(61, RIGHT_OPTION_DOWN, 6000), change(61, 0, 6100));
+  await waitFor(() => ctx.panel.isVisible(), 'Right ⌥ tapped on its own to open the panel');
+  ctx.panel.hide();
+  await waitFor(() => !ctx.panel.isVisible(), 'the panel to close');
+
+  // Caps Lock: one press is a tap, and the note says what macOS also does with it.
+  await page("document.getElementById('shortcut').click()");
+  await waitFor(() => recording(), 'the box to wait for keys');
+  keys(change(57, 0x10000, 9000));
+  await waitFor(() => ctx.store.get('shortcut') === 'Tap:CapsLock', 'Caps Lock to be saved');
+  assert.deepStrictEqual(await caps(), ['⇪ Caps Lock']);
+  await waitFor(
+    async () => (await note()) === `${TAP_NOTE} Caps Lock also turns capitals on and off when you tap it.`,
+    'the Caps Lock note',
+  );
+
+  // Reset: ⌥ Space again, the helper stops listening, and the note goes.
+  await page("document.getElementById('shortcut-reset').click()");
+  await waitFor(() => ctx.store.get('shortcut') === 'Alt+Space', 'the default shortcut to be saved');
+  await waitFor(() => ctx.helper.watching === false, 'the helper to stop listening');
+  assert.deepStrictEqual(registered(), ['Alt+Space']);
+  await waitFor(async () => (await note()) === null, 'the note to go');
+
   // Choosing another section ends a recording, and the shortcut is given back.
   await page("document.getElementById('shortcut').click()");
   await waitFor(() => registered().length === 0, 'the shortcut to be let go again');

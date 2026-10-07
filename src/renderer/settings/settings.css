@@ -1,0 +1,162 @@
+/* The Settings window: a sidebar (who is signed in, the sections, Sign in or out) and the chosen section beside it. */
+
+html, body.settings { height: 100%; }
+body.settings { overflow: hidden; }
+.layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); height: 100%; }
+
+/* ---- The sidebar ---- */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 16px 10px 14px;
+  background: var(--sidebar);
+  border-right: 1px solid var(--line-soft);
+}
+
+/* Tall enough for the signed-out lines, so the sections below stay put when someone signs in or out. */
+.profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 66px;
+  padding: 0 6px 14px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.who { flex: 1; min-width: 0; }
+.who-name, .who-email { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who-name { font-weight: 600; }
+.who-email { font-size: 12px; line-height: 1.35; color: var(--muted); }
+.who-email:empty { display: none; }
+/* Signed out, the second line says what to do: it wraps rather than being cut short. */
+.profile:has(#avatar-initials:empty) .who-email { white-space: normal; }
+
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 30px;
+  margin: 0;
+  padding: 4px 8px 4px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+}
+/* The icon: a coloured tile, and a white glyph cut out with clip-path (drawn here: the page loads no images). */
+.nav-item::before {
+  content: "";
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--tile);
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+}
+.nav-item::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  background: #ffffff;
+  clip-path: var(--glyph);
+}
+.nav-item:active:not(.active) { background: var(--hover); }
+.nav-item.active { background: var(--accent-soft); }
+
+/* Each 14 x 14 glyph: shapes clockwise, holes counter-clockwise. */
+.nav-item[data-section="buddy"] {
+  --tile: linear-gradient(#38b6a7, #1b8577);
+  --glyph: path("M5.9 3.7H8.1A4.2 4.2 0 0 1 12.3 7.9V8.8A4.2 4.2 0 0 1 8.1 13H5.9A4.2 4.2 0 0 1 1.7 8.8V7.9A4.2 4.2 0 0 1 5.9 3.7ZM5.6 5.9A2.1 2.1 0 0 0 3.5 8V8.7A2.1 2.1 0 0 0 5.6 10.8H8.4A2.1 2.1 0 0 0 10.5 8.7V8A2.1 2.1 0 0 0 8.4 5.9ZM5.45 7.4A0.95 0.95 0 1 1 5.45 9.3A0.95 0.95 0 1 1 5.45 7.4ZM8.55 7.4A0.95 0.95 0 1 1 8.55 9.3A0.95 0.95 0 1 1 8.55 7.4ZM1.2 6.6H1.4A0.7 0.7 0 0 1 2.1 7.3V9.3A0.7 0.7 0 0 1 1.4 10H1.2A0.7 0.7 0 0 1 0.5 9.3V7.3A0.7 0.7 0 0 1 1.2 6.6ZM12.6 6.6H12.8A0.7 0.7 0 0 1 13.5 7.3V9.3A0.7 0.7 0 0 1 12.8 10H12.6A0.7 0.7 0 0 1 11.9 9.3V7.3A0.7 0.7 0 0 1 12.6 6.6ZM6.55 2.3H7.45V4.2H6.55ZM7 2.7Q4.5 3.2 4.1 0.9Q6.6 0.6 7 2.7ZM7 2.7Q7.4 0.6 9.9 0.9Q9.5 3.2 7 2.7Z");
+}
+.nav-item[data-section="shortcut"] {
+  --tile: linear-gradient(#7c7c84, #55555c);
+  --glyph: path("M2.4 2.75H11.6A1.9 1.9 0 0 1 13.5 4.65V9.35A1.9 1.9 0 0 1 11.6 11.25H2.4A1.9 1.9 0 0 1 0.5 9.35V4.65A1.9 1.9 0 0 1 2.4 2.75ZM2 4.35V5.8H3.6V4.35ZM4.8 4.35V5.8H6.4V4.35ZM7.6 4.35V5.8H9.2V4.35ZM10.4 4.35V5.8H12V4.35ZM2 6.6V8.05H3.6V6.6ZM4.8 6.6V8.05H6.4V6.6ZM7.6 6.6V8.05H9.2V6.6ZM10.4 6.6V8.05H12V6.6ZM4.1 8.8V9.95H9.9V8.8Z");
+}
+.nav-item[data-section="ai"] {
+  --tile: linear-gradient(#b47cf5, #7d4fe0);
+  --glyph: path("M6 1.6Q6.9 6.7 11.9 7.6Q6.9 8.5 6 13.6Q5.1 8.5 0.1 7.6Q5.1 6.7 6 1.6ZM11.3 0.2Q11.68 2.22 13.7 2.6Q11.68 2.98 11.3 5Q10.92 2.98 8.9 2.6Q10.92 2.22 11.3 0.2ZM11.8 9.9Q12.05 11.15 13.3 11.4Q12.05 11.65 11.8 12.9Q11.55 11.65 10.3 11.4Q11.55 11.15 11.8 9.9Z");
+}
+.nav-item[data-section="permissions"] {
+  --tile: linear-gradient(#4aa3ff, #1f6fe5);
+  --glyph: path("M3.4 6.8V4.6A3.6 3.6 0 0 1 10.6 4.6V6.8H8.95V4.6A1.95 1.95 0 0 0 5.05 4.6V6.8ZM3.5 6.4H10.5A1.7 1.7 0 0 1 12.2 8.1V11.9A1.7 1.7 0 0 1 10.5 13.6H3.5A1.7 1.7 0 0 1 1.8 11.9V8.1A1.7 1.7 0 0 1 3.5 6.4ZM7 8.35A1.15 1.15 0 0 0 6.45 10.51V11.75H7.55V10.51A1.15 1.15 0 0 0 7 8.35Z");
+}
+.nav-item[data-section="general"] {
+  --tile: linear-gradient(#a7a7ad, #7f7f86);
+  --glyph: path("M5.94 2.06L6.15 0.3A6.75 6.75 0 0 1 7.85 0.3L8.06 2.06A5.05 5.05 0 0 1 9.74 2.76L11.14 1.67A6.75 6.75 0 0 1 12.33 2.86L11.24 4.26A5.05 5.05 0 0 1 11.94 5.94L13.7 6.15A6.75 6.75 0 0 1 13.7 7.85L11.94 8.06A5.05 5.05 0 0 1 11.24 9.74L12.33 11.14A6.75 6.75 0 0 1 11.14 12.33L9.74 11.24A5.05 5.05 0 0 1 8.06 11.94L7.85 13.7A6.75 6.75 0 0 1 6.15 13.7L5.94 11.94A5.05 5.05 0 0 1 4.26 11.24L2.86 12.33A6.75 6.75 0 0 1 1.67 11.14L2.76 9.74A5.05 5.05 0 0 1 2.06 8.06L0.3 7.85A6.75 6.75 0 0 1 0.3 6.15L2.06 5.94A5.05 5.05 0 0 1 2.76 4.26L1.67 2.86A6.75 6.75 0 0 1 2.86 1.67L4.26 2.76A5.05 5.05 0 0 1 5.94 2.06ZM7 4.8A2.2 2.2 0 1 0 7 9.2A2.2 2.2 0 1 0 7 4.8Z");
+}
+
+.sidebar-foot { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding: 12px 4px 0; }
+.sidebar-foot .status { margin: 0; text-align: center; }
+
+/* ---- The chosen section ---- */
+
+.content { min-width: 0; overflow-y: auto; padding: 22px 32px 32px; }
+.section { position: relative; }
+.section > * { margin-top: 0; margin-bottom: 0; }
+.section > * + * { margin-top: 16px; }
+.section > h1 { font-size: 20px; margin-bottom: 18px; }
+.section > h1:has(+ .lead) { margin-bottom: 4px; }
+.section > h1 + * { margin-top: 0; }
+.section > .lead + * { margin-top: 18px; }
+.section > .status { margin-top: 8px; }
+
+/* Buddy: "Saved ✓" for the buddy that was picked shows beside the title, so the cards below never move. The size
+   control is as wide as the name box above it. */
+.buddies { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
+#buddy-status { position: absolute; top: 4px; right: 0; margin: 0; }
+#size { width: 220px; }
+#size label { flex: 1; }
+#size span { min-width: 0; }
+
+/* Shortcut: the box shows the shortcut as key caps; clicked, it waits for keys with a soft pulse. */
+.recorder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 96px;
+  padding: 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--muted);
+  font-size: 15px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.recorder:hover:not(.recording) { border-color: var(--line); }
+.recorder .keys { display: inline-flex; align-items: center; gap: 8px; }
+/* Caps with one symbol are all the same width, as on a keyboard; Space is wider. */
+.recorder kbd { min-width: 46px; height: 46px; padding: 0 12px; border-radius: 8px; font-size: 19px; font-weight: 400; }
+.recorder.recording {
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-size: 17px;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  animation: listening 1.6s ease-in-out infinite;
+}
+@keyframes listening {
+  50% { box-shadow: 0 0 0 6px var(--accent-soft); }
+}
+/* Saved, or refused: the box's edge takes the colour of what the line under it says. */
+#section-shortcut:has(#shortcut-status.good) .recorder:not(.recording) { border-color: color-mix(in srgb, var(--good) 60%, var(--line-soft)); }
+#section-shortcut:has(#shortcut-status.error) .recorder:not(.recording) { border-color: color-mix(in srgb, var(--error) 70%, var(--line-soft)); }
+#shortcut-hint { margin-top: 10px; }
+#section-shortcut .row { margin-top: 6px; min-height: 28px; }
+#shortcut-status { margin: 0; }
+#shortcut-reset { margin-right: -8px; } /* its text lines up with the box's right edge */
+
+/* AI: the form fits the column. */
+#section-ai > .note + #ai { margin-top: 18px; }
+#ai legend { margin: 0 0 8px; }
+#ai > label { margin: 18px 0 6px; }
+#ai p.row { margin: 6px 0 0; font-size: 12px; }

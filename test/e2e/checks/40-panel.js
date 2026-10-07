@@ -61,9 +61,9 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
   const open = ctx.windows.open;
   const opened = [];
   let settingsWindow = null;
-  ctx.windows.open = (kind) => {
+  ctx.windows.open = (kind, options) => {
     opened.push(kind);
-    settingsWindow = open.call(ctx.windows, kind);
+    settingsWindow = open.call(ctx.windows, kind, options);
     return settingsWindow;
   };
   try {
@@ -74,6 +74,11 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
     assert.strictEqual(panel.isVisible(), false, 'the panel steps aside');
     // Let its page finish loading before it is closed again, so that closing it does not cut the load short.
     await waitFor(() => settingsWindow.webContents.executeJavaScript("document.getElementById('size') !== null"), 'the Settings page to load');
+    // A key that was refused is fixed in the AI section, so Settings opens there.
+    await waitFor(
+      () => settingsWindow.webContents.executeJavaScript("!document.getElementById('section-ai').hidden"),
+      'Settings to open on the AI section',
+    );
   } finally {
     ctx.windows.open = open;
     ctx.actions.run = run;

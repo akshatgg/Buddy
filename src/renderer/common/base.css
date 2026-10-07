@@ -1,76 +1,369 @@
+/*
+ * Buddy's look, shared by every window: the system font, an 8 px rhythm, hairlines rather than shadows, and Buddy's
+ * teal for what is chosen, focused or switched on. Tokens first; then plain elements, kept at zero specificity with
+ * :where() where a page restyles them, so that a page's own rules always win; then the pieces the pages are built from.
+ */
+
 :root {
   color-scheme: light dark;
+  accent-color: var(--accent);
+
   --bg: #f5f5f7;
+  --sidebar: #ececee;
   --card: #ffffff;
   --fg: #1d1d1f;
-  --muted: #6e6e73;
-  --line: #d2d2d7;
+  --muted: #626267;
+  --line: #d1d1d6;
+  --line-soft: #e5e5ea;
   --accent: #1f7a70;
   --accent-fg: #ffffff;
-  --good: #1f8a4c;
+  --accent-soft: rgba(32, 168, 152, 0.15);
+  --accent-text: #1a6b62; /* the accent for words: readable on the soft tint and on a hovered button too */
+  --good: #167a3e;
+  --good-soft: rgba(22, 122, 62, 0.12);
   --error: #d70015;
-  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --error-soft: rgba(215, 0, 21, 0.08);
+  --radius: 10px;
+  --radius-sm: 7px;
+  /* Something raised off the surface: a segmented control's thumb. */
+  --shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.14);
+  --focus-ring: rgba(31, 122, 112, 0.8); /* 3:1 or more against every surface it is drawn on */
+
+  /* The faces of controls. */
+  --control: #ffffff;
+  --control-pressed: #ececee;
+  --control-edge: rgba(0, 0, 0, 0.13);
+  --control-edge-bottom: rgba(0, 0, 0, 0.22);
+  --field: #ffffff;
+  --track: rgba(0, 0, 0, 0.07);
+  --hover: rgba(0, 0, 0, 0.05);
+  --key-face: linear-gradient(#ffffff, #f4f4f6);
+  --key-edge: 0 0 0 0.5px rgba(0, 0, 0, 0.2), 0 1px 0 0.5px rgba(0, 0, 0, 0.13);
+
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1c1c1e;
-    --card: #2c2c2e;
+    --bg: #1e1e20;
+    --sidebar: #2a2a2d;
+    --card: #2c2c2f;
     --fg: #f5f5f7;
-    --muted: #98989d;
-    --line: #3a3a3c;
+    --muted: #a6a6ab;
+    --line: #4a4a4e;
+    --line-soft: #3a3a3d;
     --accent: #5ad1c3;
     --accent-fg: #0b1f1d;
+    --accent-soft: rgba(90, 209, 195, 0.16);
+    --accent-text: #5ad1c3;
     --good: #30d158;
-    --error: #ff453a;
+    --good-soft: rgba(48, 209, 88, 0.16);
+    --error: #ff7b72;
+    --error-soft: rgba(255, 105, 97, 0.1);
+    --shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.4), inset 0 0.5px 0 rgba(255, 255, 255, 0.12);
+    --focus-ring: rgba(90, 209, 195, 0.6);
+
+    --control: #4a4a4e;
+    --control-pressed: #59595e;
+    --control-edge: rgba(255, 255, 255, 0.04);
+    --control-edge-bottom: rgba(0, 0, 0, 0.35);
+    --field: rgba(255, 255, 255, 0.05);
+    --track: rgba(255, 255, 255, 0.1);
+    --hover: rgba(255, 255, 255, 0.06);
+    --key-face: linear-gradient(#5b5b60, #4b4b50);
+    --key-edge: 0 0 0 0.5px rgba(0, 0, 0, 0.55), 0 1px 0 0.5px rgba(0, 0, 0, 0.45), inset 0 0.5px 0 rgba(255, 255, 255, 0.14);
   }
 }
+
+/* ---- Plain elements ---- */
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { margin: 0; color: var(--fg); background: var(--bg); }
 main { padding: 16px 20px; }
-h1 { font-size: 20px; margin: 0 0 6px; }
-h2 { font-size: 14px; margin: 0 0 8px; }
+h1 { font-size: 20px; line-height: 1.25; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px; }
+h2 { font-size: 14px; line-height: 1.3; font-weight: 600; margin: 0 0 8px; }
 p { margin: 6px 0; }
-a { color: var(--accent); }
+a { color: var(--accent-text); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 1px; }
 
-button {
-  font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line);
-  background: var(--card); color: var(--fg); cursor: pointer;
-}
-button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
-button:disabled { opacity: 0.5; cursor: default; }
-
-input[type="text"], input[type="password"], textarea, select {
-  font: inherit; width: 100%; padding: 7px 9px; border-radius: 8px;
-  border: 1px solid var(--line); background: var(--card); color: var(--fg);
-}
-textarea { resize: none; }
 label, legend { display: block; margin: 10px 0 4px; font-weight: 600; }
 legend { padding: 0; }
 /* No box of its own: a fieldset only groups the radio buttons, and min-width lets it shrink to the window. */
 fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 
+/* ---- Buttons: a plain <button> and .btn look the same; .btn adds the variants ---- */
+
+:where(button), .btn {
+  font: inherit;
+  line-height: 18px;
+  color: var(--fg);
+  padding: 4px 14px;
+  border: 1px solid var(--control-edge);
+  border-bottom-color: var(--control-edge-bottom);
+  border-radius: var(--radius-sm);
+  background: var(--control) padding-box;
+  cursor: default;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+/* The whole selector inside :where(), states too, or a page's own button (an icon, a tab) would lose to it. */
+:where(button:active:not(:disabled)), .btn:active:not(:disabled) { background-color: var(--control-pressed); }
+:where(button:disabled), .btn:disabled { opacity: 0.45; }
+button.primary, .btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-fg);
+  font-weight: 500;
+}
+button.primary:active:not(:disabled), .btn.primary:active:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, #000); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  white-space: nowrap;
+}
+/* Text-like: for a secondary action that should not compete with the rest. */
+.btn.quiet { border-color: transparent; background: transparent; color: var(--accent-text); padding-inline: 8px; }
+.btn.quiet:hover:not(:disabled) { background: var(--hover); }
+.btn.quiet:active:not(:disabled) { background: var(--track); }
+/* Drawn 24 px tall; the click still lands on a 30 px strip. */
+.btn.small { position: relative; min-height: 24px; padding: 2px 10px; font-size: 12px; }
+.btn.small::after { content: ""; position: absolute; inset: -3px 0; }
+.btn.block { display: flex; width: 100%; }
+
+/* ---- Text boxes and lists ---- */
+
+input[type="text"], input[type="password"], input[type="email"], input[type="search"], input[type="url"],
+input[type="number"], textarea, select {
+  font: inherit;
+  line-height: 18px;
+  color: var(--fg);
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background-color: var(--field);
+  transition: border-color 120ms ease;
+}
+textarea { resize: none; }
+::placeholder { color: var(--muted); }
+input:focus-visible, textarea:focus-visible, select:focus-visible { border-color: var(--accent); outline-offset: 0; }
+/* A list draws its own small arrow, so it matches the text boxes in both modes. */
+select {
+  appearance: none;
+  padding-right: 28px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* ---- Layout and text ---- */
+
 .row { display: flex; gap: 8px; align-items: center; }
 .row > input, .row > select, .row > .grow { flex: 1; }
-.row > a { flex: none; white-space: nowrap; }
+/* A link in a row is clickable on a 28 px strip; the padding and margin cancel out, so nothing moves. */
+.row > a { flex: none; white-space: nowrap; padding-block: 6px; margin-block: -6px; }
 .spacer { flex: 1; }
+.grow { flex: 1; min-width: 0; }
+.small { font-size: 12px; line-height: 1.4; }
+.lead { color: var(--muted); margin: 0 0 16px; }
+/* A line that says how something went. Empty, it takes no room. */
+.status { margin: 8px 0 0; color: var(--muted); }
+.status:empty { display: none; }
 .muted { color: var(--muted); font-weight: normal; }
-.good { color: var(--good); }
-.error { color: var(--error); }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 12px 0; }
+.good, .status.good { color: var(--good); }
+.error, .status.error { color: var(--error); }
 footer { margin-top: 16px; }
 
-.buddies { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.card { background: var(--card); border: 1px solid var(--line-soft); border-radius: var(--radius); padding: 14px 16px; margin: 12px 0; }
+
+/* A soft, accent-tinted box for something worth knowing. */
+.note { margin: 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--fg); }
+
+/* ---- Grouped rows: a rounded panel of rows, each with its title on the left and its control on the right ---- */
+
+.group { background: var(--card); border: 1px solid var(--line-soft); border-radius: var(--radius); }
+.group-row { position: relative; display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 14px; }
+.group-row + .group-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+.group-row p { margin: 0; }
+.group-row .small { margin-top: 1px; }
+.group-row > .row-title, .group-row > .grow { flex: 1; min-width: 0; }
+.group-row > input:not([type="checkbox"]):not([type="radio"]), .group-row > select { flex: none; width: 220px; }
+.row-title { display: block; margin: 0; font-weight: 400; color: var(--fg); }
+
+/* ---- Switch: a checkbox drawn as a Mac toggle ---- */
+
+input[type="checkbox"].switch {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 38px;
+  height: 22px;
+  margin: 0;
+  border-radius: 11px;
+  background: var(--track);
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  transition: background-color 150ms ease;
+}
+input[type="checkbox"].switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 1px 2.5px rgba(0, 0, 0, 0.3);
+  transition: transform 150ms ease;
+}
+/* The click lands on a 30 px strip around it. */
+input[type="checkbox"].switch::after { content: ""; position: absolute; inset: -4px -2px; }
+input[type="checkbox"].switch:checked { background: var(--accent); }
+input[type="checkbox"].switch:checked::before { transform: translateX(16px); }
+input[type="checkbox"].switch:focus-visible { outline-offset: 2px; }
+input[type="checkbox"].switch:disabled { opacity: 0.45; }
+
+/* ---- Segmented control: radio buttons (label > input + span) drawn as one control ---- */
+
+.segmented { display: inline-flex; flex: none; padding: 0 2px; border-radius: 8px; background: var(--track); }
+.segmented label { position: relative; display: block; margin: 0; padding: 2px 0; font-weight: 400; }
+.segmented input { appearance: none; position: absolute; inset: 0; margin: 0; opacity: 0; pointer-events: none; }
+.segmented span {
+  position: relative;
+  display: block;
+  min-width: 68px;
+  padding: 3px 12px;
+  border-radius: 6px;
+  line-height: 18px;
+  text-align: center;
+  white-space: nowrap;
+  transition: background-color 150ms ease, box-shadow 150ms ease;
+}
+/* Hairlines between segments, except beside the chosen one. */
+.segmented label + label span::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  border-left: 1px solid var(--line);
+}
+.segmented label:has(input:checked) span::before,
+.segmented label:has(input:checked) + label span::before { border-color: transparent; }
+.segmented input:checked + span { background: var(--control); box-shadow: var(--shadow); font-weight: 500; }
+.segmented input:focus-visible + span { outline: 3px solid var(--focus-ring); outline-offset: 0; }
+
+/* ---- Badge: a small status pill with a dot ---- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 22px;
+  padding: 0 9px 0 8px;
+  border-radius: 11px;
+  background: var(--track);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.badge:empty { display: none; }
+.badge.good { background: var(--good-soft); color: var(--good); }
+.badge.off { background: var(--track); color: var(--muted); }
+
+/* ---- Key cap ---- */
+
+kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--key-face);
+  box-shadow: var(--key-edge);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* ---- Avatar: a round photo, or initials in Buddy's teal; with no initials (nobody), a grey silhouette ---- */
+
+.avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(#2f9d90, #1b6d64);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.avatar img:not([hidden]) ~ span { visibility: hidden; }
+.avatar:has(> span:empty) { background: linear-gradient(#b4b4ba, #8e8e94); }
+.avatar:has(> span:empty)::before,
+.avatar:has(> span:empty)::after { content: ""; position: absolute; left: 50%; background: rgba(255, 255, 255, 0.92); }
+.avatar:has(> span:empty)::before { top: 22%; width: 34%; height: 34%; margin-left: -17%; border-radius: 50%; }
+.avatar:has(> span:empty)::after { top: 62%; width: 66%; height: 60%; margin-left: -33%; border-radius: 50% 50% 0 0; }
+
+/* ---- Choices drawn as cards: the buddies, and the AIs in the AI form ---- */
+
+.buddies { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; }
 /* The AI choices are cards like the buddies, with words in them, two by two. */
 .ai-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .buddy-card, .ai-choice {
-  position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; margin: 0;
-  padding: 8px; border: 2px solid var(--line); border-radius: 12px; font-weight: normal; cursor: pointer;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--card);
+  font-weight: normal;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
 }
-.buddy-card:has(input:checked), .ai-choice:has(input:checked) { border-color: var(--accent); }
-.buddy-card:has(input:focus-visible), .ai-choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.buddy-card:has(input:checked), .ai-choice:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--card);
+}
+.buddy-card:has(input:focus-visible), .ai-choice:has(input:focus-visible) { outline: 3px solid var(--focus-ring); outline-offset: 1px; }
 .buddy-card input, .ai-choice input { position: absolute; opacity: 0; pointer-events: none; }
 .buddy-card img { width: 80px; height: 80px; object-fit: contain; }
 .ai-choice { justify-content: center; padding: 12px 8px; text-align: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}

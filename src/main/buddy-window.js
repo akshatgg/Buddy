@@ -198,6 +198,13 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
     bounds,
     display: () => screen.getDisplayMatching(bounds()),
     mood: (name) => send('buddy:mood', name),
+    /**
+     * How loud the voice is while the buddy listens, 0 to 1; anything that is not a number is silence. Sent about 10
+     * times a second while the microphone is on, so one that a loading page misses is not kept: it is old at once.
+     */
+    voiceLevel(level) {
+      send('buddy:voice-level', typeof level === 'number' ? Math.min(1, Math.max(0, level)) || 0 : 0);
+    },
     pause(value) {
       paused = value;
       send('buddy:pause', value);

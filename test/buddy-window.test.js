@@ -248,3 +248,36 @@ test("the pointer is measured from the middle of the buddy's box, not of the tal
   t.mock.timers.tick(CURSOR_MS);
   assert.deepStrictEqual(win().sent.at(-1), ['buddy:cursor', { dx: -48, dy: -56 }]);
 });
+
+test('voiceLevel sends the voice level to the page, from 0 to 1; anything that is not a number is silence', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  const { buddy, win } = setup();
+  buddy.show();
+  win().load();
+  const levels = [[0.5, 0.5], [0, 0], [1, 1], [1.7, 1], [-0.2, 0], [Infinity, 1], [-Infinity, 0], [NaN, 0], ['0.5', 0], [undefined, 0], [null, 0]];
+  for (const [given, sent] of levels) {
+    buddy.voiceLevel(given);
+    assert.deepStrictEqual(win().sent.at(-1), ['buddy:voice-level', sent], String(given));
+  }
+});
+
+test('a voice level is never kept for a page that is loading: by the time it is ready, the level is old', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  const { buddy, win } = setup();
+  buddy.show();
+  win().load();
+  win().handlers['did-navigate'](); // a reload starts
+  const before = win().sent.length;
+  buddy.voiceLevel(0.8);
+  buddy.mood('listening');
+  assert.strictEqual(win().sent.length, before, 'nothing reaches a loading page');
+  win().handlers['did-finish-load']();
+  assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false], ['buddy:mood', 'listening']], 'the mood waits; the level does not');
+});
+
+test('mood() and voiceLevel() do nothing without a window: the sleep countdown calls mood() from a timer', () => {
+  const { buddy } = setup();
+  assert.doesNotThrow(() => buddy.mood('drowsy'));
+  assert.doesNotThrow(() => buddy.voiceLevel(0.5));
+  assert.strictEqual(buddy.window(), null);
+});

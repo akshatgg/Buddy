@@ -91,6 +91,15 @@ class HeadView(context: Context) : FrameLayout(context) {
 
     private val frame = Choreographer.FrameCallback { tick(it) }
 
+    init {
+        // A view that is tapped becomes focusable on its own, and the head would then take focus when the screen
+        // leaves touch mode (a keyboard is typed on) or the head shows again, and draw Android's focus highlight: a
+        // grey square over its whole window. The head is only ever touched, so it never takes focus. A view set not
+        // focusable stays so when a click listener makes it clickable later.
+        isFocusable = false
+        defaultFocusHighlightEnabled = false
+    }
+
     private fun now(): Double = seconds(System.nanoTime())
 
     private fun seconds(nanos: Long): Double = (nanos - start) / 1e9

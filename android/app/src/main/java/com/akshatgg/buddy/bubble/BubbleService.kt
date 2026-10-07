@@ -266,6 +266,9 @@ class BubbleService : LifecycleService() {
         view.characterId = settings.characterId
         drag = Drag(view).also { view.setOnTouchListener(it) }
         view.setOnClickListener { openPanel() }
+        // What TalkBack says for the head. Only the floating head is named: a head in the app is a picture beside words
+        // that say what it is.
+        view.contentDescription = "Buddy"
         if (!windows.tryAdd(view, headPlace)) {
             view.release()
             return false

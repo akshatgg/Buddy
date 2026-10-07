@@ -65,6 +65,9 @@ module.exports = {
     'shared/**/*',
     'assets/**/*',
     'package.json',
+    // Not in git (cloud.example.json shows its shape): where Buddy's server is and what Google sign-in needs. A build
+    // without a valid one fails in build/afterPack.js.
+    'cloud.json',
     // Left out because nothing in the app reads them: the Swift source (it is built into bin/buddy-helper, which
     // goes in as an extra resource below), and three's source, WebGPU and TSL builds and CommonJS stub. The buddy
     // page uses only build/three.module.js, build/three.core.js and the examples file set below.

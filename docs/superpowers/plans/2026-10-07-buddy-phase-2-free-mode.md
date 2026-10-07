@@ -5276,7 +5276,7 @@ Add to `docs/manual-checklist.md`:
 ```markdown
 ## Phase 2: sign-in and free mode
 Run with the installed Buddy.app built with a real `cloud.json`, against the deployed server.
-- [ ] First launch: the Welcome starts with "Sign in with Google"; Next stays off until you are signed in; the browser tab says "You're signed in to Buddy".
+- [ ] First launch: the Welcome starts with "Sign in with Google"; Next stays off until you are signed in; the browser tab says "Almost done" and "You can close this tab. Buddy is finishing signing you in."
 - [ ] Press Sign in, close the Google tab, press Sign in again: a new Google page opens and signing in there works.
 - [ ] Settings → Account shows your name and email. Sign out → the panel says "Sign in to use Buddy." with Open Settings. Sign in again works.
 - [ ] Restart the Mac: still signed in.

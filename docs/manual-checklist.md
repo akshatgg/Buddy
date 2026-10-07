@@ -47,3 +47,23 @@ These apply to the installed Buddy.app: a development run never adds a login ite
 - [ ] Visible over a full-screen app and on every desktop (Space).
 - [ ] Buddy's processes stay at a few % CPU while idle (Activity Monitor).
 - [ ] Light and dark mode both look right (panel, Settings, Welcome, bubble).
+
+## Phase 2: sign-in and free mode
+Run with the installed Buddy.app built with a real `cloud.json`, against the deployed server.
+- [ ] First launch: the Welcome starts with "Sign in with Google"; Next stays off until you are signed in; the browser tab says "Almost done" and "You can close this tab. Buddy is finishing signing you in."
+- [ ] Press Sign in, close the Google tab, press Sign in again: a new Google page opens and signing in there works.
+- [ ] Press Cancel on Google's page: Buddy says "You didn't finish signing in with Google. Try again." in the Welcome and in Settings.
+- [ ] Settings → Account shows your name and email. Sign out → the panel says "Sign in to use Buddy." with Open Settings. Sign in again works.
+- [ ] Restart the Mac: still signed in.
+- [ ] Signed in as akshatg9636@gmail.com, the menu bar has "Admin…"; signed in with another Google account, it does not.
+- [ ] Sign in with a second Google account: no Admin… item in the menu bar, and the Admin window cannot be opened.
+- [ ] Admin → Free mode on, Unlimited, Save. Reopen Settings: the AI card says "Free AI is on. No key needed." With no key saved, Write → Insert in Gmail works.
+- [ ] Admin → Daily limit 2, Save. The third Write says "You've used today's 2 free requests. They come back at midnight."
+- [ ] Admin → also let users add their own key. With a key saved, the third Write still answers; with none, it says to add one, with Open Settings.
+- [ ] Admin → Users lists you, and "Today" counts up. Block → Write says "Your free access is paused."; Unblock → it works again.
+- [ ] Block yourself while signed in as the admin, then Unblock: the Admin window keeps working (blocking stops free answers only).
+- [ ] Admin → Free mode off, Save. Settings shows the key form again, and a key saved earlier is still there.
+- [ ] Check screen with free mode on works (the free model can read screenshots).
+- [ ] Wi-Fi off with free mode on: Write says "Couldn't reach Buddy's server. Check your internet." and the buddy looks sleepy.
+- [ ] With the server deliberately broken (for example FIREBASE_SERVICE_ACCOUNT removed and redeployed), using Buddy shows a server problem and nobody is signed out; put it back and redeploy.
+- [ ] Firestore console: users/{uid} holds only email, name, joined, lastActive, blocked, usedDay and usedCount — no text.

@@ -54,6 +54,9 @@ function render() {
   const { config, providers } = view;
   const withKey = providers.filter((p) => p.hasKey);
   $('no-keys').hidden = withKey.length > 0;
+  // Voice is on when the server has a Groq key; without one, a note says where the key goes.
+  if (view.voiceOn === true) showStatus('voice-status', 'Voice is on.', 'muted');
+  else showStatus('voice-status', 'Voice needs GROQ_API_KEY in Vercel.', 'note');
   $('enabled').checked = config.enabled;
   $('enabled').disabled = withKey.length === 0 && !config.enabled;
   for (const radio of document.querySelectorAll('input[name="limitMode"]')) radio.checked = radio.value === config.limitMode;

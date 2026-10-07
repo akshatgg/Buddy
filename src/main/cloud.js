@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * Buddy's server (web/): this person's free-mode settings (GET /api/config), free answers (POST /api/ask) and the
- * admin's calls (/api/admin/*). Every call carries the signed-in person's ID token; one the server turns down is
+ * Buddy's server (web/): this person's free-mode settings (GET /api/config), free answers (POST /api/ask), what was
+ * said in a recording (POST /api/transcribe) and the admin's calls (/api/admin/*). Every call carries the signed-in person's ID token; one the server turns down is
  * renewed and the call made once more, and only the server's own "unauthenticated" after that signs the person out.
  * The last settings are kept in the store (`cloud`), so Buddy still knows them after a restart without internet.
  */
@@ -14,13 +14,16 @@ const { notSetUp } = require('./cloud-config');
 const FRESH_MS = 60_000; // settings fetched (or found out of reach, with some kept) less than this long ago are not fetched again
 const CALL_TIMEOUT_MS = 30_000; // for calls that bring no deadline of their own
 const CONFIG_TIMEOUT_MS = 8_000; // for the settings, which a request waits for before it goes anywhere
+// For a recording given no deadline: longer than the server waits for Groq (30 s, web/lib/transcribe.js), so that its
+// own answer ("I couldn't write down what you said") comes first.
+const TRANSCRIBE_TIMEOUT_MS = 45_000;
 const UNREACHABLE = ['network', 'timeout', 'server']; // the server cannot be used now: fall back to what is kept
 // The codes Buddy's server answers errors with: the keys of STATUS in web/lib/handlers.js, and `server` (which its
 // handle() also answers for a failure of its own). test/cloud.test.js checks that the two lists agree. An error
 // answer with any other code comes from something in front of the server, such as the hosting platform.
 const SERVER_CODES = [
   'bad_request', 'free_no_vision', 'unauthenticated', 'blocked', 'free_off', 'not_admin', 'not_found',
-  'method_not_allowed', 'free_limit', 'upstream', 'server',
+  'method_not_allowed', 'free_limit', 'upstream', 'server', 'voice_off', 'voice_busy',
 ];
 // What a request may carry to the server (shared/prompts.js): the inputs of write, fix and check, then those of a chat.
 const ASK_INPUTS = [
@@ -47,6 +50,7 @@ function readSettings(j) {
     allowOwnKey: j?.allowOwnKey === true,
     blocked: j?.blocked === true,
     isAdmin: j?.isAdmin === true,
+    voiceOn: j?.voiceOn === true, // the server can write down what is said (it has a Groq key)
   };
 }
 
@@ -171,6 +175,16 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
     return out;
   }
 
+  /**
+   * What was said in a recording, written down by the server: the words, '' when none were heard. `audio` is the
+   * recording as base64 and `mime` its kind (the server takes WebM, Ogg, MP4 and WAV).
+   */
+  async function transcribe({ audio, mime } = {}, { signal } = {}) {
+    const j = await call('/api/transcribe', { method: 'POST', body: { audio, mime }, signal, timeoutMs: TRANSCRIBE_TIMEOUT_MS });
+    if (typeof j.text !== 'string') throw serverProblem();
+    return j.text;
+  }
+
   const admin = {
     settings: () => call('/api/admin/settings'),
     save: (patch) => call('/api/admin/settings', { method: 'PUT', body: patch }),
@@ -184,6 +198,7 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
     last,
     forget,
     ask,
+    transcribe,
     admin,
     /** `fn()` is called whenever the kept settings change. */
     onChange: (fn) => {
@@ -192,4 +207,4 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
   };
 }
 
-module.exports = { createCloud, readSettings, FRESH_MS, CONFIG_TIMEOUT_MS, SERVER_CODES };
+module.exports = { createCloud, readSettings, FRESH_MS, CONFIG_TIMEOUT_MS, TRANSCRIBE_TIMEOUT_MS, SERVER_CODES };

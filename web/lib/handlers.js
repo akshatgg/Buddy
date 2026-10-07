@@ -13,7 +13,7 @@
  *   adminKeys                { providerId: key } -- the server's own AI keys
  *   adminEmail               who may use /api/admin/*
  *   now() -> Date
- *   fetchImpl                optional, for the providers
+ *   fetchImpl                optional, for the providers and for Groq's Whisper (web/lib/transcribe.js)
  * }
  */
 
@@ -22,6 +22,7 @@ const { buildPrompt, parseCheck, parseChat, MAX_TOKENS } = require('../shared/pr
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
 const { dayKey } = require('./day');
 const { withDefaults, isFreeOn, applyPatch } = require('./free-config');
+const { transcribeWithGroq, readRecording } = require('./transcribe');
 
 // The app gives up on an answer after 60 seconds; the server gives up on the AI before that, so the person hears
 // "Buddy couldn't answer" and the request is given back.
@@ -40,8 +41,10 @@ const STATUS = {
   not_found: 404,
   method_not_allowed: 405,
   free_limit: 429,
+  voice_busy: 429, // Groq's limit for the server's key
   upstream: 502,
   server: 503, // the server could not check a sign-in (any other failure of its own is a 500, with the same code)
+  voice_off: 503, // no Groq key on the server
 };
 
 // What firebase-admin says about a token that is no good: expired, garbled or forged, revoked, or of someone who was
@@ -118,6 +121,7 @@ async function config(req, deps) {
     allowOwnKey: daily && cfg.allowOwnKey,
     blocked: user.blocked === true,
     isAdmin: isAdmin(who, deps),
+    voiceOn: hasKey('groq'), // voice needs only the server's Groq key, whatever free mode is set to
   });
 }
 
@@ -194,12 +198,38 @@ async function ask(req, deps) {
   });
 }
 
+/**
+ * POST /api/transcribe { audio, mime }: what was said in a recording, written down by Whisper on Groq with the
+ * server's Groq key. For anyone signed in and not blocked; it is not counted as a free request. Neither the recording
+ * nor the words are kept or logged; a failure is logged by its kind only.
+ */
+async function transcribe(req, deps) {
+  allowMethods(req, 'POST');
+  const who = await signedIn(req, deps);
+  const { audio, mime } = readRecording(isPlainObject(req.body) ? req.body : {}); // refused before anything is read
+  if (!hasKeyIn(deps)('groq')) throw new BuddyError('voice_off', "Voice isn't set up yet.");
+  const user = await deps.db.ensureUser({ uid: who.uid, email: who.email, name: who.name || '', now: deps.now() });
+  if (user.blocked === true) throw new BuddyError('blocked', 'Your free access is paused.');
+  let text;
+  try {
+    text = await transcribeWithGroq({ apiKey: deps.adminKeys.groq, audio, mime, fetchImpl: deps.fetchImpl });
+  } catch (err) {
+    console.warn(`[transcribe] groq failed: ${kindOf(err)}`);
+    if (err?.code === 'rate_limited') {
+      throw new BuddyError('voice_busy', 'Voice is busy right now. Type, or try again in a minute.');
+    }
+    throw new BuddyError('upstream', "I couldn't write down what you said. Try again.");
+  }
+  return answer({ text });
+}
+
 function settingsView(cfg, hasKey) {
   return {
     config: cfg,
     providers: PROVIDER_IDS.map((id) => ({
       id, label: PROVIDERS[id].label, hasKey: hasKey(id), fallbackModels: PROVIDERS[id].fallbackModels,
     })),
+    voiceOn: hasKey('groq'), // not a switch: the server's Groq key turns voice on
   };
 }
 
@@ -286,4 +316,4 @@ async function handle(handler, req, deps) {
   }
 }
 
-module.exports = { config, ask, adminSettings, adminModels, adminUsers, handle, kindOf, STATUS, ASK_TIMEOUT_MS };
+module.exports = { config, ask, transcribe, adminSettings, adminModels, adminUsers, handle, kindOf, STATUS, ASK_TIMEOUT_MS };

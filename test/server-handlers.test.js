@@ -191,7 +191,7 @@ test('config: the first call adds the user, and with nothing saved free mode is 
   const s = setup();
   assert.deepStrictEqual(await s.run(config, 'GET'), {
     status: 200,
-    body: { freeOn: false, limitMode: 'daily', limit: 30, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false },
+    body: { freeOn: false, limitMode: 'daily', limit: 30, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false, voiceOn: false },
   });
   assert.deepStrictEqual(s.db.state.users.u1, userDoc());
 });
@@ -199,7 +199,7 @@ test('config: the first call adds the user, and with nothing saved free mode is 
 test("config: free mode on, today's count, and own keys allowed", async () => {
   const s = setup({ stored: freeDaily(5, { allowOwnKey: true }), users: { u1: userDoc({ usedDay: TODAY, usedCount: 3, lastActive: NOW }) } });
   assert.deepStrictEqual((await s.run(config, 'GET')).body, {
-    freeOn: true, limitMode: 'daily', limit: 5, usedToday: 3, allowOwnKey: true, blocked: false, isAdmin: false,
+    freeOn: true, limitMode: 'daily', limit: 5, usedToday: 3, allowOwnKey: true, blocked: false, isAdmin: false, voiceOn: false,
   });
 });
 
@@ -221,6 +221,13 @@ test('config: says who is blocked and who is the admin', async () => {
   const s = setup({ users: { u1: userDoc({ blocked: true }) } });
   assert.strictEqual((await s.run(config, 'GET')).body.blocked, true);
   assert.strictEqual((await s.run(config, 'GET', { token: 'admin' })).body.isAdmin, true);
+});
+
+test('config: voice is on when the server has a Groq key, with free mode on or off', async () => {
+  assert.strictEqual((await setup({ keys: { anthropic: 'k', groq: 'g' } }).run(config, 'GET')).body.voiceOn, true);
+  assert.strictEqual((await setup({ stored: freeDaily(5), keys: { groq: 'g' } }).run(config, 'GET')).body.voiceOn, true);
+  assert.strictEqual((await setup({ stored: freeDaily(5), keys: { anthropic: 'k' } }).run(config, 'GET')).body.voiceOn, false);
+  assert.strictEqual((await setup({ keys: { groq: '' } }).run(config, 'GET')).body.voiceOn, false);
 });
 
 // ---- POST /api/ask ----
@@ -447,6 +454,16 @@ test('admin settings: with nothing saved, the defaults, and which providers have
     ['anthropic', 'Claude (Anthropic)', true], ['openai', 'OpenAI', false], ['gemini', 'Google Gemini', false], ['groq', 'Groq', true],
   ]);
   assert.deepStrictEqual(r.body.providers[3].fallbackModels, PROVIDERS.groq.fallbackModels);
+  assert.strictEqual(r.body.voiceOn, true, 'voice is on: there is a Groq key');
+});
+
+test('admin settings: say whether voice is on, after a save too', async () => {
+  const s = setup();
+  assert.strictEqual((await s.run(adminSettings, 'GET', { token: 'admin' })).body.voiceOn, false, 'no Groq key');
+  assert.strictEqual((await s.run(adminSettings, 'PUT', { token: 'admin', body: { enabled: true } })).body.voiceOn, false);
+  const withGroq = setup({ keys: { anthropic: 'k', groq: 'g' } });
+  assert.strictEqual((await withGroq.run(adminSettings, 'PUT', { token: 'admin', body: { dailyRequests: 9 } })).body.voiceOn, true);
+  assert.ok(!('voiceOn' in withGroq.db.state.config), 'it is not a switch that is saved');
 });
 
 test('admin settings: a change is saved and every user sees it; a refused one changes nothing', async () => {
@@ -459,7 +476,7 @@ test('admin settings: a change is saved and every user sees it; a refused one ch
   assert.deepStrictEqual(saved.body.config, expected);
   assert.deepStrictEqual(s.db.state.config, expected);
   assert.deepStrictEqual((await s.run(config, 'GET')).body, {
-    freeOn: true, limitMode: 'daily', limit: 10, usedToday: 0, allowOwnKey: true, blocked: false, isAdmin: false,
+    freeOn: true, limitMode: 'daily', limit: 10, usedToday: 0, allowOwnKey: true, blocked: false, isAdmin: false, voiceOn: false,
   });
 
   assert.deepStrictEqual(await s.run(adminSettings, 'PUT', { token: 'admin', body: { dailyRequests: 0 } }),

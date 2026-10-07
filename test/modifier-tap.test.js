@@ -20,14 +20,15 @@ const R_CTRL = 0x2000;
 const L_OPT = 0x20;
 const R_OPT = 0x40;
 const ALWAYS = 0x100; // macOS sets this one on every event
+const CAPS_REPEAT_MS = 400; // a second report of one Caps Lock press: the detector's own number, so it is written here too
 
 /** A change of the modifier keys as the helper reports it: the key, the flags after the change, and when. */
 const change = (keyCode, flags, t) => ({ kind: 'flags', keyCode, flags: flags | ALWAYS, t });
 const OTHER = { kind: 'other' }; // a key or a click while a modifier is held
 
-/** Every tap a new detector hears in `events`. */
-function taps(events) {
-  const detector = createTapDetector();
+/** Every tap a new detector (made with `options`) hears in `events`. */
+function taps(events, options) {
+  const detector = createTapDetector(options);
   return events.map((event) => detector.feed(event)).filter(Boolean);
 }
 
@@ -56,6 +57,16 @@ test('keys tapped together are one tap, named in their order, whichever goes fir
 test('a tap is over within half a second', () => {
   assert.deepStrictEqual(taps([change(61, OPT | R_OPT, 1000), change(61, 0, 1000 + TAP_MS)]), ['Tap:RightOption'], 'just in time');
   assert.deepStrictEqual(taps([change(61, OPT | R_OPT, 1000), change(61, 0, 1001 + TAP_MS)]), [], 'held too long');
+});
+
+test('how long a tap may take can be set', () => {
+  const quick = { tapMs: 200 };
+  assert.deepStrictEqual(taps([change(61, OPT | R_OPT, 1000), change(61, 0, 1200)], quick), ['Tap:RightOption'], 'just in time');
+  assert.deepStrictEqual(taps([change(61, OPT | R_OPT, 1000), change(61, 0, 1201)], quick), [], 'a millisecond too long');
+});
+
+test('Caps Lock being on does not stop a modifier key from being tapped', () => {
+  assert.deepStrictEqual(taps([change(55, CAPS | CMD | L_CMD, 1000), change(55, CAPS, 1100)]), ['Tap:LeftCommand']);
 });
 
 test('a key or a click while it is held is no tap: ⌘C, ⌘-click, ⇧ and a letter', () => {
@@ -101,14 +112,55 @@ test('a key let go that was never seen going down is no tap, and the next tap is
   assert.deepStrictEqual(taps([change(55, 0, 1000), change(55, CMD | L_CMD, 2000), change(55, 0, 2100)]), ['Tap:LeftCommand']);
 });
 
+// macOS switches the helper's key tap off while a password field takes the keys, so a key can be let go unheard.
+// Every report has all the flags, and they say which keys are up.
+test('a key whose release was never heard does not stop the next tap', () => {
+  assert.deepStrictEqual(taps([
+    change(59, CTRL | L_CTRL, 1000), // ⌃ goes down, and its release is never heard
+    change(61, OPT | R_OPT, 9000), // the flags show no ⌃ any more
+    change(61, 0, 9080),
+  ]), ['Tap:RightOption']);
+});
+
+test('a key whose release was never heard does not spoil Caps Lock either', () => {
+  assert.deepStrictEqual(taps([change(55, CMD | L_CMD, 1000), change(57, CAPS, 9000)]), ['Tap:CapsLock']);
+});
+
+test('a key that really is still held keeps blocking the tap', () => {
+  assert.deepStrictEqual(taps([
+    change(59, CTRL | L_CTRL, 1000),
+    change(61, CTRL | L_CTRL | OPT | R_OPT, 9000), // ⌃ is still in the flags
+    change(61, CTRL | L_CTRL, 9080),
+  ]), []);
+  // fn is the one key the end of a tap does not look at, so only a held fn shows that it is kept
+  assert.deepStrictEqual(taps([change(63, FN, 1000), change(61, FN | OPT | R_OPT, 1050), change(61, FN, 1100)]), [], 'fn');
+});
+
+test('with the sides told, a left key whose release was never heard is let go when only the right one is down', () => {
+  assert.deepStrictEqual(taps([
+    change(55, CMD | L_CMD, 1000), // Left ⌘ goes down, and its release is never heard
+    change(54, CMD | R_CMD, 9000), // ⌘ is still in the flags, but it is the right one
+    change(54, 0, 9080),
+  ]), ['Tap:RightCommand']);
+});
+
 test('fn is a key like the others, and a key while it is held (an arrow) spoils it', () => {
   assert.deepStrictEqual(taps([change(63, FN, 1000), change(63, 0, 1080)]), ['Tap:Fn']);
   assert.deepStrictEqual(taps([change(63, FN, 1000), OTHER, change(63, 0, 1080)]), []);
 });
 
+test('a stray fn flag, which macOS puts on the arrow and function keys, does not stop the tap of another key', () => {
+  assert.deepStrictEqual(taps([change(55, FN | CMD | L_CMD, 1000), change(55, FN, 1100)]), ['Tap:LeftCommand']);
+});
+
 test('each press of Caps Lock on its own is a tap; a second report of the same press is not', () => {
   assert.deepStrictEqual(taps([change(57, CAPS, 1000), change(57, 0, 3000)]), ['Tap:CapsLock', 'Tap:CapsLock'], 'on, then off');
   assert.deepStrictEqual(taps([change(57, CAPS, 1000), change(57, CAPS, 1200)]), ['Tap:CapsLock'], 'reported twice');
+});
+
+test('a second report of Caps Lock within 400 ms is the same press; 400 ms later it is a new one', () => {
+  assert.deepStrictEqual(taps([change(57, CAPS, 1000), change(57, CAPS, 1000 + CAPS_REPEAT_MS - 1)]), ['Tap:CapsLock'], 'the same press');
+  assert.deepStrictEqual(taps([change(57, CAPS, 1000), change(57, 0, 1000 + CAPS_REPEAT_MS)]), ['Tap:CapsLock', 'Tap:CapsLock'], 'a new press');
 });
 
 test("Caps Lock with a modifier held is no tap, and it spoils that modifier's tap", () => {

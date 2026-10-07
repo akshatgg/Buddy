@@ -13,33 +13,45 @@ const { tapValue } = require('../renderer/common/shortcut-keys');
 const TAP_MS = 500; // from the first key down to the last one up
 const CAPS_LOCK = 57;
 const CAPS_REPEAT_MS = 400; // a second report of the same Caps Lock press
-// The Mac's key code of each modifier key: its name, the flag bit that says that very key is down, the flag of its
-// kind (any ⌘, any ⇧ …), and the other side's bit.
+// The Mac's key code of each modifier key: its name, the flag bit that says that very key is down (bit), the flag that
+// says either side of it is down (any: any ⌘, any ⇧ …), and the other side's bit (other).
 const MODIFIERS = {
-  54: { name: 'RightCommand', bit: 0x10, kind: 0x100000, other: 0x08 },
-  55: { name: 'LeftCommand', bit: 0x08, kind: 0x100000, other: 0x10 },
-  56: { name: 'LeftShift', bit: 0x02, kind: 0x20000, other: 0x04 },
-  58: { name: 'LeftOption', bit: 0x20, kind: 0x80000, other: 0x40 },
-  59: { name: 'LeftControl', bit: 0x01, kind: 0x40000, other: 0x2000 },
-  60: { name: 'RightShift', bit: 0x04, kind: 0x20000, other: 0x02 },
-  61: { name: 'RightOption', bit: 0x40, kind: 0x80000, other: 0x20 },
-  62: { name: 'RightControl', bit: 0x2000, kind: 0x40000, other: 0x01 },
-  63: { name: 'Fn', bit: 0x800000, kind: 0x800000, other: 0 },
+  54: { name: 'RightCommand', bit: 0x10, any: 0x100000, other: 0x08 },
+  55: { name: 'LeftCommand', bit: 0x08, any: 0x100000, other: 0x10 },
+  56: { name: 'LeftShift', bit: 0x02, any: 0x20000, other: 0x04 },
+  58: { name: 'LeftOption', bit: 0x20, any: 0x80000, other: 0x40 },
+  59: { name: 'LeftControl', bit: 0x01, any: 0x40000, other: 0x2000 },
+  60: { name: 'RightShift', bit: 0x04, any: 0x20000, other: 0x02 },
+  61: { name: 'RightOption', bit: 0x40, any: 0x80000, other: 0x20 },
+  62: { name: 'RightControl', bit: 0x2000, any: 0x40000, other: 0x01 },
+  63: { name: 'Fn', bit: 0x800000, any: 0x800000, other: 0 },
 };
 // ⌃ ⌥ ⇧ ⌘ of either side. Still held when a tap ends, one of them is a key held from before the helper listened.
+// Not fn: macOS also puts the fn flag on the arrow and function keys, so a stray one must never stop every tap
+// (fn is still a key of its own, for a tap of fn).
 const HELD_KINDS = 0x100000 | 0x20000 | 0x40000 | 0x80000;
 
 /** Is this modifier key down, going by the flags of a change? */
 function isDown(key, flags, wasDown) {
   if (flags & key.bit) return true;
-  if (!(flags & key.kind)) return false;
+  if (!(flags & key.any)) return false;
   if (flags & key.other) return false; // the other side is the one held
   return !wasDown; // a keyboard that does not say which side: each change flips it
 }
 
+/**
+ * Do the flags of a change say this modifier key is up? Only when they are sure: a keyboard that does not say which
+ * side is down leaves a doubt, and the key stays held.
+ */
+function isUp(key, flags) {
+  if (flags & key.bit) return false;
+  if (!(flags & key.any)) return true;
+  return (flags & key.other) !== 0; // the other side is the one held
+}
+
 function createTapDetector({ tapMs = TAP_MS } = {}) {
-  let held = new Set(); // the modifier keys down now
-  let pressed = new Set(); // every key pressed since the first one went down
+  let held = new Set(); // the modifier keys down now (their entries of MODIFIERS)
+  let pressed = new Set(); // the name of every key pressed since the first one went down
   let since = 0; // when the first one went down
   let spoiled = false; // something else was pressed meanwhile
   let lastCaps = -Infinity; // the last Caps Lock tap
@@ -64,25 +76,31 @@ function createTapDetector({ tapMs = TAP_MS } = {}) {
     if (event.kind !== 'flags') return null;
     const flags = Number(event.flags) || 0;
     const t = Number(event.t) || 0;
-    if (event.keyCode === CAPS_LOCK) return capsLock(flags, t);
     const key = Object.hasOwn(MODIFIERS, event.keyCode) ? MODIFIERS[event.keyCode] : null;
+    // Every report has all the flags, so it also says which keys are up. A release that was never heard (macOS switches
+    // the key tap off while a password field takes the keys, or when it is slow) must not leave a key held for good:
+    // no tap would be heard again. The key this report is about is dealt with below.
+    for (const other of held) {
+      if (other !== key && isUp(other, flags)) held.delete(other);
+    }
+    if (event.keyCode === CAPS_LOCK) return capsLock(flags, t);
     if (!key) return null;
-    if (isDown(key, flags, held.has(key.name))) {
+    if (isDown(key, flags, held.has(key))) {
       if (!held.size) {
         pressed = new Set();
         since = t;
         spoiled = false;
       }
-      held.add(key.name);
+      held.add(key);
       pressed.add(key.name);
       return null;
     }
-    if (!held.has(key.name)) {
+    if (!held.has(key)) {
       // Let go, but never seen going down: it was held from before the helper listened.
       if (held.size) spoiled = true;
       return null;
     }
-    held.delete(key.name);
+    held.delete(key);
     if (held.size) return null;
     const tapped = !spoiled && t - since <= tapMs && !(flags & HELD_KINDS);
     const keys = [...pressed];
@@ -100,4 +118,4 @@ function createTapDetector({ tapMs = TAP_MS } = {}) {
   return { feed, reset };
 }
 
-module.exports = { createTapDetector, TAP_MS, MODIFIERS };
+module.exports = { createTapDetector, TAP_MS };

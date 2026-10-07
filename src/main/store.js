@@ -25,6 +25,8 @@ const DEFAULTS = Object.freeze({
   checkForUpdates: true, // look for a newer Buddy on GitHub at launch and every hour (src/main/updates.js)
   lastUpdateCheck: 0, // when that last worked, in ms
   lastRunVersion: null, // the version that ran last, so the first launch after an update is known
+  memory: [], // what Buddy knows about the person, as [{ id, text, at }] oldest first (src/main/memory.js)
+  learnFromChats: true, // Settings → Memory's "Learn about me from chats": off, a chat saves nothing new
 });
 
 function writeAtomic(file, text, mode) {

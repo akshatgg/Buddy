@@ -27,4 +27,10 @@ contextBridge.exposeInMainWorld('buddy', {
   openReleaseNotes: () => ipcRenderer.invoke('updates:open-release-page'),
   setAutoUpdates: (on) => ipcRenderer.invoke('updates:set-auto', on),
   onUpdates: (fn) => ipcRenderer.on('updates:changed', (_event, state) => fn(state)),
+  memory: () => ipcRenderer.invoke('settings:memory'),
+  addMemory: (text) => ipcRenderer.invoke('settings:memory-add', text),
+  removeMemory: (id) => ipcRenderer.invoke('settings:memory-remove', id),
+  clearMemory: () => ipcRenderer.invoke('settings:memory-clear'),
+  setMemoryLearning: (on) => ipcRenderer.invoke('settings:memory-learning', on),
+  onMemory: (fn) => ipcRenderer.on('memory:changed', (_event, list) => fn(list)),
 });

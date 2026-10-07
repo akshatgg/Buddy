@@ -86,6 +86,10 @@ body.settings { overflow: hidden; }
   --tile: linear-gradient(#b47cf5, #7d4fe0);
   --glyph: path("M6 1.6Q6.9 6.7 11.9 7.6Q6.9 8.5 6 13.6Q5.1 8.5 0.1 7.6Q5.1 6.7 6 1.6ZM11.3 0.2Q11.68 2.22 13.7 2.6Q11.68 2.98 11.3 5Q10.92 2.98 8.9 2.6Q10.92 2.22 11.3 0.2ZM11.8 9.9Q12.05 11.15 13.3 11.4Q12.05 11.65 11.8 12.9Q11.55 11.65 10.3 11.4Q11.55 11.15 11.8 9.9Z");
 }
+.nav-item[data-section="memory"] {
+  --tile: linear-gradient(#ffa94d, #f07b16);
+  --glyph: path("M3.8 0.8H10.2A1.8 1.8 0 0 1 12 2.6V11.4A1.8 1.8 0 0 1 10.2 13.2H3.8A1.8 1.8 0 0 1 2 11.4V2.6A1.8 1.8 0 0 1 3.8 0.8ZM4.3 3.6V4.9H9.7V3.6ZM4.3 6.35V7.65H9.7V6.35ZM4.3 9.1V10.4H7.8V9.1Z");
+}
 .nav-item[data-section="permissions"] {
   --tile: linear-gradient(#4aa3ff, #1f6fe5);
   --glyph: path("M3.4 6.8V4.6A3.6 3.6 0 0 1 10.6 4.6V6.8H8.95V4.6A1.95 1.95 0 0 0 5.05 4.6V6.8ZM3.5 6.4H10.5A1.7 1.7 0 0 1 12.2 8.1V11.9A1.7 1.7 0 0 1 10.5 13.6H3.5A1.7 1.7 0 0 1 1.8 11.9V8.1A1.7 1.7 0 0 1 3.5 6.4ZM7 8.35A1.15 1.15 0 0 0 6.45 10.51V11.75H7.55V10.51A1.15 1.15 0 0 0 7 8.35Z");
@@ -166,5 +170,17 @@ body.settings { overflow: hidden; }
 
 /* AI: the free-mode note, then the form (spaced by base.css). */
 #section-ai > .note + #ai { margin-top: 18px; }
+
+/* Memory: each fact a row of the group, with ✕ to forget it; with none, the group holds the line that says so. */
+.facts { margin: 0; padding: 0; list-style: none; }
+.facts .fact { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.facts .forget { flex: none; margin-right: -6px; color: var(--muted); font-size: 13px; }
+.facts .forget:hover { color: var(--fg); }
+.facts-empty { padding: 12px 14px; }
+#section-memory > .group + .row { margin-top: 12px; }
+#memory-confirm { gap: 6px; }
+#memory-confirm-text { margin-right: 4px; }
+/* Forget, once asked: the one button on the page that throws something away, in red. */
+.btn.danger { color: var(--error); font-weight: 500; }
 #perm-updated + .group { margin-top: 14px; }
 #update-row .row-title { font-weight: 600; }

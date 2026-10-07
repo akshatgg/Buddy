@@ -22,6 +22,7 @@ const { createBuddyWindow } = require('./buddy-window');
 const { createBubbleWindow } = require('./bubble-window');
 const { createPanelWindow } = require('./panel-window');
 const { createSettingsWindows } = require('./settings-windows');
+const { createMemory } = require('./memory');
 const { installAppMenu } = require('./app-menu');
 const { createActions } = require('./actions');
 const { createTray, updateMenuState } = require('./tray');
@@ -96,6 +97,9 @@ async function start(options = {}) {
   const panel = createPanelWindow();
   const windows = createSettingsWindows({ app });
   const openSettings = (section) => windows.open('settings', section ? { section } : undefined);
+  // What Buddy knows about the person (memory.js). Settings → Memory shows it, and follows each change.
+  const memory = createMemory({ store });
+  memory.onChange((list) => windows.send('settings', 'memory:changed', list));
 
   // Update now (updates.js, ipc/updates.js). Only Buddy as installed updates itself: a development run, a trial run
   // (BUDDY_USER_DATA, index.js) and a copy outside the install folder only say where the new version is, and the first
@@ -213,7 +217,7 @@ async function start(options = {}) {
   registerPanelIpc({ ipcMain, panel, actions, openSettings });
   const settingsIpc = registerSettingsIpc({
     ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch,
-    account, cloud, canSignIn: Boolean(cloudConfig),
+    account, cloud, memory, canSignIn: Boolean(cloudConfig),
     version: VERSION,
     justUpdated,
     onFinishOnboarding() {

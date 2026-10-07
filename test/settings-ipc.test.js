@@ -6,6 +6,7 @@ const { EventEmitter } = require('node:events');
 const { BuddyError } = require('../shared/errors');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
 const { DEFAULTS } = require('../src/main/store');
+const { createMemory } = require('../src/main/memory');
 const { createKeyWatch } = require('../src/main/key-watch');
 const { createShortcut } = require('../src/main/shortcut');
 const { tapKeys } = require('../src/renderer/common/shortcut-keys');
@@ -119,6 +120,10 @@ function setup({
     },
   };
   const sent = []; // [kind, channel, ...args] for each thing sent to a window's page
+  // The real memory (memory.js) on the fake store, with ids f1, f2, … and a clock that moves one second per fact.
+  let ids = 0;
+  let clock = 1_000_000;
+  const memory = createMemory({ store, newId: () => `f${++ids}`, now: () => (clock += 1000) });
   const ipc = registerSettingsIpc({
     ipcMain: { handle: (channel, fn) => { handlers[channel] = fn; } },
     windows: {
@@ -159,13 +164,14 @@ function setup({
     onFinishOnboarding: () => calls.push(['finished']),
     account,
     cloud,
+    memory,
     canSignIn: true,
     version: '0.1.0',
     platform,
   });
   const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
   const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
-  return { call, callFromWelcome, handlers, store, keys, calls, opened, ipc, shortcutNow: () => current, keyWatch, sent };
+  return { call, callFromWelcome, handlers, store, keys, calls, opened, ipc, shortcutNow: () => current, keyWatch, sent, memory };
 }
 
 test('settings:get answers the settings without positions or lastDisplayId, the buddies and the providers', async () => {
@@ -1101,4 +1107,126 @@ test('settings:get says which system Buddy runs on, so the pages leave out what 
   assert.strictEqual((await setup({ platform: 'win32' }).call('settings:get')).platform, 'win32');
   assert.strictEqual((await setup({ platform: 'darwin' }).call('settings:get')).platform, 'darwin');
   assert.strictEqual((await setup().call('settings:get')).platform, process.platform);
+});
+
+// ---- Settings → Memory ----
+
+const CANT_SAVE = "I can't save that. Passwords, PINs, OTPs and long numbers are never saved.";
+
+test('settings:memory answers what Buddy knows, oldest first, and whether it learns from chats', async () => {
+  const s = setup();
+  assert.deepStrictEqual(await s.call('settings:memory'), { ok: true, facts: [], learning: true });
+  s.memory.add('Your boss is Mr. Sharma.');
+  s.memory.add('Your city is Pune.');
+  s.memory.setLearning(false);
+  assert.deepStrictEqual(await s.call('settings:memory'), {
+    ok: true,
+    facts: [
+      { id: 'f1', text: 'Your boss is Mr. Sharma.', at: 1_001_000 },
+      { id: 'f2', text: 'Your city is Pune.', at: 1_002_000 },
+    ],
+    learning: false,
+  });
+});
+
+test('settings:get leaves the facts and the learning switch out: settings:memory has them', async () => {
+  const s = setup();
+  s.memory.add('Your boss is Mr. Sharma.');
+  const r = await s.call('settings:get');
+  assert.ok(!('memory' in r.settings) && !('learnFromChats' in r.settings));
+  assert.deepStrictEqual(s.store.get('memory').map((f) => f.text), ['Your boss is Mr. Sharma.'], 'the store itself is untouched');
+});
+
+test('settings:memory-add saves a fact, trimmed, and answers what Buddy now knows', async () => {
+  const s = setup();
+  assert.deepStrictEqual(await s.call('settings:memory-add', '  Your boss is Mr. Sharma.  '), {
+    ok: true,
+    facts: [{ id: 'f1', text: 'Your boss is Mr. Sharma.', at: 1_001_000 }],
+    learning: true,
+  });
+  assert.deepStrictEqual(s.memory.facts(), ['Your boss is Mr. Sharma.']);
+});
+
+test('settings:memory-add works with learning off: the person typed it in themselves', async () => {
+  const s = setup();
+  await s.call('settings:memory-learning', false);
+  const r = await s.call('settings:memory-add', 'Your city is Pune.');
+  assert.deepStrictEqual([r.ok, r.facts.map((f) => f.text), r.learning], [true, ['Your city is Pune.'], false]);
+});
+
+test('settings:memory-add refuses secrets, long numbers, blanks, too long and not text, and saves nothing', async () => {
+  const s = setup();
+  for (const text of [
+    'My password is tiger123',
+    'My ATM PIN is 1234',
+    'The OTP is 482913',
+    'My card is 4111 1111 1111 1111',
+    '',
+    '   ',
+    'a'.repeat(201),
+    undefined,
+    42,
+    { text: 'Your city is Pune.' },
+  ]) {
+    assert.deepStrictEqual(await s.call('settings:memory-add', text), refused('bad_request', CANT_SAVE), JSON.stringify(text));
+  }
+  assert.deepStrictEqual(s.memory.list(), []);
+});
+
+test('settings:memory-add says so when Buddy knows it already, in any case', async () => {
+  const s = setup();
+  await s.call('settings:memory-add', 'Your boss is Mr. Sharma.');
+  assert.deepStrictEqual(await s.call('settings:memory-add', 'your boss is MR. SHARMA.'), refused('bad_request', 'I already know that.'));
+  assert.deepStrictEqual(s.memory.facts(), ['Your boss is Mr. Sharma.']);
+});
+
+test('settings:memory-remove forgets one fact; one that is gone already changes nothing', async () => {
+  const s = setup();
+  s.memory.add('Your boss is Mr. Sharma.');
+  s.memory.add('Your city is Pune.');
+  const r = await s.call('settings:memory-remove', 'f1');
+  assert.deepStrictEqual(r, { ok: true, facts: [{ id: 'f2', text: 'Your city is Pune.', at: 1_002_000 }], learning: true });
+  assert.deepStrictEqual(await s.call('settings:memory-remove', 'f1'), r, 'gone already: the same answer');
+  assert.deepStrictEqual(await s.call('settings:memory-remove', { id: 'f2' }), r, 'not an id: nothing is forgotten');
+  assert.deepStrictEqual(s.memory.facts(), ['Your city is Pune.']);
+});
+
+test('settings:memory-clear forgets everything and keeps the switch as it is', async () => {
+  const s = setup();
+  s.memory.add('Your boss is Mr. Sharma.');
+  s.memory.add('Your city is Pune.');
+  s.memory.setLearning(false);
+  assert.deepStrictEqual(await s.call('settings:memory-clear'), { ok: true, facts: [], learning: false });
+  assert.deepStrictEqual(s.memory.list(), []);
+});
+
+test('settings:memory-learning turns learning from chats off and on, and takes nothing but true or false', async () => {
+  const s = setup();
+  s.memory.add('Your boss is Mr. Sharma.');
+  const off = await s.call('settings:memory-learning', false);
+  assert.deepStrictEqual([off.ok, off.learning, off.facts.length], [true, false, 1]);
+  assert.strictEqual(s.store.get('learnFromChats'), false);
+  for (const value of ['false', 0, 1, null, undefined, {}]) {
+    assert.deepStrictEqual(await s.call('settings:memory-learning', value),
+      refused('bad_request', 'Learning from chats must be on or off.'), JSON.stringify(value));
+  }
+  assert.strictEqual(s.store.get('learnFromChats'), false, 'unchanged');
+  assert.strictEqual((await s.call('settings:memory-learning', true)).learning, true);
+});
+
+test('the memory calls are for the Settings window only: the Welcome window is refused, and nothing changes', async () => {
+  const s = setup();
+  s.memory.add('Your boss is Mr. Sharma.');
+  const refusedOutright = refused('not_allowed', 'Not allowed.');
+  for (const [channel, ...args] of [
+    ['settings:memory'],
+    ['settings:memory-add', 'Your city is Pune.'],
+    ['settings:memory-remove', 'f1'],
+    ['settings:memory-clear'],
+    ['settings:memory-learning', false],
+  ]) {
+    assert.deepStrictEqual(await s.callFromWelcome(channel, ...args), refusedOutright, channel);
+  }
+  assert.deepStrictEqual(s.memory.facts(), ['Your boss is Mr. Sharma.']);
+  assert.strictEqual(s.memory.learning(), true);
 });

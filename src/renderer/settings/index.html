@@ -24,6 +24,7 @@
       <button type="button" class="nav-item" data-section="buddy">Buddy</button>
       <button type="button" class="nav-item" data-section="shortcut">Shortcut</button>
       <button type="button" class="nav-item" data-section="ai">AI</button>
+      <button type="button" class="nav-item" data-section="memory">Memory</button>
       <button type="button" class="nav-item" data-section="permissions">Permissions</button>
       <button type="button" class="nav-item glyph-gear" data-section="general">General</button>
     </nav>
@@ -73,6 +74,37 @@
       <h1>AI</h1>
       <p id="ai-note" class="note" hidden></p>
       <div id="ai"></div>
+    </section>
+    <section id="section-memory" class="section" hidden>
+      <h1>What Buddy knows about you</h1>
+      <p class="lead">Buddy learns these from your chats. They stay on this computer.</p>
+      <ul id="memory-list" class="group facts" aria-label="What Buddy knows about you" hidden></ul>
+      <p id="memory-empty" class="group facts-empty muted" hidden>Nothing yet. Tell Buddy about yourself in a chat, or add something here.</p>
+      <div class="row">
+        <!-- 200: MAX_FACT_CHARS in shared/memory-rules.js -->
+        <input id="memory-new" type="text" maxlength="200" autocomplete="off" placeholder="Something about you, like “My boss is Mr. Sharma.”" aria-label="Something Buddy should know about you">
+        <button id="memory-add" class="btn" type="button" disabled>Add</button>
+      </div>
+      <p id="memory-status" class="status small" aria-live="polite"></p>
+      <div class="group">
+        <div class="group-row">
+          <div class="grow">
+            <p class="row-title">Learn about me from chats</p>
+            <p class="muted small">When it's off, Buddy saves nothing new, and still uses what it knows.</p>
+          </div>
+          <input id="memory-learning" class="switch" type="checkbox" role="switch" aria-label="Learn about me from chats">
+        </div>
+      </div>
+      <p id="memory-learning-status" class="status small" aria-live="polite"></p>
+      <div class="row">
+        <button id="memory-forget" class="btn small" type="button" disabled>Forget everything</button>
+        <div id="memory-confirm" class="row" role="group" aria-labelledby="memory-confirm-text" hidden>
+          <span id="memory-confirm-text"></span>
+          <button id="memory-confirm-cancel" class="btn small" type="button">Cancel</button>
+          <button id="memory-confirm-forget" class="btn small danger" type="button">Forget</button>
+        </div>
+      </div>
+      <p id="memory-forget-status" class="status small" aria-live="polite"></p>
     </section>
     <section id="section-permissions" class="section" hidden>
       <h1>Permissions</h1>

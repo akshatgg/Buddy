@@ -182,7 +182,8 @@ async function start(options = {}) {
         buddy.mood('wave');
       } else {
         shortcut.unregister();
-        panel.hide();
+        // Through actions, as closing the panel does: the chat ends, and an answer still on its way does nothing.
+        actions.dismiss().catch((err) => console.error('[buddy] could not close the panel', err));
         buddy.hide();
       }
       tray.refresh();

@@ -189,20 +189,23 @@ class PanelActivity : ComponentActivity() {
             return
         }
         lifecycleScope.launch {
+            // Opened afresh meanwhile (sent to the background, then the buddy tapped): the picture, or why there is
+            // none, belongs to the last opening.
+            val opening = model.opening
             val dim = window.attributes.dimAmount
             window.decorView.alpha = 0f
             window.setDimAmount(0f)
             BubbleBus.hideFor(HIDE_MS)
             try {
                 val (jpeg, thumb) = capture.captureOnce(result.resultCode, data)
-                model.setScreenshot(jpeg, thumb)
+                if (model.opening == opening) model.setScreenshot(jpeg, thumb)
             } catch (e: BuddyError) {
-                showCaptureError(e)
+                if (model.opening == opening) showCaptureError(e)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w("Buddy", "capture: failed (${e.javaClass.simpleName})")
-                showCaptureError(ScreenCapture.couldNotCapture())
+                if (model.opening == opening) showCaptureError(ScreenCapture.couldNotCapture())
             } finally {
                 window.decorView.alpha = 1f
                 window.setDimAmount(dim)

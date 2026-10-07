@@ -4,6 +4,8 @@ import android.util.Log
 import com.akshatgg.buddy.core.BuddyError
 import com.akshatgg.buddy.net.Http
 import com.akshatgg.buddy.net.HttpRequest
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -85,8 +87,12 @@ object ProviderHttp {
                 ),
             )
         } catch (e: SocketTimeoutException) {
+            currentCoroutineContext().ensureActive()
             throw tookTooLong(label)
         } catch (e: IOException) {
+            // A caller that let go of the request interrupts its read, which then fails like no internet: that is a
+            // cancellation, and is passed on as one.
+            currentCoroutineContext().ensureActive()
             throw BuddyError("network", "Couldn't reach $label. Check your internet.")
         }
         if (response.status !in 200..299) throw errorFromResponse(response.status, response.body, label)

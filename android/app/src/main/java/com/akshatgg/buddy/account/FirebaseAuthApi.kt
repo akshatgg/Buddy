@@ -5,6 +5,8 @@ import com.akshatgg.buddy.core.BuddyError
 import com.akshatgg.buddy.net.Http
 import com.akshatgg.buddy.net.HttpRequest
 import com.akshatgg.buddy.net.HttpResponse
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -63,8 +65,11 @@ class FirebaseAuthApi(private val http: Http, private val apiKey: String) {
                 ),
             )
         } catch (e: SocketTimeoutException) {
+            currentCoroutineContext().ensureActive()
             throw BuddyError("timeout", "Google took too long to answer. Try again.")
         } catch (e: IOException) {
+            // Let go of, the read is interrupted and fails like no internet: a cancellation all the same.
+            currentCoroutineContext().ensureActive()
             throw BuddyError("network", "Couldn't reach Google. Check your internet.")
         }
         val body = try { Json.parseToJsonElement(res.body) as? JsonObject } catch (e: Exception) { null } // not JSON: judged by the status below

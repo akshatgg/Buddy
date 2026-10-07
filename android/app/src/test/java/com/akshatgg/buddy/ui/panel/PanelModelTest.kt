@@ -8,8 +8,10 @@ import com.akshatgg.buddy.ai.Prompts
 import com.akshatgg.buddy.bubble.BubbleEvent
 import com.akshatgg.buddy.bubble.Mood
 import com.akshatgg.buddy.core.BuddyError
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
@@ -25,6 +27,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class) // runTest's clock: runCurrent, advanceTimeBy, advanceUntilIdle, StandardTestDispatcher
 class PanelModelTest {
     private val asked = mutableListOf<Pair<Action, AskInput>>()
     private val events = mutableListOf<BubbleEvent>()
@@ -154,7 +157,9 @@ class PanelModelTest {
         m.setQuestion("old question")
         m.submit()
         runCurrent()
+        val opening = m.opening
         m.reset()
+        assertEquals(opening + 1, m.opening) // a picture still being taken is then dropped
         gate.complete(Answer("an answer for the last opening", "m"))
         advanceUntilIdle()
         assertEquals(PanelState(tab = Tab.CHECK, tone = "short"), m.state.value)
@@ -163,6 +168,48 @@ class PanelModelTest {
         m.submit() // and its picture is gone
         advanceUntilIdle()
         assertEquals(AskInput(image = null, instruction = ""), asked.last().second)
+    }
+
+    // Real HTTP is let go of by interrupting its thread, and the read then fails as no internet, not as a cancellation.
+    private fun failsWhenLetGo(gate: CompletableDeferred<Answer>): suspend (Action, AskInput) -> Answer = { _, _ ->
+        try {
+            gate.await()
+        } catch (e: CancellationException) {
+            throw BuddyError("network", "Couldn't reach Buddy's server. Check your internet.")
+        }
+    }
+
+    @Test fun aRequestLetGoOfNeverShowsItsFailure() = runTest {
+        reply = failsWhenLetGo(CompletableDeferred())
+        val m = model()
+        m.setInstruction("x")
+        m.submit()
+        runCurrent()
+        m.reset()
+        advanceUntilIdle()
+        assertEquals(PanelState(), m.state.value)
+        assertEquals(listOf(Mood.THINKING, Mood.IDLE), moods)
+    }
+
+    @Test fun aRequestLetGoOfLeavesTheNewerOneBusy() = runTest {
+        val gates = ArrayDeque(listOf(CompletableDeferred<Answer>(), CompletableDeferred()))
+        val newer = gates.last()
+        reply = { action, input -> failsWhenLetGo(gates.removeFirst())(action, input) }
+        val m = model()
+        m.setInstruction("x")
+        m.submit()
+        runCurrent()
+        m.reset()
+        m.setInstruction("y")
+        m.submit()
+        runCurrent()
+        assertTrue(m.state.value.busy)
+        assertNull(m.state.value.error)
+        assertEquals(listOf(Mood.THINKING, Mood.THINKING), moods)
+        newer.complete(Answer("done", "m"))
+        advanceUntilIdle()
+        assertEquals(Answer("done", "m"), m.state.value.answer)
+        assertEquals(listOf(Mood.THINKING, Mood.THINKING, Mood.HAPPY), moods)
     }
 
     @Test fun anAnswerThatTakesAMinuteIsTooLong() = runTest {

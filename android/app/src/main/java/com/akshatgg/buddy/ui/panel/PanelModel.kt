@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
@@ -63,6 +64,10 @@ class PanelModel(
     private var last: Request? = null // the latest request, for Try again
     private var running: Job? = null // the request the AI is answering now, if any
 
+    /** Counts the openings: what ends after a new one (a picture of the screen) belongs to an earlier one. */
+    var opening = 0
+        private set
+
     /** Another tab hides the answer and the error, as on the Mac. */
     fun select(tab: Tab) = current.update { it.copy(tab = tab, answer = null, error = null) }
 
@@ -99,6 +104,7 @@ class PanelModel(
      * tab and tone stay as they were chosen. An answer still on its way belonged to the last opening: it is dropped.
      */
     fun reset() {
+        opening += 1
         running?.cancel()
         running = null
         image = null
@@ -117,6 +123,12 @@ class PanelModel(
         current.update { it.copy(busy = true, answer = null, error = null) }
         bubble(BubbleEvent.SetMood(Mood.THINKING))
         running = scope.launch {
+            val mine = coroutineContext[Job]
+            // Let go of (the panel closed, or opened afresh) while the AI was busy: nobody is waiting for this request,
+            // so it changes nothing on the panel, and the buddy stops thinking unless a newer request has started.
+            fun letGo() {
+                if (running == null || running === mine) bubble(BubbleEvent.SetMood(Mood.IDLE))
+            }
             try {
                 // One deadline for the whole request, as the Mac's AbortSignal.timeout(AI_TIMEOUT_MS) over ai.ask:
                 // a slow fetch of the free-mode settings and then a slow answer must not add up to two minutes.
@@ -130,16 +142,19 @@ class PanelModel(
                 }
                 bubble(BubbleEvent.SetMood(Mood.HAPPY))
             } catch (e: TimeoutCancellationException) {
-                fail(BuddyError("timeout", "Buddy took too long to answer. Try again."))
+                if (isActive) fail(BuddyError("timeout", "Buddy took too long to answer. Try again.")) else letGo()
             } catch (e: CancellationException) {
-                // The panel closed, or opened afresh, while the AI was busy: nobody is waiting for the answer, and the
-                // buddy stops thinking, unless a new request has started meanwhile.
-                val mine = coroutineContext[Job]
-                if (running == null || running === mine) bubble(BubbleEvent.SetMood(Mood.IDLE))
+                letGo()
                 throw e
             } catch (e: BuddyError) {
-                fail(e)
+                // A request let go of can fail rather than stop: its thread is interrupted, and an interrupted read is
+                // "no internet" to whatever reads it. That failure is nobody's now.
+                if (isActive) fail(e) else letGo()
             } catch (e: Exception) {
+                if (!isActive) {
+                    letGo()
+                    return@launch
+                }
                 // A bug or a system failure, whose own words would mean nothing to the person (they can even hold a
                 // file path): the kind goes to the log, and the panel says to try again, as the Mac's ipc/result.js.
                 Log.w("Buddy", "panel: unexpected ${e.javaClass.simpleName}")

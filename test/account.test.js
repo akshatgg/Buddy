@@ -10,7 +10,10 @@ const { createAccount, RENEW_EARLY_MS } = require('../src/main/account');
 
 const CONFIG = { serverUrl: 'https://s.example', firebaseApiKey: 'k', googleClientId: 'c', googleClientSecret: 's' };
 const HOUR = 3600;
-const SIGNED_IN = { idToken: 'id-1', refreshToken: 'refresh-1', expiresIn: HOUR, uid: 'uid-1', email: 'rahul@gmail.com', name: 'Rahul' };
+const SIGNED_IN = {
+  idToken: 'id-1', refreshToken: 'refresh-1', expiresIn: HOUR, uid: 'uid-1', email: 'rahul@gmail.com', name: 'Rahul',
+  photo: 'https://lh3.googleusercontent.com/a/photo',
+};
 
 /** safeStorage as Electron's, with "enc:" in place of real encryption. */
 function fakeSafeStorage({ available = true } = {}) {
@@ -70,11 +73,12 @@ test('signed out at first: no user, and no token for the server', async (t) => {
 
 test('signing in keeps the account, with the refresh token encrypted, and says so', async (t) => {
   const s = setup(t);
-  assert.deepStrictEqual(await s.account.signIn(), { uid: 'uid-1', email: 'rahul@gmail.com', name: 'Rahul' });
+  assert.deepStrictEqual(await s.account.signIn(), { uid: 'uid-1', email: 'rahul@gmail.com', name: 'Rahul', photo: 'https://lh3.googleusercontent.com/a/photo' });
   assert.strictEqual(s.account.isSignedIn(), true);
   assert.strictEqual(s.changes(), 1);
   assert.deepStrictEqual(JSON.parse(fs.readFileSync(s.file, 'utf8')), {
-    uid: 'uid-1', email: 'rahul@gmail.com', name: 'Rahul', refreshToken: Buffer.from('enc:refresh-1').toString('base64'),
+    uid: 'uid-1', email: 'rahul@gmail.com', name: 'Rahul', photo: 'https://lh3.googleusercontent.com/a/photo',
+    refreshToken: Buffer.from('enc:refresh-1').toString('base64'),
   });
   assert.strictEqual(fs.statSync(s.file).mode & 0o777, 0o600);
   assert.strictEqual(await s.account.idToken(), 'id-1', 'the fresh token, with no refresh');
@@ -98,7 +102,7 @@ test('after a restart the person is still signed in, and the first token is rene
   const first = setup(t);
   await first.account.signIn();
   const again = setup(t, { file: first.file });
-  assert.deepStrictEqual(again.account.user(), { uid: 'uid-1', email: 'rahul@gmail.com', name: 'Rahul' });
+  assert.deepStrictEqual(again.account.user(), { uid: 'uid-1', email: 'rahul@gmail.com', name: 'Rahul', photo: 'https://lh3.googleusercontent.com/a/photo' });
   assert.strictEqual(await again.account.idToken(), 'id-r1');
   assert.strictEqual(again.refreshes[0].refreshToken, 'refresh-1');
 });
@@ -193,7 +197,7 @@ test('pressing Sign in again cancels the sign-in that is still waiting', NO_HANG
   await assert.rejects(first, { code: 'sign_in_cancelled' });
   assert.strictEqual(s.signIns[0].signal.aborted, true);
   waiting[1]({ idToken: 'id-2', refreshToken: 'refresh-2', expiresIn: HOUR, uid: 'uid-2', email: 'b@x.com', name: 'B' });
-  assert.deepStrictEqual(await second, { uid: 'uid-2', email: 'b@x.com', name: 'B' });
+  assert.deepStrictEqual(await second, { uid: 'uid-2', email: 'b@x.com', name: 'B', photo: '' });
 });
 
 test('signing out right after pressing Sign in ends that sign-in, and nothing is kept', async (t) => {
@@ -248,7 +252,7 @@ test('a refusal that comes after the person signed out and in as someone else do
   await s.account.signIn(); // as the second person
   refuse();
   await assert.rejects(renewing, { code: 'signed_out' });
-  assert.deepStrictEqual(s.account.user(), { uid: 'uid-2', email: 'b@x.com', name: 'B' });
+  assert.deepStrictEqual(s.account.user(), { uid: 'uid-2', email: 'b@x.com', name: 'B', photo: '' });
   assert.ok(fs.existsSync(s.file), 'the second account is still kept');
   assert.strictEqual(s.changes(), 3, 'in, out, in: the late refusal changed nothing');
   assert.strictEqual(await s.account.idToken(), 'id-2');
@@ -276,7 +280,7 @@ test('a listener that throws does not undo a sign-in, hide why someone was signe
   s.account.onChange(() => { throw new TypeError('another detail'); });
   s.account.onChange(() => { heard += 1; });
 
-  assert.deepStrictEqual(await s.account.signIn(), { uid: 'uid-1', email: 'rahul@gmail.com', name: 'Rahul' });
+  assert.deepStrictEqual(await s.account.signIn(), { uid: 'uid-1', email: 'rahul@gmail.com', name: 'Rahul', photo: 'https://lh3.googleusercontent.com/a/photo' });
   assert.ok(fs.existsSync(s.file), 'the account was kept');
   assert.strictEqual(heard, 1, 'the listener after the broken ones still heard');
 
@@ -290,4 +294,10 @@ test('a listener that throws does not undo a sign-in, hide why someone was signe
     '[buddy] an account listener failed: EBROKEN',
     '[buddy] an account listener failed: TypeError',
   ]);
+});
+
+test('an account kept before photos were stored answers an empty photo', (t) => {
+  const s = setup(t);
+  fs.writeFileSync(s.file, JSON.stringify({ uid: 'u', email: 'e@x.com', name: 'E', refreshToken: Buffer.from('enc:r').toString('base64') }));
+  assert.deepStrictEqual(setup(t, { file: s.file }).account.user(), { uid: 'u', email: 'e@x.com', name: 'E', photo: '' });
 });

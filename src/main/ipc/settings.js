@@ -49,7 +49,7 @@ function checkPermission(which) {
 
 function registerSettingsIpc({
   ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, onFinishOnboarding, shell,
-  account, cloud, canSignIn,
+  account, cloud, canSignIn, version,
 }) {
   // The Settings and Welcome windows only: the Admin window has calls of its own (ipc/admin.js).
   const handle = guarded(ipcMain, (webContents) => windows.owns(webContents, 'settings') || windows.owns(webContents, 'onboarding'));
@@ -90,8 +90,9 @@ function registerSettingsIpc({
         fallbackModels: PROVIDERS[id].fallbackModels,
         hasKey: secrets.has(id),
       })),
-      account: user ? { signedIn: true, email: user.email, name: user.name } : { signedIn: false },
+      account: user ? { signedIn: true, email: user.email, name: user.name, photo: user.photo || '' } : { signedIn: false },
       canSignIn,
+      version,
       ai: aiSection(user ? cloud.last() : null), // free-mode settings apply only to someone signed in
     };
   }
@@ -236,6 +237,26 @@ function registerSettingsIpc({
     store.set({ buddyId, buddyName, onboarded: true });
     onFinishOnboarding();
   });
+
+  /** The saved shortcut, registered again while Buddy is on (after a recording, or when Settings closes). */
+  function resumeShortcut() {
+    const saved = store.get('shortcut');
+    if (power.isOn() && shortcut.current() !== saved) shortcut.register(saved);
+  }
+
+  // While the Settings page records a new shortcut, Buddy lets go of its own, so that pressing the current one is
+  // heard by the page instead of opening the panel.
+  handle('shortcut:pause', () => {
+    shortcut.unregister();
+    return {};
+  });
+
+  handle('shortcut:resume', () => {
+    resumeShortcut();
+    return {};
+  });
+
+  return { resumeShortcut };
 }
 
 module.exports = { registerSettingsIpc, chooseModel };

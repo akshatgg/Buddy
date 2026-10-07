@@ -10,7 +10,10 @@ const CONFIG = { serverUrl: 'https://s.example', firebaseApiKey: 'fb-key', googl
 const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token';
 const FIREBASE_IDP = 'https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp';
 const FIREBASE_REFRESH = 'https://securetoken.googleapis.com/v1/token';
-const FIREBASE_ANSWER = { idToken: 'fb-id', refreshToken: 'fb-refresh', expiresIn: '3600', localId: 'uid-1', email: 'rahul@gmail.com', displayName: 'Rahul' };
+const FIREBASE_ANSWER = {
+  idToken: 'fb-id', refreshToken: 'fb-refresh', expiresIn: '3600', localId: 'uid-1', email: 'rahul@gmail.com', displayName: 'Rahul',
+  photoUrl: 'https://lh3.googleusercontent.com/a/photo',
+};
 
 /** A fetch for Google's endpoints: `routes` maps origin + path to { status, body }, or to a function of (url, init). */
 function googleFetch(routes) {
@@ -169,6 +172,7 @@ test('the whole sign-in: the browser, the code, Google, then Firebase', NO_HANG,
   const result = await signInWithGoogle({ config: CONFIG, openBrowser: browserThatSignsIn(seen), fetchImpl });
   assert.deepStrictEqual(result, {
     idToken: 'fb-id', refreshToken: 'fb-refresh', expiresIn: 3600, uid: 'uid-1', email: 'rahul@gmail.com', name: 'Rahul',
+    photo: 'https://lh3.googleusercontent.com/a/photo',
   });
   assert.strictEqual(seen.tokenType, 'application/x-www-form-urlencoded');
   const { code_verifier: verifier, redirect_uri: redirect, ...rest } = seen.form;
@@ -289,4 +293,15 @@ test('a call that Google or Firebase leaves unanswered for too long ends in plai
 test('the errors that sign-in shares with the account are in plain words', () => {
   assert.deepStrictEqual([cancelled().code, cancelled().message], ['sign_in_cancelled', 'Sign-in was cancelled.']);
   assert.deepStrictEqual([signedOut().code, signedOut().message], ['signed_out', 'Sign in to use Buddy.']);
+});
+
+test('the photo is kept only when it is an https address', async () => {
+  for (const [photoUrl, photo] of [['http://example.com/p.jpg', ''], ['javascript:alert(1)', ''], [undefined, ''], [42, '']]) {
+    const fetchImpl = googleFetch({
+      [GOOGLE_TOKEN]: { body: { id_token: 'google-id' } },
+      [FIREBASE_IDP]: { body: { ...FIREBASE_ANSWER, photoUrl } },
+    });
+    const r = await signInWithGoogle({ config: CONFIG, openBrowser: browserThatSignsIn(), fetchImpl });
+    assert.strictEqual(r.photo, photo, String(photoUrl));
+  }
 });

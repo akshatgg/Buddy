@@ -74,7 +74,7 @@ const account = {
     return this.signedIn;
   },
   user() {
-    return this.signedIn ? { uid: this.uid, email: 'e2e@example.com', name: 'E2E Tester' } : null;
+    return this.signedIn ? { uid: this.uid, email: 'e2e@example.com', name: 'E2E Tester', photo: '' } : null;
   },
   async signIn() {
     const refusal = this.nextSignInError;

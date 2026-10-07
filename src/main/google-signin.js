@@ -197,12 +197,14 @@ async function firebaseSignIn({ googleIdToken, config, fetchImpl }) {
     uid: body.localId,
     email: body.email || '',
     name: body.displayName || body.fullName || '',
+    photo: typeof body.photoUrl === 'string' && /^https:\/\//.test(body.photoUrl) ? body.photoUrl : '',
   };
 }
 
 /**
  * The whole sign-in. `openBrowser(url)` opens Google's page (shell.openExternal in the app); `signal` cancels it.
- * Resolves { idToken, refreshToken, expiresIn, uid, email, name }.
+ * Resolves { idToken, refreshToken, expiresIn, uid, email, name, photo }: photo is the address of the person's Google
+ * picture when it is an https one, and '' otherwise.
  */
 async function signInWithGoogle({ config, openBrowser, fetchImpl = fetch, waitMs, signal }) {
   const { verifier, challenge } = makePkce();

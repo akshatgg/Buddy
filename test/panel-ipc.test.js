@@ -19,7 +19,7 @@ function setup(actions = {}) {
     },
     panel: { window: () => ({ webContents: PANEL_PAGE }), hide: () => calls.push('hide') },
     actions,
-    openSettings: () => calls.push('openSettings'),
+    openSettings: (section) => calls.push(['openSettings', section]),
   });
   return { handlers, listeners, calls, fromPanel: { sender: PANEL_PAGE } };
 }
@@ -84,7 +84,18 @@ test('only the panel page may ask', async () => {
 test('the gear and the Open Settings button share one way to Settings: the panel steps aside, then Settings opens', () => {
   const s = setup();
   s.listeners['panel:open-settings'](s.fromPanel);
-  assert.deepStrictEqual(s.calls, ['hide', 'openSettings']);
+  assert.deepStrictEqual(s.calls, ['hide', ['openSettings', undefined]]);
   s.listeners['panel:open-settings']({ sender: { name: 'someone else' } });
-  assert.deepStrictEqual(s.calls, ['hide', 'openSettings'], 'and only for the panel page');
+  assert.deepStrictEqual(s.calls, ['hide', ['openSettings', undefined]], 'and only for the panel page');
+});
+
+test("Open Settings goes to the AI section for a key, model or free-mode problem, and to the start otherwise", () => {
+  for (const [code, section] of [
+    ['no_key', 'ai'], ['bad_key', 'ai'], ['no_credit', 'ai'], ['bad_model', 'ai'], ['no_vision', 'ai'], ['need_key', 'ai'],
+    ['free_off', 'ai'], ['signed_out', undefined], ['not_set_up', undefined], [undefined, undefined], ['constructor', undefined], [7, undefined],
+  ]) {
+    const s = setup();
+    s.listeners['panel:open-settings'](s.fromPanel, code);
+    assert.deepStrictEqual(s.calls, ['hide', ['openSettings', section]], String(code));
+  }
 });

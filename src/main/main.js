@@ -75,7 +75,7 @@ async function start(options = {}) {
   const bubble = createBubbleWindow();
   const panel = createPanelWindow();
   const windows = createSettingsWindows({ app });
-  const openSettings = () => windows.open('settings');
+  const openSettings = (section) => windows.open('settings', section ? { section } : undefined);
   installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings, Welcome and Admin, and no Cmd+Q
 
   const actions = createActions({
@@ -162,18 +162,22 @@ async function start(options = {}) {
 
   registerBuddyIpc({ ipcMain, buddy, characters, store, onClick: onCall });
   registerPanelIpc({ ipcMain, panel, actions, openSettings });
-  registerSettingsIpc({
+  const settingsIpc = registerSettingsIpc({
     ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut,
-    account, cloud, canSignIn: Boolean(cloudConfig),
+    account, cloud, canSignIn: Boolean(cloudConfig), version: app.getVersion(),
     onFinishOnboarding() {
       windows.close('onboarding');
       buddy.reloadModel();
       power.setOn(true);
     },
   });
+  // Settings lets go of the shortcut while it records a new one: a recording cut short by closing Settings gives it back.
+  windows.onClosed((kind) => {
+    if (kind === 'settings') settingsIpc.resumeShortcut();
+  });
   registerAdminIpc({ ipcMain, windows, cloud });
 
-  app.on('second-instance', openSettings);
+  app.on('second-instance', () => openSettings()); // Electron passes the event first: it must not become a section
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
     helper.stop();

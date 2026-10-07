@@ -10,7 +10,7 @@ data class Spot(val x: Int, val y: Int)
 /** Where the head goes: pure functions on pixels, so they can be tested without a screen. */
 object Snap {
     // Like the Mac's clamp: when the area is too small the low bound wins.
-    private fun clamp(v: Int, lo: Int, hi: Int) = min(max(v, lo), max(lo, hi))
+    internal fun clamp(v: Int, lo: Int, hi: Int) = min(max(v, lo), max(lo, hi))
 
     /** Glide to the nearer left or right edge, staying inside the screen. */
     fun toEdge(x: Int, y: Int, size: Int, screenW: Int, screenH: Int, margin: Int): Spot {

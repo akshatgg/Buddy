@@ -1,6 +1,7 @@
 package com.akshatgg.buddy.bubble
 
 import android.animation.ValueAnimator
+import android.app.AppOpsManager
 import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
@@ -12,33 +13,20 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
-import android.graphics.Color
-import android.graphics.PixelFormat
-import android.graphics.PointF
+import android.graphics.Point
 import android.graphics.Rect
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
-import android.util.TypedValue
-import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.view.View.MeasureSpec
 import android.view.ViewConfiguration
 import android.view.WindowInsets
 import android.view.WindowManager
-import android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
 import android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-import android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-import android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-import android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
 import android.view.animation.DecelerateInterpolator
-import android.widget.FrameLayout
-import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -52,36 +40,22 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.hypot
-import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.roundToInt
 
 private const val TAG = "Buddy"
 private const val CHANNEL = "buddy"
 private const val NOTIFICATION_ID = 1
 
-private const val MARGIN_DP = 8 // between the head's window and the screen's edges, as the Mac's MARGIN
 private const val ROOM = 1.6f // the head's window is this much bigger than the head: room for the float and the bounce
 private const val GLIDE_MS = 220L
-
-private const val TARGET_DP = 64 // the ✕ circle
-private const val TARGET_LIFT_DP = 48 // from the bottom of the screen to the bottom of the circle
-private const val TARGET_RADIUS_DP = 72 // a head whose centre is this close to the circle's turns Buddy off when let go
-private const val TARGET_GROW = 1.2f // how much the circle grows while the head is over it
-private const val TARGET_ROOM = 1.25f // the circle's window leaves room for it to grow
-
-private const val SPEECH_MAX_DP = 240
-private const val SAY_MS = 3500L
 private const val SLEEPY_MS = 5000L // as the Mac's actions.js: a sleepy buddy wakes up on its own after a few seconds
 
 /**
  * The buddy over every app. A foreground service, so that Android keeps it running while Buddy is on, as the Mac's
  * buddy window stays up until the person turns Buddy off; the notification a foreground service must show says so
- * and offers "Turn off". It owns three overlay windows: the head, the ✕ that the head is dropped on to turn Buddy off,
- * and the speech bubble beside the head. Everything here runs on the main thread, as the head must.
- *
- * Every window is laid out in the screen's own pixels, from its top-left corner, status bar included, so that the
- * head, the ✕ and the speech bubble share one set of coordinates; area() is the part of it the head keeps to.
+ * and offers "Turn off". It owns three overlay windows: the head, the ✕ that the head is dropped on to turn Buddy off
+ * (CloseTarget), and the speech bubble beside the head (SpeechBubble). Everything here runs on the main thread, as
+ * the head must.
  */
 class BubbleService : LifecycleService() {
     private val settings: AppSettings get() = AppGraph.instance.settings
@@ -91,14 +65,9 @@ class BubbleService : LifecycleService() {
     private lateinit var headPlace: WindowManager.LayoutParams
     private var drag: Drag? = null
     private var glide: ValueAnimator? = null
+    private var target: CloseTarget? = null
+    private var speech: SpeechBubble? = null
 
-    private var target: View? = null // the ✕ circle's window, hidden but while a drag shows it
-    private var targetCircle: View? = null
-    private lateinit var targetPlace: WindowManager.LayoutParams
-    private val targetCentre = PointF()
-
-    private var speech: TextView? = null // the speech bubble, while it is on screen
-    private var sayTimer: Job? = null
     private var sleepyTimer: Job? = null
     private var hideTimer: Job? = null // while it runs the head is hidden for a picture of the screen
 
@@ -107,23 +76,34 @@ class BubbleService : LifecycleService() {
     private var screenOff = false
     private var screenReceiver: BroadcastReceiver? = null
 
+    // The person can take "Display over other apps" away in the phone's settings while Buddy runs. Android then hides
+    // the windows and refuses new ones, so the service stops, and the app says why the buddy is gone.
+    private var overlayWatcher: AppOpsManager.OnOpChangedListener? = null
+
     override fun onCreate() {
         super.onCreate()
         windows = getSystemService(WindowManager::class.java)
         val channel = NotificationChannel(CHANNEL, getString(R.string.bubble_channel), NotificationManager.IMPORTANCE_LOW)
         channel.setShowBadge(false)
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        // In the foreground first, even to stop at once: Android treats a service started for the foreground that
+        // stops before it gets there as a crash.
         if (!foreground(capturing = false)) {
             stopSelf()
             return
         }
-        // Without "Display over other apps" there is nowhere to float: the app says why, and asks for it.
-        if (!Settings.canDrawOverlays(this)) {
+        // Turned off meanwhile: a late start (the end of a screen picture, a restart by Android) must not bring the
+        // head back.
+        if (!settings.buddyOn) {
             stopSelf()
             return
         }
-        makeTarget() // first: a window made later is drawn over it, and the head goes over the ✕, not under
-        showHead()
+        // Without "Display over other apps" there is nowhere to float: the app says why, and asks for it.
+        if (!Settings.canDrawOverlays(this) || !showWindows()) {
+            stopSelf()
+            return
+        }
+        watchOverlayPermission()
         listenToScreen()
         lifecycleScope.launch {
             BubbleBus.events.collect { event ->
@@ -139,10 +119,15 @@ class BubbleService : LifecycleService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         if (head == null) return START_NOT_STICKY // it stopped at once in onCreate
-        when (intent?.action) {
-            ACTION_TURN_OFF -> turnOff()
-            ACTION_CAPTURE -> foreground(capturing = !intent.getBooleanExtra(EXTRA_DONE, false))
+        if (intent?.action == ACTION_TURN_OFF) {
+            turnOff()
+            return START_NOT_STICKY
         }
+        if (!settings.buddyOn) { // turned off in the app meanwhile: as in onCreate
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_CAPTURE) foreground(capturing = !intent.getBooleanExtra(EXTRA_DONE, false))
         return START_STICKY
     }
 
@@ -152,19 +137,20 @@ class BubbleService : LifecycleService() {
         if (drag?.dragging == true) return // where it is let go is snapped to the new screen
         // The phone turned (or the screen changed size): back to the head's side and height, on the new screen.
         glide?.cancel()
-        hideSpeech()
+        speech?.hide()
         placeHead()
         windows.updateViewLayout(view, headPlace)
     }
 
     override fun onDestroy() {
         glide?.cancel()
+        overlayWatcher?.let { getSystemService(AppOpsManager::class.java).stopWatchingMode(it) }
+        overlayWatcher = null
         screenReceiver?.let { unregisterReceiver(it) }
         screenReceiver = null
-        hideSpeech()
-        target?.let { windows.removeViewImmediate(it) }
+        speech?.hide()
+        target?.remove()
         target = null
-        targetCircle = null
         head?.let {
             head = null
             windows.removeViewImmediate(it)
@@ -212,15 +198,13 @@ class BubbleService : LifecycleService() {
         stopSelf()
     }
 
-    private fun px(dp: Number): Int = (dp.toFloat() * resources.displayMetrics.density).roundToInt()
-
-    /** A see-through window over every app that never takes the keyboard, in the screen's own pixels. */
-    private fun overlay(width: Int, height: Int, flags: Int) = WindowManager.LayoutParams(
-        width, height, TYPE_APPLICATION_OVERLAY, flags or FLAG_NOT_FOCUSABLE or FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT,
-    ).apply {
-        gravity = Gravity.TOP or Gravity.START
-        // Not moved down below the status bar or up above the navigation bar: area() keeps the head clear of them.
-        if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
+    private fun watchOverlayPermission() {
+        // Told on a binder thread: the check and the stop go over to the main one.
+        val watcher = AppOpsManager.OnOpChangedListener { _, _ ->
+            lifecycleScope.launch { if (!Settings.canDrawOverlays(this@BubbleService)) stopSelf() }
+        }
+        getSystemService(AppOpsManager::class.java).startWatchingMode(AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW, packageName, watcher)
+        overlayWatcher = watcher
     }
 
     /**
@@ -241,27 +225,43 @@ class BubbleService : LifecycleService() {
         return Rect(0, 0, metrics.widthPixels, metrics.heightPixels)
     }
 
-    private fun showHead() {
+    /** The ✕ (hidden) and then the head, so that the head is drawn over the ✕. False when Android refuses either. */
+    private fun showWindows(): Boolean {
+        val close = CloseTarget(this, windows)
+        if (!close.add()) return false
+        target = close
+        speech = SpeechBubble(this, windows, lifecycleScope)
         headPlace = overlay(0, 0, FLAG_LAYOUT_NO_LIMITS)
         placeHead()
         val view = HeadView(this)
         view.characterId = settings.characterId
         drag = Drag(view).also { view.setOnTouchListener(it) }
         view.setOnClickListener { openPanel() }
-        windows.addView(view, headPlace)
+        if (!windows.tryAdd(view, headPlace)) {
+            view.release()
+            return false
+        }
         head = view
         view.mood = Mood.WAVE
+        return true
     }
 
-    /** The head at its saved side and height, on the screen as it is now. */
-    private fun placeHead() {
-        val area = area()
-        val size = (settings.size.dp * ROOM * resources.displayMetrics.density).roundToInt()
+    /** Where the head is kept: its saved side and height, on the screen as it is now. */
+    private fun savedSpot(area: Rect, size: Int): Point {
         val margin = px(MARGIN_DP)
+        return Point(
+            area.left + if (settings.bubbleRight) area.width() - size - margin else margin,
+            area.top + Snap.yFromFraction(settings.bubbleY, size, area.height(), margin),
+        )
+    }
+
+    private fun placeHead() {
+        val size = (settings.size.dp * ROOM * resources.displayMetrics.density).roundToInt()
+        val spot = savedSpot(area(), size)
         headPlace.width = size
         headPlace.height = size
-        headPlace.x = area.left + if (settings.bubbleRight) area.width() - size - margin else margin
-        headPlace.y = area.top + Snap.yFromFraction(settings.bubbleY, size, area.height(), margin)
+        headPlace.x = spot.x
+        headPlace.y = spot.y
     }
 
     private fun moveHead(x: Int, y: Int) {
@@ -270,6 +270,8 @@ class BubbleService : LifecycleService() {
         headPlace.y = y
         windows.updateViewLayout(view, headPlace)
     }
+
+    private fun headBounds() = Rect(headPlace.x, headPlace.y, headPlace.x + headPlace.width, headPlace.y + headPlace.height)
 
     private fun openPanel() {
         // The panel is not made yet: until it is, a tap opens the app.
@@ -287,13 +289,15 @@ class BubbleService : LifecycleService() {
         private var downY = 0f
         private var startX = 0
         private var startY = 0
-        private var overTarget = false
+        private var glideCut = false // the press stopped the head on its way to the side
         var dragging = false
             private set
 
         override fun onTouch(v: View, event: MotionEvent): Boolean {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    // Stopped where it is, so that a drag starts from under the finger.
+                    glideCut = glide?.isRunning == true
                     glide?.cancel()
                     view.pressing = true
                     downX = event.rawX
@@ -301,7 +305,6 @@ class BubbleService : LifecycleService() {
                     startX = headPlace.x
                     startY = headPlace.y
                     dragging = false
-                    overTarget = false
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - downX
@@ -309,46 +312,30 @@ class BubbleService : LifecycleService() {
                     if (!dragging && hypot(dx, dy) > slop) {
                         dragging = true
                         mood(Mood.WOBBLE)
-                        hideSpeech()
-                        showTarget()
+                        speech?.hide()
+                        target?.show(area())
                     }
                     if (dragging) {
                         moveHead(startX + dx.roundToInt(), startY + dy.roundToInt())
-                        val size = headPlace.width
-                        setOverTarget(
-                            Snap.nearTarget(
-                                headPlace.x + size / 2f, headPlace.y + size / 2f, targetCentre.x, targetCentre.y, px(TARGET_RADIUS_DP).toFloat(),
-                            ),
-                        )
+                        target?.follow(headPlace.x + headPlace.width / 2f, headPlace.y + headPlace.height / 2f)
                     }
                 }
-                MotionEvent.ACTION_UP -> {
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     view.pressing = false
-                    if (!dragging) {
-                        v.performClick()
-                    } else {
-                        dragging = false
-                        hideTarget()
-                        if (overTarget) turnOff() else drop()
-                    }
-                }
-                MotionEvent.ACTION_CANCEL -> {
-                    view.pressing = false
+                    val up = event.actionMasked == MotionEvent.ACTION_UP
                     if (dragging) {
                         dragging = false
-                        hideTarget()
-                        drop()
+                        val overTarget = up && target?.over == true
+                        target?.hide()
+                        if (overTarget) turnOff() else drop()
+                    } else {
+                        // A tap while it glided: it goes on to its side, rather than staying mid-screen.
+                        if (glideCut) savedSpot(area(), headPlace.width).let { glideTo(it.x, it.y) }
+                        if (up) v.performClick()
                     }
                 }
             }
             return true
-        }
-
-        private fun setOverTarget(over: Boolean) {
-            if (over == overTarget) return
-            overTarget = over
-            val scale = if (over) TARGET_GROW else 1f
-            targetCircle?.animate()?.scaleX(scale)?.scaleY(scale)?.setDuration(120)?.start()
         }
     }
 
@@ -378,56 +365,6 @@ class BubbleService : LifecycleService() {
         }
     }
 
-    /**
-     * The ✕ circle's window, hidden until a drag. Touches go through it: the head is still being dragged over it, and
-     * a hidden window must not stop taps on the app underneath.
-     */
-    private fun makeTarget() {
-        val circle = TextView(this).apply {
-            text = "✕"
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(0xCC1D1D1F.toInt())
-                setStroke(px(2), 0x99FFFFFF.toInt())
-            }
-        }
-        val frame = FrameLayout(this)
-        frame.addView(circle, FrameLayout.LayoutParams(px(TARGET_DP), px(TARGET_DP), Gravity.CENTER))
-        frame.visibility = View.INVISIBLE
-        val box = (px(TARGET_DP) * TARGET_ROOM).roundToInt() // placed by showTarget()
-        targetPlace = overlay(box, box, FLAG_NOT_TOUCHABLE)
-        windows.addView(frame, targetPlace)
-        target = frame
-        targetCircle = circle
-    }
-
-    /** The ✕ at the bottom centre of the screen as it is now. */
-    private fun showTarget() {
-        val frame = target ?: return
-        val circle = targetCircle ?: return
-        val area = area()
-        val circleSize = px(TARGET_DP)
-        val box = (circleSize * TARGET_ROOM).roundToInt()
-        targetCentre.set(area.exactCenterX(), area.bottom - px(TARGET_LIFT_DP) - circleSize / 2f)
-        circle.layoutParams = FrameLayout.LayoutParams(circleSize, circleSize, Gravity.CENTER)
-        circle.scaleX = 1f
-        circle.scaleY = 1f
-        targetPlace.width = box
-        targetPlace.height = box
-        targetPlace.x = (targetCentre.x - box / 2f).roundToInt()
-        targetPlace.y = (targetCentre.y - box / 2f).roundToInt()
-        windows.updateViewLayout(frame, targetPlace)
-        frame.visibility = View.VISIBLE
-    }
-
-    private fun hideTarget() {
-        targetCircle?.animate()?.cancel()
-        target?.visibility = View.INVISIBLE
-    }
-
     private fun mood(mood: Mood) {
         val view = head ?: return
         sleepyTimer?.cancel() // it would wake a buddy that has since become busy or happy
@@ -441,62 +378,15 @@ class BubbleService : LifecycleService() {
         }
     }
 
-    /**
-     * A speech bubble beside the head, on the side away from the edge it sits on, as the Mac's. Touches go through it
-     * to the app underneath (Android draws such a window at most 80 % opaque, as it must be for them to go through).
-     */
     private fun say(text: String) {
         val view = head ?: return
         if (view.visibility != View.VISIBLE) return // nobody would see it, or it would be in a picture of the screen
-        val bubble = speech ?: TextView(this).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            setTextColor(getColor(R.color.buddy_fg))
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            maxWidth = px(SPEECH_MAX_DP)
-            setPadding(px(14), px(8), px(14), px(8))
-            background = GradientDrawable().apply {
-                cornerRadius = px(16).toFloat()
-                setColor(getColor(R.color.buddy_card))
-                setStroke(max(1, px(1)), getColor(R.color.buddy_line))
-            }
-        }
-        bubble.text = text
-        val area = area()
-        val margin = px(MARGIN_DP)
-        bubble.measure(
-            MeasureSpec.makeMeasureSpec(area.width() - 2 * margin, MeasureSpec.AT_MOST),
-            MeasureSpec.makeMeasureSpec(area.height(), MeasureSpec.AT_MOST),
-        )
-        val width = bubble.measuredWidth
-        val height = bubble.measuredHeight
-        val size = headPlace.width
-        val onRight = headPlace.x + size / 2 > area.centerX()
-        val x = if (onRight) headPlace.x - width - margin else headPlace.x + size + margin
-        val y = headPlace.y + (size - height) / 2
-        val place = overlay(width, height, FLAG_NOT_TOUCHABLE)
-        place.x = clamp(x, area.left + margin, area.right - width - margin)
-        place.y = clamp(y, area.top + margin, area.bottom - height - margin)
-        if (speech == null) windows.addView(bubble, place) else windows.updateViewLayout(bubble, place)
-        speech = bubble
-        sayTimer?.cancel()
-        sayTimer = lifecycleScope.launch {
-            delay(SAY_MS)
-            hideSpeech()
-        }
+        if (!Settings.canDrawOverlays(this)) return // taken away a moment ago: the watcher is about to stop the service
+        speech?.say(text, headBounds(), area())
     }
-
-    private fun hideSpeech() {
-        sayTimer?.cancel()
-        sayTimer = null
-        speech?.let { windows.removeView(it) }
-        speech = null
-    }
-
-    // Like the Mac's clamp: when there is too little room the low bound wins.
-    private fun clamp(v: Int, lo: Int, hi: Int) = min(max(v, lo), max(lo, hi))
 
     private fun hideFor(ms: Long) {
-        hideSpeech()
+        speech?.hide()
         hideTimer?.cancel()
         hideTimer = lifecycleScope.launch {
             delay(ms)

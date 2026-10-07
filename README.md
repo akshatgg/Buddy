@@ -29,7 +29,7 @@ A build needs a valid `cloud.json` first, and fails without one (see
     npm run dist:mac
 
 That builds the Swift helper, then the app, `release/mac-arm64/Buddy.app`, and a
-disk image, `release/Buddy-<version>-arm64.dmg`. Open the `.dmg` and drag Buddy to
+disk image, `release/Buddy-arm64.dmg`. Open the `.dmg` and drag Buddy to
 Applications, or copy `release/mac-arm64/Buddy.app` there yourself.
 
 - **The first open.** The app is signed only with an ad-hoc signature, not by
@@ -113,6 +113,26 @@ That makes `release\Buddy Setup <version>.exe`. Run it: it installs Buddy for yo
 
       $env:BUDDY_USER_DATA = "$env:TEMP\buddy-trial"
       .\release\win-unpacked\Buddy.exe
+
+## Releases and Update now
+
+Push a version tag and GitHub Actions does the rest (`.github/workflows/release.yml`): it builds and checks the Mac
+DMG and the Windows installer, then publishes a GitHub Release with `Buddy-arm64.dmg`, `Buddy-Setup-x64.exe` and
+their update manifests (`latest-mac.yml`, `latest.yml`).
+
+    git tag v1.2.0 && git push origin v1.2.0    # or: npm run release:patch (or :minor, :major)
+
+Tags have three numbers (`v1.2.0`; `v1.2` means `1.2.0`). Actions → Release → Run workflow does the same from the
+website, and with no version it only builds and tests. The build needs the repository secret `BUDDY_CLOUD_JSON` (the
+contents of `cloud.json`).
+
+Every installed Buddy then finds the new version (on launch and every hour, unless switched off in Settings →
+General) and offers **Update now** in Settings, in the menu bar menu and in a dialog once per launch. The download is
+checked against its sha512 before anything is installed. On Windows the installer runs silently as Buddy quits; on
+the Mac the new Buddy.app is copied out of the DMG, checked, and swapped in once Buddy has quit. Because the Mac app
+is ad-hoc signed, macOS asks for Accessibility again after each update, and Settings opens on Permissions to say so.
+The website's download buttons always give the newest release. Design:
+`docs/superpowers/specs/2026-10-07-buddy-releases-and-updates-design.md`.
 
 ## Tests
 

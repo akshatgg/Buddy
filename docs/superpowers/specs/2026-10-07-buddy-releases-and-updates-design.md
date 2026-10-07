@@ -80,7 +80,7 @@ Free of Electron, so it is unit tested with a fake `fetch`:
 
 Where it shows:
 
-- **Settings → About & updates** (new sidebar item): "Buddy 1.1.0", status (Up to date / Downloading 40% /
+- **Settings → General**, under the version: "Buddy 1.1.0", status (Up to date / Downloading 40% /
   Ready / the error in plain words), **Check now**, **Update now**, the "Check for updates automatically" switch,
   and a link to what's new (the release page).
 - **Menu bar / tray menu**: "Update now (Buddy 1.2.0)" while a newer version exists.

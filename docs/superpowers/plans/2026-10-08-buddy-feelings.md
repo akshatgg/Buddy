@@ -193,8 +193,8 @@ done). Their lines move to Task 6.
   `fpsFor`/`isActive` with `since`, the fidgeter (only while `idle`; reset whenever the mood changes), petting
   (pointer on the Head's meshes, not pressed → `love`), shaking (during a drag → `dizzy` on release instead of
   `idle`), the voice level (`buddy:voice-level` → smoothed → `moodPose(…, { level })`), and the symbols (a container
-  over the canvas; `place` from the projected top of the Head on load and resize; `play`/`stop` when the pose's
-  `effect` changes; colour = the character's accent, which `buddy:model` now returns as `{ bytes, accent }`).
+  over the canvas; `place` from the projected top of the Head on load and resize; `play` each time a mood with an
+  `effect` starts (also when the same mood starts again), `stop` when a mood without one starts; colour = the character's accent, which `buddy:model` now returns as `{ bytes, accent }`).
   Expose `window.__buddyMood` (the mood's name) for the e2e test.
 - Notes from Tasks 2 and 4 (their reports are in ~/projects/buddy/.superpowers/sdd/feelings/):
   - Ease from one mood's pose to the next over about 0.2 s (blend every numeric pose field from the pose shown when the
@@ -205,6 +205,8 @@ done). Their lines move to Task 6.
     head or a press starts; ignore a detection while `love` is playing. Shake detector: feed `screenX`/`screenY` while
     dragging; `reset()` when a drag starts.
   - `createSleep` with its default timers keeps real 60 s / 120 s timers alive: tests that build one pass fake timers.
+  - Symbols (Task 3's report): `place()` takes the top centre of the Head's bounding box (the sprout or bow included)
+    and its width (the ears included), in CSS pixels.
   - The sleep countdown's own moods (`drowsy`, `asleep`, `wake`) must not count as use: only the app's moods and the
     buddy's IPC poke it (Task 6 wires the app's moods). Its `onMood` runs from a timer, so it must not throw when the
     buddy window is gone (buddy-window's `mood()` already ignores a missing window; keep it that way).

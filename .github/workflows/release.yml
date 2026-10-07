@@ -1,0 +1,322 @@
+name: Release
+
+# Builds Buddy for the Mac (Buddy-arm64.dmg) and Windows (Buddy-Setup-x64.exe),
+# checks both, and publishes them as a GitHub Release with their update
+# manifests (latest-mac.yml, latest.yml). Every installed Buddy finds the new
+# release and offers Update now (src/main/updates.js). The website needs no
+# change per release: its download buttons use
+# /releases/latest/download/<file>, which always serves the newest.
+#
+# Cutting one -- the tag is the version:
+#
+#   git tag v1.2.0 && git push origin v1.2.0      (v1.2 means 1.2.0; the v is optional)
+#   npm run release:patch                         (or :minor / :major) bumps package.json, tags and pushes
+#
+#   Or on GitHub: Actions -> Release -> Run workflow, and type a version such
+#   as 1.2.0. Leave it blank to build and check without publishing.
+#
+# A version with a dash (1.3.0-beta.1) is published as a pre-release, which
+# installed copies and the website's buttons skip.
+#
+# Required secret:
+#   BUDDY_CLOUD_JSON     the contents of cloud.json (where the server is, and
+#                        Google sign-in). The build fails without it.
+# Optional secrets:
+#   CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD,
+#   APPLE_TEAM_ID        Developer ID signing + notarization (see
+#                        electron-builder.config.js). Without them the app is
+#                        ad-hoc signed: macOS asks once (Open Anyway).
+#   WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD
+#                        Signing for the Windows installer. Without them it is
+#                        unsigned and SmartScreen asks once ("More info" ->
+#                        "Run anyway").
+on:
+  push:
+    tags: ['v*', '[0-9]*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 1.2.0 — leave blank to build and check without publishing'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.decide.outputs.version }}
+      tag: ${{ steps.decide.outputs.tag }}
+      publish: ${{ steps.decide.outputs.publish }}
+      prerelease: ${{ steps.decide.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: decide
+        name: Decide the version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          pkg="$(node -p "require('./package.json').version")"
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            raw="$GITHUB_REF_NAME"              # the tag that was pushed is the version
+            publish=true
+          elif [ -n "$INPUT_VERSION" ]; then
+            raw="$INPUT_VERSION"                # manual run, version given
+            publish=true
+          else
+            raw="$pkg"                          # manual run, build and check only
+            publish=false
+          fi
+
+          # v1.2.3 / 1.2.3 / 1.2.3-beta.1; v1.2 means 1.2.0, and 1.00 means 1.0.0
+          # (versions can't have leading zeros).
+          version="${raw#v}"
+          core="${version%%-*}"
+          pre=""
+          [ "$core" = "$version" ] || pre="-${version#*-}"
+          if printf '%s' "$core" | grep -Eq '^[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
+            IFS=. read -r a b c <<< "$core"
+            version="$((10#$a)).$((10#$b)).$((10#${c:-0}))$pre"
+          fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$raw' is not a version. Use three numbers, like v1.2.0."
+            exit 1
+          fi
+          # The release is always tagged v<version>: installed copies read the
+          # version from it, so a pushed 1.00 or v1.2 is published as v1.0.0 or v1.2.0.
+          tag="v$version"
+          case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
+
+          if [ "$version" != "$pkg" ]; then
+            echo "::notice::Building $version (package.json says $pkg; the build uses $version)."
+          fi
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "publish=$publish"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "version $version, tag $tag, publish $publish, prerelease $prerelease"
+
+      # Re-running a pushed v1.2.0 may publish v1.2.0 again; anything else must be new.
+      - name: Refuse a version that already exists
+        if: steps.decide.outputs.publish == 'true' && (github.event_name == 'workflow_dispatch' || steps.decide.outputs.tag != github.ref_name)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.decide.outputs.tag }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::${{ steps.decide.outputs.tag }} already exists. Choose a higher version."
+            exit 1
+          fi
+
+  macos:
+    needs: [prepare]
+    runs-on: macos-15
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The app, the DMG and the manifest all take their version from
+      # package.json, so it is set to the tag before anything is built.
+      - name: Set version to ${{ needs.prepare.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Write cloud.json
+        env:
+          BUDDY_CLOUD_JSON: ${{ secrets.BUDDY_CLOUD_JSON }}
+        run: |
+          if [ -z "$BUDDY_CLOUD_JSON" ]; then
+            echo "::error::The BUDDY_CLOUD_JSON secret is not set. Add the contents of cloud.json in Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          printf '%s' "$BUDDY_CLOUD_JSON" > cloud.json
+          node -e "JSON.parse(require('fs').readFileSync('cloud.json', 'utf8'))" \
+            || { echo "::error::BUDDY_CLOUD_JSON is not valid JSON."; exit 1; }
+
+      - run: npm ci
+      - run: npm test
+
+      - name: Build the Swift helper
+        run: npm run build:native
+
+      - name: Build the DMG
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx electron-builder --mac --config electron-builder.config.js --publish never
+
+      - name: Verify the DMG
+        run: |
+          set -euo pipefail
+          dmg=release/Buddy-arm64.dmg
+          test -f "$dmg" || { echo "::error::$dmg was not produced"; ls -l release; exit 1; }
+          ls -lh "$dmg"
+          # Mount it and check the app inside: signed consistently (an
+          # inconsistent seal is what macOS reports as "damaged"), the version
+          # this run decided, and the helper in place.
+          mnt="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg" >/dev/null
+          codesign --verify --strict --deep "$mnt/Buddy.app"
+          v="$(plutil -extract CFBundleShortVersionString raw -o - "$mnt/Buddy.app/Contents/Info.plist")"
+          [ "$v" = "$VERSION" ] || { echo "::error::Buddy.app says $v, not $VERSION"; exit 1; }
+          lipo -archs "$mnt/Buddy.app/Contents/Resources/bin/buddy-helper"
+          hdiutil detach "$mnt" >/dev/null
+
+      # The Mac update manifest: the DMG's sha512 and size. Update now
+      # downloads it with the DMG and won't install one that doesn't match.
+      - name: Write latest-mac.yml
+        run: node tools/latest-yml.js --version "$VERSION" --installer release/Buddy-arm64.dmg --out release/latest-mac.yml
+
+      # Update now, end to end with the DMG just built: download, checksum,
+      # copy the app out, swap it in once the old one quits, open it again.
+      - name: Smoke-test Update now
+        run: node tools/smoke-update.js --version "$VERSION" --dir release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            release/Buddy-arm64.dmg
+            release/latest-mac.yml
+          if-no-files-found: error
+
+  windows:
+    needs: [prepare]
+    runs-on: windows-2022
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set version to ${{ needs.prepare.outputs.version }}
+        run: npm version "$env:VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Write cloud.json
+        shell: pwsh
+        env:
+          BUDDY_CLOUD_JSON: ${{ secrets.BUDDY_CLOUD_JSON }}
+        run: |
+          if (-not $env:BUDDY_CLOUD_JSON) {
+            Write-Output "::error::The BUDDY_CLOUD_JSON secret is not set. Add the contents of cloud.json in Settings -> Secrets and variables -> Actions."
+            exit 1
+          }
+          # No byte-order mark: the app reads it as plain UTF-8 JSON.
+          [IO.File]::WriteAllText((Join-Path $PWD 'cloud.json'), $env:BUDDY_CLOUD_JSON, (New-Object Text.UTF8Encoding $false))
+          node -e "JSON.parse(require('fs').readFileSync('cloud.json', 'utf8'))"
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error::BUDDY_CLOUD_JSON is not valid JSON."; exit 1 }
+
+      - run: npm ci
+
+      # bin\buddy-helper.exe, with the C# compiler that comes with Windows (tools/build-native.js).
+      - name: Build the C# helper
+        run: npm run build:native
+
+      - name: Build the installer
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: npx electron-builder --win --config electron-builder.config.js --publish never
+
+      # The update manifest: the installer's version, sha512 and size. Buddy
+      # downloads it with the installer and won't run one that doesn't match.
+      - name: Write latest.yml
+        run: node tools/latest-yml.js --version "$env:VERSION" --installer release/Buddy-Setup-x64.exe
+
+      - name: Verify the installer
+        shell: pwsh
+        run: |
+          $exe = "release/Buddy-Setup-x64.exe"
+          if (-not (Test-Path $exe)) { Write-Error "$exe was not produced"; Get-ChildItem release; exit 1 }
+          Get-Item $exe | Format-List Name, Length
+          if (-not (Test-Path "release/win-unpacked/resources/bin/buddy-helper.exe")) { Write-Error "the helper is missing from the app"; exit 1 }
+          # Install silently for this user, check Buddy and its helper landed, uninstall.
+          $proc = Start-Process $exe -ArgumentList "/S" -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { Write-Error "the installer exited $($proc.ExitCode)"; exit 1 }
+          $app = Join-Path $env:LOCALAPPDATA "Programs/buddy"
+          if (-not (Test-Path "$app/Buddy.exe")) { Write-Error "Buddy.exe was not installed in $app"; exit 1 }
+          if (-not (Test-Path "$app/resources/bin/buddy-helper.exe")) { Write-Error "the helper was not installed"; exit 1 }
+          $installed = (Get-Item "$app/Buddy.exe").VersionInfo.ProductVersion
+          if (-not $installed.StartsWith($env:VERSION)) { Write-Error "installed $installed, expected $env:VERSION"; exit 1 }
+          Stop-Process -Name Buddy -Force -ErrorAction SilentlyContinue
+          $uninstaller = Get-ChildItem $app -Filter "Uninstall Buddy.exe" | Select-Object -First 1
+          if ($uninstaller) { Start-Process $uninstaller.FullName -ArgumentList "/S" -Wait }
+          Write-Output "installer verified ($installed)"
+
+      # Update now, end to end with the installer just built: download,
+      # checksum, then a silent update of an installed Buddy that opens it again.
+      - name: Smoke-test Update now
+        run: node tools/smoke-update.js --version "$env:VERSION" --dir release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            release/Buddy-Setup-x64.exe
+            release/latest.yml
+          if-no-files-found: error
+
+  release:
+    needs: [prepare, macos, windows]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+
+      - name: Verify everything arrived
+        run: |
+          set -euo pipefail
+          for f in macos/Buddy-arm64.dmg macos/latest-mac.yml windows/Buddy-Setup-x64.exe windows/latest.yml; do
+            test -f "artifacts/$f" || { echo "::error::artifacts/$f is missing"; exit 1; }
+          done
+          ls -lR artifacts
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Buddy ${{ needs.prepare.outputs.version }}
+          prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
+          files: |
+            artifacts/macos/Buddy-arm64.dmg
+            artifacts/macos/latest-mac.yml
+            artifacts/windows/Buddy-Setup-x64.exe
+            artifacts/windows/latest.yml
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            **Mac** (Apple chip, M1 or newer, macOS 14 or later) — download **Buddy-arm64.dmg**, open it and drag
+            Buddy to Applications. The app is not notarized yet, so macOS stops it the first time: open
+            System Settings → Privacy & Security, scroll down, and click **Open Anyway**. Then allow
+            Accessibility (and Screen Recording for Check screen) when Buddy asks.
+
+            **Windows 10 or 11, 64-bit** — download **Buddy-Setup-x64.exe** and run it. The installer isn't
+            signed yet, so SmartScreen may say "Windows protected your PC": click **More info**, then **Run anyway**.
+
+            Already have Buddy? It finds this version by itself: click **Update now**.
+
+            Website: https://buddywrites.vercel.app

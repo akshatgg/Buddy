@@ -20,7 +20,10 @@
     "test": "eslint . && node --test 'test/*.test.js' 'test/*.test.mjs'",
     "test:firestore": "sh tools/test-firestore.sh",
     "deploy:server": "npm run sync:web && vercel deploy --prod --cwd web",
-    "test:e2e": "electron test/e2e/smoke.js"
+    "test:e2e": "electron test/e2e/smoke.js",
+    "release:patch": "npm version patch && git push --follow-tags",
+    "release:minor": "npm version minor && git push --follow-tags",
+    "release:major": "npm version major && git push --follow-tags"
   },
   "devDependencies": {
     "@electron/asar": "^3.4.1",

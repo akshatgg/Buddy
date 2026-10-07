@@ -21,8 +21,11 @@ ad-hoc signed Mac app (no Apple Developer ID needed), and electron-builder's NSI
 
     git tag v1.2.0 && git push origin v1.2.0        # or: npm run release:patch / :minor / :major
 
-- Tags are `vX.Y.Z` (or `X.Y.Z`). A two-part tag like `v1.2` means `1.2.0`. Anything else fails the run with
-  a plain message ("Use three numbers, like v1.2.0").
+- Tags are `vX.Y.Z` (or `X.Y.Z`). A two-part tag like `v1.2` means `1.2.0`, and leading zeros are dropped
+  (`1.00` means `1.0.0`). Anything else fails the run with a plain message ("Use three numbers, like v1.2.0").
+  The release is always published as `v<version>` (a pushed `1.00` becomes the release `v1.0.0`), because
+  installed copies read the version from the release's tag. A version with a dash (`1.3.0-beta.1`) is a
+  pre-release, which installed copies and the website skip.
 - The tag is the version. The workflow sets `package.json`'s version to it inside the build (so the app,
   the installers and the manifests all say the same), without needing a commit first.
 - **Actions → Release → Run workflow** does the same from the GitHub website: type a version to publish, or

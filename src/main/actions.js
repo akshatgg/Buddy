@@ -294,6 +294,8 @@ function createActions({
     let from = sent ? 'selection' : null; // where the text the answer works on came from
     let reply = await ask({ ...asked, ...selection, step: 1 });
     if (c !== chat) return false; // closed meanwhile: this answer belongs to a chat that is over
+    // Facts come from this first answer only: the second one has read the person's box or screen, whose text (a mail
+    // someone sent them, a web page) could tell the AI to "remember" anything.
     remember(c, reply.remember);
 
     if (reply.kind === 'box') {
@@ -316,7 +318,6 @@ function createActions({
       await comeBack(c);
       reply = await ask({ ...asked, box, step: 2 }); // the box takes the place of the selection
       if (c !== chat) return false;
-      remember(c, reply.remember); // a fact already saved on the first step is not saved (or shown) again
       from = 'box';
     } else if (reply.kind === 'screen') {
       if (!c.app) return stop(c, 'no_app', 'Open me from the app you want me to check.');
@@ -332,7 +333,6 @@ function createActions({
       push(c);
       reply = await ask({ ...asked, ...selection, image, step: 2 });
       if (c !== chat) return false;
-      remember(c, reply.remember);
     }
     c.busy = false; // the answer is in: what is left is Buddy's own work
     if (reply.kind === 'box' || reply.kind === 'screen') return stop(c, 'not_found', "I couldn't find it. Select the text and ask me again.");

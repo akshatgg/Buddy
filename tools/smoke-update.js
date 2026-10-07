@@ -143,7 +143,9 @@ async function windowsUpdate({ file, version }) {
   spawn(file, installerArgs({ relaunch: true }), { detached: true, stdio: 'ignore' }).unref();
   await waitFor('Buddy to open again after the update', isRunning, 180000);
   const installed = execFileSync('powershell', ['-NoProfile', '-Command', `(Get-Item '${exe}').VersionInfo.ProductVersion`]).toString().trim();
-  assert.ok(installed.startsWith(version), `installed ${installed}, expected ${version}`);
+  // Windows keeps only the numbers (1.3.0.0), even for 1.3.0-beta.1.
+  const core = version.split('-')[0];
+  assert.ok(installed.startsWith(core), `installed ${installed}, expected ${core}`);
   console.log(`ok    the installer updated Buddy to ${installed} silently and opened it again`);
 
   quit();

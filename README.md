@@ -122,11 +122,14 @@ their update manifests (`latest-mac.yml`, `latest.yml`).
 
     git tag v1.2.0 && git push origin v1.2.0    # or: npm run release:patch (or :minor, :major)
 
-Tags have three numbers (`v1.2.0`; `v1.2` means `1.2.0`). Actions → Release → Run workflow does the same from the
+Tags have three numbers (`v1.2.0`; `v1.2` means `1.2.0`), and a new one must be higher than the latest release.
+After a release, master's `package.json` is set to it. Actions → Release → Run workflow does the same from the
 website, and with no version it only builds and tests. The build needs the repository secret `BUDDY_CLOUD_JSON` (the
 contents of `cloud.json`).
 
-Every installed Buddy then finds the new version (on launch and every hour, unless switched off in Settings →
+Only Buddy as installed updates itself: a development run, a trial run with `BUDDY_USER_DATA`, a copy run from
+`release/` (or anywhere outside an Applications folder on the Mac) never replaces itself. Every installed Buddy then
+finds the new version (on launch and every hour, unless switched off in Settings →
 General) and offers **Update now** in Settings, in the menu bar menu and in a dialog once per launch. The download is
 checked against its sha512 before anything is installed. On Windows the installer runs silently as Buddy quits; on
 the Mac the new Buddy.app is copied out of the DMG, checked, and swapped in once Buddy has quit. Because the Mac app

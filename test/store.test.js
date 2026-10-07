@@ -6,6 +6,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createStore, DEFAULTS } = require('../src/main/store');
+const platform = require('../src/main/platform');
+const { onPlatform } = require('./helpers/platform');
 
 /** A settings file path inside a fresh temporary folder, which is removed when the test ends. */
 function tmpFile(t) {
@@ -17,7 +19,13 @@ function tmpFile(t) {
 test('starts from the defaults when there is no file', (t) => {
   const store = createStore({ file: tmpFile(t) });
   assert.deepStrictEqual(store.all(), DEFAULTS);
-  assert.strictEqual(store.get('shortcut'), 'Alt+Space');
+  assert.strictEqual(store.get('shortcut'), platform.defaultShortcut);
+});
+
+test('the default shortcut is ⌥Space on the Mac and Ctrl+Shift+Space on Windows', () => {
+  const file = path.join(__dirname, '..', 'src', 'main', 'store.js');
+  assert.strictEqual(onPlatform('darwin', file, (m) => m.DEFAULTS.shortcut), 'Alt+Space');
+  assert.strictEqual(onPlatform('win32', file, (m) => m.DEFAULTS.shortcut), 'Ctrl+Shift+Space');
 });
 
 test('set merges, saves to disk, and survives a reload', (t) => {
@@ -41,4 +49,11 @@ test('a damaged file falls back to the defaults', (t) => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, '{not json');
   assert.deepStrictEqual(createStore({ file }).all(), DEFAULTS);
+});
+
+test('updates are checked for unless turned off, and no version has run yet', (t) => {
+  const store = createStore({ file: tmpFile(t) });
+  assert.strictEqual(store.get('checkForUpdates'), true);
+  assert.strictEqual(store.get('lastUpdateCheck'), 0);
+  assert.strictEqual(store.get('lastRunVersion'), null);
 });

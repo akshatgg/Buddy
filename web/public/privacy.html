@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy — Buddy</title>
+<meta name="description" content="What Buddy keeps, what it never keeps, and where your text goes, in plain words.">
+<link rel="canonical" href="https://buddywrites.vercel.app/privacy">
+<meta name="theme-color" content="#FFF5E9">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Buddy">
+<meta property="og:title" content="Privacy — Buddy">
+<meta property="og:description" content="What Buddy keeps, what it never keeps, and where your text goes.">
+<meta property="og:url" content="https://buddywrites.vercel.app/privacy">
+<meta property="og:image" content="https://buddywrites.vercel.app/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Mukta:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the page</a>
+
+<header class="nav">
+  <div class="wrap nav__in">
+    <a class="brand" href="/"><img src="/img/icon.webp" alt="" width="34" height="34">Buddy</a>
+    <nav class="nav__links" aria-label="Main"><a href="/#features">Features</a><a href="/#how">How it works</a><a href="/#buddies">Buddies</a><a href="/#faq">FAQ</a></nav>
+    <a class="btn btn--ink btn--sm" href="/#download">Download</a>
+  </div>
+</header>
+
+<main id="main" class="page">
+  <article class="wrap prose">
+    <h1>Privacy</h1>
+    <p class="lead">Buddy helps you write. It doesn't keep what you write. Here is everything it keeps, everything it doesn't, and where your text goes.</p>
+    <p class="updated">Updated 7 October 2026</p>
+
+    <h2>What Buddy keeps</h2>
+    <p>When you sign in with Google, Buddy's server keeps one small record about you:</p>
+    <ul>
+      <li>your name and email address from Google;</li>
+      <li>when you first signed in, and when you last asked Buddy something;</li>
+      <li>how many free answers you used today;</li>
+      <li>whether the account is blocked.</li>
+    </ul>
+    <p>This record lives in Cloud Firestore, a database on Google Cloud. Only Buddy's server can read it. It is used to count free answers and to stop misuse, and for nothing else. It is never sold or shared.</p>
+
+    <h2>What Buddy never keeps</h2>
+    <ul>
+      <li><b>What you write</b>, and what you ask Buddy to do.</li>
+      <li><b>Your screenshots</b> from Check screen.</li>
+      <li><b>The answers</b> Buddy gives you.</li>
+      <li><b>Your AI key</b>, if you add one. It stays on your computer, encrypted, and is sent only to that AI.</li>
+    </ul>
+
+    <h2>Where your text goes</h2>
+    <p>To write an answer, Buddy sends your text (and, for Check screen, a picture of the window you're in) to an AI: the one Buddy's free answers use, or the one whose key you added (Anthropic's Claude, OpenAI, Google Gemini or Groq). It is sent only to get that answer. That company's own privacy policy covers what it does with requests.</p>
+
+    <h2>What Buddy can do on your Mac</h2>
+    <ul>
+      <li><b>Accessibility</b>: to copy the text you selected and paste the answer back where you were typing. Buddy never reads password fields.</li>
+      <li><b>Screen Recording</b>: only when you press Check screen, to take one picture of the window you're in.</li>
+    </ul>
+    <p>You can switch either off any time in System Settings → Privacy &amp; Security.</p>
+
+    <h2>Deleting your data</h2>
+    <p>Email <a href="mailto:akshatg9636@gmail.com">akshatg9636@gmail.com</a> from the address you sign in with, and your record is deleted. Signing out of Buddy removes your sign-in from your computer.</p>
+
+    <h2>Questions</h2>
+    <p>Write to <a href="mailto:akshatg9636@gmail.com">akshatg9636@gmail.com</a>.</p>
+  </article>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot__in">
+    <a class="brand" href="/"><img src="/img/icon.webp" alt="" width="28" height="28">Buddy</a>
+    <span>© 2026 Buddy</span>
+    <nav aria-label="Footer"><a href="/#download">Download</a><a href="/#faq">FAQ</a><a href="/privacy">Privacy</a><a href="https://github.com/akshatgg/Buddy">GitHub</a></nav>
+  </div>
+</footer>
+</body>
+</html>

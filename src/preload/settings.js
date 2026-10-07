@@ -19,5 +19,12 @@ contextBridge.exposeInMainWorld('buddy', {
   finishOnboarding: (choice) => ipcRenderer.invoke('onboarding:finish', choice),
   pauseShortcut: () => ipcRenderer.invoke('shortcut:pause'),
   resumeShortcut: () => ipcRenderer.invoke('shortcut:resume'),
+  onShortcutTap: (fn) => ipcRenderer.on('shortcut:tap', (_event, value) => fn(value)),
   onSection: (fn) => ipcRenderer.on('settings:section', (_event, name) => fn(name)),
+  updates: () => ipcRenderer.invoke('updates:state'),
+  checkUpdates: () => ipcRenderer.invoke('updates:check'),
+  installUpdate: () => ipcRenderer.invoke('updates:install'),
+  openReleaseNotes: () => ipcRenderer.invoke('updates:open-release-page'),
+  setAutoUpdates: (on) => ipcRenderer.invoke('updates:set-auto', on),
+  onUpdates: (fn) => ipcRenderer.on('updates:changed', (_event, state) => fn(state)),
 });

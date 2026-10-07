@@ -1,9 +1,10 @@
 'use strict';
 
 // End-to-end smoke test: starts the real app (src/main/main.js) with a fresh
-// settings folder and fakes for the parts that touch the system (the Mac
+// settings folder and fakes for the parts that touch the system (the native
 // helper, the clipboard, the global shortcut, the login item, the Google
-// account and Buddy's server), then runs every check in test/e2e/checks in order.
+// account and Buddy's server), then runs every check in test/e2e/checks in
+// order. It runs on the Mac and on Windows.
 //
 //   npm run test:e2e
 
@@ -25,11 +26,17 @@ const loginCalls = [];
 const helper = Object.assign(new EventEmitter(), {
   lastApp: null,
   calls: [],
+  accessibility: true, // what the helper says about the Accessibility permission (a check turns it off and on)
+  watching: false, // whether the app has the helper listen to the modifier keys (a single-key shortcut)
   start() {},
   stop() {},
   async call(cmd, args) {
     this.calls.push({ cmd, args });
-    if (cmd === 'permissions') return { accessibility: true, screenRecording: true };
+    if (cmd === 'permissions') return { accessibility: this.accessibility, screenRecording: true };
+    if (cmd === 'watchKeys') {
+      this.watching = args.on;
+      return { watching: args.on };
+    }
     const err = new Error('There is no app to paste into in the e2e test.');
     err.code = 'not_frontmost';
     throw err;
@@ -46,9 +53,9 @@ const clipboard = {
   },
 };
 
-// Nor may it grab the person's real shortcut (⌥Space), which another app of theirs may be using. This one only
-// records what the app registers; a check calls the handler to press it. ⌃⌘K belongs to another app here: registering
-// it fails, as the real one's does for a shortcut that is taken.
+// Nor may it grab the person's real shortcut (⌥Space, or Ctrl+Shift+Space on Windows), which another app of theirs
+// may be using. This one only records what the app registers; a check calls the handler to press it. ⌃⌘K belongs to
+// another app here: registering it fails, as the real one's does for a shortcut that is taken.
 const globalShortcut = {
   registered: new Map(), // accelerator -> handler
   taken: new Set(['Control+Command+K']),
@@ -178,10 +185,19 @@ let finished = false;
 function finish(code) {
   if (finished) return; // the first exit code stands
   finished = true;
-  fs.rmSync(userData, { recursive: true, force: true });
-  const sweep = 'while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; sleep 1; rm -rf "$2"';
-  spawn('/bin/sh', ['-c', sweep, 'sh', String(process.pid), userData], { detached: true, stdio: 'ignore' }).unref();
-  app.exit(code);
+  try {
+    fs.rmSync(userData, { recursive: true, force: true });
+    // Windows has no sh: there the few files Chromium writes last stay in the temporary folder.
+    if (process.platform !== 'win32') {
+      const sweep = 'while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; sleep 1; rm -rf "$2"';
+      spawn('/bin/sh', ['-c', sweep, 'sh', String(process.pid), userData], { detached: true, stdio: 'ignore' }).unref();
+    }
+  } catch (err) {
+    // Windows does not let go of files Electron still holds open (EBUSY): they stay in the temporary folder.
+    console.warn(`e2e: could not remove ${userData} yet (${err.code})`);
+  } finally {
+    app.exit(code); // whatever happened above: a run that cannot exit would leave the buddy on screen
+  }
 }
 
 // A check that hangs must fail the run, not leave a buddy floating on screen.

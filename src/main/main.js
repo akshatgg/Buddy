@@ -7,7 +7,9 @@
  */
 
 const path = require('node:path');
-const { app, clipboard, globalShortcut: systemShortcut, ipcMain, powerMonitor, safeStorage, screen, shell } = require('electron');
+const { execFile, spawn } = require('node:child_process');
+const { promisify } = require('node:util');
+const { app, clipboard, dialog, globalShortcut: systemShortcut, ipcMain, powerMonitor, safeStorage, screen, shell } = require('electron');
 const { createStore } = require('./store');
 const { createSecrets } = require('./secrets');
 const { loadCloudConfig } = require('./cloud-config');
@@ -22,18 +24,33 @@ const { createPanelWindow } = require('./panel-window');
 const { createSettingsWindows } = require('./settings-windows');
 const { installAppMenu } = require('./app-menu');
 const { createActions } = require('./actions');
-const { createTray } = require('./tray');
+const { createTray, updateMenuState } = require('./tray');
 const { createPower, loginItemsFor } = require('./power');
 const { createShortcut } = require('./shortcut');
+const { createKeyWatch } = require('./key-watch');
 const { registerBuddyIpc } = require('./ipc/buddy');
 const { registerPanelIpc } = require('./ipc/panel');
 const { registerSettingsIpc } = require('./ipc/settings');
 const { registerAdminIpc } = require('./ipc/admin');
+const { registerUpdatesIpc } = require('./ipc/updates');
+const { createUpdater, installTarget, firstLaunchOfNewVersion } = require('./updates');
+const { helperFile, windows: onWindows } = require('./platform');
+
+// Buddy's own version, from the app's package.json (which is packed into the built app). Not app.getVersion(): when
+// Electron runs a script (the end-to-end test) there is no app package.json for it to read, and it answers Electron's.
+const VERSION = require('../../package.json').version;
 
 function helperPath() {
   return app.isPackaged
-    ? path.join(process.resourcesPath, 'bin', 'buddy-helper')
-    : path.join(__dirname, '..', '..', 'bin', 'buddy-helper');
+    ? path.join(process.resourcesPath, 'bin', helperFile)
+    : path.join(__dirname, '..', '..', 'bin', helperFile);
+}
+
+/** A window's handle as a number (on Windows, its HWND), or null when there is no window. */
+function windowHandle(win) {
+  if (!win || win.isDestroyed()) return null;
+  const handle = win.getNativeWindowHandle();
+  return handle.length >= 8 ? Number(handle.readBigUInt64LE(0)) : handle.readUInt32LE(0);
 }
 
 async function start(options = {}) {
@@ -41,9 +58,12 @@ async function start(options = {}) {
     app.quit();
     return null;
   }
+  // Windows names the login item by this id and gives Buddy's windows to it; the installer's shortcut carries the same
+  // one (appId in electron-builder.config.js).
+  if (onWindows) app.setAppUserModelId('com.akshatgg.buddy');
   await app.whenReady();
   if (app.dock) app.dock.hide();
-  app.on('window-all-closed', () => {}); // a menu bar app: closing windows must not quit it
+  app.on('window-all-closed', () => {}); // a menu bar (or tray) app: closing windows must not quit it
 
   const userData = app.getPath('userData');
   const store = createStore({ file: path.join(userData, 'settings.json') });
@@ -76,7 +96,31 @@ async function start(options = {}) {
   const panel = createPanelWindow();
   const windows = createSettingsWindows({ app });
   const openSettings = (section) => windows.open('settings', section ? { section } : undefined);
-  installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings, Welcome and Admin, and no Cmd+Q
+
+  // Update now (updates.js, ipc/updates.js). Only Buddy as installed updates itself: a development run, a trial run
+  // (BUDDY_USER_DATA, index.js) and a copy outside the install folder only say where the new version is, and the first
+  // two never check by itself (updates.js installTarget).
+  let updatesIpc = null;
+  const target = installTarget({ platform: process.platform, packaged: app.isPackaged, trial: options.trial === true, execPath: process.execPath });
+  const updater = createUpdater({
+    currentVersion: VERSION,
+    platform: target.platform,
+    fetchImpl: (...args) => fetch(...args),
+    downloadDir: path.join(app.getPath('temp'), 'buddy-updates'),
+    getSettings: () => store.all(),
+    patchSettings: (patch) => store.set(patch),
+    bundle: target.bundle,
+    spawn,
+    runCommand: promisify(execFile),
+    onChange(state) {
+      updatesIpc?.stateChanged(state);
+      windows.send('settings', 'updates:changed', state);
+      tray?.refresh();
+    },
+  });
+  // The first launch after an update: on the Mac, macOS asks for the permissions again (see the end of start()).
+  const justUpdated = firstLaunchOfNewVersion(store, VERSION);
+  installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings, Welcome and Admin, and no Cmd+Q (none on Windows)
 
   const actions = createActions({
     helper,
@@ -89,6 +133,7 @@ async function start(options = {}) {
       hidePanel: () => panel.hide(),
       isPanelVisible: () => panel.isVisible(),
       panelJustClosed: () => panel.justClosed(),
+      panelWindowHandle: () => windowHandle(panel.window()), // for the helper on Windows (actions.js)
       bubble: (text) => bubble.say(text, buddy.bounds(), buddy.display().workArea),
       mood: (name) => buddy.mood(name),
     },
@@ -99,8 +144,10 @@ async function start(options = {}) {
     actions.toggle().catch((err) => console.error('[buddy] could not open the panel', err));
   };
 
-  // The shortcut is taken only while Buddy is on: it opens the panel, and the panel reads the person's selection.
-  const shortcut = createShortcut({ globalShortcut, onPress: onCall });
+  // The shortcut is taken only while Buddy is on: it opens the panel, and the panel reads the person's selection. A key
+  // tapped on its own ("Tap:RightOption") is heard through the helper; any other shortcut is registered with the system.
+  const keyWatch = createKeyWatch({ helper, onPress: onCall });
+  const shortcut = createShortcut({ globalShortcut, keyWatch, onPress: onCall });
   function takeShortcut() {
     const accelerator = store.get('shortcut');
     if (!shortcut.register(accelerator)) console.warn(`[buddy] could not register the shortcut ${accelerator}`);
@@ -130,6 +177,7 @@ async function start(options = {}) {
     buddyOn: power.isOn(),
     visible: buddy.isVisible(),
     isAdmin: account.isSignedIn() && cloud.last()?.isAdmin === true,
+    update: updateMenuState(updater.state()),
   });
   tray = createTray({
     getState: trayState,
@@ -142,6 +190,7 @@ async function start(options = {}) {
       openSettings,
       openAdmin: () => windows.open('admin'),
       setBuddyOn: (on) => power.setOn(on),
+      updateNow: () => updatesIpc.updateNow(),
       quit: () => app.quit(),
     },
   });
@@ -163,11 +212,10 @@ async function start(options = {}) {
   registerBuddyIpc({ ipcMain, buddy, characters, store, onClick: onCall });
   registerPanelIpc({ ipcMain, panel, actions, openSettings });
   const settingsIpc = registerSettingsIpc({
-    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut,
+    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch,
     account, cloud, canSignIn: Boolean(cloudConfig),
-    // Buddy's own version, from the app's package.json (which is packed into the built app). Not app.getVersion(): when
-    // Electron runs a script (the end-to-end test) there is no app package.json for it to read, and it answers Electron's.
-    version: require('../../package.json').version,
+    version: VERSION,
+    justUpdated,
     onFinishOnboarding() {
       windows.close('onboarding');
       buddy.reloadModel();
@@ -179,6 +227,15 @@ async function start(options = {}) {
     if (kind === 'settings') settingsIpc.resumeShortcut();
   });
   registerAdminIpc({ ipcMain, windows, cloud });
+  updatesIpc = registerUpdatesIpc({
+    ipcMain,
+    electron: { app, shell, dialog },
+    getUpdater: () => updater,
+    allowed: (webContents) => windows.owns(webContents, 'settings'),
+    store,
+    // While the panel is open, a finished download does not restart Buddy under the person: Update now waits.
+    isBusy: () => panel.isVisible(),
+  });
 
   app.on('second-instance', () => openSettings()); // Electron passes the event first: it must not become a section
   app.on('will-quit', () => {
@@ -212,7 +269,16 @@ async function start(options = {}) {
   }
   tray.refresh();
 
-  return { store, secrets, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, trayState, shortcut };
+  // After an update on the Mac, macOS has forgotten Buddy's permissions (an ad-hoc signed app is a new app to it, and
+  // the update cleared its old entries): Settings opens on them and says why.
+  if (justUpdated && process.platform === 'darwin' && store.get('onboarded')) {
+    helper.call('permissions').then((granted) => {
+      if (!granted?.accessibility) openSettings('permissions');
+    }).catch((err) => console.warn('[buddy] could not check the permissions after the update:', err.code || err.name));
+  }
+  if (target.platform !== 'development') updatesIpc.launchCheck();
+
+  return { store, secrets, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, trayState, shortcut, updater };
 }
 
 module.exports = { start };

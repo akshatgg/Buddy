@@ -8,6 +8,7 @@
 const path = require('node:path');
 const { BrowserWindow } = require('electron');
 const { PANEL, panelBounds } = require('./geometry');
+const { floatingType } = require('./platform');
 
 // Clicking the buddy blurs the panel first (which hides it) and then arrives as
 // a click: without this guard, that click would open the panel straight back up.
@@ -45,7 +46,7 @@ function createPanelWindow() {
   function create() {
     const w = new BrowserWindow({
       ...PANEL,
-      type: 'panel',
+      type: floatingType,
       frame: false,
       transparent: true,
       hasShadow: true,

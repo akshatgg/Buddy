@@ -8,6 +8,7 @@ const { AI_TIMEOUT_MS } = require('../ai');
 const { SIZES } = require('../geometry');
 const { guarded } = require('./result');
 const { aiSection } = require('../free-state');
+const { isTap, tapKeys } = require('../../renderer/common/shortcut-keys');
 
 const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models'];
 const NAME_MAX = 24;
@@ -16,8 +17,8 @@ const PERMISSION_PANES = {
   screenRecording: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
 };
 // An API key is printable ASCII with no spaces. Smart quotes, a zero-width space or a second
-// line that came along with the paste make the request fail on this Mac, and that failure
-// looks just like having no internet.
+// line that came along with the paste make the request fail, and that failure looks just
+// like having no internet.
 const KEY_SHAPE = /^[\x21-\x7e]+$/;
 
 /** True when `name` is one of the object's own names. "constructor" and "__proto__" are not. */
@@ -48,8 +49,12 @@ function checkPermission(which) {
 }
 
 function registerSettingsIpc({
-  ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, onFinishOnboarding, shell,
+  ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch, onFinishOnboarding, shell,
   account, cloud, canSignIn, version,
+  // True on the first launch after an update (updates.js firstLaunchOfNewVersion): the Permissions page says why macOS
+  // asks again.
+  justUpdated = false,
+  platform = process.platform,
 }) {
   // The Settings and Welcome windows only: the Admin window has calls of its own (ipc/admin.js).
   const handle = guarded(ipcMain, (webContents) => windows.owns(webContents, 'settings') || windows.owns(webContents, 'onboarding'));
@@ -67,10 +72,12 @@ function registerSettingsIpc({
    * compared with the shortcut that is registered now, not the saved one, so saving again retries
    * one that failed at launch. While Buddy is off its shortcut is let go: the new one is only
    * checked (registered, then let go at once), so the user still hears when it is taken. It is
-   * registered for real when Buddy is turned on.
+   * registered for real when Buddy is turned on. A key tapped on its own ("Tap:RightOption") is never another app's, so
+   * then it is only checked for being well formed: registering it would switch the helper on and off for nothing.
    */
   function useShortcut(accelerator) {
     if (power.isOn()) return accelerator === shortcut.current() || shortcut.register(accelerator);
+    if (isTap(accelerator)) return tapKeys(accelerator) !== null;
     if (!shortcut.register(accelerator)) return false;
     shortcut.unregister();
     return true;
@@ -84,6 +91,8 @@ function registerSettingsIpc({
     const user = account.user();
     return {
       settings,
+      // 'darwin' or 'win32': the pages leave out what the system does not have (Windows asks for no permissions).
+      platform,
       buddyOn: power.isOn(),
       characters: characters.list,
       providers: PROVIDER_IDS.map((id) => ({
@@ -96,6 +105,7 @@ function registerSettingsIpc({
       account: user ? { signedIn: true, email: user.email, name: user.name, photo: user.photo || '' } : { signedIn: false },
       canSignIn,
       version,
+      justUpdated,
       ai: aiSection(user ? cloud.last() : null), // free-mode settings apply only to someone signed in
     };
   }
@@ -242,18 +252,28 @@ function registerSettingsIpc({
   });
 
   /**
-   * The saved shortcut, registered again while Buddy is on (after a recording, or when Settings closes). If another app
-   * took it while it was let go, that is logged (as main.js does when Buddy starts) and nothing else happens.
+   * Recording is over: taps open the panel again, and the saved shortcut is registered again while Buddy is on (after
+   * a recording, or when Settings closes). If another app took it while it was let go, that is logged (as main.js does
+   * when Buddy starts) and nothing else happens.
    */
   function resumeShortcut() {
     const saved = store.get('shortcut');
-    if (!power.isOn() || shortcut.current() === saved) return;
-    if (!shortcut.register(saved)) console.warn('[buddy] could not take the shortcut back');
+    if (power.isOn() && shortcut.current() !== saved && !shortcut.register(saved)) {
+      console.warn('[buddy] could not take the shortcut back');
+    }
+    // The recording ends only now that the saved shortcut is back, so that again there is no gap in hearing a key
+    // tapped on its own (see shortcut:pause).
+    keyWatch.stopRecording();
   }
 
   // While the Settings page records a new shortcut, Buddy lets go of its own, so that pressing the current one is
-  // heard by the page instead of opening the panel.
+  // heard by the page instead of opening the panel. A key tapped on its own is heard by the Mac helper instead (the
+  // page does not see fn or Caps Lock), and each tap is sent to the page.
   handleSettings('shortcut:pause', () => {
+    // The recording starts first, then the shortcut goes, so that there is no gap in hearing a key tapped on its own:
+    // with nothing to listen for in between, the helper would be switched off and on again. Taps go to the recording,
+    // so none opens the panel meanwhile.
+    keyWatch.startRecording((value) => windows.send('settings', 'shortcut:tap', value));
     shortcut.unregister();
     return {};
   });

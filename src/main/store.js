@@ -8,6 +8,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { defaultShortcut } = require('./platform');
 
 const DEFAULTS = Object.freeze({
   onboarded: false,
@@ -15,12 +16,15 @@ const DEFAULTS = Object.freeze({
   buddyId: 'boy-1',
   buddyName: '',
   size: 'medium',
-  shortcut: 'Alt+Space',
+  shortcut: defaultShortcut,
   provider: 'anthropic',
   models: {},
   positions: {},
   lastDisplayId: null,
   cloud: null, // this person's free-mode settings as the server last gave them (src/main/cloud.js)
+  checkForUpdates: true, // look for a newer Buddy on GitHub at launch and every hour (src/main/updates.js)
+  lastUpdateCheck: 0, // when that last worked, in ms
+  lastRunVersion: null, // the version that ran last, so the first launch after an update is known
 });
 
 function writeAtomic(file, text, mode) {

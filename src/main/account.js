@@ -2,7 +2,7 @@
 
 /**
  * Who is signed in to Buddy. The Firebase refresh token is kept in account.json, encrypted with safeStorage (the
- * Mac keychain), with the person's uid, email, name and photo address. ID tokens stay in memory and are renewed a few minutes
+ * Mac keychain, or Windows' own data protection), with the person's uid, email, name and photo address. ID tokens stay in memory and are renewed a few minutes
  * before they run out. A refresh token Firebase no longer takes signs the person out.
  */
 
@@ -11,11 +11,15 @@ const { BuddyError } = require('../../shared/errors');
 const { writeAtomic } = require('./store');
 const google = require('./google-signin');
 const { notSetUp } = require('./cloud-config');
+const { windows } = require('./platform');
 
 const RENEW_EARLY_MS = 5 * 60_000;
 
 const { cancelled, signedOut } = google;
-const noKeychain = () => new BuddyError('no_keychain', 'Your Mac keychain is not available, so Buddy cannot keep you signed in.');
+const NO_KEYCHAIN = windows
+  ? "Windows can't protect your sign-in right now, so Buddy cannot keep you signed in."
+  : 'Your Mac keychain is not available, so Buddy cannot keep you signed in.';
+const noKeychain = () => new BuddyError('no_keychain', NO_KEYCHAIN);
 
 function createAccount({
   file, safeStorage, config, openBrowser,
@@ -155,4 +159,4 @@ function createAccount({
   };
 }
 
-module.exports = { createAccount, RENEW_EARLY_MS };
+module.exports = { createAccount, RENEW_EARLY_MS, NO_KEYCHAIN };

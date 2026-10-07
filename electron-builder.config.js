@@ -122,8 +122,35 @@ module.exports = {
     extraResources: [{ from: 'bin', to: 'bin', filter: ['buddy-helper'] }],
   },
 
+  // Windows: `npm run dist:win`, on Windows (the helper is built there). Nothing is signed: Buddy has no Windows
+  // code-signing certificate, so SmartScreen asks once ("More info", then "Run anyway"), as Gatekeeper does on the Mac.
+  win: {
+    // x64 only; Windows on ARM runs it through its x64 emulation.
+    target: [{ target: 'nsis', arch: ['x64'] }],
+    // electron-builder makes the .ico from this 1024 x 1024 picture.
+    icon: 'build/icon.png',
+    // The C# helper (src/native/windows, built by `npm run build:native`).
+    // main.js's helperPath() looks for it at process.resourcesPath\bin\buddy-helper.exe.
+    extraResources: [{ from: 'bin', to: 'bin', filter: ['buddy-helper.exe'] }],
+  },
+
+  nsis: {
+    // One click: installs for the person using the PC (no administrator needed), adds Start menu and desktop
+    // shortcuts, then opens Buddy.
+    oneClick: true,
+    perMachine: false,
+    runAfterFinish: true,
+    // Uninstalling keeps the settings and keys (in %APPDATA%\Buddy), as deleting Buddy.app does on the Mac.
+    deleteAppDataOnUninstall: false,
+    // The same name in every release (no version in it): the website links to releases/latest/download/<name>, and
+    // Update now (src/main/updates.js) looks for it.
+    artifactName: 'Buddy-Setup-${arch}.${ext}',
+  },
+
   dmg: {
     title: 'Buddy ${version}',
+    // Buddy-arm64.dmg in every release, for the same reason as the Windows installer's name.
+    artifactName: 'Buddy-${arch}.${ext}',
     contents: [
       { x: 140, y: 200, type: 'file' },
       { x: 400, y: 200, type: 'link', path: '/Applications' },

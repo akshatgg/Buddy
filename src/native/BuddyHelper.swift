@@ -5,6 +5,8 @@
 //   reply    {"id": 1, "ok": true, "result": {...}}
 //            {"id": 1, "ok": false, "error": {"code": "...", "message": "..."}}
 //   event    {"event": "frontApp", "pid": 123, "bundleId": "...", "name": "..."}
+//            {"event": "keys", "kind": "flags", "keyCode": 61, "flags": 524608, "t": 81234567}   (while watchKeys is on)
+//            {"event": "keys", "kind": "other"}
 //
 // Commands run one at a time on a background queue; the main thread only runs
 // the run loop, so NSWorkspace notifications keep arriving while a command
@@ -333,6 +335,110 @@ func screenshot(_ args: [String: Any]) throws -> [String: Any] {
     }
 }
 
+// MARK: - the keys of a single-key shortcut
+
+// While Buddy's shortcut is a modifier key tapped on its own (or Settings is recording one), a listen-only event tap
+// reports each change of the modifier keys: which key, and all the flags, whose low bits say which side is down, with
+// the time in milliseconds since the Mac started. A key, a media key (volume, brightness, play), a scroll or a click is
+// reported, as "other", while a modifier flag is on (macOS also puts the fn flag on the arrow and function keys, so
+// those count too): it spoils a tap, and which key it was is none of Buddy's business. The tap lives on the main run
+// loop, and is looked at every 5 seconds (checkKeyTap).
+
+var keyTap: CFMachPort?
+var keyTapSource: CFRunLoopSource?
+var keyTapTimer: Timer?
+var keyTapTrusted = true // Accessibility was allowed when the tap was last checked
+let heldModifiers: UInt64 = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskShift.rawValue
+    | CGEventFlags.maskControl.rawValue | CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskSecondaryFn.rawValue
+
+func onKeyEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
+    switch type {
+    case .tapDisabledByTimeout, .tapDisabledByUserInput:
+        // macOS switches a tap off when it is slow, or while a password field takes the keys; it is switched back on.
+        if let tap = keyTap { CGEvent.tapEnable(tap: tap, enable: true) }
+    case .flagsChanged:
+        send(["event": "keys", "kind": "flags",
+              "keyCode": Int(event.getIntegerValueField(.keyboardEventKeycode)),
+              "flags": Int(event.flags.rawValue),
+              "t": Int(ProcessInfo.processInfo.systemUptime * 1000)])
+    default:
+        // A scroll that goes on by itself after the fingers have left the trackpad is not the person doing anything.
+        if type == .scrollWheel && event.getIntegerValueField(.scrollWheelEventMomentumPhase) != 0 { break }
+        // Of the system-defined events only the media keys count (subtype 8): fn and 🌐 may bring others of their own,
+        // and those must not spoil a tap of fn.
+        if type.rawValue == 14 && NSEvent(cgEvent: event)?.subtype.rawValue != 8 { break }
+        if event.flags.rawValue & heldModifiers != 0 { send(["event": "keys", "kind": "other"]) }
+    }
+    return Unmanaged.passUnretained(event)
+}
+
+/// Every 5 seconds while the tap is on. macOS can switch a tap off; and a tap made before Accessibility was taken away
+/// may hear no keys once it is given back, so then the tap is made again.
+func checkKeyTap() {
+    guard let tap = keyTap else { return }
+    guard accessibilityTrusted(prompt: false) else {
+        keyTapTrusted = false
+        return
+    }
+    if !keyTapTrusted {
+        keyTapTrusted = true
+        try? setKeyTap(false)
+        do {
+            try setKeyTap(true)
+        } catch {
+            // No tap any more: the key watch is told, and asks again until one can be made.
+            send(["event": "keys", "kind": "lost"])
+        }
+        return
+    }
+    if !CGEvent.tapIsEnabled(tap: tap) { CGEvent.tapEnable(tap: tap, enable: true) }
+}
+
+/// Start or stop reporting the keys. Runs on the main thread, where the tap lives.
+func setKeyTap(_ on: Bool) throws {
+    if !on {
+        keyTapTimer?.invalidate()
+        keyTapTimer = nil
+        guard let tap = keyTap else { return }
+        CGEvent.tapEnable(tap: tap, enable: false)
+        if let source = keyTapSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+        CFMachPortInvalidate(tap)
+        keyTap = nil
+        keyTapSource = nil
+        return
+    }
+    if keyTap != nil { return }
+    let noAccess = HelperError(code: "no_accessibility", message: "Buddy needs Accessibility permission to hear a single key.")
+    // Without Accessibility the tap would hear no keys (and macOS could ask for Input Monitoring instead).
+    guard accessibilityTrusted(prompt: false) else { throw noAccess }
+    // Volume, brightness and play are not key presses to macOS but system-defined events (type 14), and a scroll is not
+    // a click: held with a modifier (⌥ and volume, fn and F12, ⌃ and scroll) each still spoils a tap.
+    var types: [CGEventType] = [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+    if let systemDefined = CGEventType(rawValue: 14) { types.append(systemDefined) } // media keys: volume, brightness, play
+    let mask = types.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
+    guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
+                                      eventsOfInterest: mask, callback: onKeyEvent, userInfo: nil) else { throw noAccess }
+    let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+    CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+    CGEvent.tapEnable(tap: tap, enable: true)
+    keyTap = tap
+    keyTapSource = source
+    keyTapTrusted = true
+    let timer = Timer(timeInterval: 5, repeats: true) { _ in checkKeyTap() }
+    RunLoop.main.add(timer, forMode: .common)
+    keyTapTimer = timer
+}
+
+func watchKeys(_ args: [String: Any]) throws -> [String: Any] {
+    let on = args["on"] as? Bool ?? false
+    var failure: Error?
+    DispatchQueue.main.sync {
+        do { try setKeyTap(on) } catch { failure = error }
+    }
+    if let failure { throw failure }
+    return ["watching": on]
+}
+
 func handle(_ msg: [String: Any]) {
     let id = msg["id"] ?? NSNull()
     let args = msg["args"] as? [String: Any] ?? [:]
@@ -357,6 +463,8 @@ func handle(_ msg: [String: Any]) {
             result = try paste(args)
         case "screenshot":
             result = try screenshot(args)
+        case "watchKeys":
+            result = try watchKeys(args)
         default:
             throw HelperError(code: "bad_request", message: "unknown command")
         }

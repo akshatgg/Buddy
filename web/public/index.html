@@ -1,4 +1,216 @@
 <!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
-<title>Buddy</title>
-<p>Buddy's server. The Buddy app talks to it; there is nothing to see here.</p>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buddy — your English buddy on every screen</title>
+<meta name="description" content="Buddy is a small 3D friend that floats over your apps. Ask in English, Hindi or Hinglish, and it writes your email, fixes your message and pastes it where you were typing. Free for Mac.">
+<link rel="canonical" href="https://buddywrites.vercel.app/">
+<meta name="theme-color" content="#FFF5E9">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Buddy">
+<meta property="og:title" content="Buddy — your English buddy on every screen">
+<meta property="og:description" content="Ask in English, Hindi or Hinglish. Buddy writes, fixes and checks your English in any app. Free for Mac.">
+<meta property="og:url" content="https://buddywrites.vercel.app/">
+<meta property="og:image" content="https://buddywrites.vercel.app/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Buddy, a small cream robot, next to the words: Your English buddy, on every screen.">
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Mukta:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/style.css">
+<script src="/site.js" defer></script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Buddy",
+  "description": "A small 3D buddy that floats over your apps and writes, fixes and checks your English. Ask in English, Hindi or Hinglish.",
+  "applicationCategory": "ProductivityApplication",
+  "operatingSystem": "macOS 14 or later",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "downloadUrl": "https://buddywrites.vercel.app/#download"
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#download">Skip to download</a>
+
+<header class="nav">
+  <div class="wrap nav__in">
+    <a class="brand" href="/"><img src="/img/icon.webp" alt="" width="34" height="34">Buddy</a>
+    <nav class="nav__links" aria-label="Main"><a href="#features">Features</a><a href="#how">How it works</a><a href="#buddies">Buddies</a><a href="#faq">FAQ</a></nav>
+    <a class="btn btn--ink btn--sm" href="#download">Download</a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="wrap hero__grid">
+      <div class="hero__copy">
+        <span class="chip"><span class="dot"></span>Free for Mac · Windows soon</span>
+        <h1>Your English buddy, on every screen.</h1>
+        <p class="lead">Buddy floats on top of your apps. Ask in English, Hindi or Hinglish. It writes the email, fixes your message and pastes it where you were typing.</p>
+        <div class="cta">
+          <a class="btn btn--ink" href="https://github.com/akshatgg/Buddy/releases/latest/download/Buddy-arm64.dmg" data-mac-download data-hero-download><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></svg>Download for Mac</a>
+          <a class="btn btn--ghost" href="#how">See how it works</a>
+        </div>
+        <p class="fine">For Macs with an Apple chip (M1 or newer) on macOS 14 or later.</p>
+        <p class="device-note" data-device-note hidden></p>
+      </div>
+
+      <div class="scene" aria-hidden="true">
+        <div class="scene__blob"></div>
+        <div class="mail">
+          <div class="mail__bar"><span class="dots"><i></i><i></i><i></i></span><b>New message</b></div>
+          <div class="mail__row"><span>To</span>manager@company.com</div>
+          <div class="mail__row"><span>Subject</span>Leave tomorrow</div>
+          <div class="mail__body">
+            <p>Hi <mark>[Manager's name]</mark>,</p>
+            <p>I'd like to take a day off tomorrow, <mark>[date]</mark>, for personal reasons. I'll finish my pending work today so nothing is held up.</p>
+            <p>Thanks,<br><mark>[Your name]</mark></p>
+          </div>
+          <div class="mail__done"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Inserted by Buddy</div>
+        </div>
+        <div class="ask"><small>You typed</small>boss ko mail likho, kal chutti chahiye</div>
+        <img class="scene__buddy" src="/img/aarav.webp" alt="" width="360" height="360">
+      </div>
+    </div>
+  </section>
+
+  <section class="apps" aria-label="Apps Buddy works in">
+    <div class="wrap apps__in">
+      <p>Works wherever you type</p>
+      <ul><li>Gmail</li><li>WhatsApp</li><li>Outlook</li><li>Slack</li><li>LinkedIn</li><li>Teams</li><li>Notes</li><li>Word</li></ul>
+    </div>
+  </section>
+
+  <section class="sec" id="features">
+    <div class="wrap">
+      <div class="sec__head">
+        <h2>What Buddy does</h2>
+        <p class="lead">Click Buddy and pick one. Every answer comes out in clear, proper English.</p>
+      </div>
+      <div class="cards">
+        <article class="card card--orange">
+          <h3>Write for me</h3>
+          <p>Say what you need, in any words. Pick a tone and get the finished text, ready to send. Details only you know become blanks like [Name].</p>
+          <div class="mini tones" aria-label="Tones"><span class="on">Formal</span><span>Friendly</span><span>Short</span></div>
+        </article>
+        <article class="card card--pink">
+          <h3>Fix my English</h3>
+          <p>Select what you wrote. Buddy fixes the mistakes and keeps your meaning and your style.</p>
+          <div class="mini fix"><s>i am not able to come tomorow</s><span>I won't be able to come in tomorrow.</span></div>
+        </article>
+        <article class="card card--paper">
+          <h3>Check screen</h3>
+          <p>Not sure your mail is okay? Buddy reads the window and tells you what to fix.</p>
+          <div class="mini check"><b>Has problems</b><ul><li>"recieve" should be "receive"</li><li>"Pls" is too casual for a client</li></ul></div>
+        </article>
+        <article class="card card--ink">
+          <span class="soon">Coming soon</span>
+          <h3>Speak to Buddy</h3>
+          <p>Tap the mic and say it out loud, in English, Hindi or Hinglish. Buddy writes it in proper English.</p>
+          <div class="mini wave" aria-hidden="true"><svg class="mic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec--tight" id="how">
+    <div class="wrap">
+      <div class="sec__head"><h2>Three steps, any app</h2></div>
+      <ol class="steps">
+        <li><span class="num" aria-hidden="true">1</span><h3>Open Buddy</h3><p>Click your buddy, or press <kbd>⌥</kbd> <kbd>Space</kbd> from any app.</p></li>
+        <li><span class="num" aria-hidden="true">2</span><h3>Ask in your words</h3><p>Type it the way you think it. Hindi and Hinglish are fine.</p></li>
+        <li><span class="num" aria-hidden="true">3</span><h3>Press Insert</h3><p>Buddy pastes the answer into the box you were typing in.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="sec sec--tight" id="buddies">
+    <div class="wrap buddies__grid">
+      <div class="buddies__copy">
+        <h2>Meet Aarav and Anaya</h2>
+        <p class="lead">Pick one and give it any name. Your buddy floats, blinks, watches your mouse, and does a little bounce when your answer is ready.</p>
+        <ul class="moods" aria-label="Moods"><li>Thinking</li><li>Happy</li><li>Sleepy when offline</li><li>Waves hello</li></ul>
+      </div>
+      <div class="pair">
+        <figure class="pal pal--orange"><img src="/img/aarav.webp" alt="Aarav, a cream robot with orange eyes and a leaf on top" width="360" height="360" loading="lazy" decoding="async"><figcaption>Aarav</figcaption></figure>
+        <figure class="pal pal--pink"><img src="/img/anaya.webp" alt="Anaya, a cream robot with pink eyes and a bow on top" width="360" height="360" loading="lazy" decoding="async"><figcaption>Anaya</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="trust" aria-labelledby="trust-h">
+    <div class="wrap trust__in">
+      <h2 id="trust-h">What you write stays yours.</h2>
+      <div class="trust__pts">
+        <p><b>Nothing is kept.</b> Buddy's server never saves your text or your screenshots.</p>
+        <p><b>One Google sign-in.</b> It only counts your free answers for the day.</p>
+        <p><b>Your own key, if you like.</b> Add a Claude, OpenAI, Gemini or Groq key in Settings.</p>
+        <a class="trust__more" href="/privacy">Read the privacy page</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="download" tabindex="-1">
+    <div class="wrap">
+      <div class="sec__head"><h2>Get Buddy</h2><p class="lead">Free to download. Sign in with Google and start writing.</p></div>
+      <div class="dl">
+        <div class="dl__tile dl__tile--main">
+          <span class="ico"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></svg></span>
+          <h3>Mac</h3>
+          <p>Apple chip (M1 or newer) · macOS 14 or later</p>
+          <a class="btn btn--ink" href="https://github.com/akshatgg/Buddy/releases/latest/download/Buddy-arm64.dmg" data-mac-download>Download for Mac</a>
+          <small>Buddy-arm64.dmg <span data-mac-meta></span></small>
+        </div>
+        <div class="dl__tile" data-win-tile>
+          <span class="ico"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/></svg></span>
+          <h3>Windows</h3><p>For Windows PCs</p><span class="tag">Coming soon</span>
+        </div>
+        <div class="dl__tile">
+          <span class="ico"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg></span>
+          <h3>iPhone</h3><p>As a keyboard</p><span class="tag">Coming soon</span>
+        </div>
+        <div class="dl__tile">
+          <span class="ico"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2"/><path d="M10 5h4"/></svg></span>
+          <h3>Android</h3><p>Floating buddy</p><span class="tag">Coming soon</span>
+        </div>
+      </div>
+      <p class="note"><b>Opening it the first time:</b> macOS asks once. Open System Settings → Privacy &amp; Security, scroll down, and click <b>Open Anyway</b>.</p>
+    </div>
+  </section>
+
+  <section class="sec sec--tight" id="faq">
+    <div class="wrap">
+      <div class="sec__head"><h2>Questions</h2></div>
+      <div class="faq">
+        <details open><summary>Is Buddy free?</summary><p>Yes, Buddy is free to download. Free answers come with a daily limit. When they're used up or switched off, you can use your own AI key from Claude, OpenAI, Gemini or Groq in Settings.</p></details>
+        <details><summary>Which apps does it work in?</summary><p>Anywhere you can type: mail, chat, documents and websites.</p></details>
+        <details><summary>Does it work on an Intel Mac?</summary><p>Not yet. Buddy needs a Mac with an Apple chip (M1 or newer).</p></details>
+        <details><summary>Do you save what I write?</summary><p>No. Your text goes to the AI only to get your answer, and Buddy's server keeps none of it. The <a href="/privacy">privacy page</a> has the details.</p></details>
+        <details><summary>How do I get updates?</summary><p>When a new version is out, Buddy shows <b>Update now</b>. One click installs it and opens Buddy again.</p></details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot__in">
+    <a class="brand" href="/"><img src="/img/icon.webp" alt="" width="28" height="28">Buddy</a>
+    <span>© 2026 Buddy</span>
+    <nav aria-label="Footer"><a href="#download">Download</a><a href="#faq">FAQ</a><a href="/privacy">Privacy</a><a href="https://github.com/akshatgg/Buddy">GitHub</a></nav>
+  </div>
+</footer>
+</body>
+</html>

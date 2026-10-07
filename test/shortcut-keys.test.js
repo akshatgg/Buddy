@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { fromKeyEvent, heldSymbols, symbols, keyFor } = require('../src/renderer/common/shortcut-keys');
+const { fromKeyEvent, heldSymbols, symbols, keyFor, isTap, tapKeys, tapValue } = require('../src/renderer/common/shortcut-keys');
 
 /** A keydown as the page sees it: the physical key's code and the modifiers held. */
 const ev = (code, mods = {}) => ({ code, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...mods });
@@ -175,4 +175,107 @@ test('symbols: names it has no key cap for are shown as written, and no object p
   assert.deepStrictEqual(symbols('constructor+B'), ['B'], 'a word that is no modifier is no modifier, whatever an object has by that name');
   assert.deepStrictEqual(symbols('__proto__+B'), ['B']);
   assert.deepStrictEqual(symbols('Command+F25'), ['⌘', 'F25'], 'there is no F25');
+});
+
+// ---- Windows: Ctrl, Alt and Shift by name; the Windows key and Ctrl+Alt (AltGr) are Windows' own ----
+
+const ShortcutKeys = require('../src/renderer/common/shortcut-keys');
+const win = ShortcutKeys.forPlatform('win32');
+const mac = ShortcutKeys.forPlatform('darwin');
+
+test('forPlatform: the Mac set is the one the module gives by default, and each set has its default shortcut', () => {
+  assert.deepStrictEqual(mac.symbols('Shift+Command+B'), symbols('Shift+Command+B'));
+  assert.deepStrictEqual(fromKeyEvent(ev('KeyB', { metaKey: true })), mac.fromKeyEvent(ev('KeyB', { metaKey: true })));
+  assert.strictEqual(mac.defaultShortcut, 'Alt+Space');
+  assert.strictEqual(win.defaultShortcut, 'Ctrl+Shift+Space', 'the same spelling as platform.js, so a reset saves what a new install has');
+  assert.strictEqual(ShortcutKeys.forPlatform(undefined).defaultShortcut, 'Alt+Space', 'not known yet: the Mac set');
+});
+
+test('on Windows a key with Ctrl or Alt is a shortcut, with key caps that say Ctrl, Alt and Shift', () => {
+  assert.deepStrictEqual(win.fromKeyEvent(ev('KeyB', { ctrlKey: true, shiftKey: true })), { accelerator: 'Control+Shift+B', keys: ['Ctrl', 'Shift', 'B'] });
+  assert.deepStrictEqual(win.fromKeyEvent(ev('Space', { ctrlKey: true, shiftKey: true })), { accelerator: 'Control+Shift+Space', keys: ['Ctrl', 'Shift', 'Space'] });
+  assert.deepStrictEqual(win.fromKeyEvent(ev('KeyK', { altKey: true, shiftKey: true })), { accelerator: 'Alt+Shift+K', keys: ['Alt', 'Shift', 'K'] });
+  assert.deepStrictEqual(win.fromKeyEvent(ev('Enter', { ctrlKey: true })), { accelerator: 'Control+Return', keys: ['Ctrl', 'Enter'] });
+  assert.deepStrictEqual(win.fromKeyEvent(ev('F9')), { accelerator: 'F9', keys: ['F9'] });
+});
+
+test('on Windows the modifiers held show by name, and a key needs Ctrl or Alt', () => {
+  assert.deepStrictEqual(win.fromKeyEvent(ev('ControlLeft', { ctrlKey: true })), { held: ['Ctrl'] });
+  assert.deepStrictEqual(win.heldSymbols(ev('ShiftLeft', { ctrlKey: true, shiftKey: true })), ['Ctrl', 'Shift']);
+  assert.deepStrictEqual(win.fromKeyEvent(ev('KeyA', { shiftKey: true })), { refused: 'Hold Ctrl or Alt with the key.', held: ['Shift'] });
+});
+
+test('on Windows the Windows key and Ctrl+Alt are refused: Windows uses the one, and the other is AltGr on many keyboards', () => {
+  assert.deepStrictEqual(win.fromKeyEvent(ev('KeyB', { metaKey: true })),
+    { refused: 'Shortcuts with the Windows key belong to Windows. Use Ctrl or Alt.', held: ['Win'] });
+  assert.deepStrictEqual(win.fromKeyEvent(ev('KeyB', { ctrlKey: true, altKey: true })),
+    { refused: 'Ctrl+Alt types letters on many keyboards (it is AltGr). Try Ctrl+Shift.', held: ['Ctrl', 'Alt'] });
+  assert.deepStrictEqual(win.fromKeyEvent(ev('KeyB', { ctrlKey: true, altKey: true, shiftKey: true })).refused,
+    'Ctrl+Alt types letters on many keyboards (it is AltGr). Try Ctrl+Shift.');
+});
+
+test("on Windows the shortcuts every app uses are refused, each named for what it does, and Alt+Space is the window's menu", () => {
+  for (const [code, mods, message] of [
+    ['KeyC', { ctrlKey: true }, 'Ctrl+C is used by every app (Copy). Pick another one.'],
+    ['KeyV', { ctrlKey: true }, 'Ctrl+V is used by every app (Paste). Pick another one.'],
+    ['KeyX', { ctrlKey: true }, 'Ctrl+X is used by every app (Cut). Pick another one.'],
+    ['KeyZ', { ctrlKey: true }, 'Ctrl+Z is used by every app (Undo). Pick another one.'],
+    ['KeyY', { ctrlKey: true }, 'Ctrl+Y is used by every app (Redo). Pick another one.'],
+    ['KeyA', { ctrlKey: true }, 'Ctrl+A is used by every app (Select All). Pick another one.'],
+    ['KeyS', { ctrlKey: true }, 'Ctrl+S is used by every app (Save). Pick another one.'],
+    ['KeyW', { ctrlKey: true }, 'Ctrl+W is used by every app (Close). Pick another one.'],
+    ['F4', { ctrlKey: true }, 'Ctrl+F4 is used by every app (Close). Pick another one.'],
+    ['F4', { altKey: true }, 'Alt+F4 is used by every app (Close Window). Pick another one.'],
+    ['Tab', { altKey: true }, 'Alt+Tab is used by every app (switching apps). Pick another one.'],
+    ['Space', { altKey: true }, "Alt+Space is used by every app (a window's own menu). Pick another one."],
+  ]) {
+    assert.deepStrictEqual(win.fromKeyEvent(ev(code, mods)).refused, message, `${code} ${JSON.stringify(mods)}`);
+  }
+  assert.strictEqual(win.fromKeyEvent(ev('KeyC', { ctrlKey: true, shiftKey: true })).accelerator, 'Control+Shift+C', 'with another modifier it is free');
+});
+
+test('on Windows any saved accelerator shows by name, CommandOrControl as Ctrl, and Super or Meta as Win', () => {
+  assert.deepStrictEqual(win.symbols('Ctrl+Shift+Space'), ['Ctrl', 'Shift', 'Space']);
+  assert.deepStrictEqual(win.symbols('CommandOrControl+Shift+B'), ['Ctrl', 'Shift', 'B']);
+  assert.deepStrictEqual(win.symbols('shift+control+alt+delete'), ['Ctrl', 'Alt', 'Shift', 'Del']);
+  assert.deepStrictEqual(win.symbols('Super+K'), ['Win', 'K']);
+  assert.deepStrictEqual(win.symbols('Alt+Return'), ['Alt', 'Enter']);
+  assert.deepStrictEqual(win.symbols(''), []);
+});
+
+// ---- a single-key shortcut: modifier keys tapped on their own ----
+
+const TAP_NAMES = ['Fn', 'LeftControl', 'RightControl', 'LeftOption', 'RightOption', 'LeftShift', 'RightShift', 'LeftCommand', 'RightCommand', 'CapsLock'];
+
+test('a single-key shortcut is "Tap:" and the key, for every key that can be one', () => {
+  for (const name of TAP_NAMES) {
+    assert.strictEqual(isTap(`Tap:${name}`), true, name);
+    assert.deepStrictEqual(tapKeys(`Tap:${name}`), [name], name);
+    assert.strictEqual(tapValue([name]), `Tap:${name}`, name);
+  }
+});
+
+test('keys tapped together are written in one order, whatever order they come in', () => {
+  assert.strictEqual(tapValue(['LeftCommand', 'LeftShift']), 'Tap:LeftShift+LeftCommand');
+  assert.strictEqual(tapValue(['RightCommand', 'Fn', 'LeftControl']), 'Tap:Fn+LeftControl+RightCommand');
+  assert.deepStrictEqual(tapKeys('Tap:LeftCommand+LeftShift'), ['LeftShift', 'LeftCommand']);
+});
+
+test('a single-key shortcut that is not well formed has no keys', () => {
+  for (const value of ['Tap:', 'Tap:Command', 'Tap:leftcommand', 'Tap:LeftCommand+LeftCommand', 'Tap:CapsLock+LeftShift',
+    'Tap:LeftCommand+', 'Tap:constructor', 'tap:LeftCommand', 'Alt+Space', '', null, undefined, 42]) {
+    assert.strictEqual(tapKeys(value), null, String(value));
+  }
+  assert.strictEqual(isTap('Alt+Space'), false);
+  assert.strictEqual(isTap('tap:LeftCommand'), false, 'the prefix is written exactly so');
+  assert.strictEqual(isTap(null), false);
+});
+
+test('a single-key shortcut shows its keys as caps, with their side', () => {
+  assert.deepStrictEqual(symbols('Tap:RightOption'), ['Right ⌥']);
+  assert.deepStrictEqual(symbols('Tap:LeftShift+LeftCommand'), ['Left ⇧', 'Left ⌘']);
+  assert.deepStrictEqual(symbols('Tap:LeftControl+RightCommand'), ['Left ⌃', 'Right ⌘']);
+  assert.deepStrictEqual(symbols('Tap:Fn'), ['fn']);
+  assert.deepStrictEqual(symbols('Tap:CapsLock'), ['⇪ Caps Lock']);
+  assert.deepStrictEqual(symbols('Tap:Bogus'), [], 'one that is not well formed has none');
 });

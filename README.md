@@ -1,11 +1,12 @@
 # Buddy
 
-A small 3D buddy that floats on top of every app on your Mac and helps you
-write in English. It writes emails and messages for you, fixes your English and
+A small 3D buddy that floats on top of every app on your Mac or Windows PC and
+helps you write in English. It writes emails and messages for you, fixes your English and
 checks what you wrote, then pastes the answer straight back into Gmail,
 WhatsApp or wherever you were typing. Type to it in English, Hindi or Hinglish.
 
-Design: `docs/superpowers/specs/2026-10-06-buddy-v1-mac-design.md`
+Design: `docs/superpowers/specs/2026-10-06-buddy-v1-mac-design.md`, and for Windows
+`docs/superpowers/specs/2026-10-07-buddy-windows-design.md`
 
 ## Run it
 
@@ -65,6 +66,55 @@ build without a valid one fails (`build/afterPack.js`).
     npm run test:firestore   # the server's database code against the Firestore emulator (needs the Firebase CLI (firebase) and Java 21 or newer)
     npm run deploy:server    # deploy the server
 
+## On Windows
+
+Needs Windows 10 (version 1903 or later) or Windows 11, 64-bit, and Node 22 or later.
+The helper is built with the C# compiler that comes with Windows (.NET Framework 4.8),
+so nothing else has to be installed.
+
+    npm install
+    npm run build:native          # builds the helper, bin\buddy-helper.exe
+    node tools/helper-smoke.js    # checks the helper on its own, in 10 seconds
+    npm start                     # builds the helper again, then starts Buddy
+
+Quit Buddy (menu → Quit Buddy) before you start it again: Windows does not let the
+running helper be replaced.
+
+To install it, build the installer on Windows. As on the Mac, a build needs a valid
+`cloud.json` first (see "Sign-in and free mode" above):
+
+    npm run dist:win
+
+That makes `release\Buddy Setup <version>.exe`. Run it: it installs Buddy for you
+(no administrator needed) and opens it.
+
+- **The first open.** The installer is not signed, so Windows may say "Windows
+  protected your PC". Click **More info**, then **Run anyway**.
+- **No permissions.** Windows asks for none, so the Welcome goes from signing in
+  and picking a buddy straight to connecting an AI (or to the end, when free mode
+  covers you).
+- **The shortcut** is **Ctrl+Shift+Space** (on Windows, Alt+Space opens every
+  window's own menu). A key tapped on its own (the Mac's single-key shortcut) is not
+  offered on Windows.
+- **The menu** is the buddy's icon in the corner of the taskbar (it may be under the
+  ^ arrow). A left or a right click opens it.
+- **Always on.** As on the Mac, only the installed Buddy starts itself with Windows.
+- **Not on Windows:** Buddy does not read from or type into a terminal (Ctrl+C there
+  would stop what is running), VS Code's included, and Windows does not let it type
+  into an app that runs as administrator. There the answer is copied instead: press
+  Ctrl+V. It cannot tell the terminal of a JetBrains IDE (IntelliJ, PyCharm) from the
+  editor, so do not open Buddy from one.
+- **Passwords.** Buddy reads no password field, and nothing a password manager copies
+  (KeePass copies a password on Ctrl+C).
+- **If Microsoft Defender stops the helper** (it is not signed, and it sends keys
+  like a person does), allow it in Windows Security → Protection history.
+- **If `npm run dist:win` says "Cannot create symbolic link"**, turn on Developer Mode
+  (Settings → System → For developers) and run it again.
+- **Trying a build safely.** `BUDDY_USER_DATA` works the same way (in PowerShell):
+
+      $env:BUDDY_USER_DATA = "$env:TEMP\buddy-trial"
+      .\release\win-unpacked\Buddy.exe
+
 ## Website
 
 The download site, https://buddywrites.vercel.app, is plain HTML in `web/public/` (home page, privacy page,
@@ -81,9 +131,10 @@ Design: `docs/superpowers/specs/2026-10-07-buddy-website-design.md`.
     npm test           # lint and unit tests
     npm run test:e2e   # starts the real app with fakes and runs test/e2e/checks
 
-The e2e briefly opens Buddy's windows on screen.
+The e2e briefly opens Buddy's windows on screen. Both run on the Mac and on Windows.
 
-`docs/manual-checklist.md` covers what only a person can check.
+`docs/manual-checklist.md` (Mac) and `docs/manual-checklist-windows.md` cover what
+only a person can check.
 
 ## Characters
 

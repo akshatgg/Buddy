@@ -1,10 +1,11 @@
 'use strict';
 
-/** A short speech bubble beside the buddy ("Copied — press ⌘V"). Clicks pass through it. */
+/** A short speech bubble beside the buddy ("Copied — press ⌘V", or Ctrl+V on Windows). Clicks pass through it. */
 
 const path = require('node:path');
 const { BrowserWindow } = require('electron');
 const { BUBBLE, bubbleBounds } = require('./geometry');
+const { floatingType } = require('./platform');
 
 const SHOW_MS = 2600;
 
@@ -33,7 +34,7 @@ function createBubbleWindow() {
   function create() {
     const w = new BrowserWindow({
       ...BUBBLE,
-      type: 'panel',
+      type: floatingType,
       transparent: true,
       frame: false,
       hasShadow: false,

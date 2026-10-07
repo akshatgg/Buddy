@@ -1,5 +1,6 @@
 'use strict';
 const { execFileSync, spawnSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const asar = require('@electron/asar');
 const { parseCloudConfig } = require('../src/main/cloud-config');
@@ -40,6 +41,45 @@ function cloudConfigProblem(asarPath) {
 }
 
 /**
+ * Fails the build when the app.asar at `asarPath` lacks what the installed app cannot do without, or holds a
+ * cloud.json the app would refuse. Both the Mac and the Windows package are checked this way, however they are signed.
+ */
+function requirePackedFiles(asarPath) {
+  // An app.asar without three.js's loader would install, open and show nothing, and one without cloud.json would open
+  // and never let anyone sign in.
+  const missing = missingFromAsar(asarPath);
+  if (missing.length > 0) {
+    throw new Error(
+      `app.asar is missing ${missing.join(' and ')}. Without three.js's loader and environment the installed Buddy ` +
+      "shows no robot (the file set for three.js's examples in electron-builder.config.js brings them in); without " +
+      'cloud.json nobody can sign in (copy cloud.example.json to cloud.json and fill it in).'
+    );
+  }
+  console.log('  • app.asar holds the three.js loader and environment, and cloud.json');
+
+  // Being there is not enough: a cloud.json that is damaged or incomplete, or whose server is not https, installs and
+  // opens, and then every sign-in says this copy is not set up. The app's own rules, applied to the packed file.
+  const problem = cloudConfigProblem(asarPath);
+  if (problem) throw new Error(problem);
+  console.log('  • cloud.json is in app.asar and valid');
+}
+
+/**
+ * The Windows package (release/win-unpacked): the same check of app.asar, and the C# helper in resources\bin.
+ * Without the helper Buddy would install and run, with no way to copy, paste or see the screen. Nothing is signed:
+ * Buddy has no Windows code-signing certificate yet, so SmartScreen asks once ("More info", then "Run anyway").
+ */
+function checkWindowsPackage(appOutDir) {
+  const resources = path.join(appOutDir, 'resources');
+  requirePackedFiles(path.join(resources, 'app.asar'));
+  const helper = path.join(resources, 'bin', 'buddy-helper.exe');
+  if (!fs.existsSync(helper)) {
+    throw new Error(`${helper} is missing. Build it on Windows with \`npm run build:native\` (\`npm run dist:win\` does that first).`);
+  }
+  console.log('  • resources\\bin holds buddy-helper.exe');
+}
+
+/**
  * Ad-hoc sign the macOS bundle after packaging.
  *
  * Without this, the app reports as **damaged** on any Mac that downloads it —
@@ -74,32 +114,19 @@ function cloudConfigProblem(asarPath) {
  * installed app cannot do without (REQUIRED_IN_ASAR: the files the buddy page
  * cannot show the robot without, and cloud.json, which sign-in needs) and for a
  * cloud.json that is valid (cloudConfigProblem): the build fails when one is
- * missing or not valid.
+ * missing or not valid. The Windows package gets the same check, and one for its C# helper
+ * (checkWindowsPackage); nothing on Windows is signed.
  */
 exports.default = async function afterPack(context) {
+  if (context.electronPlatformName === 'win32') {
+    checkWindowsPackage(context.appOutDir);
+    return;
+  }
   if (context.electronPlatformName !== 'darwin') return;
 
   const appName = `${context.packager.appInfo.productFilename}.app`;
   const appPath = path.join(context.appOutDir, appName);
-  const asarPath = path.join(appPath, 'Contents', 'Resources', 'app.asar');
-
-  // However the bundle is signed: an app.asar without three.js's loader would install, open and show nothing, and one
-  // without cloud.json would open and never let anyone sign in.
-  const missing = missingFromAsar(asarPath);
-  if (missing.length > 0) {
-    throw new Error(
-      `app.asar is missing ${missing.join(' and ')}. Without three.js's loader and environment the installed Buddy ` +
-      "shows no robot (the file set for three.js's examples in electron-builder.config.js brings them in); without " +
-      'cloud.json nobody can sign in (copy cloud.example.json to cloud.json and fill it in).'
-    );
-  }
-  console.log('  • app.asar holds the three.js loader and environment, and cloud.json');
-
-  // Being there is not enough: a cloud.json that is damaged or incomplete, or whose server is not https, installs and
-  // opens, and then every sign-in says this copy is not set up. The app's own rules, applied to the packed file.
-  const problem = cloudConfigProblem(asarPath);
-  if (problem) throw new Error(problem);
-  console.log('  • cloud.json is in app.asar and valid');
+  requirePackedFiles(path.join(appPath, 'Contents', 'Resources', 'app.asar'));
 
   // With a certificate electron-builder signs the bundle itself, after this hook.
   if (context.packager.platformSpecificBuildOptions.identity !== null) return;
@@ -131,3 +158,4 @@ exports.default = async function afterPack(context) {
 exports.REQUIRED_IN_ASAR = REQUIRED_IN_ASAR;
 exports.missingFromAsar = missingFromAsar;
 exports.cloudConfigProblem = cloudConfigProblem;
+exports.checkWindowsPackage = checkWindowsPackage;

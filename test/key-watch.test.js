@@ -30,6 +30,7 @@ function setup(t, { failing = null } = {}) {
   const timers = new Map();
   let nextTimer = 1;
   const watch = createKeyWatch({
+    platform: 'darwin', // the Mac's: Windows has none (the last test)
     helper,
     onPress: () => presses.push('open'),
     later: (fn, ms) => {
@@ -290,4 +291,21 @@ test('asking again stops when the shortcut is no longer a single key', async (t)
   assert.strictEqual(s.timers.size, 1);
   s.watch.setShortcut(null);
   assert.strictEqual(s.timers.size, 0);
+});
+
+test('on Windows nothing is asked of the helper, and a single-key shortcut is refused: only the Mac helper hears one', async () => {
+  const helper = new EventEmitter();
+  const calls = [];
+  helper.call = async (...args) => { calls.push(args); };
+  const presses = [];
+  const keyWatch = createKeyWatch({ helper, onPress: () => presses.push(1), platform: 'win32' });
+  assert.strictEqual(keyWatch.setShortcut('Tap:RightOption'), false);
+  assert.strictEqual(keyWatch.setShortcut(null), true, 'none is fine');
+  keyWatch.startRecording(() => presses.push('recorded'));
+  keyWatch.stopRecording();
+  helper.emit('started');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepStrictEqual(calls, []);
+  assert.strictEqual(helper.listenerCount('keys'), 0);
+  assert.deepStrictEqual(presses, []);
 });

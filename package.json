@@ -10,14 +10,15 @@
   "license": "UNLICENSED",
   "scripts": {
     "start": "npm run build:native && electron .",
-    "build:native": "mkdir -p bin && swiftc -O -target arm64-apple-macos14.0 src/native/BuddyHelper.swift -o bin/buddy-helper",
+    "build:native": "node tools/build-native.js",
     "build:buddies": "/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python art/build_buddies.py -- --out assets/buddies",
     "build:icons": "node tools/make-tray-icon.js",
     "build:icon": "mkdir -p art/out && /Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python art/render_icon.py -- --out art/out/robot.png && swift build/MakeIcon.swift art/out/robot.png build/icon.png",
     "sync:web": "node tools/sync-web-shared.js",
     "dist:mac": "npm run build:native && electron-builder --mac --config electron-builder.config.js --publish never",
+    "dist:win": "npm run build:native && electron-builder --win --config electron-builder.config.js --publish never",
     "lint": "eslint .",
-    "test": "eslint . && node --test 'test/*.test.js' 'test/*.test.mjs'",
+    "test": "eslint . && node --test \"test/*.test.js\" \"test/*.test.mjs\"",
     "test:firestore": "sh tools/test-firestore.sh",
     "deploy:server": "npm run sync:web && vercel deploy --prod --cwd web",
     "test:e2e": "electron test/e2e/smoke.js"

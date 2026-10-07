@@ -2,9 +2,11 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const path = require('node:path');
 const { createActions, COPIED } = require('../src/main/actions');
+const { onPlatform } = require('./helpers/platform');
 
-function setup({ lastApp = { pid: 7, name: 'Google Chrome' }, replies = {}, ask, clipboard: givenClipboard } = {}) {
+function setup({ lastApp = { pid: 7, name: 'Google Chrome' }, replies = {}, ask, clipboard: givenClipboard, windows = false } = {}) {
   const log = [];
   const helper = {
     lastApp,
@@ -28,6 +30,7 @@ function setup({ lastApp = { pid: 7, name: 'Google Chrome' }, replies = {}, ask,
     },
     isPanelVisible: () => visible,
     panelJustClosed: () => justClosed,
+    panelWindowHandle: () => 4242,
     bubble: (text) => log.push(['bubble', text]),
     mood: (name) => log.push(['mood', name]),
   };
@@ -51,6 +54,8 @@ function setup({ lastApp = { pid: 7, name: 'Google Chrome' }, replies = {}, ask,
       return timer;
     },
     cancelLater: (timer) => cancelled.push(timer),
+    helperMovesFocus: windows,
+    newline: windows ? '\r\n' : '\n',
   });
   return { actions, log, clipboard, timers, cancelled, setJustClosed: (v) => { justClosed = v; } };
 }
@@ -140,6 +145,21 @@ test('a password field and a missing permission are explained, not logged as pro
     const shown = entries(s.log, 'showPanel')[0][1];
     assert.strictEqual(shown.notice, notice);
     assert.strictEqual(shown.tab, 'write');
+  }
+  assert.strictEqual(warn.mock.callCount(), 0);
+});
+
+test('on Windows, an app run as administrator and keys still held are explained in their own words, not logged as problems', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  for (const [code, message] of [
+    ['elevated', "That app runs as administrator, so I can't read from it."],
+    ['keys_held', 'Let go of the keys, then try again.'],
+  ]) {
+    const s = setup({ replies: { captureSelection: failure(code, message) } });
+    await s.actions.open();
+    const shown = entries(s.log, 'showPanel')[0][1];
+    assert.strictEqual(shown.notice, message, code);
+    assert.strictEqual(shown.tab, 'write', code);
   }
   assert.strictEqual(warn.mock.callCount(), 0);
 });
@@ -465,4 +485,71 @@ test('screenshot and whole box need an app to work on', async () => {
   await s.actions.open();
   await assert.rejects(s.actions.screenshot(), { code: 'no_app' });
   await assert.rejects(s.actions.wholeBox(), { code: 'no_app' });
+});
+
+test('the "copied" bubble names the keys that paste: ⌘V on the Mac, Ctrl+V on Windows', () => {
+  const file = path.join(__dirname, '..', 'src', 'main', 'actions.js');
+  assert.strictEqual(onPlatform('darwin', file, (m) => m.COPIED), 'Copied — press ⌘V');
+  assert.strictEqual(onPlatform('win32', file, (m) => m.COPIED), 'Copied — press Ctrl+V');
+});
+
+test('on Windows, closing the panel hands the keyboard back to the app it was opened from: Windows leaves it with the hidden panel', async () => {
+  const s = setup({ windows: true });
+  await s.actions.toggle();
+  await s.actions.toggle();
+  assert.deepStrictEqual(s.log.slice(-2), [['hidePanel'], ['helper', 'activate', { pid: 7 }]]);
+  await s.actions.open();
+  await s.actions.dismiss(); // Esc and the close button
+  assert.deepStrictEqual(s.log.slice(-2), [['hidePanel'], ['helper', 'activate', { pid: 7 }]]);
+});
+
+test('on Windows, with no app known there is nothing to hand the keyboard back to', async () => {
+  const s = setup({ windows: true, lastApp: null });
+  await s.actions.open();
+  await s.actions.dismiss();
+  assert.deepStrictEqual(s.log.slice(-1), [['hidePanel']]);
+});
+
+test('on Windows, a hand-back or a bring-forward that fails is logged, not thrown', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const s = setup({ windows: true, replies: { activate: failure('not_frontmost'), focusWindow: failure('not_frontmost') } });
+  await assert.doesNotReject(s.actions.open());
+  await assert.doesNotReject(s.actions.dismiss());
+  assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments), [
+    ['[buddy] could not bring the panel forward:', 'not_frontmost'],
+    ['[buddy] could not switch back to the app:', 'not_frontmost'],
+  ]);
+});
+
+test('on Windows the helper brings the panel forward once it is shown, and again after the whole box is read', async () => {
+  const s = setup({ windows: true, replies: { captureSelection: { text: '' } } });
+  await s.actions.open();
+  await s.actions.wholeBox();
+  const shown = s.log.flatMap((e, i) => (e[0] === 'showPanel' ? [i] : []));
+  assert.strictEqual(shown.length, 2);
+  for (const i of shown) assert.deepStrictEqual(s.log[i + 1], ['helper', 'focusWindow', { hwnd: 4242 }]);
+});
+
+test('on the Mac the panel takes and gives back the keyboard by itself: no activate, no focusWindow', async () => {
+  const s = setup({ replies: { captureSelection: { text: '' } } });
+  await s.actions.toggle();
+  await s.actions.wholeBox();
+  await s.actions.toggle();
+  await s.actions.open();
+  await s.actions.dismiss();
+  assert.deepStrictEqual(entries(s.log, 'helper').map((e) => e[1]), ['captureSelection', 'captureSelection', 'captureSelection']);
+});
+
+test('on Windows what goes on the clipboard has Windows line breaks, which every Windows app understands', async () => {
+  const s = setup({ windows: true, lastApp: null });
+  await s.actions.copy('Dear Sir,\nThanks.\r\nBye');
+  assert.strictEqual(s.clipboard.text, 'Dear Sir,\r\nThanks.\r\nBye');
+  await s.actions.insert('a\nb', 'insert');
+  assert.strictEqual(s.clipboard.text, 'a\r\nb');
+});
+
+test('on the Mac the clipboard gets the text as it is', async () => {
+  const s = setup({ lastApp: null });
+  await s.actions.copy('a\nb');
+  assert.strictEqual(s.clipboard.text, 'a\nb');
 });

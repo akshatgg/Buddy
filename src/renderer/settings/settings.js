@@ -3,7 +3,9 @@
 
 const $ = (id) => document.getElementById(id);
 const SECTIONS = ['buddy', 'shortcut', 'ai', 'permissions', 'general'];
-const DEFAULT_SHORTCUT = 'Alt+Space';
+// Windows asks for no permissions, and writes its shortcuts with Ctrl, Alt and Shift (shortcut-keys.js).
+const onWindows = () => snap?.platform === 'win32';
+const shortcutKeys = () => ShortcutKeys.forPlatform(snap?.platform);
 // Under the Shortcut box while the shortcut is a key tapped on its own: how to press it, and what macOS also does with
 // Caps Lock and fn. Without Accessibility Buddy cannot hear the key at all, and the first line says so instead.
 const TAP_NOTE = 'Tap it on its own to open your buddy: press and let go, with no other key.';
@@ -71,7 +73,7 @@ function showLoadError(message) {
 
 function showSection(name) {
   if (loadFailed) return; // there is no section to show
-  const section = SECTIONS.includes(name) ? name : 'buddy';
+  const section = SECTIONS.includes(name) && !(name === 'permissions' && onWindows()) ? name : 'buddy';
   if (recording && section !== 'shortcut') stopRecording();
   for (const s of SECTIONS) {
     $(`section-${s}`).hidden = s !== section;
@@ -88,7 +90,8 @@ for (const item of navItems) {
   item.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
     e.preventDefault();
-    const next = navItems[(navItems.indexOf(item) + (e.key === 'ArrowDown' ? 1 : navItems.length - 1)) % navItems.length];
+    const shown = navItems.filter((i) => !i.hidden); // Permissions is not there on Windows
+    const next = shown[(shown.indexOf(item) + (e.key === 'ArrowDown' ? 1 : shown.length - 1)) % shown.length];
     next.focus();
     showSection(next.dataset.section);
   });
@@ -154,7 +157,7 @@ function showCaps(caps, { waiting = false } = {}) {
 }
 
 function showKeys(accelerator) {
-  showCaps(ShortcutKeys.symbols(accelerator));
+  showCaps(shortcutKeys().symbols(accelerator));
 }
 
 /** While recording: the modifiers held so far, as caps, or the prompt while none is. */
@@ -195,9 +198,18 @@ function render({ fields = true } = {}) {
   if (!recording) showKeys(snap.settings.shortcut);
   $('power').checked = snap.buddyOn;
   $('power-status').textContent = snap.buddyOn
-    ? 'Your buddy is on, and comes back every time your Mac starts.'
+    ? `Your buddy is on, and comes back every time your ${onWindows() ? 'PC' : 'Mac'} starts.`
     : 'Your buddy is off.';
   $('version').textContent = snap.version ? `Buddy ${snap.version}` : '';
+  const { symbols, defaultShortcut, canTap } = shortcutKeys();
+  $('shortcut-reset').textContent = `Reset to ${symbols(defaultShortcut).join(' ')}`;
+  // Only the Mac hears a key tapped on its own.
+  $('shortcut-hint').textContent = canTap
+    ? 'Click the box, then press the keys you want, or tap one key like ⌘ or fn on its own. Esc cancels.'
+    : 'Click the box, then press the keys you want. Esc cancels.';
+  // Windows asks for no permissions: its sidebar has no Permissions, and a window opened on that section shows Buddy.
+  document.querySelector('.nav-item[data-section="permissions"]').hidden = onWindows();
+  if (onWindows() && !$('section-permissions').hidden) showSection('buddy');
   renderShortcutNote();
 }
 
@@ -210,6 +222,7 @@ async function save(patch, statusId) {
 }
 
 async function renderPermissions() {
+  if (onWindows()) return; // nothing to ask for, and the section is not shown
   const r = await window.buddy.permissions();
   for (const which of ['accessibility', 'screenRecording']) {
     const granted = Boolean(r.ok && r[which]);
@@ -237,6 +250,7 @@ async function startRecording() {
   showHeld([]);
   showStatus('shortcut-status', '');
   await window.buddy.pauseShortcut();
+  if (!shortcutKeys().canTap) return; // Windows: no key is tapped on its own, and nothing waits on a permission
   const permissions = await window.buddy.permissions();
   if (recording && permissions.ok && !permissions.accessibility) showStatus('shortcut-status', CANNOT_HEAR_TAPS);
 }
@@ -265,7 +279,7 @@ async function saveShortcut(accelerator) {
   } else {
     showKeys(snap.settings.shortcut);
     $('shortcut').classList.add('save-failed'); // its edge says so too, until the box is clicked again
-    const keys = ShortcutKeys.symbols(accelerator).join(' ');
+    const keys = shortcutKeys().symbols(accelerator).join(' ');
     showStatus('shortcut-status', r.error.code === 'shortcut_taken' ? `${keys} is taken. Try another one.` : r.error.message, 'error');
   }
   await window.buddy.resumeShortcut(); // the saved shortcut is registered again (the new one, or the old one if refused)
@@ -283,7 +297,7 @@ document.addEventListener('keydown', (e) => {
     stopRecording();
     return;
   }
-  const r = ShortcutKeys.fromKeyEvent(e);
+  const r = shortcutKeys().fromKeyEvent(e);
   if (r.accelerator) {
     saveShortcut(r.accelerator);
     return;
@@ -296,7 +310,7 @@ document.addEventListener('keyup', (e) => {
   if (!recording) return;
   e.preventDefault();
   e.stopPropagation();
-  showHeld(ShortcutKeys.heldSymbols(e));
+  showHeld(shortcutKeys().heldSymbols(e));
 }, true);
 // A key tapped on its own while the box waits: the Mac helper hears it (the page does not see fn or Caps Lock), and the
 // main process sends it here.
@@ -304,13 +318,14 @@ window.buddy.onShortcutTap((value) => {
   if (recording) saveShortcut(value);
 });
 $('shortcut-reset').addEventListener('click', () => {
-  // However it was spelled when it was saved, ⌥ Space is ⌥ Space: there is nothing to save.
-  if (ShortcutKeys.symbols(snap.settings.shortcut).join(' ') === ShortcutKeys.symbols(DEFAULT_SHORTCUT).join(' ')) {
+  // However it was spelled when it was saved, ⌥ Space is ⌥ Space (Ctrl Shift Space on Windows): there is nothing to save.
+  const { symbols, defaultShortcut } = shortcutKeys();
+  if (symbols(snap.settings.shortcut).join(' ') === symbols(defaultShortcut).join(' ')) {
     stopRecording();
-    showStatus('shortcut-status', 'Already ⌥ Space.');
+    showStatus('shortcut-status', `Already ${symbols(defaultShortcut).join(' ')}.`);
     return;
   }
-  saveShortcut(DEFAULT_SHORTCUT);
+  saveShortcut(defaultShortcut);
 });
 // The window losing the focus ends a recording too, a moment later: a key tapped just then (fn, when macOS opens its emoji
 // picker) is still saved. The window getting the focus back keeps the recording (the focus handler below).

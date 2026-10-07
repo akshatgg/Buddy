@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * The shortcut that opens the panel from any app (⌥Space by default): keys pressed together, registered with the
- * system as an Electron accelerator, or a single key tapped on its own ("Tap:RightOption"), heard through the Mac
- * helper (key-watch.js). Changing it never leaves the user with none: if the new one is taken, the old one is put
+ * The shortcut that opens the panel from any app (⌥Space by default; Ctrl+Shift+Space on Windows): keys pressed
+ * together, registered with the system as an Electron accelerator, or on the Mac a single key tapped on its own
+ * ("Tap:RightOption"), heard through the Mac helper (key-watch.js; Windows has no such shortcut). Changing it never leaves the user with none: if the new one is taken, the old one is put
  * back. It can also be let go while Buddy is turned off; turning Buddy back on takes the saved shortcut again (main.js
  * reads it from the store).
  */

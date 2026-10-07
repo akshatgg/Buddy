@@ -3,14 +3,14 @@
 /**
  * "Always on": once the buddy is turned on it comes back after every restart,
  * until the user turns it off inside Buddy. Two things must agree: buddyOn in
- * the settings, and the login item that opens Buddy when the Mac starts.
+ * the settings, and the login item that opens Buddy when the Mac (or the PC) starts.
  */
 
 function createPower({ store, loginItems, onChange }) {
   const isOn = () => store.get('buddyOn') === true;
 
   /**
-   * Add or remove the login item. When the Mac refuses, that is logged and nothing else happens:
+   * Add or remove the login item. When the system refuses, that is logged and nothing else happens:
    * the setting is what the person chose, and the buddy works without the login item.
    */
   function setLoginItem(on) {

@@ -30,11 +30,19 @@ const { registerBuddyIpc } = require('./ipc/buddy');
 const { registerPanelIpc } = require('./ipc/panel');
 const { registerSettingsIpc } = require('./ipc/settings');
 const { registerAdminIpc } = require('./ipc/admin');
+const { helperFile, windows: onWindows } = require('./platform');
 
 function helperPath() {
   return app.isPackaged
-    ? path.join(process.resourcesPath, 'bin', 'buddy-helper')
-    : path.join(__dirname, '..', '..', 'bin', 'buddy-helper');
+    ? path.join(process.resourcesPath, 'bin', helperFile)
+    : path.join(__dirname, '..', '..', 'bin', helperFile);
+}
+
+/** A window's handle as a number (on Windows, its HWND), or null when there is no window. */
+function windowHandle(win) {
+  if (!win || win.isDestroyed()) return null;
+  const handle = win.getNativeWindowHandle();
+  return handle.length >= 8 ? Number(handle.readBigUInt64LE(0)) : handle.readUInt32LE(0);
 }
 
 async function start(options = {}) {
@@ -42,9 +50,12 @@ async function start(options = {}) {
     app.quit();
     return null;
   }
+  // Windows names the login item by this id and gives Buddy's windows to it; the installer's shortcut carries the same
+  // one (appId in electron-builder.config.js).
+  if (onWindows) app.setAppUserModelId('com.akshatgg.buddy');
   await app.whenReady();
   if (app.dock) app.dock.hide();
-  app.on('window-all-closed', () => {}); // a menu bar app: closing windows must not quit it
+  app.on('window-all-closed', () => {}); // a menu bar (or tray) app: closing windows must not quit it
 
   const userData = app.getPath('userData');
   const store = createStore({ file: path.join(userData, 'settings.json') });
@@ -77,7 +88,7 @@ async function start(options = {}) {
   const panel = createPanelWindow();
   const windows = createSettingsWindows({ app });
   const openSettings = (section) => windows.open('settings', section ? { section } : undefined);
-  installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings, Welcome and Admin, and no Cmd+Q
+  installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings, Welcome and Admin, and no Cmd+Q (none on Windows)
 
   const actions = createActions({
     helper,
@@ -90,6 +101,7 @@ async function start(options = {}) {
       hidePanel: () => panel.hide(),
       isPanelVisible: () => panel.isVisible(),
       panelJustClosed: () => panel.justClosed(),
+      panelWindowHandle: () => windowHandle(panel.window()), // for the helper on Windows (actions.js)
       bubble: (text) => bubble.say(text, buddy.bounds(), buddy.display().workArea),
       mood: (name) => buddy.mood(name),
     },

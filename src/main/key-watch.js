@@ -14,7 +14,18 @@ const { createTapDetector } = require('./modifier-tap');
 
 const RETRY_MS = 10_000;
 
-function createKeyWatch({ helper, onPress, later = setTimeout, cancelLater = clearTimeout, retryMs = RETRY_MS }) {
+/**
+ * On Windows there is no single-key shortcut: its helper does not report the keys (it answers watchKeys with
+ * bad_request), so nothing is asked of it, a "Tap:" shortcut is refused, and Settings records keys pressed together only.
+ */
+const NO_KEY_WATCH = Object.freeze({
+  setShortcut: (value) => value === null,
+  startRecording() {},
+  stopRecording() {},
+});
+
+function createKeyWatch({ helper, onPress, later = setTimeout, cancelLater = clearTimeout, retryMs = RETRY_MS, platform = process.platform }) {
+  if (platform !== 'darwin') return NO_KEY_WATCH;
   const detector = createTapDetector();
   let shortcut = null; // the tap that opens the panel, or null
   let recorder = null; // while Settings records a shortcut: where the taps go

@@ -1,9 +1,10 @@
 'use strict';
 
 /**
- * Talks to bin/buddy-helper (src/native/BuddyHelper.swift), the small Swift
- * program that does what Electron can't: copy the user's selection, paste an
- * answer back into the app they were in, and screenshot that app's window.
+ * Talks to the native helper in bin/: buddy-helper on the Mac (src/native/BuddyHelper.swift,
+ * in Swift) and buddy-helper.exe on Windows (src/native/windows, in C#). It does what
+ * Electron can't: copy the user's selection, paste an answer back into the app they were
+ * in, and screenshot that app's window. Both speak the same protocol.
  *
  * One JSON object per line each way. Requests carry an id and replies echo it.
  * Lines without an id are events: `frontApp` says which app the user is in,
@@ -18,7 +19,8 @@ const { EventEmitter } = require('node:events');
 const readline = require('node:readline');
 const { BuddyError } = require('../../shared/errors');
 
-const DEFAULT_TIMEOUTS = { screenshot: 10_000, default: 5_000 };
+// Reading the selection and pasting wait on the person's app (and, on Windows, for them to let go of the shortcut's keys).
+const DEFAULT_TIMEOUTS = { screenshot: 10_000, captureSelection: 10_000, paste: 10_000, default: 5_000 };
 const MAX_RESTART_MS = 30_000;
 
 class Helper extends EventEmitter {
@@ -42,6 +44,7 @@ class Helper extends EventEmitter {
     this.stopped = false;
     const child = this.spawnImpl(this.binPath, ['--owner-pid', String(this.ownerPid)], {
       stdio: ['pipe', 'pipe', 'inherit'],
+      windowsHide: true, // on Windows: no console window for it, ever
     });
     this.child = child;
     readline.createInterface({ input: child.stdout }).on('line', (line) => this.onLine(line));
@@ -67,13 +70,17 @@ class Helper extends EventEmitter {
 
   call(cmd, args = {}) {
     if (!this.child || !this.child.stdin.writable) {
-      return Promise.reject(new BuddyError('helper_down', "Buddy's Mac helper is not running."));
+      return Promise.reject(new BuddyError('helper_down', "Buddy's helper is not running."));
     }
     const id = this.nextId++;
+    const child = this.child;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new BuddyError('timeout', 'The Mac helper took too long.'));
+        reject(new BuddyError('timeout', "Buddy's helper took too long."));
+        // The helper works one call at a time: one stuck on an app that hangs would keep every later call waiting.
+        // It is stopped, and onExit() starts a fresh one.
+        if (child === this.child) child.kill();
       }, this.timeouts[cmd] || this.timeouts.default);
       this.pending.set(id, { resolve, reject, timer });
       this.child.stdin.write(`${JSON.stringify({ id, cmd, args })}\n`);
@@ -98,7 +105,7 @@ class Helper extends EventEmitter {
     this.pending.delete(msg.id);
     clearTimeout(waiting.timer);
     if (msg.ok) waiting.resolve(msg.result || {});
-    else waiting.reject(new BuddyError(msg.error?.code || 'failed', msg.error?.message || 'The Mac helper failed.'));
+    else waiting.reject(new BuddyError(msg.error?.code || 'failed', msg.error?.message || "Buddy's helper failed."));
   }
 
   onExit(child) {
@@ -106,7 +113,7 @@ class Helper extends EventEmitter {
     this.child = null;
     for (const [id, waiting] of this.pending) {
       clearTimeout(waiting.timer);
-      waiting.reject(new BuddyError('helper_exit', 'The Mac helper stopped. Try again.'));
+      waiting.reject(new BuddyError('helper_exit', "Buddy's helper stopped. Try again."));
       this.pending.delete(id);
     }
     if (this.stopped) return;
@@ -115,4 +122,4 @@ class Helper extends EventEmitter {
   }
 }
 
-module.exports = { Helper };
+module.exports = { Helper, DEFAULT_TIMEOUTS };

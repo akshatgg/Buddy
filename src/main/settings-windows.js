@@ -12,17 +12,22 @@ const KINDS = {
 
 // BrowserWindow can be passed in so tests can run without Electron; the real one is loaded
 // only when none is.
-function createSettingsWindows({ app, BrowserWindow = require('electron').BrowserWindow }) {
+function createSettingsWindows({ app, BrowserWindow = require('electron').BrowserWindow, platform = process.platform }) {
   const windows = {};
   const listeners = [];
   const alive = (win) => win && !win.isDestroyed();
+  // Buddy has no Dock icon, so on the Mac it has to bring itself forward or a window opens behind. On Windows a window
+  // comes forward by itself, and app.focus() there would focus whichever of Buddy's windows comes first (the buddy).
+  const comeForward = () => {
+    if (platform === 'darwin') app.focus({ steal: true });
+  };
 
   return {
     open(kind, options) {
       const { section } = options || {}; // no options, or null, is no section
       if (alive(windows[kind])) {
-        // As when it first opens: Buddy has no Dock icon, so the app must come forward too or the window stays behind.
-        app.focus({ steal: true });
+        // As when it first opens: the app must come forward too or the window stays behind.
+        comeForward();
         windows[kind].show();
         windows[kind].focus();
         if (section) windows[kind].webContents.send('settings:section', section);
@@ -50,8 +55,7 @@ function createSettingsWindows({ app, BrowserWindow = require('electron').Browse
         console.error(`[buddy] the ${kind} page failed to load:`, err);
       });
       win.once('ready-to-show', () => {
-        // Buddy has no Dock icon, so it has to bring itself forward or the window opens behind.
-        app.focus({ steal: true });
+        comeForward();
         win.show();
       });
       win.on('closed', () => {

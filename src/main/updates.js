@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { Readable } = require('node:stream');
@@ -293,6 +294,33 @@ function replaceableBundle(execPath, { access = fs.accessSync } = {}) {
   return bundle;
 }
 
+// What this run may update: { platform, bundle } for createUpdater. Only Buddy
+// as installed updates itself. A development run (electron .) and a trial run
+// (BUDDY_USER_DATA, see the README) are 'development': they never install
+// anything, and main.js never checks by itself for them. On Windows only the
+// copy the installer put there counts (its uninstaller sits next to it), not
+// release\win-unpacked. On the Mac only an app in an Applications folder is
+// replaced, not a build in release/mac-arm64: replacing that one would also
+// clear the permissions of the Buddy in Applications, which macOS keeps per
+// bundle id; it is offered the download instead.
+function installTarget({
+  platform, packaged, trial = false, execPath, exists = fs.existsSync, access = fs.accessSync, homedir = os.homedir()
+}) {
+  const development = { platform: 'development', bundle: null };
+  if (!packaged || trial) return development;
+  if (platform === 'win32') {
+    const uninstaller = path.win32.join(path.win32.dirname(execPath), 'Uninstall Buddy.exe');
+    return exists(uninstaller) ? { platform, bundle: null } : development;
+  }
+  if (platform === 'darwin') {
+    const bundle = replaceableBundle(execPath, { access });
+    const inApplications = bundle !== null
+      && ['/Applications', path.join(homedir, 'Applications')].includes(path.dirname(bundle));
+    return { platform, bundle: inApplications ? bundle : null };
+  }
+  return development;
+}
+
 // installer: Windows, the NSIS installer. bundle: macOS, the app replaced in
 // place. download: macOS where the app can't be replaced -- the release page.
 function installKind(platform, { bundle = null } = {}) {
@@ -350,7 +378,10 @@ async function stageMacApp({ dmg, dir, version, run }) {
 // in System Settings while no longer applying to it. Those stale entries are
 // cleared, so the new copy asks again instead of failing silently. A
 // Developer ID signed app keeps its permissions and is left alone.
+// It ignores the signals a shutdown or log out sends (Buddy is mostly quit
+// that way), so the swap is not cut off between its two moves.
 const MAC_SWAP_SCRIPT = [
+  "trap '' TERM INT HUP",
   'pid=$1; new=$2; app=$3; relaunch=$4; id=$5',
   'old="$(dirname "$app")/.Buddy-old.app"',
   'i=0',
@@ -403,7 +434,7 @@ function firstLaunchOfNewVersion(store, currentVersion) {
 function createUpdater({
   currentVersion, platform = process.platform, arch = process.arch, fetchImpl, downloadDir,
   getSettings, patchSettings, now = Date.now, bundle = null,
-  pid = process.pid, spawn, runCommand, onChange = () => {}, timeoutMs = REQUEST_TIMEOUT_MS
+  pid = process.pid, spawn, runCommand, onChange = () => {}, timeoutMs = REQUEST_TIMEOUT_MS, exists = fs.existsSync
 }) {
   const kind = installKind(platform, { bundle });
   let state = {
@@ -430,7 +461,13 @@ function createUpdater({
       else set({ status: 'error', error: friendlyError(err), checkedAt: now(), latest: null, pending: false });
       return state;
     }
-    patchSettings({ lastUpdateCheck: now() });
+    try {
+      patchSettings({ lastUpdateCheck: now() });
+    } catch (err) {
+      // Only a note of when the check worked: a settings file that can't be written (held by an antivirus, say) must
+      // not leave the check spinning.
+      console.warn('[buddy] could not save when updates were last checked:', err.code || err.name);
+    }
     const { assets, ...latest } = release;
     if (compareVersions(release.version, currentVersion) <= 0) {
       // Nothing newer: an Update now waiting on this check is done.
@@ -495,12 +532,23 @@ function createUpdater({
 
   // Starts the verified update detached. The caller quits the app right
   // after, which is what lets it replace Buddy.
+  // A verified update (readyPath) installs whatever the state says: an hourly
+  // check running as Buddy quits must not skip it.
   function install({ relaunch }) {
-    if (!installsItself(kind) || state.status !== 'ready' || !readyPath || installed) return false;
+    if (!installsItself(kind) || !readyPath || installed) return false;
+    if (!exists(readyPath)) {
+      // Cleaned out of the temp folder (Windows' Storage Sense, say) while it waited.
+      readyPath = null;
+      set({ status: 'error', error: 'The downloaded update is gone. Update now downloads it again.', pending: false });
+      return false;
+    }
     const child = kind === 'installer'
       ? spawn(readyPath, installerArgs({ relaunch }), { detached: true, stdio: 'ignore' })
       : spawn('/bin/sh', ['-c', MAC_SWAP_SCRIPT, 'buddy-update', String(pid), readyPath, bundle, relaunch ? '1' : '0', BUNDLE_ID],
         { detached: true, stdio: 'ignore' });
+    // A process that can't start says so on 'error', a moment later, as Buddy quits: without a listener that would be
+    // an uncaught exception.
+    child.on?.('error', (err) => console.error('[buddy] could not start the update:', err.code || err.message));
     child.unref?.();
     installed = true;
     return true;
@@ -535,6 +583,6 @@ module.exports = {
   RELEASES_API, RELEASES_PAGE, WINDOWS_INSTALLER, MAC_DMGS, BUNDLE_ID, CHECK_INTERVAL_MS,
   MAC_SWAP_SCRIPT, parseVersion, compareVersions, fetchLatestRelease, parseLatestYml, formatLatestYml,
   sha512OfFile, updateAsset, downloadVerified, downloadVerifiedInstaller, stageMacApp, replaceableBundle,
-  installKind, installerArgs, shouldAutoCheck, firstLaunchOfNewVersion, createUpdater, fetchWithTimeout,
+  installKind, installTarget, installerArgs, shouldAutoCheck, firstLaunchOfNewVersion, createUpdater, fetchWithTimeout,
   friendlyError, REQUEST_TIMEOUT_MS
 };

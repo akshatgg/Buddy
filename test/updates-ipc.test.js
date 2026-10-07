@@ -6,7 +6,7 @@ const { registerUpdatesIpc } = require('../src/main/ipc/updates');
 
 // A fake Electron whose app records quit() and lets the test fire will-quit, and whose dialog records what it was
 // asked to show and answers `response`. Handlers are called as the guarded IPC calls them, with an event first.
-function harness(state, { busy = false, response = 1, autoState = state, allowed = () => true } = {}) {
+function harness(state, { busy = false, response = 1, autoState = state, allowed = () => true, installs = true } = {}) {
   const handlers = {};
   const events = {};
   const calls = [];
@@ -14,11 +14,12 @@ function harness(state, { busy = false, response = 1, autoState = state, allowed
   const saved = {};
   const app = {
     quit: () => calls.push('quit'),
+    relaunch: () => calls.push('relaunch'),
     on: (name, fn) => { events[name] = fn; },
   };
   const updater = {
     state: () => state,
-    install: (opts) => { calls.push(['install', opts]); return true; },
+    install: (opts) => { calls.push(['install', opts]); return installs; },
     requestInstall: () => { calls.push('requestInstall'); return true; },
     installsItself: () => state.kind === 'installer' || state.kind === 'bundle',
     autoCheck: async () => { calls.push('autoCheck'); return autoState; },
@@ -166,3 +167,14 @@ test('only the Settings window may use these calls', async () => {
   assert.strictEqual(r.error.code, 'not_allowed');
   assert.deepStrictEqual(h.calls, []);
 });
+
+test('when the update cannot start after Update now, Buddy opens again by itself', async () => {
+  const h = harness({ kind: 'installer', status: 'ready', latest }, { installs: false });
+  await h.handlers['updates:install']();
+  h.events['will-quit']();
+  assert.deepStrictEqual(h.calls, ['quit', ['install', { relaunch: true }], 'relaunch']);
+  const plain = harness({ kind: 'installer', status: 'ready', latest }, { installs: false });
+  plain.events['will-quit'](); // a plain quit stays quit
+  assert.deepStrictEqual(plain.calls, [['install', { relaunch: false }]]);
+});
+

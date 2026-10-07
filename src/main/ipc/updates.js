@@ -29,8 +29,9 @@ function registerUpdatesIpc({ ipcMain, electron, getUpdater, allowed, store, isB
 
   const openReleasePage = () => shell.openExternal(updater.state().latest?.url ?? RELEASES_PAGE);
 
-  // The update is started from will-quit, not here, so that whatever runs as Buddy quits (main.js lets go of the
-  // shortcut and stops the helper) has finished before an installer replaces it.
+  // The update is started from will-quit, not here: quitting first closes Buddy's windows and lets everything finish
+  // (main.js's own will-quit lets go of the shortcut and stops the helper, in the same moment), and only then does an
+  // installer or the Mac's swap script take over.
   let relaunch = false;
   const restartToUpdate = () => {
     if (!updater.installsItself() || updater.state().status !== 'ready') return;
@@ -131,12 +132,16 @@ function registerUpdatesIpc({ ipcMain, electron, getUpdater, allowed, store, isB
 
   // Install on quit: an update that was downloaded and checked but not installed yet goes in as Buddy closes, and
   // opens Buddy again afterwards when the person chose Update now.
+  // If the update cannot start (its download was cleaned away, say) after Update now, Buddy opens again by itself:
+  // the person asked for Buddy to come back, and that was the installer's job.
   app.on('will-quit', () => {
+    let started = false;
     try {
-      updater.install({ relaunch });
+      started = updater.install({ relaunch });
     } catch (err) {
       console.error('[buddy] could not start the update:', err);
     }
+    if (relaunch && !started) app.relaunch();
   });
 
   return { launchCheck, stateChanged, updateNow };

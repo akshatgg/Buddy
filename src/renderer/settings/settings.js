@@ -218,10 +218,10 @@ function renderUpdates(state) {
   $('update-now').disabled = v.row.disabled;
 }
 
-/** Run an update call; a refused one says why on the section's line. */
+/** Run an update call; a refused one says why on the section's line, and one that worked clears what it said. */
 async function updateCall(call) {
   const r = await call();
-  if (!r.ok) showStatus('update-status', r.error.message, 'error');
+  showStatus('update-status', r.ok ? '' : r.error.message, r.ok ? 'muted' : 'error');
   return r;
 }
 
@@ -362,8 +362,12 @@ $('update-notes').addEventListener('click', () => updateCall(window.buddy.openRe
 $('update-auto').addEventListener('change', async () => {
   const want = $('update-auto').checked;
   const r = await updateCall(() => window.buddy.setAutoUpdates(want));
-  if (r.ok) showStatus('update-status', 'Saved ✓', 'good');
-  else $('update-auto').checked = !want;
+  if (r.ok) {
+    snap.settings.checkForUpdates = want; // so that the next render of `snap` does not flip the switch back
+    showStatus('update-status', 'Saved ✓', 'good');
+  } else {
+    $('update-auto').checked = !want;
+  }
 });
 window.buddy.onUpdates((state) => renderUpdates(state));
 // Coming back to this window: System Settings may have changed the permissions, and the account may have changed

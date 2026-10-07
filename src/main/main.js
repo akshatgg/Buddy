@@ -32,7 +32,7 @@ const { registerPanelIpc } = require('./ipc/panel');
 const { registerSettingsIpc } = require('./ipc/settings');
 const { registerAdminIpc } = require('./ipc/admin');
 const { registerUpdatesIpc } = require('./ipc/updates');
-const { createUpdater, replaceableBundle, firstLaunchOfNewVersion } = require('./updates');
+const { createUpdater, installTarget, firstLaunchOfNewVersion } = require('./updates');
 const { helperFile, windows: onWindows } = require('./platform');
 
 // Buddy's own version, from the app's package.json (which is packed into the built app). Not app.getVersion(): when
@@ -96,17 +96,19 @@ async function start(options = {}) {
   const windows = createSettingsWindows({ app });
   const openSettings = (section) => windows.open('settings', section ? { section } : undefined);
 
-  // Update now (updates.js, ipc/updates.js). A development run never installs anything, since it is not the app that
-  // would be replaced: it only says where the new version is (the "download" kind), and never checks by itself.
+  // Update now (updates.js, ipc/updates.js). Only Buddy as installed updates itself: a development run, a trial run
+  // (BUDDY_USER_DATA, index.js) and a copy outside the install folder only say where the new version is, and the first
+  // two never check by itself (updates.js installTarget).
   let updatesIpc = null;
+  const target = installTarget({ platform: process.platform, packaged: app.isPackaged, trial: options.trial === true, execPath: process.execPath });
   const updater = createUpdater({
     currentVersion: VERSION,
-    platform: app.isPackaged ? process.platform : 'development',
+    platform: target.platform,
     fetchImpl: (...args) => fetch(...args),
     downloadDir: path.join(app.getPath('temp'), 'buddy-updates'),
     getSettings: () => store.all(),
     patchSettings: (patch) => store.set(patch),
-    bundle: app.isPackaged && process.platform === 'darwin' ? replaceableBundle(process.execPath) : null,
+    bundle: target.bundle,
     spawn,
     runCommand: promisify(execFile),
     onChange(state) {
@@ -271,7 +273,7 @@ async function start(options = {}) {
       if (!granted?.accessibility) openSettings('permissions');
     }).catch((err) => console.warn('[buddy] could not check the permissions after the update:', err.code || err.name));
   }
-  if (app.isPackaged) updatesIpc.launchCheck();
+  if (target.platform !== 'development') updatesIpc.launchCheck();
 
   return { store, secrets, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, trayState, shortcut, updater };
 }

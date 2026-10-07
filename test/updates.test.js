@@ -10,8 +10,10 @@ const { spawnSync } = require('node:child_process');
 const {
   RELEASES_API, parseVersion, compareVersions, fetchLatestRelease,
   parseLatestYml, formatLatestYml, downloadVerifiedInstaller, installKind, installerArgs,
-  shouldAutoCheck, firstLaunchOfNewVersion, createUpdater, replaceableBundle, updateAsset, MAC_SWAP_SCRIPT, BUNDLE_ID
+  shouldAutoCheck, firstLaunchOfNewVersion, createUpdater, replaceableBundle, updateAsset, MAC_SWAP_SCRIPT, BUNDLE_ID,
+  installTarget
 } = require('../src/main/updates');
+const { EventEmitter } = require('node:events');
 const { writeLatestYml } = require('../tools/latest-yml');
 const { DEFAULTS } = require('../src/main/store');
 
@@ -241,7 +243,7 @@ test('the first launch after an update is told apart from a fresh install and fr
   assert.strictEqual(firstLaunchOfNewVersion(fresh, '0.3.0'), false, 'only the first launch of it');
 });
 
-function harness({ platform = 'darwin', arch = 'arm64', bundle = null, runCommand, routes, settings = {}, version = '0.2.0' }) {
+function harness({ platform = 'darwin', arch = 'arm64', bundle = null, runCommand, routes, settings = {}, version = '0.2.0', patchSettings, spawn, exists }) {
   let s = { ...structuredClone(DEFAULTS), ...settings };
   const states = [];
   const spawned = [];
@@ -249,9 +251,10 @@ function harness({ platform = 'darwin', arch = 'arm64', bundle = null, runComman
   const updater = createUpdater({
     currentVersion: version, platform, arch, bundle, runCommand, pid: 4242, fetchImpl, downloadDir: tmpDir(),
     getSettings: () => s,
-    patchSettings: (p) => { s = { ...s, ...p }; },
+    patchSettings: patchSettings || ((p) => { s = { ...s, ...p }; }),
     now: () => 1_800_000_000_000,
-    spawn: (file, args, opts) => { spawned.push({ file, args, opts }); return { unref() {} }; },
+    spawn: spawn || ((file, args, opts) => { spawned.push({ file, args, opts }); return { unref() {} }; }),
+    ...(exists ? { exists } : {}),
     onChange: (st) => { if (states.at(-1) !== st.status) states.push(st.status); }
   });
   return { updater, states, spawned, fetchImpl, settings: () => s };
@@ -551,3 +554,95 @@ test('an update that already downloaded stays ready when a later check fails', a
   assert.strictEqual(st.status, 'ready');
   assert.strictEqual(h.updater.install({ relaunch: false }), true);
 });
+
+// ---- what a run may update ---------------------------------------------------
+
+test('only an installed Buddy updates itself: a development run, a trial run and a loose copy never do', () => {
+  const none = () => false;
+  const writable = () => {};
+  // Not packaged (electron .), or a trial run with BUDDY_USER_DATA: never installs, and the caller never checks by itself.
+  assert.deepStrictEqual(installTarget({ platform: 'darwin', packaged: false, execPath: '/Applications/Buddy.app/Contents/MacOS/Buddy', access: writable }),
+    { platform: 'development', bundle: null });
+  assert.deepStrictEqual(installTarget({ platform: 'win32', packaged: true, trial: true, execPath: 'C:\\x\\Buddy.exe', exists: () => true }),
+    { platform: 'development', bundle: null });
+  // Windows: only the copy the installer put there (its uninstaller sits next to it). release\win-unpacked is not one.
+  const installed = 'C:\\Users\\a\\AppData\\Local\\Programs\\buddy\\Buddy.exe';
+  const seen = [];
+  assert.deepStrictEqual(installTarget({ platform: 'win32', packaged: true, execPath: installed, exists: (f) => { seen.push(f); return true; } }),
+    { platform: 'win32', bundle: null });
+  assert.match(seen[0], /Uninstall Buddy\.exe$/);
+  assert.deepStrictEqual(installTarget({ platform: 'win32', packaged: true, execPath: 'C:\\src\\release\\win-unpacked\\Buddy.exe', exists: none }),
+    { platform: 'development', bundle: null });
+  // Mac: only an app in an Applications folder is replaced; a build in release/mac-arm64 only offers the download.
+  assert.deepStrictEqual(installTarget({ platform: 'darwin', packaged: true, execPath: '/Applications/Buddy.app/Contents/MacOS/Buddy', access: writable }),
+    { platform: 'darwin', bundle: '/Applications/Buddy.app' });
+  assert.deepStrictEqual(installTarget({ platform: 'darwin', packaged: true, execPath: '/Users/a/Applications/Buddy.app/Contents/MacOS/Buddy', access: writable, homedir: '/Users/a' }),
+    { platform: 'darwin', bundle: '/Users/a/Applications/Buddy.app' });
+  assert.deepStrictEqual(installTarget({ platform: 'darwin', packaged: true, execPath: '/Users/a/src/buddy/release/mac-arm64/Buddy.app/Contents/MacOS/Buddy', access: writable, homedir: '/Users/a' }),
+    { platform: 'darwin', bundle: null });
+});
+
+test('an installer that disappeared before Buddy quit is not run, and says so', async () => {
+  const exe = crypto.randomBytes(5000);
+  const yml = formatLatestYml({ version: '0.3.0', file: 'Buddy-Setup-x64.exe', sha512: sha512(exe), size: exe.length, releaseDate: 'x' });
+  const h = harness({ platform: 'win32', arch: 'x64', routes: { [RELEASES_API]: release(), [YML_URL]: yml, [EXE_URL]: exe }, exists: () => false });
+  await h.updater.check();
+  assert.strictEqual(h.updater.install({ relaunch: true }), false);
+  assert.strictEqual(h.spawned.length, 0);
+  assert.strictEqual(h.updater.state().status, 'error');
+  assert.match(h.updater.state().error, /downloads it again/);
+});
+
+test('an installer that fails to start is logged, not thrown at quit', async () => {
+  const exe = crypto.randomBytes(5000);
+  const yml = formatLatestYml({ version: '0.3.0', file: 'Buddy-Setup-x64.exe', sha512: sha512(exe), size: exe.length, releaseDate: 'x' });
+  const child = new EventEmitter();
+  child.unref = () => {};
+  const h = harness({ platform: 'win32', arch: 'x64', routes: { [RELEASES_API]: release(), [YML_URL]: yml, [EXE_URL]: exe }, spawn: () => child });
+  await h.updater.check();
+  assert.strictEqual(h.updater.install({ relaunch: false }), true);
+  const logged = [];
+  const original = console.error;
+  console.error = (...args) => logged.push(args.join(' '));
+  try {
+    child.emit('error', Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' })); // would throw with no listener
+  } finally {
+    console.error = original;
+  }
+  assert.match(logged.join('\n'), /could not start the update/);
+});
+
+test('a ready update still installs on quit while the hourly check is running', async () => {
+  const exe = crypto.randomBytes(5000);
+  const yml = formatLatestYml({ version: '0.3.0', file: 'Buddy-Setup-x64.exe', sha512: sha512(exe), size: exe.length, releaseDate: 'x' });
+  let answer = null; // while null, GitHub answers with the release
+  const routes = { [YML_URL]: yml, [EXE_URL]: exe };
+  const fetchImpl = async (url) => {
+    if (url === RELEASES_API) return answer ? answer : Response.json(release());
+    return Buffer.isBuffer(routes[url]) || typeof routes[url] === 'string' ? new Response(routes[url]) : Response.json(routes[url]);
+  };
+  const spawned = [];
+  const updater = createUpdater({
+    currentVersion: '0.2.0', platform: 'win32', arch: 'x64', fetchImpl, downloadDir: tmpDir(),
+    getSettings: () => ({ checkForUpdates: true }), patchSettings: () => {},
+    spawn: (file) => { spawned.push(file); return { unref() {} }; },
+  });
+  await updater.check();
+  assert.strictEqual(updater.state().status, 'ready');
+  answer = new Promise(() => {}); // the next check never answers, as if the network hangs
+  updater.check();
+  assert.strictEqual(updater.state().status, 'checking');
+  assert.strictEqual(updater.install({ relaunch: false }), true);
+  assert.strictEqual(spawned.length, 1);
+});
+
+test('a settings file that cannot be written does not leave the check spinning', async () => {
+  const h = harness({ bundle: null, routes: { [RELEASES_API]: release() }, patchSettings: () => { throw new Error('EPERM'); } });
+  const st = await h.updater.check();
+  assert.strictEqual(st.status, 'available');
+});
+
+test('the Mac swap script is not stopped by the signals a shutdown or log out sends', () => {
+  assert.match(MAC_SWAP_SCRIPT.split('\n')[0], /^trap '' TERM INT HUP$/);
+});
+

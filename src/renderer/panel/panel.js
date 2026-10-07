@@ -1,187 +1,192 @@
 'use strict';
+/* global ChatView */
+
+/*
+ * The panel is a chat. The main process keeps the chat and sends all of it after every change (src/main/actions.js);
+ * this page only draws it, and sends what the person types and the buttons they click. What to draw for each item
+ * comes from chat-view.js. Every word from the chat is put in as text, never as HTML.
+ */
 
 const $ = (id) => document.getElementById(id);
-const TABS = ['write', 'fix', 'check'];
-const FIRST_FIELD = { write: 'write-text', fix: 'fix-text', check: 'check-q' };
-const INSERT_LABEL = { write: 'Insert', fix: 'Replace', check: 'Replace' };
-const INSERT_MODE = { write: 'insert', fix: 'replace', check: 'replaceAll' };
+const { canSend, itemParts, selectionPreview, thinkingLine } = ChatView;
 
-let last = null; // { action, input } of the latest request, for Try again
-let image = null; // the latest screenshot, base64 JPEG
-let currentTab = 'write';
+let state = null; // the chat as the main process sent it last
+let sending = false; // a message is on its way: the next one waits until its answer is in
 let generation = 0; // counts how often the panel has been opened; an answer to a request from an earlier opening is stale
-let errorCode = null; // the code of the error shown now, so that Open Settings can say which section it is about
-
-// Errors whose fix is in Settings: no key yet, a key that was refused, an account out of credit, a model that cannot
-// be used (not there for this key, or it cannot read screenshots: "Pick another in Settings"); and signed out,
-// today's free requests used up with own keys allowed but none saved, free mode turned off, and a copy of Buddy that
-// cannot sign in. They come with an "Open Settings" button. (The code is the one the main process sent along with the
-// message.)
-const SETTINGS_ERRORS = ['no_key', 'bad_key', 'no_credit', 'bad_model', 'no_vision', 'signed_out', 'need_key', 'free_off', 'not_set_up'];
+let newest = null; // the last item and whether the buddy was thinking, as last drawn: something new there scrolls to it
+const acting = new Set(); // the items whose button was clicked and is still being done, so that a second click waits
 
 function show(el, visible) {
   el.hidden = !visible;
 }
 
-function showError(message, code) {
-  errorCode = message ? (code || null) : null;
-  $('error').textContent = message || '';
-  show($('error'), Boolean(message));
-  show($('error-settings'), Boolean(message) && SETTINGS_ERRORS.includes(code));
+function make(tag, className, text) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  if (text) el.textContent = text;
+  return el;
 }
 
-function reset() {
-  last = null;
-  image = null;
-  $('write-text').value = '';
-  $('check-q').value = '';
-  $('result-text').value = '';
-  for (const id of ['result', 'shot', 'busy', 'notice']) show($(id), false);
-  showError('');
-  busy(false);
-  // An answer from before this opening is ignored, so it will not turn these back on.
-  $('fix-whole').disabled = false;
-  $('check-shot').disabled = false;
+/** A line under the box for a message or a click that did not go through. */
+function showSendError(message) {
+  $('send-error').textContent = message || '';
+  show($('send-error'), Boolean(message));
 }
 
-/** Runs `call` with `button` disabled, so that a second click cannot start the same call again. */
-async function whileDisabled(button, call) {
+function drawButtons(parts) {
+  const row = make('div', 'actions');
+  for (const { button, label, primary } of parts.buttons) {
+    let look = primary ? 'btn small primary' : 'btn small';
+    if (parts.kind === 'event') look = 'btn small quiet'; // a small line's Undo reads like a link
+    const b = make('button', look, label);
+    b.type = 'button';
+    b.disabled = acting.has(parts.id);
+    b.addEventListener('click', () => act(parts.id, button, row));
+    row.append(b);
+  }
+  return row;
+}
+
+/** One item of the chat: yours on the right, the buddy's on the left, what happened as a small line in the middle. */
+function drawItem(parts) {
+  const li = make('li', `item ${parts.kind}`);
+  if (parts.kind === 'event') {
+    li.append(make('p', 'text', parts.text));
+    if (parts.buttons.length) li.append(drawButtons(parts));
+    return li;
+  }
+  const bubble = make('div', 'bubble');
+  if (parts.say) bubble.append(make('p', 'say', parts.say));
+  if (parts.text) bubble.append(make('p', 'text', parts.text));
+  if (parts.notes.length) {
+    const notes = make('ul', 'notes');
+    notes.append(...parts.notes.map((note) => make('li', '', note)));
+    bubble.append(notes);
+  }
+  if (parts.buttons.length) bubble.append(drawButtons(parts));
+  li.append(bubble);
+  return li;
+}
+
+function updateSend() {
+  const ready = Boolean(state) && canSend({ busy: state.busy || sending, text: $('box').value, selection: state.selection });
+  $('send').disabled = !ready;
+}
+
+/** Shows the newest item: its end, or its start when it is taller than the list (a long mail is read from the top). */
+function scrollToNewest() {
+  const chat = $('chat');
+  const last = $('items').lastElementChild;
+  if (last && !state.busy && last.offsetHeight > chat.clientHeight) {
+    chat.scrollTop = last.offsetTop - 8; // the list is the item's offset parent (panel.css)
+  } else {
+    chat.scrollTop = chat.scrollHeight;
+  }
+}
+
+function render({ scroll = false } = {}) {
+  const s = state;
+  $('who').textContent = s.buddyName || 'Buddy';
+  $('where').textContent = s.appName ? `· ${s.appName}` : '';
+  $('greeting').textContent = s.greeting || 'Hi! What should we do?';
+
+  const parts = (Array.isArray(s.chat) ? s.chat : []).map(itemParts).filter(Boolean);
+  $('items').replaceChildren(...parts.map(drawItem));
+  show($('empty'), parts.length === 0);
+  $('thinking').textContent = thinkingLine(s.buddyName);
+  show($('thinking'), Boolean(s.busy));
+
+  $('notice').textContent = s.notice || '';
+  show($('notice'), Boolean(s.notice));
+  $('selection-text').textContent = s.selection ? `“${selectionPreview(s.selection)}”` : '';
+  show($('selection'), Boolean(s.selection));
+  updateSend();
+
+  // Scrolled when something new came in at the bottom, not when an older item changed (its Undo used, say), so
+  // that the list stays where the person is reading.
+  const now = { id: parts.length ? parts[parts.length - 1].id : null, busy: Boolean(s.busy) };
+  if (scroll || !newest || now.id !== newest.id || (now.busy && !newest.busy)) scrollToNewest();
+  newest = now;
+}
+
+async function send() {
+  if (!state || !canSend({ busy: state.busy || sending, text: $('box').value, selection: state.selection })) return;
   const mine = generation;
-  button.disabled = true;
+  const message = $('box').value.trim();
+  $('box').value = '';
+  showSendError('');
+  sending = true;
+  updateSend();
+  let r;
   try {
-    return await call();
+    r = await window.buddy.send(message); // an empty message with a selection fixes the selection
   } finally {
-    if (mine === generation) button.disabled = false; // after a new opening, reset() has done this already
-  }
-}
-
-async function takeScreenshot() {
-  if ($('check-shot').disabled) return; // one at a time: the button is off while a screenshot is being taken
-  const mine = generation;
-  showError('');
-  const r = await whileDisabled($('check-shot'), () => window.buddy.screenshot());
-  if (mine !== generation) return; // the panel was opened again meanwhile: this shot belongs to the earlier opening
-  if (!r.ok) {
-    showError(r.error.message);
-    return;
-  }
-  image = r.image;
-  $('shot').src = `data:image/jpeg;base64,${image}`;
-  show($('shot'), true);
-}
-
-function setTab(name) {
-  currentTab = name;
-  for (const t of TABS) {
-    show($(`tab-${t}`), t === name);
-    const tab = document.querySelector(`[data-tab="${t}"]`);
-    tab.classList.toggle('active', t === name);
-    tab.setAttribute('aria-pressed', String(t === name)); // so a screen reader says which tab is chosen
-  }
-  show($('result'), false);
-  showError('');
-  $(FIRST_FIELD[name]).focus();
-  if (name === 'check' && !image) takeScreenshot();
-}
-
-function busy(on) {
-  show($('busy'), on);
-  for (const b of document.querySelectorAll('button.primary, #again')) b.disabled = on;
-}
-
-function showResult(action, result) {
-  const check = action === 'check' ? result.check : null;
-  const structured = Boolean(check && !check.raw);
-  $('problems').replaceChildren();
-  if (structured) {
-    $('verdict').textContent = check.verdict === 'good' ? 'Looks good ✓' : 'Has problems';
-    $('verdict').className = `verdict ${check.verdict}`;
-    for (const problem of check.problems) {
-      const li = document.createElement('li');
-      li.textContent = problem;
-      $('problems').append(li);
+    if (mine === generation) {
+      sending = false;
+      updateSend();
     }
   }
-  show($('verdict'), structured);
-  show($('problems'), structured && check.problems.length > 0);
-
-  let text = result.text;
-  if (check) text = structured ? check.corrected || '' : check.raw;
-  $('result-text').value = text;
-  $('insert').textContent = INSERT_LABEL[action];
-  for (const id of ['result-text', 'insert', 'copy']) show($(id), Boolean(text));
-  show($('result'), true);
+  if (mine !== generation || r.ok) return; // the answer (or what went wrong) is in the chat by now
+  if (!$('box').value) $('box').value = message; // it did not go: the words are given back, to send again
+  showSendError(r.error.message);
+  updateSend();
 }
 
-async function run(action, input) {
+async function act(id, button, row) {
+  if (acting.has(id)) return;
   const mine = generation;
-  last = { action, input };
-  showError('');
-  show($('result'), false);
-  busy(true);
-  const r = await window.buddy.run(action, input);
-  if (mine !== generation) return; // the panel was opened again meanwhile: this answer belongs to the earlier opening
-  busy(false);
-  if (!r.ok) {
-    showError(r.error.message, r.error.code);
-    return;
+  acting.add(id);
+  for (const b of row.querySelectorAll('button')) b.disabled = true;
+  showSendError('');
+  let r;
+  try {
+    r = await window.buddy.act(id, button);
+  } finally {
+    if (mine === generation) {
+      acting.delete(id);
+      render();
+    }
   }
-  showResult(action, r.result);
+  if (mine === generation && !r.ok) showSendError(r.error.message);
 }
 
-$('write-go').addEventListener('click', () => run('write', {
-  instruction: $('write-text').value,
-  tone: document.querySelector('input[name="tone"]:checked').value,
-}));
-$('fix-go').addEventListener('click', () => run('fix', { text: $('fix-text').value }));
-$('check-go').addEventListener('click', () => {
-  if (image) run('check', { image, instruction: $('check-q').value });
-  else takeScreenshot();
+const box = $('box');
+box.addEventListener('input', updateSend);
+box.addEventListener('keydown', (e) => {
+  // ↩ sends and ⇧↩ starts a new line. While an input method is composing (Hindi, Devanagari), ↩ belongs to it.
+  if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+  e.preventDefault();
+  send();
 });
-$('check-shot').addEventListener('click', () => takeScreenshot());
-$('fix-whole').addEventListener('click', async () => {
-  const mine = generation;
-  showError('');
-  const r = await whileDisabled($('fix-whole'), () => window.buddy.wholeBox());
-  // Reading the box hides the panel and shows it again, which is a new opening that already holds the text,
-  // or the reason it could not be read. An answer that arrives in the same opening (no app to read) is shown here.
-  if (mine !== generation) return;
-  if (!r.ok) {
-    showError(r.error.message);
-    return;
-  }
-  $('fix-text').value = r.text;
-  if (!r.text) showError('That box looks empty.');
+$('send').addEventListener('click', () => {
+  send();
+  box.focus();
 });
-$('insert').addEventListener('click', () => {
-  if (!last) return;
-  window.buddy.insert($('result-text').value, INSERT_MODE[last.action]);
-});
-$('copy').addEventListener('click', () => window.buddy.copy($('result-text').value));
-$('again').addEventListener('click', () => {
-  if (last) run(last.action, last.input);
+$('drop-selection').addEventListener('click', async () => {
+  const r = await window.buddy.dropSelection();
+  if (!r.ok) showSendError(r.error.message);
+  box.focus();
 });
 $('close').addEventListener('click', () => window.buddy.close());
 $('settings').addEventListener('click', () => window.buddy.openSettings());
-$('error-settings').addEventListener('click', () => window.buddy.openSettings(errorCode));
-for (const b of document.querySelectorAll('[data-tab]')) b.addEventListener('click', () => setTab(b.dataset.tab));
 
 document.addEventListener('keydown', (e) => {
-  if (e.isComposing) return; // Esc and Enter belong to the input method while it is composing (Hindi, Devanagari)
+  if (e.isComposing) return; // Esc belongs to the input method while it is composing
   if (e.key === 'Escape') window.buddy.close();
-  // ⌘↩ (Ctrl+Enter on Windows) presses the current tab's main button.
-  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) $(`${currentTab}-go`).click();
 });
 
-window.buddy.onOpen((state) => {
+window.buddy.onOpen((s) => {
   generation += 1;
-  reset();
-  $('who').textContent = state.buddyName;
-  $('where').textContent = state.appName ? `· ${state.appName}` : '';
-  $('fix-text').value = state.selection;
-  if (state.notice) {
-    $('notice').textContent = state.notice;
-    show($('notice'), true);
-  }
-  setTab(state.tab);
+  sending = false;
+  acting.clear();
+  showSendError('');
+  if (!s.resumed) box.value = ''; // a new chat starts with an empty box; a resumed one keeps what was typed
+  state = s;
+  render({ scroll: true });
+  box.focus();
+});
+
+window.buddy.onState((s) => {
+  state = s;
+  render();
 });

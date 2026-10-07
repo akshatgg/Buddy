@@ -65,6 +65,17 @@ build without a valid one fails (`build/afterPack.js`).
     npm run test:firestore   # the server's database code against the Firestore emulator (needs the Firebase CLI (firebase) and Java 21 or newer)
     npm run deploy:server    # deploy the server
 
+## Website
+
+The download site, https://buddywrites.vercel.app, is plain HTML in `web/public/` (home page, privacy page,
+`style.css`, `site.js`) and is deployed with the server (`npm run deploy:server`). Its download buttons use
+`https://github.com/akshatgg/Buddy/releases/latest/download/<file>`, so a new release needs no change to the site;
+`site.js` adds the version and size, and offers Windows once a release has `Buddy-Setup-x64.exe`.
+Design: `docs/superpowers/specs/2026-10-07-buddy-website-design.md`.
+
+    tools/make-site-images.sh        # the buddies, icons and favicons, from assets/ and build/icon.png
+    tools/make-site-images.sh --og   # also the link preview, web/public/og.png (needs Google Chrome)
+
 ## Tests
 
     npm test           # lint and unit tests

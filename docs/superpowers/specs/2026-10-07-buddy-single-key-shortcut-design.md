@@ -56,7 +56,9 @@ again closes the panel, as the shortcut does today.
   after the fingers have left the trackpad (momentum) are left out.
   Without Accessibility the command fails with `no_accessibility`. While the tap is on, the helper looks at it every
   5 seconds: a tap that macOS switched off is switched back on, and once Accessibility comes back after being taken
-  away, the tap is made again (one made before may hear no keys).
+  away, the tap is made again (one made before may hear no keys); if that fails it reports
+  `{"event": "keys", "kind": "lost"}`, and the key watch tells it again, and asks again every 10 seconds. Of the
+  system-defined events only the media keys (subtype 8) count, so that fn and 🌐 cannot spoil a tap of fn.
   The Node side of the helper says `started` each time the helper (re)starts.
 - **Tap detector (`src/main/modifier-tap.js`):** a pure state machine turning those reports into taps (keys pressed
   alone, all let go within 0.5 s, nothing else between; no other modifier still held at the end).

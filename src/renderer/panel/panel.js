@@ -281,6 +281,8 @@ const PLACEHOLDERS = {
   listening: 'Listening… speak now',
   writing: 'Writing down what you said…',
 };
+// What 🎤 does now, on its tooltip: while what was said is written down, it drops that.
+const MIC_TITLES = { idle: 'Talk', starting: 'Stop listening', listening: 'Stop listening', writing: 'Stop writing it down' };
 const VOICE_WORDS = {
   off: "Voice isn't set up yet.",
   notCaught: "I didn't catch that. Try again, or type.",
@@ -292,16 +294,18 @@ const VOICE_WORDS = {
   wait: 'Wait for my answer first.',
 };
 
-/** Draws the listening: 🎤 glows while it listens, the bars follow the voice, the box says what is going on. */
+/**
+ * Draws the listening: 🎤 glows while it listens, the bars follow the voice, the box says what is going on. The box can
+ * still be typed in while what was said is written down: typing stops that.
+ */
 function setVoice(next) {
   voice = next;
   const on = next === 'starting' || next === 'listening';
   $('box-frame').classList.toggle('listening', next === 'listening');
   $('box-frame').classList.toggle('writing', next === 'writing');
   $('box').placeholder = PLACEHOLDERS[next];
-  $('box').disabled = next === 'writing';
   $('mic').setAttribute('aria-pressed', String(on));
-  $('mic').title = on ? 'Stop listening' : 'Talk';
+  $('mic').title = MIC_TITLES[next];
   show($('voice-bars'), next === 'listening' || next === 'writing');
   if (next !== 'listening') drawBars([0, 0, 0]);
   // What the box says, for a screen reader too (its placeholder is not read out as it changes).
@@ -495,7 +499,6 @@ async function finishListening(heardVoice) {
   }
   if (document.hidden) return cancelListening(); // hidden meanwhile, and not stopped yet (see the end): nothing is sent
   setVoice('idle');
-  focusBoxIfLost(); // the box was disabled meanwhile, which took the keyboard from it
   if (!r.ok) return showSendError(r.error.message); // the server's own words (voice is busy, not set up, …)
   const words = typeof r.text === 'string' ? r.text.trim() : '';
   if (!words) return showSendError(VOICE_WORDS.notCaught);
@@ -525,10 +528,9 @@ function cancelListening() {
   setVoice('idle');
 }
 
-// 🎤 starts listening, and stops it. While what was said is being written down, it drops that and listens again.
+// 🎤 starts listening, and stops it. While what was said is being written down, it drops that (and does not listen).
 $('mic').addEventListener('click', () => {
-  if (voice === 'starting' || voice === 'listening') return cancelListening();
-  cancelListening(); // what was being written down is dropped
+  if (voice !== 'idle') return cancelListening();
   startListening();
 });
 // Hidden by main (a click somewhere else, Buddy putting text in the app, the shortcut): listening stops, and nothing of

@@ -21,6 +21,7 @@ module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
   ipcMain.on('panel:voice-level', onLevel);
   const free = ctx.cloud.free;
   const { ask } = ctx.ai;
+  const { transcribe } = ctx.cloud;
   const asks = [];
   const write = { kind: 'write', say: 'Here it is.', text: 'Dear Sir, I need leave tomorrow.', notes: [], doIt: false, send: false, remember: [] };
   const answers = []; // the AI's next answers, in order (a function: answered once it says); then `write`
@@ -163,6 +164,38 @@ module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
     assert.strictEqual(await page("!document.getElementById('send-error-settings').hidden"), true, 'with Open Settings');
     await page('delete navigator.mediaDevices.getUserMedia');
 
+    // While what was said is being written down, the box can be typed in, and typing stops it: nothing is sent. 🎤 then
+    // stops it too, and does not listen again.
+    const writing = []; // the recordings being written down: each one's function answers it
+    ctx.cloud.transcribe = () => new Promise((resolve) => writing.push(() => resolve(HEARD)));
+    const placeholder = () => page("document.getElementById('box').placeholder");
+    await ctx.actions.dismiss();
+    await openPanel(); // it listens by itself
+    await waitFor(() => writing.length === 1, 'the recording to be written down', 15_000);
+    assert.strictEqual(await placeholder(), 'Writing down what you said…');
+    assert.strictEqual(await page("document.getElementById('box').disabled"), false, 'the box can be typed in meanwhile');
+    await page(`(() => {
+      const box = document.getElementById('box');
+      box.value = 'x';
+      box.dispatchEvent(new Event('input'));
+    })()`);
+    assert.strictEqual(await placeholder(), 'Tell me what to do…', 'typing stopped it');
+    writing[0]();
+    await delay(300);
+    assert.strictEqual(await page("document.getElementById('box').value"), 'x', 'the words did not go in the box');
+    assert.ok(!chat().some((item) => item.type === 'you'), 'nor were they sent');
+    await page("document.getElementById('mic').click()");
+    await waitFor(() => writing.length === 2, 'the recording to be written down', 15_000);
+    told.length = 0;
+    await page("document.getElementById('mic').click()");
+    assert.strictEqual(await placeholder(), 'Tell me what to do…', '🎤 stopped it');
+    await delay(1000);
+    assert.strictEqual(listened(), false, 'and did not listen again');
+    writing[1]();
+    await delay(300);
+    assert.ok(!chat().some((item) => item.type === 'you'), 'nothing was sent');
+    ctx.cloud.transcribe = transcribe;
+
     // Voice off for this person, then "Listen when the panel opens" off: opened again, the panel does not listen.
     for (const [what, change, undo] of [
       ['voice off', () => { ctx.cloud.free = { ...free, voiceOn: false }; }, () => { ctx.cloud.free = { ...free, voiceOn: true }; }],
@@ -181,6 +214,7 @@ module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
     ipcMain.removeListener('panel:listening', onListening);
     ipcMain.removeListener('panel:voice-level', onLevel);
     ctx.ai.ask = ask;
+    ctx.cloud.transcribe = transcribe;
     ctx.cloud.free = free;
     ctx.cloud.heard = '';
     ctx.store.set({ listenOnOpen: true });

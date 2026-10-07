@@ -283,4 +283,3 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
-.box textarea:disabled { opacity: 1; color: var(--muted); }

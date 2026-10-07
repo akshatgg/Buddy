@@ -183,10 +183,10 @@ Commit: `feat: petting and shaking gestures, and the buddy's sleep countdown`.
 
 **Files:** Modify `src/renderer/buddy/buddy.js`, `src/renderer/buddy/index.html`, `src/preload/buddy.js`,
 `src/main/buddy-window.js`, `src/main/ipc/buddy.js`, `src/main/characters.js` (if the accent is not yet available),
-`src/main/geometry.js`, `src/main/main.js` (only: create the sleep countdown, give it to the buddy IPC, poke it before
-`wave`, take `options.sleep` for tests; do not touch the `ui` object given to actions); tests:
-`test/buddy-window.test.js`, `test/buddy-ipc.test.js`, `test/geometry.test.js`, new e2e check
-`test/e2e/checks/15-buddy-feelings.js` (+ `test/e2e/smoke.js` if options are needed).
+`src/main/geometry.js`; tests: `test/buddy-window.test.js`, `test/buddy-ipc.test.js`, `test/geometry.test.js`, new e2e
+check `test/e2e/checks/15-buddy-feelings.js` (the harness loads every file in that folder by itself). **Not**
+`src/main/main.js` or `test/e2e/smoke.js`: the other session is changing them (owner's rule: wait until it says
+done). Their lines move to Task 6.
 
 - The page applies every pose field (head pitch/yaw/tilt with `look`, `float`, the five new morphs, `glow` on the
   Face's glowing materials and `ears` on `EarRims`'s, from their loaded intensities), `blinkWeight(pose, …)`,
@@ -197,24 +197,28 @@ Commit: `feat: petting and shaking gestures, and the buddy's sleep countdown`.
   `effect` changes; colour = the character's accent, which `buddy:model` now returns as `{ bytes, accent }`).
   Expose `window.__buddyMood` (the mood's name) for the e2e test.
 - Main: `buddy-window.js` gains `voiceLevel(level)` (clamped 0–1, sent on `buddy:voice-level`, never queued for a
-  page that is loading); `ipc/buddy.js` tells the sleep countdown about use (`hold('hover', over)`,
-  `hold('drag', true|false)`, `poke()` on click). `main.js`: `createSleep({ onMood: (m) => buddy.mood(m),
-  ...options.sleep })`, poke before each `buddy.mood('wave')`.
+  page that is loading); `registerBuddyIpc` takes an optional `sleep` (default: one whose `poke` and `hold` do
+  nothing) and tells it about use: `hold('hover', over)`, `hold('drag', true|false)`, `poke()` on click.
 - The window grows upward (Global Constraints): `buddyWindowSize` adds 0.6 × size to the height; `buddy.bounds()`
   keeps returning the old rectangle (the buddy's own box at the bottom of the window), so the panel and the bubble
   are placed as before; dragging, snapping and clamping use the real window; a saved position from before keeps its
   bottom centre. The camera frames the model at the same size and place within that bottom box.
-- e2e (short countdowns): drowsy → asleep → hovering wakes it (`wake` then `idle`); petting traces → `love`; a shaken
-  drag → `dizzy` after release; a voice level reaches the page during `listening`; a symbol element appears with
-  `love` and is gone after it.
+- e2e (`ctx.buddy` is the buddy window object; moods can be sent with `ctx.buddy.mood(name)`): `asleep` shows the
+  sleeping look and its symbols, and a later mood replaces it; petting traces (page input events, as
+  14-buddy-click.js sends them) → `love`; a shaken drag → `dizzy` after release; `ctx.buddy.voiceLevel()` reaches the
+  page during `listening`; a symbol element appears with `love` and is gone after it.
 
 Commit(s): `feat: the buddy shows its feelings` (plus `test: …` if separate).
 
 ### Task 6: Connect to the panel (after the chat panel is merged to master)
 
-**Files:** `src/main/actions.js`, `src/main/main.js` (its `ui` object), `docs/manual-checklist.md`, `README.md`.
+**Files:** `src/main/actions.js`, `src/main/main.js`, `test/e2e/smoke.js` (only if needed), a new e2e check for
+sleeping, `docs/manual-checklist.md`, `README.md`.
 
-- Rebase `feelings` on master first. Then: `celebrate` after Buddy puts text into the app (a paste, not a copy);
+- Rebase `feelings` on master first, keeping every change from the chat panel. Then in `main.js`:
+  `createSleep({ onMood: (m) => buddy.mood(m), ...options.sleep })`, passed to `registerBuddyIpc`; poke before each
+  `buddy.mood('wave')`; `options.sleep` (short countdowns) for the e2e check: drowsy → asleep → the pointer on the
+  buddy wakes it (`wake` then `idle`). Then: `celebrate` after Buddy puts text into the app (a paste, not a copy);
   `sad` instead of `sleepy` on errors (and its back-to-idle timer goes: `sad` ends by itself); every app mood pokes
   the sleep countdown; the panel open → `hold('panel', true)`, closed → `hold('panel', false)`; the chat panel's
   `ui.listening(on)` → `hold('voice', on)` and `buddy.mood(on ? 'listening' : 'idle')`; `ui.voiceLevel(level)` →

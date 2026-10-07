@@ -42,7 +42,7 @@
  * Only an installed bundle can keep itself on across restarts: the login item
  * (app.setLoginItemSettings) registers the running bundle, and in development
  * that is node_modules/electron/dist/Electron.app. The bundle also gets its own
- * Accessibility and Screen Recording permissions, under the name "Buddy".
+ * Accessibility, Screen Recording and Microphone permissions, under the name "Buddy".
  */
 
 const hasMacCert = Boolean(process.env.CSC_LINK);
@@ -116,6 +116,9 @@ module.exports = {
       // Accessory app: no Dock icon, no app-switcher entry. Buddy lives in the
       // menu bar and as the floating character.
       LSUIElement: true,
+      // What macOS shows when it asks for the microphone (the panel's voice). Without it, macOS ends the app the
+      // moment it uses the microphone.
+      NSMicrophoneUsageDescription: 'Buddy listens when you talk to it, to write down what you say.',
     },
     // The Swift helper (src/native/BuddyHelper.swift, built by `npm run build:native`).
     // main.js's helperPath() looks for it at process.resourcesPath/bin/buddy-helper.

@@ -11,12 +11,16 @@
  *
  * The chat lives here, not in the page: after every change the whole panel state goes to the page (ui.panelState),
  * which only draws it and sends back what the person types and the buttons they press. The state and its items are
- * the shape in docs/superpowers/plans/2026-10-08-buddy-chat-panel.md (C4).
+ * the shape in docs/superpowers/plans/2026-10-08-buddy-chat-panel.md (C4), with `voice` from
+ * docs/superpowers/plans/2026-10-08-buddy-voice.md (V2): whether the page may listen. The page records and works out
+ * when the person has finished; Buddy's server writes the recording down (transcribe()), and the page sends the words
+ * as a message of its own.
  */
 
 const { BuddyError } = require('../../shared/errors');
 const { LIMITS } = require('../../shared/prompts');
 const { AI_TIMEOUT_MS } = require('./ai');
+const { TRANSCRIBE_TIMEOUT_MS } = require('./cloud');
 const platform = require('./platform');
 
 const COPIED = `Copied — press ${platform.pasteKeys}`;
@@ -31,6 +35,10 @@ const UNREADABLE = "I couldn't read your selection — select it again or paste 
 // Reasons the selection was not read whose own words tell the person what is going on: a password field, and on
 // Windows an app run as administrator or keys still held down.
 const EXPLAINED = new Set(['secure_field', 'elevated', 'keys_held']);
+// How the microphone can stand (Electron's systemPreferences.getMediaAccessStatus); 'unknown' where the system does
+// not ask per app (Windows).
+const MIC = ['granted', 'denied', 'not-determined', 'restricted', 'unknown'];
+const NOT_RECORDED = "That recording didn't come through. Try again.";
 
 // Errors whose fix is in Settings, which come with an "Open Settings" button: no key yet, a key that was refused, an
 // account out of credit, a model that cannot be used (not there for this key, or it cannot read screenshots), today's
@@ -64,7 +72,9 @@ const SHOWN = {
  * (platform.js, process.platform); tests pass either system's. Besides showing and hiding the panel, `ui` has
  * panelState(state), which hands the page a changed state; panelHiddenAt(), when the panel last hid (for the 5-minute
  * resume); openSettings(section); bubble(text); mood(name); and on Windows panelWindowHandle(): the panel window's
- * handle, for the helper to bring it forward.
+ * handle, for the helper to bring it forward. `cloud` is Buddy's server (cloud.js), which writes down what was said,
+ * and `signedIn()` whether someone is. `voice()` gives { on, auto, mic }: voice is on for this person, the panel
+ * listens as it opens, and how the microphone stands.
  */
 function createActions({
   helper,
@@ -75,6 +85,9 @@ function createActions({
   memory,
   sendKeyFor,
   undoKey,
+  cloud,
+  signedIn = () => false,
+  voice = () => ({}),
   userName = () => '',
   now = Date.now,
   later = setTimeout,
@@ -116,7 +129,16 @@ function createActions({
   const firstName = () => String(userName() || '').trim();
   const appName = (c) => c.app?.name || 'your app';
 
-  /** The panel's state, as the page draws it (C4). */
+  /**
+   * Whether the page may listen (V2), asked anew for each state: the microphone allowed a moment ago shows in the next
+   * one. Anything but true is off, and a microphone the system does not describe is unknown.
+   */
+  function voiceState() {
+    const v = voice() || {};
+    return { on: v.on === true, auto: v.auto === true, mic: MIC.includes(v.mic) ? v.mic : 'unknown', system };
+  }
+
+  /** The panel's state, as the page draws it (C4, and V2's `voice`). */
   function stateOf(c) {
     const name = firstName();
     return {
@@ -132,6 +154,7 @@ function createActions({
         for (const key of SHOWN[item.type]) shown[key] = Array.isArray(item[key]) ? [...item[key]] : item[key];
         return shown;
       }),
+      voice: voiceState(),
     };
   }
 
@@ -652,7 +675,20 @@ function createActions({
     return {};
   }
 
-  return { open, toggle, dismiss, send, act, dropSelection, state: () => stateOf(chat) };
+  /**
+   * What the person said into the panel, written down by Buddy's server: { text }, '' when it heard no words. `audio`
+   * is the recording as base64 and `mime` its kind. The chat and the buddy are left alone: the page puts the words in
+   * the box and sends them. The deadline is longer than the server's own wait for Groq, so that the server's answer
+   * ("I couldn't write down what you said") comes first.
+   */
+  async function transcribe(audio, mime) {
+    if (!signedIn()) throw new BuddyError('signed_out', 'Sign in to use Buddy.');
+    if (typeof audio !== 'string' || !audio || typeof mime !== 'string') throw new BuddyError('bad_request', NOT_RECORDED);
+    const text = await cloud.transcribe({ audio, mime }, { signal: AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS) });
+    return { text };
+  }
+
+  return { open, toggle, dismiss, send, act, dropSelection, transcribe, state: () => stateOf(chat) };
 }
 
 module.exports = { createActions, sectionFor, COPIED, SLEEPY_MS };

@@ -8,6 +8,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
   BLINK_LOOKAHEAD, fpsFor, isActive, wakeDelay, floatOffset, createBlinker, blinkWeight, lookAt, moodPose,
 } from './moods.js';
+import { fitCamera } from './layout.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
@@ -60,10 +61,13 @@ let press = null; // { x, y, moved } while the pointer is down on the buddy
 let timer = null; // the one pending frame; null while the loop is paused
 let lastTick = -Infinity; // when the last frame was drawn, in now() seconds
 
+/**
+ * The window is the buddy's own box with room above it for the symbols (layout.js): the camera frames the character
+ * in the box as before, and the room above shows the view carried on upward.
+ */
 function resize() {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
+  fitCamera(camera, window.innerWidth, window.innerHeight);
 }
 
 /** Point the camera at the model, leaving room to float and bounce. Returns its height. */

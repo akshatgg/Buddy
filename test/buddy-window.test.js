@@ -12,7 +12,7 @@ const CURSOR_MS = 66;
  * once the page's process is gone ("Render frame was disposed…"). kill() ends that process without telling anyone, as
  * in the moment before render-process-gone arrives; `noticed` says whether webContents.isCrashed() already knows.
  */
-function setup() {
+function setup(stored = {}) {
   const made = [];
   class FakeWindow {
     constructor(options) {
@@ -71,6 +71,14 @@ function setup() {
       return { ...this.bounds };
     }
 
+    setPosition(x, y) {
+      this.bounds = { ...this.bounds, x, y };
+    }
+
+    setBounds(bounds) {
+      this.bounds = { ...bounds };
+    }
+
     reload() {}
 
     destroy() {
@@ -90,7 +98,7 @@ function setup() {
       this.noticed = noticed;
     }
   }
-  const settings = { size: 'medium', lastDisplayId: 1, positions: {} };
+  const settings = { size: 'medium', lastDisplayId: 1, positions: {}, ...stored };
   const store = { get: (key) => settings[key], set: (patch) => Object.assign(settings, patch) };
   let pointer = { x: 10, y: 10 };
   const screen = {
@@ -99,12 +107,17 @@ function setup() {
     getDisplayMatching: () => DISPLAY,
     getCursorScreenPoint: () => pointer,
   };
-  const buddy = createBuddyWindow({ store, screen, BrowserWindow: FakeWindow });
+  const make = () => createBuddyWindow({ store, screen, BrowserWindow: FakeWindow });
   return {
-    buddy,
+    buddy: make(),
+    another: make, // a buddy window made later (at the next launch) with the same settings
+    settings,
     win: () => made.at(-1),
     movePointer() {
       pointer = { x: pointer.x + 5, y: pointer.y };
+    },
+    pointTo(point) {
+      pointer = point;
     },
   };
 }
@@ -160,4 +173,78 @@ test('a send that throws because the page has just gone does not throw out of th
   win().load();
   assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false], ['buddy:mood', 'sleepy']],
     'the mood that could not be sent is sent to the page that came back');
+});
+
+// The window grew upward by 0.6 × the buddy's size, for the symbols over its head. The buddy's own box, the bottom of
+// the window, is what the window used to be: the buddy stays where it was and the panel and the bubble go beside it.
+test("bounds() is the buddy's own box at the bottom of its window, where the window used to be", (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  const { buddy, win } = setup();
+  const before = buddy.bounds(); // no window yet: where it will be
+  buddy.show();
+  assert.deepStrictEqual(win().getBounds(), { x: 1336, y: 742, width: 96, height: 150 }, 'the window has room on top');
+  assert.deepStrictEqual(buddy.bounds(), { x: 1336, y: 780, width: 96, height: 112 }, 'the box, where the window was');
+  assert.deepStrictEqual(before, buddy.bounds());
+});
+
+test('a position saved before the window grew keeps the buddy where it was', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  const { buddy, win } = setup({ positions: { 1: { x: 400, y: 300 } } }); // the old window's top-left corner
+  buddy.show();
+  assert.deepStrictEqual(win().getBounds(), { x: 400, y: 262, width: 96, height: 150 }, 'the same bottom centre');
+  assert.deepStrictEqual(buddy.bounds(), { x: 400, y: 300, width: 96, height: 112 });
+});
+
+test("a drag moves and snaps the real window, and the place remembered is the box's corner", (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  const { buddy, win, settings, another } = setup();
+  buddy.show();
+  buddy.beginDrag({ x: 1400, y: 800 }); // the pointer on the buddy
+  buddy.dragTo({ x: 300, y: 500 });
+  assert.deepStrictEqual(win().getBounds(), { x: 236, y: 442, width: 96, height: 150 }, 'the window follows the pointer');
+  buddy.endDrag();
+  assert.deepStrictEqual(win().getBounds(), { x: 8, y: 442, width: 96, height: 150 }, 'and glides to the left edge');
+  assert.deepStrictEqual(settings.positions, { 1: { x: 8, y: 480 } }, "the box's top-left corner");
+  assert.deepStrictEqual(buddy.bounds(), { x: 8, y: 480, width: 96, height: 112 });
+
+  const next = another();
+  next.show();
+  assert.deepStrictEqual(next.bounds(), buddy.bounds(), 'the next launch puts it back there');
+  assert.deepStrictEqual(win().getBounds(), { x: 8, y: 442, width: 96, height: 150 });
+});
+
+test('the room above the buddy stays on the screen: a drag to the top is clamped by the whole window', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  const { buddy, win, settings } = setup();
+  buddy.show();
+  buddy.beginDrag({ x: 1400, y: 800 });
+  buddy.dragTo({ x: 300, y: 20 });
+  buddy.endDrag();
+  assert.deepStrictEqual(win().getBounds(), { x: 8, y: 8, width: 96, height: 150 });
+  assert.deepStrictEqual(settings.positions, { 1: { x: 8, y: 46 } });
+});
+
+test("a new size keeps the box's bottom centre, and remembers the new box's corner", (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  const { buddy, win, settings } = setup({ positions: { 1: { x: 400, y: 300 } } });
+  buddy.show();
+  settings.size = 'large';
+  buddy.resize();
+  assert.deepStrictEqual(win().getBounds(), { x: 382, y: 205, width: 132, height: 207 });
+  assert.deepStrictEqual(buddy.bounds(), { x: 382, y: 258, width: 132, height: 154 }, 'the bottom centre is still (448, 412)');
+  assert.deepStrictEqual(settings.positions, { 1: { x: 382, y: 258 } });
+});
+
+test("the pointer is measured from the middle of the buddy's box, not of the taller window", (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const { buddy, win, pointTo } = setup();
+  buddy.show();
+  win().load();
+  const box = buddy.bounds();
+  pointTo({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+  t.mock.timers.tick(CURSOR_MS);
+  assert.deepStrictEqual(win().sent.at(-1), ['buddy:cursor', { dx: 0, dy: 0 }]);
+  pointTo({ x: box.x, y: box.y });
+  t.mock.timers.tick(CURSOR_MS);
+  assert.deepStrictEqual(win().sent.at(-1), ['buddy:cursor', { dx: -48, dy: -56 }]);
 });

@@ -11,7 +11,7 @@
  */
 
 const path = require('node:path');
-const { buddyWindowSize, clampToArea, defaultBounds, snapToEdge, resizeAround } = require('./geometry');
+const { buddyWindowSize, buddyBox, windowAtBox, clampToArea, defaultBounds, snapToEdge, resizeAround } = require('./geometry');
 const { floatingType } = require('./platform');
 
 const CURSOR_MS = 66; // about 15 updates a second is plenty for a head turn
@@ -29,12 +29,15 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
   let cursorTimer = null;
   let lastCursor = null;
 
+  // The window is the buddy's own box with room above it for the symbols (geometry.js). What is saved is the box's
+  // top-left corner, which is also where a window from before the room was added had its own: so a position saved
+  // then still puts the buddy where it was.
   function startBounds() {
     const size = buddyWindowSize(store.get('size'));
     const display = screen.getAllDisplays().find((d) => d.id === store.get('lastDisplayId'))
       || screen.getPrimaryDisplay();
     const saved = store.get('positions')[String(display.id)];
-    const bounds = saved ? { x: saved.x, y: saved.y, ...size } : defaultBounds(display.workArea, size);
+    const bounds = saved ? windowAtBox(saved, size) : defaultBounds(display.workArea, size);
     return clampToArea(bounds, display.workArea);
   }
 
@@ -157,20 +160,24 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
       const p = screen.getCursorScreenPoint();
       if (lastCursor && p.x === lastCursor.x && p.y === lastCursor.y) return;
       lastCursor = p;
-      const b = win.getBounds();
+      const b = buddyBox(win.getBounds()); // from the buddy's middle, not the middle of the window with its room above
       send('buddy:cursor', { dx: p.x - (b.x + b.width / 2), dy: p.y - (b.y + b.height / 2) });
     }, CURSOR_MS);
   }
 
+  /** Save where the window `b` puts the buddy: its box's corner (see startBounds). */
   function remember(b) {
     const display = screen.getDisplayMatching(b);
+    const box = buddyBox(b);
     store.set({
-      positions: { ...store.get('positions'), [String(display.id)]: { x: b.x, y: b.y } },
+      positions: { ...store.get('positions'), [String(display.id)]: { x: box.x, y: box.y } },
       lastDisplayId: display.id,
     });
   }
 
-  const bounds = () => (win ? win.getBounds() : startBounds());
+  // Where the buddy is: its own box, without the room above it. The panel and the bubble go beside this, and the work
+  // area is the one of the screen it is on. Dragging, snapping and keeping it on the screen move the whole window.
+  const bounds = () => buddyBox(win ? win.getBounds() : startBounds());
 
   return {
     window: () => win,

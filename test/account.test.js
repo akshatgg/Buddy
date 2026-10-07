@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { BuddyError } = require('../shared/errors');
 const { createAccount, RENEW_EARLY_MS } = require('../src/main/account');
+const { onPlatform } = require('./helpers/platform');
 
 const CONFIG = { serverUrl: 'https://s.example', firebaseApiKey: 'k', googleClientId: 'c', googleClientSecret: 's' };
 const HOUR = 3600;
@@ -270,6 +271,12 @@ test('no keychain: signing in fails before any Google page opens, and nothing is
   assert.strictEqual(s.signIns.length, 0, 'the browser was not even asked to open');
   assert.strictEqual(s.account.isSignedIn(), false);
   assert.strictEqual(fs.existsSync(s.file), false);
+});
+
+test('no keychain names what keeps the sign-in safe on the system: the Mac keychain, or Windows', () => {
+  const file = path.join(__dirname, '..', 'src', 'main', 'account.js');
+  assert.strictEqual(onPlatform('darwin', file, (m) => m.NO_KEYCHAIN), 'Your Mac keychain is not available, so Buddy cannot keep you signed in.');
+  assert.strictEqual(onPlatform('win32', file, (m) => m.NO_KEYCHAIN), "Windows can't protect your sign-in right now, so Buddy cannot keep you signed in.");
 });
 
 test('a copy of Buddy with no cloud.json cannot sign in', async (t) => {

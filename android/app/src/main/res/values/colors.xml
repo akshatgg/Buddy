@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Mac's card, text and hairline colours (src/renderer/common/base.css), for the speech bubble. -->
+<resources>
+    <color name="buddy_card">#FFFFFF</color>
+    <color name="buddy_fg">#1D1D1F</color>
+    <color name="buddy_line">#D1D1D6</color>
+</resources>

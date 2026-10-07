@@ -1,37 +1,47 @@
 package com.akshatgg.buddy.ui
 
-import android.graphics.Color
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
-import android.view.Gravity
-import android.widget.FrameLayout
+import android.provider.Settings
 import androidx.activity.ComponentActivity
-import com.akshatgg.buddy.bubble.HeadView
-import com.akshatgg.buddy.bubble.Mood
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.akshatgg.buddy.AppGraph
+import com.akshatgg.buddy.bubble.BubbleService
 
-// For now this only shows the two heads on a coloured background, to check how they look;
-// the Welcome and Settings windows replace it.
+// For now only two buttons, to try the floating buddy; the Welcome and Settings windows replace it.
 class MainActivity : ComponentActivity() {
-    private val heads = mutableListOf<HeadView>()
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val root = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#2878C8")) }
-        val size = (220 * resources.displayMetrics.density).toInt()
-        for ((i, id) in listOf("boy-1", "girl-1").withIndex()) {
-            val head = HeadView(this).apply {
-                characterId = id
-                mood = Mood.WAVE
+        setContent {
+            MaterialTheme {
+                Column(
+                    Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Button(onClick = ::allowFloating) { Text("Allow floating") }
+                    Button(onClick = ::startBuddy) { Text("Start buddy") }
+                }
             }
-            val place = FrameLayout.LayoutParams(size, size, Gravity.CENTER_HORIZONTAL)
-            place.topMargin = size / 2 + i * (size + size / 4)
-            root.addView(head, place)
-            heads += head
         }
-        setContentView(root)
     }
 
-    override fun onDestroy() {
-        heads.forEach { it.release() }
-        super.onDestroy()
+    private fun allowFloating() {
+        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+    }
+
+    private fun startBuddy() {
+        AppGraph.instance.settings.buddyOn = true
+        BubbleService.start(this)
     }
 }

@@ -120,8 +120,8 @@ Kotlin, Jetpack Compose, Android 8.0 (API 26) and up, target API 36. In `android
 | `store/AppSettings`, `store/Secrets` | settings (SharedPreferences); keys and the refresh token encrypted with an Android Keystore AES key |
 | `BootReceiver` | starts Buddy after a restart when it is on |
 
-The `.glb` files are copied from `assets/buddies/` into the APK's assets by a Gradle task at build time, so the Mac
-and Android share one copy.
+Gradle takes the `.glb` files from `assets/buddies/` into the APK's assets at build time (leaving out the Mac's
+previews and `buddies.json`, which the app does not read), so the Mac and Android share one copy.
 
 `android/cloud.properties` (not in git, like `cloud.json`) holds the server URL, the Firebase Web API key and the
 Google **web** client ID; the build fails without it. `npm run sync:android` writes it from `cloud.json` plus the

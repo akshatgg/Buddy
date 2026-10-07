@@ -38,6 +38,12 @@ android {
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     // The buddies are the Mac's own files: one copy in assets/buddies at the repository root.
     sourceSets { getByName("main") { assets.srcDir("../../assets/buddies") } }
+    androidResources {
+        // The app reads only the models from there: the Mac's previews and its buddies.json stay out of the APK.
+        // Any pattern set here replaces Android's own list, so that list comes first.
+        ignoreAssetsPatterns += listOf("!.svn", "!.git", "!.ds_store", "!*.scc", ".*", "<dir>_*", "!CVS", "!thumbs.db", "!picasa.ini", "!*~")
+        ignoreAssetsPatterns += listOf("!<dir>previews", "!buddies.json")
+    }
     testOptions { unitTests.isReturnDefaultValues = true }
     packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
 }

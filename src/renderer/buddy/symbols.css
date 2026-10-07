@@ -47,11 +47,13 @@
   fill: var(--core);
 }
 
-/* "z": a staircase of letters, each rising a little, growing and fading in turn. */
+/* "z": a staircase of letters, each rising a little, growing and fading in turn. They play
+   once and are removed, a burst; symbols.js starts the next one after a long rest. Nothing
+   loops, so while they rest nothing on the page is animating, and a buddy that sleeps for
+   hours costs the battery less than one at rest. */
 .buddy-symbol--z {
   animation-name: buddy-symbol-z;
-  animation-duration: 3.6s;
-  animation-iteration-count: infinite;
+  animation-duration: 2.5s; /* Z_LETTER in symbols.js, which counts on it; a test checks they match */
 }
 
 /* In the 24 × 24 box, centred on the middle of the letter's height. Chromium has no
@@ -64,9 +66,8 @@
 
 @keyframes buddy-symbol-z {
   0% { opacity: 0; transform: translate(0, 0) rotate(-12deg) scale(0.6); }
-  18% { opacity: 1; }
-  52% { opacity: 1; }
-  78% { opacity: 0; transform: translate(calc(var(--head-w) * 0.05), calc(var(--head-w) * -0.08)) rotate(8deg) scale(1.1); }
+  23% { opacity: 1; }
+  67% { opacity: 1; }
   100% { opacity: 0; transform: translate(calc(var(--head-w) * 0.05), calc(var(--head-w) * -0.08)) rotate(8deg) scale(1.1); }
 }
 
@@ -89,9 +90,11 @@
 }
 
 /* Stars circle a flat ring around the top of the head, the ring in symbols.js (RING):
-   each step is the ring's point at that angle, less where the star was put. In front
+   each step is the ring's point at that angle, less where the star was put, and a turn
+   takes RING.turn seconds (a test checks the points and the time against RING). In front
    (the lower half) they are bigger and brighter, behind smaller and dimmer. They spin
-   two fifths of a turn a loop, which looks the same at the start of the next one. */
+   two fifths of a turn a loop, which looks the same at the start of the next one. They
+   are the only symbols that loop, and only for the 2 s of the feeling that shows them. */
 .buddy-symbol--star {
   animation-name: buddy-symbol-orbit;
   animation-duration: 1.2s;
@@ -197,8 +200,8 @@
 
 @keyframes buddy-symbol-z-still {
   0% { opacity: 0; }
-  18%, 52% { opacity: 1; }
-  78%, 100% { opacity: 0; }
+  23%, 67% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 @keyframes buddy-symbol-twinkle {

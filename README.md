@@ -94,7 +94,8 @@ That makes `release\Buddy Setup <version>.exe`. Run it: it installs Buddy for yo
   and picking a buddy straight to connecting an AI (or to the end, when free mode
   covers you).
 - **The shortcut** is **Ctrl+Shift+Space** (on Windows, Alt+Space opens every
-  window's own menu).
+  window's own menu). A key tapped on its own (the Mac's single-key shortcut) is not
+  offered on Windows.
 - **The menu** is the buddy's icon in the corner of the taskbar (it may be under the
   ^ arrow). A left or a right click opens it.
 - **Always on.** As on the Mac, only the installed Buddy starts itself with Windows.
@@ -113,6 +114,17 @@ That makes `release\Buddy Setup <version>.exe`. Run it: it installs Buddy for yo
 
       $env:BUDDY_USER_DATA = "$env:TEMP\buddy-trial"
       .\release\win-unpacked\Buddy.exe
+
+## Website
+
+The download site, https://buddywrites.vercel.app, is plain HTML in `web/public/` (home page, privacy page,
+`style.css`, `site.js`) and is deployed with the server (`npm run deploy:server`). Its download buttons use
+`https://github.com/akshatgg/Buddy/releases/latest/download/<file>`, so a new release needs no change to the site;
+`site.js` adds the version and size, and offers Windows once a release has `Buddy-Setup-x64.exe`.
+Design: `docs/superpowers/specs/2026-10-07-buddy-website-design.md`.
+
+    tools/make-site-images.sh        # the buddies, icons and favicons, from assets/ and build/icon.png
+    tools/make-site-images.sh --og   # also the link preview, web/public/og.png (needs Google Chrome)
 
 ## Tests
 

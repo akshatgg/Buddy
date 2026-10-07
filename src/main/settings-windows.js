@@ -67,6 +67,10 @@ function createSettingsWindows({ app, BrowserWindow = require('electron').Browse
     close(kind) {
       if (alive(windows[kind])) windows[kind].close();
     },
+    /** Send to the page of the open window of that kind, if there is one. */
+    send(kind, channel, ...args) {
+      if (alive(windows[kind])) windows[kind].webContents.send(channel, ...args);
+    },
     /** fn(kind) runs after a window of that kind closes. */
     onClosed(fn) {
       listeners.push(fn);

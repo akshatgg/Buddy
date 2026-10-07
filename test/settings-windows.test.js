@@ -222,3 +222,17 @@ test('on Windows the window comes forward by itself: app.focus, which would focu
   assert.strictEqual(first.focused, 1);
   assert.deepStrictEqual(focusCalls, []);
 });
+
+test('send() reaches the page of the open window of that kind, and no other', () => {
+  const { windows, created } = setup();
+  windows.open('settings');
+  windows.open('admin');
+  const [settings, admin] = created;
+  windows.send('settings', 'shortcut:tap', 'Tap:Fn');
+  assert.deepStrictEqual(settings.sent, [['shortcut:tap', 'Tap:Fn']]);
+  assert.deepStrictEqual(admin.sent, []);
+  settings.close();
+  windows.send('settings', 'shortcut:tap', 'Tap:Fn');
+  assert.deepStrictEqual(settings.sent, [['shortcut:tap', 'Tap:Fn']], 'a closed window is sent nothing');
+  windows.send('onboarding', 'shortcut:tap', 'Tap:Fn'); // never opened: nothing happens, nothing throws
+});

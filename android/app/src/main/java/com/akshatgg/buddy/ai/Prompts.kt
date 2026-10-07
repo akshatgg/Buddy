@@ -25,6 +25,9 @@ sealed interface CheckResult {
  * what the Mac and the server ask.
  */
 class Prompts(private val shared: Shared) {
+    /** The longest answer asked of an AI, in tokens (MAX_TOKENS in shared/prompts.js). */
+    val maxTokens: Int get() = shared.maxTokens
+
     private fun requireText(value: String?, max: Int, emptyMessage: String, tooLong: String): String {
         val text = value?.trim().orEmpty()
         if (text.isEmpty()) throw BuddyError("bad_request", emptyMessage)

@@ -120,3 +120,32 @@ test('a helper that keeps crashing is restarted more slowly each time', async ()
   assert.strictEqual(helper.nextRestartMs, 20);
   helper.stop();
 });
+
+test('says when a helper has started: the first time, and after each restart', async () => {
+  const spawnImpl = fakeSpawn();
+  const helper = new Helper({ binPath: '/x/buddy-helper', spawnImpl, restartMs: 5 });
+  let starts = 0;
+  helper.on('started', () => {
+    starts += 1;
+  });
+  helper.start();
+  assert.strictEqual(starts, 1);
+  spawnImpl.children[0].emit('exit', 1);
+  await sleep(30);
+  assert.strictEqual(starts, 2, 'a new helper after the old one exited');
+  helper.stop();
+});
+
+test('passes on what the helper reports about the keys', async () => {
+  const { helper, child } = started();
+  const heard = [];
+  helper.on('keys', (event) => heard.push(event));
+  child.reply({ event: 'keys', kind: 'flags', keyCode: 61, flags: 524608, t: 1000 });
+  child.reply({ event: 'keys', kind: 'other' });
+  await tick();
+  assert.deepStrictEqual(heard, [
+    { event: 'keys', kind: 'flags', keyCode: 61, flags: 524608, t: 1000 },
+    { event: 'keys', kind: 'other' },
+  ]);
+  helper.stop();
+});

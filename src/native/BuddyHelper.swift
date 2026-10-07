@@ -5,6 +5,8 @@
 //   reply    {"id": 1, "ok": true, "result": {...}}
 //            {"id": 1, "ok": false, "error": {"code": "...", "message": "..."}}
 //   event    {"event": "frontApp", "pid": 123, "bundleId": "...", "name": "..."}
+//            {"event": "keys", "kind": "flags", "keyCode": 61, "flags": 524608, "t": 81234567}   (while watchKeys is on)
+//            {"event": "keys", "kind": "other"}
 //
 // Commands run one at a time on a background queue; the main thread only runs
 // the run loop, so NSWorkspace notifications keep arriving while a command
@@ -333,6 +335,70 @@ func screenshot(_ args: [String: Any]) throws -> [String: Any] {
     }
 }
 
+// MARK: - the keys of a single-key shortcut
+
+// While Buddy's shortcut is a modifier key tapped on its own (or Settings is recording one), a listen-only event tap
+// reports each change of the modifier keys: which key, and all the flags, whose low bits say which side is down, with
+// the time in milliseconds since the Mac started. A key or a click is reported only while a modifier is held, as
+// "other": it spoils a tap, and which key it was is none of Buddy's business. The tap lives on the main run loop.
+
+var keyTap: CFMachPort?
+var keyTapSource: CFRunLoopSource?
+let heldModifiers: UInt64 = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskShift.rawValue
+    | CGEventFlags.maskControl.rawValue | CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskSecondaryFn.rawValue
+
+func onKeyEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
+    switch type {
+    case .tapDisabledByTimeout, .tapDisabledByUserInput:
+        // macOS switches a tap off when it is slow, or while a password field takes the keys; it is switched back on.
+        if let tap = keyTap { CGEvent.tapEnable(tap: tap, enable: true) }
+    case .flagsChanged:
+        send(["event": "keys", "kind": "flags",
+              "keyCode": Int(event.getIntegerValueField(.keyboardEventKeycode)),
+              "flags": Int(event.flags.rawValue),
+              "t": Int(ProcessInfo.processInfo.systemUptime * 1000)])
+    default:
+        if event.flags.rawValue & heldModifiers != 0 { send(["event": "keys", "kind": "other"]) }
+    }
+    return Unmanaged.passUnretained(event)
+}
+
+/// Start or stop reporting the keys. Runs on the main thread, where the tap lives.
+func setKeyTap(_ on: Bool) throws {
+    if !on {
+        guard let tap = keyTap else { return }
+        CGEvent.tapEnable(tap: tap, enable: false)
+        if let source = keyTapSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+        CFMachPortInvalidate(tap)
+        keyTap = nil
+        keyTapSource = nil
+        return
+    }
+    if keyTap != nil { return }
+    let noAccess = HelperError(code: "no_accessibility", message: "Buddy needs Accessibility permission to hear a single key.")
+    // Without Accessibility the tap would hear no keys (and macOS could ask for Input Monitoring instead).
+    guard accessibilityTrusted(prompt: false) else { throw noAccess }
+    let types: [CGEventType] = [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+    let mask = types.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
+    guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
+                                      eventsOfInterest: mask, callback: onKeyEvent, userInfo: nil) else { throw noAccess }
+    let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+    CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+    CGEvent.tapEnable(tap: tap, enable: true)
+    keyTap = tap
+    keyTapSource = source
+}
+
+func watchKeys(_ args: [String: Any]) throws -> [String: Any] {
+    let on = args["on"] as? Bool ?? false
+    var failure: Error?
+    DispatchQueue.main.sync {
+        do { try setKeyTap(on) } catch { failure = error }
+    }
+    if let failure { throw failure }
+    return ["watching": on]
+}
+
 func handle(_ msg: [String: Any]) {
     let id = msg["id"] ?? NSNull()
     let args = msg["args"] as? [String: Any] ?? [:]
@@ -357,6 +423,8 @@ func handle(_ msg: [String: Any]) {
             result = try paste(args)
         case "screenshot":
             result = try screenshot(args)
+        case "watchKeys":
+            result = try watchKeys(args)
         default:
             throw HelperError(code: "bad_request", message: "unknown command")
         }

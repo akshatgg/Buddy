@@ -8,7 +8,9 @@
  * One JSON object per line each way. Requests carry an id and replies echo it.
  * Lines without an id are events: `frontApp` says which app the user is in,
  * kept here as `lastApp`, because by the time the panel opens Buddy itself may
- * be in front.
+ * be in front. `keys` reports the modifier keys while Buddy has asked for them
+ * (a single-key shortcut, src/main/key-watch.js), and `started` is said each
+ * time a helper starts.
  */
 
 const { spawn } = require('node:child_process');
@@ -50,6 +52,8 @@ class Helper extends EventEmitter {
       this.onExit(child); // a spawn failure emits 'error' but never 'exit'
     });
     child.on('exit', () => this.onExit(child));
+    // A new helper knows nothing of what the last one was asked to do: key-watch.js tells it again.
+    this.emit('started');
   }
 
   stop() {

@@ -61,6 +61,19 @@ function credentialFrom(cert, key) {
   }
 }
 
+/**
+ * Who a token that firebase-admin has checked belongs to, as the handlers want it. The admin check relies on
+ * `emailVerified`, which is true only when the token says exactly that.
+ */
+function whoFrom(decoded) {
+  return {
+    uid: decoded.uid,
+    email: decoded.email || '',
+    emailVerified: decoded.email_verified === true,
+    name: decoded.name || '',
+  };
+}
+
 let deps = null;
 
 function realDeps(env = process.env) {
@@ -72,10 +85,7 @@ function realDeps(env = process.env) {
   const app = getApps()[0] || initializeApp({ credential: credentialFrom(cert, key) });
   const auth = getAuth(app);
   deps = {
-    async verifyToken(idToken) {
-      const t = await auth.verifyIdToken(idToken);
-      return { uid: t.uid, email: t.email || '', emailVerified: t.email_verified === true, name: t.name || '' };
-    },
+    verifyToken: async (idToken) => whoFrom(await auth.verifyIdToken(idToken)),
     db: createFirestoreDb(getFirestore(app)),
     providers: require('../shared/providers'),
     adminKeys: adminKeysFrom(env),
@@ -85,4 +95,4 @@ function realDeps(env = process.env) {
   return deps;
 }
 
-module.exports = { realDeps, adminKeysFrom, credentialFrom };
+module.exports = { realDeps, adminKeysFrom, credentialFrom, whoFrom };

@@ -6,7 +6,8 @@
  * so everything here is tested with fakes (test/server-handlers.test.js).
  *
  * deps = {
- *   verifyToken(idToken) -> { uid, email, emailVerified, name }   throws when the token is not valid
+ *   verifyToken(idToken) -> { uid, email, emailVerified, name }   throws when the token is not valid, or cannot be
+ *                            checked; firebase-admin's `auth/…` code tells which (TOKEN_PROBLEMS)
  *   db                       web/lib/firestore-db.js, or a fake with the same methods
  *   providers                shared/providers: getProvider(id) -> { complete, listModels, isVisionModel }
  *   adminKeys                { providerId: key } -- the server's own AI keys
@@ -40,7 +41,15 @@ const STATUS = {
   method_not_allowed: 405,
   free_limit: 429,
   upstream: 502,
+  server: 503, // the server could not check a sign-in (any other failure of its own is a 500, with the same code)
 };
+
+// What firebase-admin says about a token that is no good: expired, garbled or forged, revoked, or of someone who was
+// disabled or deleted. Only these mean that the person has to sign in again.
+const TOKEN_PROBLEMS = [
+  'auth/id-token-expired', 'auth/argument-error', 'auth/invalid-id-token', 'auth/id-token-revoked', 'auth/user-disabled',
+  'auth/user-not-found',
+];
 
 const isPlainObject = (value) => Object.prototype.toString.call(value) === '[object Object]';
 const answer = (body) => ({ status: 200, body });
@@ -64,10 +73,16 @@ async function signedIn(req, deps) {
   try {
     who = await deps.verifyToken(match[1]);
   } catch (err) {
-    // The kind is logged (never the token or the message), so a problem on the server's side, such as a bad service
-    // account or Google's keys not being reachable, can be told apart from people's sign-ins simply expiring.
-    console.warn(`[auth] token not accepted: ${kindOf(err)}`);
-    throw new BuddyError('unauthenticated', 'Your sign-in has expired. Sign in again.');
+    // Only the kind is logged, never the token or the message.
+    const kind = kindOf(err);
+    if (TOKEN_PROBLEMS.includes(kind)) {
+      console.warn(`[auth] token not accepted: ${kind}`);
+      throw new BuddyError('unauthenticated', "Buddy couldn't check your sign-in. Sign in again.");
+    }
+    // Anything else is the server failing to check a token (Google's signing keys out of reach, firebase-admin itself
+    // failing): the person's sign-in may well be fine, so this is not a 401, which would sign them out of the app.
+    console.error(`[auth] could not check a token: ${kind}`);
+    throw new BuddyError('server', "Buddy's server had a problem. Try again.");
   }
   if (!who?.uid || !who.email || who.emailVerified !== true) {
     throw new BuddyError('unauthenticated', 'Sign in with a Google account whose email is verified.');

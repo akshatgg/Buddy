@@ -31,14 +31,19 @@ const TOKENS = {
 /** Every route and method that is for the admin only. */
 const ADMIN_ROUTES = [[adminSettings, 'GET'], [adminSettings, 'PUT'], [adminModels, 'GET'], [adminUsers, 'GET'], [adminUsers, 'POST']];
 
+/** What firebase-admin throws for a token that is not good: an error with an `auth/…` code, and a message. */
+const tokenError = (code) => Object.assign(new Error(`Decoding Firebase ID token failed: ${code}`), { code });
+
 /**
  * The handlers with fakes: an in-memory database, one fake provider whatever the id, the server's keys in `keys`,
  * `adminEmail` as the server's ADMIN_EMAIL, and ID tokens by name: 'user', 'admin', 'unverified', and two more for the
- * admin gate ('adminShouting', 'adminUnverified'). `run(handler, method, { token, body, query })`.
+ * admin gate ('adminShouting', 'adminUnverified'). Any other token is forged, and refused the way firebase-admin
+ * refuses one (auth/argument-error). With `verifyFails`, checking any token throws that instead.
+ * `run(handler, method, { token, body, query })`.
  */
 function setup({
   stored = null, users = {}, keys = { anthropic: 'admin-key' }, vision = true, reply = 'An answer', fail = null,
-  live = ['m-1', 'm-2'], listFails = false, adminEmail = ADMIN,
+  live = ['m-1', 'm-2'], listFails = false, adminEmail = ADMIN, verifyFails = null,
 } = {}) {
   const db = fakeDb({ config: stored, users });
   const completes = [];
@@ -58,7 +63,8 @@ function setup({
   };
   const deps = {
     async verifyToken(token) {
-      if (!Object.hasOwn(TOKENS, token)) throw new Error('not a token');
+      if (verifyFails) throw verifyFails;
+      if (!Object.hasOwn(TOKENS, token)) throw tokenError('auth/argument-error');
       return TOKENS[token];
     },
     db,
@@ -86,14 +92,48 @@ test('every route wants a valid ID token for a verified email', async (t) => {
     const method = handler === ask ? 'POST' : 'GET';
     assert.deepStrictEqual(await s.run(handler, method, { token: null }), refusal(401, 'unauthenticated', 'Sign in to use Buddy.'));
     assert.deepStrictEqual(await s.run(handler, method, { token: 'forged' }),
-      refusal(401, 'unauthenticated', 'Your sign-in has expired. Sign in again.'));
+      refusal(401, 'unauthenticated', "Buddy couldn't check your sign-in. Sign in again."));
     assert.deepStrictEqual(await s.run(handler, method, { token: 'unverified' }),
       refusal(401, 'unauthenticated', 'Sign in with a Google account whose email is verified.'));
   }
   assert.deepStrictEqual(s.db.state.calls, [], 'nothing was read or written');
-  // A token that is turned away leaves a trace, by its kind only (the fake throws new Error('not a token')), so a
-  // problem on the server's side shows apart from people's sign-ins simply expiring.
-  assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments.join(' ')), routes.map(() => '[auth] token not accepted: Error'));
+  // A token that is turned away leaves a trace, by its kind only, never the token or the message.
+  assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments.join(' ')), routes.map(() => '[auth] token not accepted: auth/argument-error'));
+});
+
+test('every kind of token that is not good means signing in again', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const kinds = ['auth/id-token-expired', 'auth/argument-error', 'auth/invalid-id-token', 'auth/id-token-revoked',
+    'auth/user-disabled', 'auth/user-not-found'];
+  for (const kind of kinds) {
+    const s = setup({ verifyFails: tokenError(kind) });
+    assert.deepStrictEqual(await s.run(config, 'GET'), refusal(401, 'unauthenticated', "Buddy couldn't check your sign-in. Sign in again."), kind);
+    assert.deepStrictEqual(s.db.state.calls, [], `${kind}: nothing was read or written`);
+  }
+  assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments.join(' ')), kinds.map((kind) => `[auth] token not accepted: ${kind}`));
+});
+
+test("a token the server cannot check is the server's problem: 503, nobody is told to sign in again, and only the kind is logged", async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const error = t.mock.method(console, 'error', () => {});
+  // Google's signing keys out of reach, and a failure with no code at all. Their messages can carry the token.
+  const failures = [
+    Object.assign(new Error('Error fetching public keys for Google certs: eyJhbGciOiJSUzI1NiJ9.secret-token'), { code: 'auth/internal-error' }),
+    new TypeError('Cannot read properties of undefined (eyJhbGciOiJSUzI1NiJ9.secret-token)'),
+  ];
+  for (const failure of failures) {
+    const s = setup({ verifyFails: failure });
+    for (const [handler, method] of [[config, 'GET'], [ask, 'POST'], ...ADMIN_ROUTES]) {
+      assert.deepStrictEqual(await s.run(handler, method, { body: { action: 'fix', text: 'x' } }),
+        refusal(503, 'server', "Buddy's server had a problem. Try again."), `${failure.name} ${method} ${handler.name}`);
+    }
+    assert.deepStrictEqual(s.db.state.calls, [], 'nothing was read or written');
+  }
+  const logged = error.mock.calls.map((c) => c.arguments.join(' '));
+  assert.deepStrictEqual([...new Set(logged)], ['[auth] could not check a token: auth/internal-error', '[auth] could not check a token: TypeError']);
+  assert.strictEqual(logged.length, 2 * (2 + ADMIN_ROUTES.length), 'one line for each request');
+  assert.strictEqual(warn.mock.callCount(), 0, 'not logged as a token that was turned away');
+  assert.doesNotMatch(logged.join('\n'), /secret-token/, 'the token is never logged');
 });
 
 test('a method a route does not take is refused', async () => {

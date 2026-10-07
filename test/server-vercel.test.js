@@ -7,7 +7,7 @@ const path = require('node:path');
 // The server's own copy: web/lib/handlers.js turns only ITS BuddyError (web/shared/errors.js) into a status.
 const { BuddyError } = require('../web/shared/errors');
 const { toVercel } = require('../web/lib/vercel');
-const { adminKeysFrom, realDeps, credentialFrom } = require('../web/lib/deps');
+const { adminKeysFrom, realDeps, credentialFrom, whoFrom } = require('../web/lib/deps');
 
 /** Just enough of Vercel's response object. */
 function fakeRes() {
@@ -118,6 +118,15 @@ test('a key set the wrong way answers 500 and the log says only what kind of pro
   await fn({ method: 'GET', headers: {} }, res);
   assert.deepStrictEqual([res.statusCode, res.body], [500, SERVER_PROBLEM]);
   assert.deepStrictEqual(logged(error), ['[api] could not start: bad_service_account']);
+});
+
+test('who a checked token belongs to; its email counts as verified only when the token says exactly that (the admin check relies on it)', () => {
+  const decoded = { uid: 'u1', email: 'rahul@gmail.com', email_verified: true, name: 'Rahul', iss: 'https://securetoken.google.com/p', aud: 'p' };
+  assert.deepStrictEqual(whoFrom(decoded), { uid: 'u1', email: 'rahul@gmail.com', emailVerified: true, name: 'Rahul' });
+  for (const notTrue of [false, 'true', 1, null, undefined]) {
+    assert.strictEqual(whoFrom({ ...decoded, email_verified: notTrue }).emailVerified, false, JSON.stringify(notTrue));
+  }
+  assert.deepStrictEqual(whoFrom({ uid: 'u2' }), { uid: 'u2', email: '', emailVerified: false, name: '' }, 'no email and no name');
 });
 
 test('the server keys come from the environment, trimmed, and only the ones that are set', () => {

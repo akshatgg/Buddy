@@ -679,9 +679,9 @@ test('account:sign-in still answers when the free settings cannot be fetched', a
 // the fetch of the free settings fails. That is not a sign-in that worked.
 test('account:sign-in that the fetch of the free settings signed out again says why, and is not answered as signed in', async (t) => {
   const warn = t.mock.method(console, 'warn', () => {});
-  const expired = new BuddyError('signed_out', 'Your sign-in has expired. Sign in again.');
+  const expired = new BuddyError('signed_out', "Buddy couldn't check your sign-in. Sign in again.");
   const s = setup({ signedIn: false, cloudFails: expired, cloudSignsOut: true });
-  assert.deepStrictEqual(await s.call('account:sign-in'), refused('signed_out', 'Your sign-in has expired. Sign in again.'));
+  assert.deepStrictEqual(await s.call('account:sign-in'), refused('signed_out', "Buddy couldn't check your sign-in. Sign in again."));
   assert.deepStrictEqual(
     s.calls.filter(([name]) => ['signIn', 'cloudSettings', 'signOut'].includes(name)),
     [['signIn'], ['cloudSettings', { force: true }], ['signOut']],
@@ -722,7 +722,7 @@ test('settings:refresh fetches the free settings for someone signed in, and neve
   assert.strictEqual((await failing.call('settings:refresh')).ok, true);
 
   // A fetch that signed the person out is no failure of the page either: the answer says they are signed out.
-  const expired = setup({ cloudFails: new BuddyError('signed_out', 'Your sign-in has expired. Sign in again.'), cloudSignsOut: true });
+  const expired = setup({ cloudFails: new BuddyError('signed_out', "Buddy couldn't check your sign-in. Sign in again."), cloudSignsOut: true });
   const r = await expired.call('settings:refresh');
   assert.deepStrictEqual([r.ok, r.account], [true, { signedIn: false }]);
 });

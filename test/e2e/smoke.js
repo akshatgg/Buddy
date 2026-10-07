@@ -64,10 +64,11 @@ const globalShortcut = {
 
 // Nor may it sign in to Google or call Buddy's server: the app gets this account and this server. A check changes
 // cloud.server, as the admin would, to see the app follow once it asks again, and signs out and in again (as someone
-// else, after changing account.uid).
+// else, after changing account.uid; or not at all, after setting account.nextSignInError).
 const account = {
   signedIn: true,
   uid: 'e2e-user',
+  nextSignInError: null, // a BuddyError the next signIn() fails with, as when the person presses Cancel on Google's page
   listeners: [],
   isSignedIn() {
     return this.signedIn;
@@ -76,6 +77,11 @@ const account = {
     return this.signedIn ? { uid: this.uid, email: 'e2e@example.com', name: 'E2E Tester' } : null;
   },
   async signIn() {
+    const refusal = this.nextSignInError;
+    if (refusal) {
+      this.nextSignInError = null;
+      throw refusal;
+    }
     this.signedIn = true;
     for (const fn of this.listeners) fn();
     return this.user();

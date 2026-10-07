@@ -94,8 +94,10 @@ function userRow(user) {
   return row;
 }
 
+const usersText = (count) => (count === 1 ? '1 user' : `${count} users`);
+
 function renderUsers(users) {
-  showStatus('users-status', users.length === 1 ? '1 user' : `${users.length} users`);
+  showStatus('users-status', usersText(users.length));
   $('users').replaceChildren(...users.map(userRow));
 }
 
@@ -117,10 +119,10 @@ async function setBlocked(user, row, button) {
     showStatus('users-status', r.error.message, 'error');
     return;
   }
-  // The row shows what the server answered at once, so that it is right (and can be used again) even if the list
-  // cannot be loaded again just after.
+  // The row shows what the server answered. The whole list is not loaded again for it, as each load reads every user
+  // from the database: only Refresh and opening the window do. A refusal shown before no longer holds.
   row.replaceWith(userRow(r.user));
-  await loadUsers();
+  showStatus('users-status', usersText($('users').children.length));
 }
 
 for (const radio of document.querySelectorAll('input[name="limitMode"]')) radio.addEventListener('change', syncForm);

@@ -45,7 +45,8 @@ function go(n) {
   for (const name of ALL_STEPS) $(`step-${name}`).hidden = name !== steps[n];
   $('back').hidden = n === 0;
   $('next').textContent = n === steps.length - 1 ? 'Start my buddy' : 'Next';
-  // Nobody goes past the first step without signing in.
+  // Next is off on the first step until the person is signed in. Someone signed out later, behind the page's back, is
+  // brought back to it when the window gets the focus again, and finishing is refused to anyone signed out.
   $('next').disabled = steps[n] === 'signin' && !snap?.account.signedIn;
   if (steps[n] === 'accessibility' || steps[n] === 'screen') checkPermissions();
 }
@@ -108,8 +109,9 @@ $('scr-open').addEventListener('click', () => allow('screenRecording', 'scr-stat
 $('acc-check').addEventListener('click', checkPermissions);
 $('scr-check').addEventListener('click', checkPermissions);
 // Coming back to this window: the permissions may have changed in System Settings, and the account may have changed
-// behind this page's back (a sign-in that expired, or one that another window ended). Show what changed. A sign-in
-// that waits for the browser answers by itself.
+// behind this page's back (a sign-in that expired, or one that another window ended). Show what changed, and someone
+// who is signed out now goes back to the first step, where the Sign in button is. A sign-in that waits for the browser
+// answers by itself.
 window.addEventListener('focus', async () => {
   if (steps[step] === 'accessibility' || steps[step] === 'screen') checkPermissions();
   if (signingIn || !snap?.ok) return;
@@ -118,6 +120,7 @@ window.addEventListener('focus', async () => {
   if (JSON.stringify([fresh.account, fresh.ai]) === JSON.stringify([snap.account, snap.ai])) return; // nothing new
   if (fresh.account.signedIn !== snap.account.signedIn) showStatus('signin-status', '', 'muted'); // what it said no longer holds
   snap = fresh;
+  if (!snap.account.signedIn) step = 0;
   renderSnapshot();
 });
 $('back').addEventListener('click', () => go(step - 1));

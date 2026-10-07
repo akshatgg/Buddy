@@ -5,17 +5,17 @@ const { BuddyError } = require('../../../shared/errors');
 // The Admin window with the fake server from smoke.js: the menu offers it only to the admin; the page shows nothing
 // until the settings have arrived; it then offers the switches (only the providers that have a key on the server) and
 // the users; Unlimited hides what belongs to a daily limit and saves although that is left empty; Save sends the
-// switches, shows a refusal in plain words, and its "Saved ✓" goes when a field is changed; Block blocks, and the row
-// shows it even when the list cannot be loaded again; signing out closes the window.
+// switches, shows a refusal in plain words, and its "Saved ✓" goes when a field is changed; Block and Unblock change
+// their row without loading the list again, which only Refresh does; signing out closes the window.
 module.exports = async function adminCheck(ctx, { assert, waitFor }) {
   // What the server answers, what the app has kept, and the fake server's admin data: all put back at the end.
   const server = { ...ctx.cloud.server };
   const kept = { ...ctx.cloud.free };
   const adminConfig = { ...ctx.cloud.adminConfig };
   const blocked = ctx.cloud.adminUsers[0].blocked;
-  // Two calls of the fake server are held back or made to fail for a while below: they are put back too.
+  // Three calls of the fake server are held back, counted or made to fail for a while below: they are put back too.
   const { admin } = ctx.cloud;
-  const { settings: adminSettings, users: adminUsers } = admin;
+  const { settings: adminSettings, users: adminUsers, block: adminBlock } = admin;
   let answerSettings = () => {};
   try {
     assert.strictEqual(ctx.trayState().isAdmin, false, 'no Admin… for someone who is not the admin');
@@ -89,17 +89,12 @@ module.exports = async function adminCheck(ctx, { assert, waitFor }) {
       await waitFor(() => page("document.getElementById('save-status').className === 'error'"), 'the refusal');
       assert.strictEqual(await page("document.getElementById('save-status').textContent"), 'The daily limit must be a whole number from 1 to 10000.');
 
-      await page("document.querySelector('#users button').click()");
-      await waitFor(() => page("document.querySelector('#users button').textContent === 'Unblock'"), 'the user to show as blocked');
-      assert.strictEqual(ctx.cloud.adminUsers[0].blocked, true);
-      // The row already shows the block while the list is still being loaded again: wait for that, so that the answer
-      // to it cannot land in the middle of what follows.
-      await waitFor(() => page("document.getElementById('users-status').textContent !== 'Loading…'"), 'the list to be loaded again');
-
-      // When the list cannot be loaded again just after a block, the row still shows what the server answered, and can
-      // be used again.
+      // Block and Unblock change their row to what the server answered, and do not load the whole list again (each load
+      // reads every user from the database): only Refresh, and opening the window, do.
+      let listed = 0;
       admin.users = async () => {
-        throw new BuddyError('server', "Buddy's server had a problem. Try again.");
+        listed += 1;
+        return adminUsers.call(admin);
       };
       const row = () => page(`(() => {
         const tr = document.querySelector('#users tr');
@@ -107,15 +102,34 @@ module.exports = async function adminCheck(ctx, { assert, waitFor }) {
         return [button.textContent, button.disabled, tr.className];
       })()`);
       const rowShows = (expected, what) => waitFor(async () => JSON.stringify(await row()) === JSON.stringify(expected), what);
+      const usersStatus = () => page("[document.getElementById('users-status').textContent, document.getElementById('users-status').className]");
+      await page("document.querySelector('#users button').click()");
+      await rowShows(['Unblock', false, 'blocked'], 'the row to show the user blocked');
+      assert.strictEqual(ctx.cloud.adminUsers[0].blocked, true);
       await page("document.querySelector('#users button').click()");
       await rowShows(['Block', false, ''], 'the row to show the user unblocked');
-      await waitFor(() => page("document.getElementById('users-status').className === 'error'"), 'the list to fail to load again');
-      assert.strictEqual(await page("document.getElementById('users-status').textContent"), "Buddy's server had a problem. Try again.");
       assert.strictEqual(ctx.cloud.adminUsers[0].blocked, false);
+      assert.strictEqual(listed, 0, 'the list was not loaded again');
+      assert.deepStrictEqual(await usersStatus(), ['1 user', 'muted']);
+
+      // A Block the server refuses says so, and the button can be pressed again; once it works, the refusal goes.
+      admin.block = async () => {
+        throw new BuddyError('server', "Buddy's server had a problem. Try again.");
+      };
+      await page("document.querySelector('#users button').click()");
+      await waitFor(() => page("document.getElementById('users-status').className === 'error'"), 'the refusal');
+      assert.deepStrictEqual(await usersStatus(), ["Buddy's server had a problem. Try again.", 'error']);
+      assert.deepStrictEqual(await row(), ['Block', false, ''], 'the row is as it was, and can be used again');
+      admin.block = adminBlock;
       await page("document.querySelector('#users button').click()");
       await rowShows(['Unblock', false, 'blocked'], 'the row to show the user blocked again');
       assert.strictEqual(ctx.cloud.adminUsers[0].blocked, true);
-      await waitFor(() => page("document.getElementById('users-status').textContent !== 'Loading…'"), 'the list to be tried again');
+      assert.deepStrictEqual(await usersStatus(), ['1 user', 'muted'], 'the refusal no longer holds');
+
+      // Refresh loads the list again.
+      await page("document.getElementById('users-refresh').click()");
+      await waitFor(async () => listed === 1 && JSON.stringify(await usersStatus()) === '["1 user","muted"]', 'Refresh to load the list');
+      assert.strictEqual(listed, 1, 'loaded once');
       admin.users = adminUsers;
     } finally {
       ctx.windows.close('admin');
@@ -132,6 +146,7 @@ module.exports = async function adminCheck(ctx, { assert, waitFor }) {
     answerSettings();
     admin.settings = adminSettings;
     admin.users = adminUsers;
+    admin.block = adminBlock;
     ctx.cloud.server = server;
     ctx.cloud.free = kept;
     ctx.cloud.adminConfig = adminConfig;

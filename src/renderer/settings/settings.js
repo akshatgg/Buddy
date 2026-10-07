@@ -90,7 +90,7 @@ $('sign-in').addEventListener('click', async () => {
   }
   if (r.ok) {
     snap = r;
-    render();
+    render({ fields: false });
     showStatus('account-status', 'Signed in ✓', 'good');
   } else if (r.error.code !== 'sign_in_cancelled') {
     // Cancelled means the button was pressed again: the newer sign-in speaks for itself.
@@ -104,7 +104,7 @@ $('sign-out').addEventListener('click', async () => {
     return;
   }
   snap = r;
-  render();
+  render({ fields: false });
   showStatus('account-status', 'Signed out.', 'muted');
 });
 $('name').addEventListener('change', () => save({ buddyName: $('name').value }, 'name-status'));
@@ -150,10 +150,11 @@ window.addEventListener('focus', async () => {
   render();
   await renderPermissions();
   await mountAiForm($('ai'));
-  // The admin may have changed free mode since the app last asked.
+  // The admin may have changed free mode since the app last asked. The answer can take a while, and what is typed
+  // meanwhile stays.
   const fresh = await window.buddy.refresh();
   if (fresh.ok) {
     snap = fresh;
-    render();
+    render({ fields: false });
   }
 })();

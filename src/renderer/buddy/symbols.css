@@ -1,0 +1,218 @@
+/* The buddy's symbols (symbols.js): small shapes in its glow colour, over the canvas.
+   They move with transform and opacity only, which the compositor animates by itself,
+   so they stay smooth while the page draws only a few frames a second.
+
+   symbols.js gives the container the class buddy-symbols and sets on it --glow, the
+   buddy's accent colour; --head-x and --head-y, the head's top centre in the window's
+   CSS pixels (the canvas fills the window); --head-w, the head's width. On each symbol:
+   --x and --y, where it starts, from the head's top centre in head widths; --k, its
+   size against the base size. */
+
+.buddy-symbols {
+  --head-x: 50%;
+  --head-y: 40%;
+  --head-w: 64px;
+  --core: color-mix(in srgb, var(--glow, #ffb54c) 40%, #fff); /* as light as the eyes' centres, for the shine */
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+}
+
+.buddy-symbol {
+  --size: max(6px, calc(var(--head-w) * 0.18 * var(--k, 1))); /* about a fifth of the head's width */
+  position: absolute;
+  left: calc(var(--head-x) + var(--x, 0) * var(--head-w) - var(--size) / 2);
+  top: calc(var(--head-y) + var(--y, 0) * var(--head-w) - var(--size) / 2);
+  width: var(--size);
+  height: var(--size);
+  pointer-events: none;
+  color: var(--glow, #ffb54c);
+  /* A thin warm edge, so a symbol still shows over a white window, then a faint glow. */
+  filter: drop-shadow(0 0 0.5px rgb(110 55 10 / 0.45)) drop-shadow(0 0 calc(var(--size) * 0.18) var(--glow, #ffb54c));
+  animation-fill-mode: both;
+  animation-timing-function: linear;
+}
+
+.buddy-symbol svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: currentColor;
+}
+
+.buddy-symbol .shine {
+  fill: var(--core);
+}
+
+/* "z": a staircase of letters, each rising a little, growing and fading in turn. */
+.buddy-symbol--z {
+  animation-name: buddy-symbol-z;
+  animation-duration: 3.6s;
+  animation-iteration-count: infinite;
+}
+
+/* In the 24 × 24 box, centred on the middle of the letter's height. Chromium has no
+   ui-rounded; the Mac has Arial Rounded, Windows falls back to Segoe UI. */
+.buddy-symbol--z text {
+  font: 800 30px ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Segoe UI", system-ui, sans-serif;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+@keyframes buddy-symbol-z {
+  0% { opacity: 0; transform: translate(0, 0) rotate(-12deg) scale(0.6); }
+  18% { opacity: 1; }
+  52% { opacity: 1; }
+  78% { opacity: 0; transform: translate(calc(var(--head-w) * 0.05), calc(var(--head-w) * -0.08)) rotate(8deg) scale(1.1); }
+  100% { opacity: 0; transform: translate(calc(var(--head-w) * 0.05), calc(var(--head-w) * -0.08)) rotate(8deg) scale(1.1); }
+}
+
+/* Hearts pop up, leaning out from the middle, rise and fade. */
+.buddy-symbol--heart {
+  animation-name: buddy-symbol-heart;
+  animation-duration: 1.3s;
+}
+
+@keyframes buddy-symbol-heart {
+  0% {
+    opacity: 0;
+    transform: translateY(calc(var(--head-w) * 0.04)) rotate(calc(var(--x) * 40deg)) scale(0.3);
+    animation-timing-function: cubic-bezier(0.3, 0.8, 0.4, 1);
+  }
+  18% { opacity: 1; transform: translateY(calc(var(--head-w) * -0.03)) rotate(calc(var(--x) * 30deg)) scale(1.15); }
+  32% { transform: translateY(calc(var(--head-w) * -0.07)) rotate(calc(var(--x) * 20deg)) scale(1); }
+  65% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(calc(var(--head-w) * -0.26)) rotate(calc(var(--x) * -10deg)) scale(0.85); }
+}
+
+/* Stars circle a flat ring around the top of the head, the ring in symbols.js (RING):
+   each step is the ring's point at that angle, less where the star was put. In front
+   (the lower half) they are bigger and brighter, behind smaller and dimmer. They spin
+   two fifths of a turn a loop, which looks the same at the start of the next one. */
+.buddy-symbol--star {
+  animation-name: buddy-symbol-orbit;
+  animation-duration: 1.2s;
+  animation-iteration-count: infinite;
+}
+
+.buddy-symbol--star path {
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linejoin: round;
+}
+
+.buddy-symbol--star svg {
+  animation: buddy-symbol-pop 0.3s cubic-bezier(0.3, 0.8, 0.4, 1.2) both;
+}
+
+@keyframes buddy-symbol-orbit {
+  0% { opacity: 0.8; transform: translate(calc((0.42 - var(--x)) * var(--head-w)), calc((-0.05 - var(--y)) * var(--head-w))) rotate(0deg) scale(1); }
+  8.333% { opacity: 0.9; transform: translate(calc((0.364 - var(--x)) * var(--head-w)), calc((-0.005 - var(--y)) * var(--head-w))) rotate(12deg) scale(1.075); }
+  16.667% { opacity: 0.973; transform: translate(calc((0.21 - var(--x)) * var(--head-w)), calc((0.028 - var(--y)) * var(--head-w))) rotate(24deg) scale(1.13); }
+  25% { opacity: 1; transform: translate(calc((0 - var(--x)) * var(--head-w)), calc((0.04 - var(--y)) * var(--head-w))) rotate(36deg) scale(1.15); }
+  33.333% { opacity: 0.973; transform: translate(calc((-0.21 - var(--x)) * var(--head-w)), calc((0.028 - var(--y)) * var(--head-w))) rotate(48deg) scale(1.13); }
+  41.667% { opacity: 0.9; transform: translate(calc((-0.364 - var(--x)) * var(--head-w)), calc((-0.005 - var(--y)) * var(--head-w))) rotate(60deg) scale(1.075); }
+  50% { opacity: 0.8; transform: translate(calc((-0.42 - var(--x)) * var(--head-w)), calc((-0.05 - var(--y)) * var(--head-w))) rotate(72deg) scale(1); }
+  58.333% { opacity: 0.7; transform: translate(calc((-0.364 - var(--x)) * var(--head-w)), calc((-0.095 - var(--y)) * var(--head-w))) rotate(84deg) scale(0.925); }
+  66.667% { opacity: 0.627; transform: translate(calc((-0.21 - var(--x)) * var(--head-w)), calc((-0.128 - var(--y)) * var(--head-w))) rotate(96deg) scale(0.87); }
+  75% { opacity: 0.6; transform: translate(calc((0 - var(--x)) * var(--head-w)), calc((-0.14 - var(--y)) * var(--head-w))) rotate(108deg) scale(0.85); }
+  83.333% { opacity: 0.627; transform: translate(calc((0.21 - var(--x)) * var(--head-w)), calc((-0.128 - var(--y)) * var(--head-w))) rotate(120deg) scale(0.87); }
+  91.667% { opacity: 0.7; transform: translate(calc((0.364 - var(--x)) * var(--head-w)), calc((-0.095 - var(--y)) * var(--head-w))) rotate(132deg) scale(0.925); }
+  100% { opacity: 0.8; transform: translate(calc((0.42 - var(--x)) * var(--head-w)), calc((-0.05 - var(--y)) * var(--head-w))) rotate(144deg) scale(1); }
+}
+
+@keyframes buddy-symbol-pop {
+  0% { opacity: 0; transform: scale(0.3); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Sparkles burst out from the middle of the head, twist, and shrink away. */
+.buddy-symbol--sparkle {
+  animation-name: buddy-symbol-sparkle;
+  animation-duration: 0.9s;
+}
+
+@keyframes buddy-symbol-sparkle {
+  0% { opacity: 0; transform: translate(0, 0) rotate(0deg) scale(0); }
+  25% {
+    opacity: 1;
+    transform: translate(calc(var(--x) * var(--head-w) * 0.12), calc((var(--y) - 0.45) * var(--head-w) * 0.12)) rotate(30deg) scale(1.2);
+  }
+  55% {
+    opacity: 1;
+    transform: translate(calc(var(--x) * var(--head-w) * 0.2), calc((var(--y) - 0.45) * var(--head-w) * 0.2)) rotate(55deg) scale(0.9);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--x) * var(--head-w) * 0.27), calc((var(--y) - 0.45) * var(--head-w) * 0.27)) rotate(90deg) scale(0.3);
+  }
+}
+
+/* Notes rise beside the head, swaying. */
+.buddy-symbol--note {
+  animation-name: buddy-symbol-note;
+  animation-duration: 1.4s;
+  animation-timing-function: ease-in-out;
+}
+
+@keyframes buddy-symbol-note {
+  0% { opacity: 0; transform: translate(0, calc(var(--head-w) * 0.04)) rotate(-14deg) scale(0.5); }
+  15% { opacity: 1; transform: translate(calc(var(--head-w) * 0.03), calc(var(--head-w) * -0.04)) rotate(10deg) scale(1); }
+  40% { transform: translate(calc(var(--head-w) * -0.03), calc(var(--head-w) * -0.15)) rotate(-10deg) scale(1); }
+  65% { opacity: 1; transform: translate(calc(var(--head-w) * 0.03), calc(var(--head-w) * -0.26)) rotate(10deg) scale(1); }
+  100% { opacity: 0; transform: translate(calc(var(--head-w) * -0.01), calc(var(--head-w) * -0.38)) rotate(-6deg) scale(0.9); }
+}
+
+/* The sweat drop swells, then slides down the side of the head and fades. */
+.buddy-symbol--drop {
+  animation-name: buddy-symbol-drop;
+  animation-duration: 1.9s;
+}
+
+@keyframes buddy-symbol-drop {
+  0% {
+    opacity: 0;
+    transform: translateY(calc(var(--head-w) * -0.03)) scale(0.4);
+    animation-timing-function: cubic-bezier(0.3, 0.8, 0.4, 1);
+  }
+  14% { opacity: 1; transform: translateY(0) scale(1.06); }
+  24% { transform: translateY(0) scale(1); animation-timing-function: cubic-bezier(0.5, 0, 0.8, 0.6); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(calc(var(--head-w) * 0.15)) scale(0.92); }
+}
+
+/* Asked for less motion: the same symbols in the same places, fading in and out. */
+@media (prefers-reduced-motion: reduce) {
+  .buddy-symbol--z { animation-name: buddy-symbol-z-still; }
+  .buddy-symbol--star { animation-name: buddy-symbol-twinkle; }
+  .buddy-symbol--star svg { animation-name: buddy-symbol-fade-in; }
+  .buddy-symbol--heart,
+  .buddy-symbol--sparkle,
+  .buddy-symbol--note,
+  .buddy-symbol--drop { animation-name: buddy-symbol-fade; }
+}
+
+@keyframes buddy-symbol-z-still {
+  0% { opacity: 0; }
+  18%, 52% { opacity: 1; }
+  78%, 100% { opacity: 0; }
+}
+
+@keyframes buddy-symbol-twinkle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@keyframes buddy-symbol-fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes buddy-symbol-fade {
+  0% { opacity: 0; }
+  20%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}

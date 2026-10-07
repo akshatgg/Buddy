@@ -3,9 +3,11 @@
 /* exported ShortcutKeys */
 
 /**
- * Key presses into a shortcut, and a shortcut into key caps. A shortcut is an Electron accelerator
- * ("Shift+Command+B", "Alt+Space"): what Settings saves and the main process registers. The Settings page loads
- * this as a script; the unit tests require it (module.exports at the end).
+ * Key presses into a shortcut, and a shortcut into key caps. A shortcut is an Electron accelerator ("Shift+Command+B",
+ * "Alt+Space") or a key tapped on its own ("Tap:RightOption"): what Settings saves and the main process takes. The
+ * Settings page loads this as a script; the main process requires it too (shortcut.js, key-watch.js, modifier-tap.js and
+ * ipc/settings.js), and so do the unit tests (module.exports at the end). So it must stay free of the DOM and of
+ * browser globals.
  */
 const ShortcutKeys = (() => {
   // The modifiers in the Mac's order: ⌃ ⌥ ⇧ ⌘.

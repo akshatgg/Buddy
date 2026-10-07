@@ -21,8 +21,9 @@ import org.junit.Test
 import java.io.InterruptedIOException
 
 /**
- * A request whose caller lets go of it has its thread interrupted, and an interrupted read fails with an IOException.
- * Every layer that turns an IOException into "no internet" must pass the cancellation on as one instead.
+ * A request whose caller lets go of it can still end in an IOException: a read that is interrupted, or whose connection
+ * is closed under it, fails with one. Every layer that turns an IOException into "no internet" must pass the
+ * cancellation on as one instead.
  */
 @OptIn(ExperimentalCoroutinesApi::class) // runCurrent
 class LetGoRequestsTest {

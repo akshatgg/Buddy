@@ -60,7 +60,7 @@ class Account(
         try {
             secrets.set(REFRESH_ID, refreshToken) // first: if the keystore fails, nothing half-saved is left behind
         } catch (e: Exception) {
-            throw BuddyError("no_keychain", "Your phone's keystore is not available, so Buddy cannot keep you signed in.")
+            throw BuddyError("no_keychain", "Your phone can't keep your sign-in safe right now, so Buddy can't keep you signed in.")
         }
         kv.putString(USER_KEY, buildJsonObject {
             put("uid", user.uid); put("email", user.email); put("name", user.name); put("photo", user.photo)
@@ -82,8 +82,8 @@ class Account(
         val api = auth ?: throw notSetUp()
         val r = api.signInWithGoogle(googleIdToken())
         synchronized(commit) {
-            generation++
             keep(r.user, r.refreshToken)
+            generation++ // after keep(): a sign-in that could not be saved must not end a renewal for the person still signed in
             token = Token(r.idToken, now() + r.expiresInSec * 1000)
             state.value = r.user
         }
@@ -98,6 +98,7 @@ class Account(
     @Volatile private var lastFailure: BuddyError? = null
 
     private suspend fun renewOnce(): String {
+        lastFailure = null // a renewal that is cancelled must not leave an older failure for the waiting callers
         try {
             val id = renew()
             lastFailure = null
@@ -111,9 +112,11 @@ class Account(
     }
 
     private suspend fun renew(): String {
-        val who = generation
-        val person = state.value ?: throw signedOut()
-        val refreshToken = secrets.get(REFRESH_ID)?.ifEmpty { null }
+        // Read together, so that a sign-out or sign-in cannot slip between the person and the token that belongs to them.
+        val (who, person, refreshToken) = synchronized(commit) {
+            Triple(generation, state.value, secrets.get(REFRESH_ID)?.ifEmpty { null })
+        }
+        if (person == null) throw signedOut()
         if (refreshToken == null) {
             // The keystore no longer has what was saved (a new phone, a reset): sign in again.
             synchronized(commit) { if (generation == who) forget() }

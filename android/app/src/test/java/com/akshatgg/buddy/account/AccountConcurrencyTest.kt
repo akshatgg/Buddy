@@ -6,6 +6,7 @@ import com.akshatgg.buddy.net.HttpRequest
 import com.akshatgg.buddy.net.HttpResponse
 import com.akshatgg.buddy.store.MemoryKeyValue
 import com.akshatgg.buddy.store.MemorySecrets
+import com.akshatgg.buddy.store.Secrets
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
@@ -13,7 +14,6 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import com.akshatgg.buddy.store.Secrets
 import org.junit.Test
 
 class AccountConcurrencyTest {
@@ -132,7 +132,9 @@ class AccountConcurrencyTest {
             override fun set(id: String, value: String) = throw IllegalStateException("keystore")
         }
         val a = Account(kv, broken, FirebaseAuthApi(GateHttp(signedIn) { HttpResponse(500, "") }, "KEY"), now = { clock })
-        assertEquals("no_keychain", err { a.signIn { "g" } })
+        val e = try { a.signIn { "g" }; null } catch (e: BuddyError) { e }
+        assertEquals("no_keychain", e?.code)
+        assertEquals("Your phone can't keep your sign-in safe right now, so Buddy can't keep you signed in.", e?.message)
         assertNull(kv.getString("account.user"))
     }
 
@@ -150,5 +152,40 @@ class AccountConcurrencyTest {
         val e = try { a.signIn { "g" }; null } catch (e: BuddyError) { e }
         assertEquals("timeout", e?.code)
         assertEquals("Google took too long to answer. Try again.", e?.message)
+    }
+
+    @Test fun aCancelledRenewalDoesNotHandOnAnOlderFailure() = runTest {
+        val answers = ArrayDeque<CompletableDeferred<HttpResponse>>()
+        val http = object : Http {
+            override suspend fun send(request: HttpRequest): HttpResponse =
+                if (request.url.contains("securetoken")) answers.removeFirst().await() else HttpResponse(200, signedIn)
+        }
+        val a = Account(kv, secrets, FirebaseAuthApi(http, "KEY"), now = { clock })
+        a.signIn { "g" }
+        answers.add(CompletableDeferred(HttpResponse(503, """{"error":{"message":"UNAVAILABLE"}}""")))
+        assertEquals("auth_failed", err { a.idToken(force = true) })
+        // A renews and is cancelled while B waits: B renews for itself, it is not handed the failure above.
+        answers.add(CompletableDeferred())
+        answers.add(CompletableDeferred(HttpResponse(200, """{"id_token":"id-2","refresh_token":"r-1","expires_in":"3600"}""")))
+        val callA = async { a.idToken(force = true) }
+        runCurrent()
+        val callB = async { a.idToken(force = true) }
+        runCurrent()
+        callA.cancel()
+        runCurrent()
+        assertEquals("id-2", callB.await())
+    }
+
+    @Test fun aRefreshTokenThatCanNoLongerBeReadSignsThePersonOut() = runTest {
+        var readable = true
+        val flaky = object : Secrets by secrets {
+            override fun get(id: String): String? = if (readable) secrets.get(id) else null
+        }
+        val a = Account(kv, flaky, FirebaseAuthApi(GateHttp(signedIn) { HttpResponse(500, "") }, "KEY"), now = { clock })
+        a.signIn { "g" }
+        readable = false
+        assertEquals("signed_out", err { a.idToken(force = true) })
+        assertFalse(a.isSignedIn())
+        assertNull(kv.getString("account.user"))
     }
 }

@@ -59,7 +59,15 @@ text in an app and choose **Fix with Buddy** to fix it in place, or use
 Share → Buddy from any app. There is no Admin on the phone; the admin works from
 the Mac. Sign-in and free mode use the same server.
 
-Build it with Android Studio's JDK and SDK (platform android-37). Copy
+Build it with Android Studio's own JDK and its Android SDK, with platform
+android-37 installed (Android Studio → Settings → Languages & Frameworks →
+Android SDK). Tell the build where they are. On a Mac:
+
+    export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+    export ANDROID_HOME=~/Library/Android/sdk
+
+Instead of `ANDROID_HOME` you can put `sdk.dir=` and the SDK's full path in
+`android/local.properties` (not in git). Copy
 `android/cloud.example.properties` to `android/cloud.properties` and fill it in:
 `serverUrl` and `firebaseApiKey` are in the Mac's `cloud.json`, and
 `googleWebClientId` is the Web client that Firebase made for Google sign-in.

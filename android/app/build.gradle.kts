@@ -41,8 +41,6 @@ android {
     packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
 }
 
-kotlin { jvmToolchain(17) }
-
 // A build that cannot sign anyone in is no use: say so at once, rather than in the Welcome window.
 val checkCloud = tasks.register("checkCloudProperties") {
     doLast {

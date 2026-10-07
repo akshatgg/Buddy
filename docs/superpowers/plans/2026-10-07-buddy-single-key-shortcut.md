@@ -10,12 +10,14 @@
 
 Design: `docs/superpowers/specs/2026-10-07-buddy-single-key-shortcut-design.md`. Work in `/Users/akshat/projects/buddy-phase2` on branch `modifier-shortcut`.
 
+> Note: the fix waves after these tasks changed parts of the code below (the detector heals after a lost release, the key watch re-syncs and retries a timed-out call, recording starts before the shortcut is let go, the helper checks its tap every 5 seconds and also hears media keys and scrolling). The code in the repo is authoritative.
+
 ## Global Constraints
 
 - Saved value: `Tap:` + key names joined by `+`, in this order: `Fn`, `LeftControl`, `RightControl`, `LeftOption`, `RightOption`, `LeftShift`, `RightShift`, `LeftCommand`, `RightCommand`; `CapsLock` only alone.
 - Key caps: `Left ⌘`, `Right ⌘`, `Left ⌥`, `Right ⌥`, `Left ⌃`, `Right ⌃`, `Left ⇧`, `Right ⇧`, `fn`, `⇪ Caps Lock`.
 - A tap: the key(s) go down and all come back up within **500 ms**, no other key or mouse click in between, no other modifier still held at the end. Caps Lock: each report with no modifier held is a tap; a second report within **400 ms** is the same press.
-- The helper reports `{"event":"keys","kind":"flags","keyCode":n,"flags":n,"t":ms}` and, only while a modifier is held, `{"event":"keys","kind":"other"}` — never which key.
+- The helper reports `{"event":"keys","kind":"flags","keyCode":n,"flags":n,"t":ms}` and, only while a modifier flag is on, `{"event":"keys","kind":"other"}` — never which key.
 - When the helper cannot listen, the key watch asks again every **10 seconds**.
 - Exact page strings:
   - hint: `Click the box, then press the keys you want, or tap one key like ⌘ or fn on its own. Esc cancels.`

@@ -43,9 +43,14 @@ chosen section is remembered while the window stays open.
 - Pressing keys: held modifiers show live. A combination is complete when a non-modifier key is pressed with at
   least one of ⌘ ⌥ ⌃ (⇧ alone is not enough: it would take over typing capitals). F1–F24 may be used alone.
   Allowed keys: letters, digits, Space, F1–F24, arrows, Return, Tab, Delete/Backspace, and - = [ ] \ ; ' , . / `.
+- Shortcuts that every app uses are refused, before any registration is tried, and the box goes on waiting: ⌘C (Copy),
+  ⌘V (Paste), ⌘X (Cut), ⌘Z (Undo), ⇧⌘Z (Redo), ⌘A (Select All), ⌘Q (Quit), ⌘W (Close Window), ⌘S (Save), ⌘H (Hide),
+  ⌘M (Minimise), ⌘Tab (switching apps) and ⌘Space (Spotlight); the last two are the Mac's own. The line under the box
+  says what the shortcut does: "<keys> is used by every app (<what it does>). Pick another one.", for example "⌘C is
+  used by every app (Copy). Pick another one." The same keys with other modifiers are ordinary shortcuts (⌥⌘C, ⌃C).
 - A complete combination is **saved at once** (`settings:set { shortcut }`, the same rules as today). If the
-  system or another app owns it, the box goes back to the old shortcut and says "That shortcut is taken. Try
-  another one." (⌘ Space is Spotlight's on every Mac.)
+  system or another app owns it, the box goes back to the old shortcut, which stays the saved one, and says, keys
+  first, "<keys> is taken. Try another one.", for example "⌃ ⌘ K is taken. Try another one."
 - **Esc** cancels and keeps the old one. A **"Reset to ⌥ Space"** link restores the default.
 - Shortcuts are stored as Electron accelerators (`Command+Shift+B`, `Alt+Space`), so the saved settings stay
   compatible.

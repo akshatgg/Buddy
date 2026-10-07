@@ -910,6 +910,27 @@ test('shortcut:resume does nothing while Buddy is off; resumeShortcut is also th
   assert.strictEqual(typeof s.ipc.resumeShortcut, 'function');
 });
 
+// Only a closing Settings window gives the shortcut back (main.js), so a pause from any other window would never be undone.
+test('shortcut:pause and shortcut:resume are for the Settings window only: the Welcome window is refused, and the shortcut is left as it is', async () => {
+  const refusedOutright = refused('not_allowed', 'Not allowed.');
+
+  const pausing = setup({ buddyOn: true });
+  assert.deepStrictEqual(await pausing.callFromWelcome('shortcut:pause'), refusedOutright);
+  assert.deepStrictEqual(pausing.calls, [], 'nothing was let go');
+  assert.strictEqual(pausing.shortcutNow(), 'Alt+Space', 'the shortcut is still registered');
+
+  const resuming = setup({ buddyOn: true, registered: null, stored: { shortcut: 'Shift+Command+B' } });
+  assert.deepStrictEqual(await resuming.callFromWelcome('shortcut:resume'), refusedOutright);
+  assert.deepStrictEqual(resuming.calls, [], 'nothing was registered');
+  assert.strictEqual(resuming.shortcutNow(), null);
+
+  // The same set-ups, asked by the Settings window, are answered: it is the page, not the state, that was refused.
+  assert.deepStrictEqual(await pausing.call('shortcut:pause'), { ok: true });
+  assert.deepStrictEqual(pausing.calls, [['unregister']]);
+  assert.deepStrictEqual(await resuming.call('shortcut:resume'), { ok: true });
+  assert.deepStrictEqual(resuming.calls, [['register', 'Shift+Command+B']]);
+});
+
 test('saving a new shortcut while paused registers it, and resume then leaves it alone', async () => {
   const s = setup({ buddyOn: true });
   await s.call('shortcut:pause');

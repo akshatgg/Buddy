@@ -55,6 +55,9 @@ function registerSettingsIpc({
   const handle = guarded(ipcMain, (webContents) => windows.owns(webContents, 'settings') || windows.owns(webContents, 'onboarding'));
   // Finishing the Welcome is for the Welcome window only: the Settings window has no business doing it.
   const handleWelcome = guarded(ipcMain, (webContents) => windows.owns(webContents, 'onboarding'));
+  // Letting go of the shortcut and taking it back is for the Settings window only: main.js gives the shortcut back
+  // when a Settings window closes, and for no other window, so a pause from another one would never be undone.
+  const handleSettings = guarded(ipcMain, (webContents) => windows.owns(webContents, 'settings'));
   // Electron is loaded only when a page asks to open something, so these handlers can be
   // tested in plain Node by passing a `shell` of their own.
   const openExternal = (url) => (shell || require('electron').shell).openExternal(url);
@@ -250,12 +253,12 @@ function registerSettingsIpc({
 
   // While the Settings page records a new shortcut, Buddy lets go of its own, so that pressing the current one is
   // heard by the page instead of opening the panel.
-  handle('shortcut:pause', () => {
+  handleSettings('shortcut:pause', () => {
     shortcut.unregister();
     return {};
   });
 
-  handle('shortcut:resume', () => {
+  handleSettings('shortcut:resume', () => {
     resumeShortcut();
     return {};
   });

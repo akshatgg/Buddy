@@ -222,7 +222,12 @@ async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
     { type: 'checkbox', checked: true, isSwitch: true },
     'Always on is a switch, and it is on',
   );
-  assert.match(await page("document.getElementById('version').textContent"), /^Buddy \S/);
+  // Buddy's own version (package.json's), not Electron's: under this test app.getVersion() answers Electron's.
+  assert.strictEqual(
+    await page("document.getElementById('version').textContent"),
+    `Buddy ${require('../../../package.json').version}`,
+    "General shows Buddy's version",
+  );
 
   // The switch turns Buddy off and on again: the switch, its words, the saved setting and the shortcut follow.
   const power = () => page("[document.getElementById('power').checked, document.getElementById('power-status').textContent]");

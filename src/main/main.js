@@ -164,7 +164,10 @@ async function start(options = {}) {
   registerPanelIpc({ ipcMain, panel, actions, openSettings });
   const settingsIpc = registerSettingsIpc({
     ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut,
-    account, cloud, canSignIn: Boolean(cloudConfig), version: app.getVersion(),
+    account, cloud, canSignIn: Boolean(cloudConfig),
+    // Buddy's own version, from the app's package.json (which is packed into the built app). Not app.getVersion(): when
+    // Electron runs a script (the end-to-end test) there is no app package.json for it to read, and it answers Electron's.
+    version: require('../../package.json').version,
     onFinishOnboarding() {
       windows.close('onboarding');
       buddy.reloadModel();

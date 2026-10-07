@@ -291,11 +291,15 @@ function createActions({
     add(c, { type: 'buddy', say: `Open me again and ask once more, so I can look at ${appName(c)}.`, text: '', notes: [], buttons: [] });
   }
 
-  /** Show the panel again on the same chat, after it stepped aside: unless the chat was closed meanwhile. */
+  /**
+   * Show the panel again on the same chat, after it stepped aside: unless the chat was closed meanwhile. Buddy brings
+   * it back, not the person, so it does not listen by itself (`voice.auto` is false in this state only).
+   */
   async function comeBack(c) {
     if (c !== chat) return;
     c.resumed = true;
-    await showPanel(stateOf(c));
+    const state = stateOf(c);
+    await showPanel({ ...state, voice: { ...state.voice, auto: false } });
   }
 
   /** The chat so far for the AI: the last messages before `you`, the buddy's as its line and its text together. */

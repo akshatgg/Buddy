@@ -256,7 +256,7 @@ window.buddy.onOpen((s) => {
   state = s;
   render({ scroll: true });
   box.focus();
-  if (listensOnOpen(s.voice)) startListening({ byItself: true });
+  if (listensOnOpen(s.voice, { busy: s.busy })) startListening({ byItself: true });
 });
 
 window.buddy.onState((s) => {
@@ -272,6 +272,9 @@ const MAX_RECORDING_BYTES = 2_000_000; // about 2 MB: the most Buddy's server ta
 const RECORDING_TYPE = 'audio/webm;codecs=opus';
 const FULL_BARS_LEVEL = 0.25; // the bars stand at their full height at this loudness (a voice is mostly under it)
 const MIC_SETTINGS = 'no_microphone'; // Open Settings for the microphone: Permissions on the Mac, Windows' own Settings
+// How long the page waits, once the system says it is hidden, before it stops listening: a late "hidden" for a hide
+// that is already over is followed by "shown" well within this.
+const HIDDEN_SETTLE_MS = 300;
 const PLACEHOLDERS = {
   idle: 'Tell me what to do…',
   starting: 'Tell me what to do…',
@@ -286,6 +289,7 @@ const VOICE_WORDS = {
   noMic: "I can't find a microphone.",
   micFailed: "I couldn't use the microphone. Try again.",
   notWritten: "I couldn't write down what you said. Try again.",
+  wait: 'Wait for my answer first.',
 };
 
 /** Draws the listening: 🎤 glows while it listens, the bars follow the voice, the box says what is going on. */
@@ -484,6 +488,7 @@ async function finishListening(heardVoice) {
     }
     if (turn !== voiceTurn) return; // stopped while it was being written down: nothing is sent
   }
+  if (document.hidden) return cancelListening(); // hidden meanwhile, and not stopped yet (see the end): nothing is sent
   setVoice('idle');
   focusBoxIfLost(); // the box was disabled meanwhile, which took the keyboard from it
   if (!r.ok) return showSendError(r.error.message); // the server's own words (voice is busy, not set up, …)
@@ -491,6 +496,11 @@ async function finishListening(heardVoice) {
   if (!words) return showSendError(VOICE_WORDS.notCaught);
   const typed = $('box').value.trimEnd();
   $('box').value = typed ? `${typed} ${words}` : words;
+  // One message at a time: while the buddy is still answering, the words wait in the box, to send once it has.
+  if (state.busy || sending) {
+    updateSend();
+    return showSendError(VOICE_WORDS.wait);
+  }
   send();
 }
 
@@ -516,8 +526,16 @@ $('mic').addEventListener('click', () => {
   cancelListening(); // what was being written down is dropped
   startListening();
 });
-// Hidden by main (a click somewhere else, Buddy putting text in the app, the shortcut) or the page going away.
+// Hidden by main (a click somewhere else, Buddy putting text in the app, the shortcut): listening stops, and nothing of
+// it is sent. The system can say so late, though: macOS may tell the page about a brief hide of Buddy's own only once
+// main has shown the panel again, with "shown" just after. So listening stops only when the page is still hidden a
+// moment later, and one that began after such a hide goes on. (Shown again, the panel always comes with a new opening,
+// which ends a listening from before it by itself.)
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) cancelListening();
+  if (!document.hidden) return;
+  setTimeout(() => {
+    if (document.hidden) cancelListening();
+  }, HIDDEN_SETTLE_MS);
 });
+// The page going away.
 window.addEventListener('pagehide', cancelListening);

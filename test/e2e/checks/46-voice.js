@@ -5,8 +5,11 @@ const { ipcMain } = require('electron');
 // Talking to the panel, through Chromium's fake microphone (test/e2e/smoke.js: someone speaks for 1.5 s, then
 // stops). Voice is on for this person and the microphone is allowed, so the panel listens as it opens; once the voice
 // has stopped, the page sends the recording to be written down (the test's server answers HEARD), puts the words in
-// the box and sends them, as ↩ would. Closed and opened again with voice off, or with "Listen when the panel opens"
-// off, it does not listen. What the page tells main about listening is heard here as main hears it.
+// the box and sends them, as ↩ would. Buddy then reads the person's box and brings the panel back itself: that does not
+// listen. Opened again while the buddy is still answering, the panel does not listen by itself either, and words said
+// on 🎤 meanwhile wait in the box. A late "hidden" from before a listening began does not stop it; being hidden does.
+// Closed and opened again with voice off, or with "Listen when the panel opens" off, it does not listen. What the page
+// tells main about listening is heard here as main hears it.
 //
 // This needs the panel page's voice (Task G of docs/superpowers/plans/2026-10-08-buddy-voice.md).
 module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
@@ -19,18 +22,33 @@ module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
   const free = ctx.cloud.free;
   const { ask } = ctx.ai;
   const asks = [];
+  const write = { kind: 'write', say: 'Here it is.', text: 'Dear Sir, I need leave tomorrow.', notes: [], doIt: false, send: false, remember: [] };
+  const answers = []; // the AI's next answers, in order (a function: answered once it says); then `write`
   ctx.ai.ask = async (action, input) => {
     asks.push({ action, input });
-    const chat = { kind: 'write', say: 'Here it is.', text: 'Dear Sir, I need leave tomorrow.', notes: [], doIt: false, send: false, remember: [] };
+    const next = answers.length ? answers.shift() : write;
+    const chat = typeof next === 'function' ? await next() : next;
     return { text: JSON.stringify(chat), model: 'e2e-model', chat };
   };
   const chat = () => ctx.actions.state().chat;
   const listened = () => told.some(([what, on]) => what === 'listening' && on === true);
+  const changes = () => told.filter(([what]) => what === 'listening').map(([, on]) => on);
+  const page = (script) => ctx.panel.window().webContents.executeJavaScript(script);
+  const redLine = () => page("document.getElementById('send-error').hidden ? '' : document.getElementById('send-error-text').textContent");
   async function openPanel() {
     await waitFor(() => !ctx.panel.justClosed(), 'the panel to be ready to open again');
     await ctx.actions.toggle();
     await waitFor(() => ctx.panel.isVisible(), 'the panel to open');
   }
+  /** Write `message` in the box and press ↩, as the person does. */
+  const typeAndSend = (message) => page(`(() => {
+    const box = document.getElementById('box');
+    box.value = ${JSON.stringify(message)};
+    box.dispatchEvent(new Event('input'));
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  })()`);
+  /** The page as if the system said it is hidden (true) or as it really is (null), and told so. */
+  const seemHidden = (hidden) => page(`window.e2eHidden = ${hidden}; document.dispatchEvent(new Event('visibilitychange'))`);
 
   try {
     ctx.cloud.free = { ...free, voiceOn: true };
@@ -38,6 +56,12 @@ module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
     ctx.cloud.recordings = [];
     ctx.systemPreferences.microphone = 'granted';
     ctx.store.set({ listenOnOpen: true });
+    // A fake TextEdit, whose box the buddy reads (its first answer asks for it). Reading it takes a little while, as
+    // the real helper's ⌘A ⌘C does: the panel's own blur, from stepping aside, has come by the time it is back.
+    ctx.helper.lastApp = { pid: 4242, bundleId: 'com.apple.TextEdit', name: 'TextEdit' };
+    ctx.helper.replies = {};
+    Object.defineProperty(ctx.helper.replies, 'captureSelection', { enumerable: true, get: () => delay(150).then(() => ({ text: 'kal chutti' })) });
+    answers.push({ ...write, kind: 'box' });
 
     await openPanel();
     await waitFor(listened, 'the panel to listen as it opens', 5000);
@@ -47,17 +71,79 @@ module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
     assert.ok(typeof audio === 'string' && audio.length > 1000 && /^[A-Za-z0-9+/]+={0,2}$/.test(audio), 'the recording, as base64');
     assert.ok(signal instanceof AbortSignal, 'with a deadline of its own');
     await waitFor(() => chat().some((item) => item.type === 'you' && item.text === HEARD), 'the words to be sent as a message');
-    assert.strictEqual(asks.at(-1).input.message, HEARD);
     await waitFor(() => chat().at(-1)?.type === 'buddy', 'the answer');
+    assert.strictEqual(asks.at(-1).input.message, HEARD);
+    assert.strictEqual(asks.at(-1).input.box, 'kal chutti', 'asked again with the box, which Buddy stepped aside to read');
+    assert.ok(ctx.panel.isVisible(), 'and the panel came back');
+    await delay(1500); // long enough for a listening to have begun, had the panel come back listening
 
     // Main heard the page listen, then stop, and how loud the voice was meanwhile (0 to 1, loud enough at times).
-    const changes = told.filter(([what]) => what === 'listening').map(([, on]) => on);
-    assert.deepStrictEqual(changes, [true, false]);
+    // Buddy bringing the panel back after reading the box did not have it listen again.
+    assert.deepStrictEqual(changes(), [true, false]);
     const levels = told.filter(([what]) => what === 'level').map(([, level]) => level);
     assert.ok(levels.length >= 10, `levels about 10 times a second (${levels.length})`);
     assert.ok(levels.every((level) => typeof level === 'number' && level >= 0 && level <= 1), 'each from 0 to 1');
     assert.ok(levels.some((level) => level >= 0.06), 'a voice among them');
     assert.strictEqual(ctx.cloud.recordings.length, 1, 'one recording, sent once');
+    ctx.helper.lastApp = null;
+    ctx.helper.replies = {};
+
+    // While the buddy is still answering, the panel opened again does not listen by itself. Words said on 🎤 meanwhile
+    // are not sent: they wait in the box, and the page says why.
+    await ctx.actions.dismiss();
+    ctx.store.set({ listenOnOpen: false });
+    await openPanel();
+    let answerNow;
+    answers.push(() => new Promise((resolve) => { answerNow = () => resolve(write); }));
+    await typeAndSend('write a mail');
+    await waitFor(() => ctx.actions.state().busy, 'the buddy to think');
+    ctx.store.set({ listenOnOpen: true });
+    ctx.panel.hide(); // a click somewhere else
+    told.length = 0;
+    await openPanel();
+    assert.strictEqual(ctx.actions.state().busy, true);
+    await delay(1500);
+    assert.strictEqual(listened(), false, 'opened while the buddy is answering, the panel does not listen by itself');
+    await page("document.getElementById('mic').click()");
+    await waitFor(listened, 'the panel to listen on 🎤');
+    await waitFor(() => ctx.cloud.recordings.length === 2, 'the recording to go to be written down', 15_000);
+    await waitFor(async () => (await page("document.getElementById('box').value")) === HEARD, 'the words to wait in the box');
+    assert.strictEqual(await redLine(), 'Wait for my answer first.');
+    assert.ok(!chat().some((item) => item.type === 'you' && item.text === HEARD), 'and they were not sent');
+    answerNow();
+    await waitFor(() => chat().at(-1)?.type === 'buddy', 'the answer');
+    assert.strictEqual(await page("document.getElementById('box').value"), HEARD, 'still there, to send now');
+
+    // The system can say "hidden" late, for a brief hide from before this listening began, and "shown" just after: the
+    // listening goes on. (The page is made to believe it here.)
+    await page(`(() => {
+      const real = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden').get;
+      window.e2eHidden = null;
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => window.e2eHidden ?? real.call(document) });
+      const box = document.getElementById('box');
+      box.value = '';
+      box.dispatchEvent(new Event('input'));
+    })()`);
+    told.length = 0;
+    await page("document.getElementById('mic').click()");
+    await waitFor(listened, 'the panel to listen on 🎤');
+    await seemHidden(true);
+    await delay(30);
+    await seemHidden(null);
+    await waitFor(() => ctx.cloud.recordings.length === 3, 'the recording to go to be written down', 15_000);
+    await waitFor(() => chat().filter((item) => item.type === 'you' && item.text === HEARD).length === 1, 'the words to be sent');
+    assert.deepStrictEqual(changes(), [true, false]);
+
+    // Hidden for real, it stops at once, and nothing is sent.
+    await waitFor(() => chat().at(-1)?.type === 'buddy', 'the answer');
+    told.length = 0;
+    await page("document.getElementById('mic').click()");
+    await waitFor(listened, 'the panel to listen on 🎤');
+    await seemHidden(true);
+    await waitFor(() => changes().at(-1) === false, 'the listening to stop', 1500);
+    await delay(3000); // longer than the fake voice
+    assert.strictEqual(ctx.cloud.recordings.length, 3, 'nothing more was sent');
+    await page('window.e2eHidden = null; delete document.hidden');
 
     // Voice off for this person, then "Listen when the panel opens" off: opened again, the panel does not listen.
     for (const [what, change, undo] of [
@@ -72,7 +158,7 @@ module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
       assert.strictEqual(listened(), false, `${what}: the panel does not listen`);
       undo();
     }
-    assert.strictEqual(ctx.cloud.recordings.length, 1, 'and nothing more was sent');
+    assert.strictEqual(ctx.cloud.recordings.length, 3, 'and nothing more was sent');
   } finally {
     ipcMain.removeListener('panel:listening', onListening);
     ipcMain.removeListener('panel:voice-level', onLevel);
@@ -80,6 +166,8 @@ module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
     ctx.cloud.free = free;
     ctx.cloud.heard = '';
     ctx.store.set({ listenOnOpen: true });
+    ctx.helper.lastApp = null;
+    ctx.helper.replies = {};
     await ctx.actions.dismiss(); // the checks that follow start on a new chat, with the microphone let go
   }
 };

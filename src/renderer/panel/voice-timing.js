@@ -75,9 +75,11 @@ const VoiceTiming = (() => {
 
   /**
    * Whether the panel listens by itself as it opens (the state's `voice`): voice is on, "Listen when the panel opens"
-   * is on, and the microphone is allowed (the Mac), or the system does not ask per app (Windows: 'unknown').
+   * is on, and the microphone is allowed (the Mac), or the system does not ask per app (Windows: 'unknown'). Never
+   * while the buddy is still answering (`busy`): what was said could not be sent until it has.
    */
-  function listensOnOpen(voice) {
+  function listensOnOpen(voice, { busy = false } = {}) {
+    if (busy) return false;
     return voice?.on === true && voice.auto === true && (voice.mic === 'granted' || voice.mic === 'unknown');
   }
 

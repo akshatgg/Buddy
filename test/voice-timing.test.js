@@ -186,3 +186,10 @@ test('the panel listens by itself when it opens only with voice on, the setting 
   assert.strictEqual(listensOnOpen(undefined), false); // a main process that says nothing about voice
   assert.strictEqual(listensOnOpen({ on: 'yes', auto: 1, mic: 'granted' }), false);
 });
+
+test('the panel never listens by itself while the buddy is still answering', () => {
+  const voice = { on: true, auto: true, mic: 'granted', system: 'darwin' };
+  assert.strictEqual(listensOnOpen(voice, { busy: true }), false);
+  assert.strictEqual(listensOnOpen(voice, { busy: false }), true);
+  assert.strictEqual(listensOnOpen(voice, {}), true);
+});

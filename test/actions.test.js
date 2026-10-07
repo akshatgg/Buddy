@@ -1582,6 +1582,46 @@ test('on Windows the state says so: the page then records without asking for the
   assert.deepStrictEqual(entries(s.log, 'showPanel')[0][1].voice, { on: true, auto: false, mic: 'unknown', system: 'win32' });
 });
 
+test('when Buddy brings the panel back itself (its box read, "Send it?", an Undo or a Send that failed), it does not listen by itself', async () => {
+  const voice = () => ({ on: true, auto: true, mic: 'granted' });
+  const quiet = { on: true, auto: false, mic: 'granted', system: 'darwin' };
+  /** The voice of the one state the panel comes back with while `work` runs. */
+  async function cameBackWith(s, work) {
+    const from = s.log.length;
+    await work();
+    const shown = entries(s.log.slice(from), 'showPanel');
+    assert.strictEqual(shown.length, 1, 'the panel came back once');
+    return shown[0][1].voice;
+  }
+
+  let s = setup({ voice, replies: { captureSelection: (args) => ({ text: args.selectAll ? 'me go' : '' }) }, answers: [reply({ kind: 'box' }), reply({ text: 'I go.' })] });
+  await s.actions.open();
+  assert.deepStrictEqual(await cameBackWith(s, () => s.actions.send('fix my english')), quiet, 'its box read');
+
+  s = setup({ voice, answers: [reply({ text: 'Thanks!', doIt: true, send: true })] });
+  await s.actions.open();
+  assert.deepStrictEqual(await cameBackWith(s, () => s.actions.send('reply thanks and send it')), quiet, '"Send it?"');
+
+  s = setup({ voice, replies: { press: failure('not_frontmost', 'Could not switch back to that app.') }, answers: [reply({ text: 'Dear Sir,', doIt: true })] });
+  await s.actions.open();
+  await s.actions.send('write it here');
+  assert.deepStrictEqual(await cameBackWith(s, () => s.actions.act(2, 'undo')), quiet, 'an Undo that failed');
+
+  s = await askedToSend({ voice, replies: { windowTitle: { title: '' }, press: failure('secure_field', "I don't type into password fields.") } });
+  assert.deepStrictEqual(await cameBackWith(s, () => s.actions.act(2, 'send')), quiet, 'a Send that failed');
+});
+
+test('the person opening the panel has it listen by itself, on a resumed chat too', async () => {
+  const s = setup({ voice: () => ({ on: true, auto: true, mic: 'granted' }) });
+  await s.actions.open();
+  await s.actions.send('mail');
+  s.blur();
+  await s.actions.open();
+  const [first, again] = entries(s.log, 'showPanel').map((e) => e[1]);
+  assert.strictEqual(again.resumed, true);
+  for (const shown of [first, again]) assert.deepStrictEqual(shown.voice, { on: true, auto: true, mic: 'granted', system: 'darwin' });
+});
+
 test('what the voice source says is read strictly: anything but true is off, and an odd microphone is unknown', async () => {
   for (const [given, voice] of [
     [{}, { on: false, auto: false, mic: 'unknown', system: 'darwin' }],

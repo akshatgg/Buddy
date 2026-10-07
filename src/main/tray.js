@@ -19,8 +19,27 @@ function trayIcon(platform) {
     : { file: path.join(ASSETS, 'trayTemplate.png'), template: true };
 }
 
-function buildMenuTemplate({ buddyOn, visible, isAdmin = false }, handlers) {
+/** What the menu shows of Update now's state (src/main/updates.js): a newer Buddy that is out, or null. */
+function updateMenuState(state) {
+  if (!state?.latest || !['available', 'downloading', 'ready'].includes(state.status)) return null;
+  return { version: state.latest.version, busy: Boolean(state.pending) && state.status === 'downloading', progress: state.progress ?? null };
+}
+
+/**
+ * `update` is a newer Buddy that is out ({ version, busy, progress }), or null. While it downloads after Update now
+ * (busy), the item says how far it got and cannot be pressed again.
+ */
+function buildMenuTemplate({ buddyOn, visible, isAdmin = false, update = null }, handlers) {
+  const updateItems = update
+    ? [
+      update.busy
+        ? { label: `Updating… ${Math.round((update.progress ?? 0) * 100)}%`, enabled: false }
+        : { label: `Update now (Buddy ${update.version})`, click: () => handlers.updateNow() },
+      { type: 'separator' },
+    ]
+    : [];
   return [
+    ...updateItems,
     { label: visible ? 'Hide buddy' : 'Show buddy', enabled: buddyOn, click: () => handlers.setVisible(!visible) },
     // Only for the admin; the server refuses the admin's calls to anyone else whatever the menu shows.
     ...(isAdmin ? [{ label: 'Admin…', click: () => handlers.openAdmin() }] : []),
@@ -56,4 +75,4 @@ function createTray({
   return { refresh, tray };
 }
 
-module.exports = { createTray, buildMenuTemplate, trayIcon };
+module.exports = { createTray, buildMenuTemplate, trayIcon, updateMenuState };

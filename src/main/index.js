@@ -19,6 +19,7 @@ if (process.env.BUDDY_USER_DATA) {
   fs.mkdirSync(dir, { recursive: true });
   app.setPath('userData', dir);
   options.loginItems = { get: () => false, set: () => {} };
+  options.trial = true; // and it never updates itself (main.js)
 }
 
 start(options).catch((err) => {

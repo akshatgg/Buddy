@@ -166,3 +166,5 @@ body.settings { overflow: hidden; }
 
 /* AI: the free-mode note, then the form (spaced by base.css). */
 #section-ai > .note + #ai { margin-top: 18px; }
+#perm-updated + .group { margin-top: 14px; }
+#update-row .row-title { font-weight: 600; }

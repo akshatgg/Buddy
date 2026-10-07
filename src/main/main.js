@@ -23,7 +23,6 @@ const { createBuddyWindow } = require('./buddy-window');
 const { createBubbleWindow } = require('./bubble-window');
 const { createPanelWindow } = require('./panel-window');
 const { createSettingsWindows } = require('./settings-windows');
-const { createMemory } = require('./memory');
 const { installAppMenu } = require('./app-menu');
 const { createActions } = require('./actions');
 const { sendKeyFor, undoKey } = require('./send-keys');
@@ -101,8 +100,7 @@ async function start(options = {}) {
   const panel = createPanelWindow();
   const windows = createSettingsWindows({ app });
   const openSettings = (section) => windows.open('settings', section ? { section } : undefined);
-  // What Buddy knows about the person (memory.js). Settings → Memory shows it, and follows each change.
-  const memory = createMemory({ store });
+  // Settings → Memory follows each change to what Buddy knows about the person.
   memory.onChange((list) => windows.send('settings', 'memory:changed', list));
 
   // Update now (updates.js, ipc/updates.js). Only Buddy as installed updates itself: a development run, a trial run

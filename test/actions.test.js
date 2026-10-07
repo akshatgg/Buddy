@@ -670,6 +670,25 @@ test('a second request for the box or the screen: Buddy could not find it', asyn
   }
 });
 
+test('the person hid the panel while Buddy was thinking: it does not read their box or look at their app behind their back', async () => {
+  for (const kind of ['box', 'screen']) {
+    const s = setup({
+      replies: { captureSelection: { text: '' }, screenshot: { image: 'jpeg' } },
+      answers: [() => { s.blur(); return reply({ kind, remember: ['Your name is Akshat.'] }); }], // a click somewhere else
+    });
+    await s.actions.open();
+    const from = s.log.length;
+    await s.actions.send('I am Akshat, fix my english');
+    assert.deepStrictEqual(steps(s.log, from), ['ask', 'hidePanel'], `${kind}: no helper, and the panel stays hidden`);
+    assert.deepStrictEqual(lastItem(s), {
+      id: 3, type: 'buddy', say: 'Open me again and ask once more, so I can look at Google Chrome.', text: '', notes: [], buttons: [],
+    }, kind);
+    assert.deepStrictEqual(s.memory.facts(), ['Your name is Akshat.'], 'what it learned is saved all the same');
+    assert.deepStrictEqual(moods(s.log), ['thinking', 'idle'], kind);
+    assert.strictEqual(s.actions.state().busy, false);
+  }
+});
+
 // Remembering
 
 test('what the AI learned about the person is saved and shown, with Undo, which forgets it again', async () => {
@@ -766,6 +785,51 @@ test('when the text cannot go in, it is copied: the bubble and the chat say to p
   ], 'and no "Send it?": nothing was put in');
   assert.deepStrictEqual(entries(s.log, 'showPanel').length, 1, 'the panel stays hidden');
   assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments), [['[buddy] paste failed, copied instead:', 'not_frontmost']]);
+});
+
+test('the person hid the panel while Buddy was thinking: "do it" puts nothing in the app, and the bubble says the answer is ready', async () => {
+  for (const [selected, button] of [['', 'insert'], ['me go', 'replace']]) {
+    const s = setup({
+      replies: { captureSelection: { text: selected } },
+      answers: [() => { s.blur(); return reply({ kind: 'fix', text: 'I go.', doIt: true, send: true }); }], // a click somewhere else
+    });
+    await s.actions.open();
+    const from = s.log.length;
+    await s.actions.send('fix it and send it');
+    assert.deepStrictEqual(steps(s.log, from), ['ask', 'hidePanel', 'bubble'], button);
+    assert.deepStrictEqual(entries(s.log, 'bubble'), [['bubble', 'Your answer is ready. Open me to see it.']]);
+    assert.deepStrictEqual(chatOf(s).slice(1), [
+      { id: 2, type: 'buddy', say: '', text: 'I go.', notes: [], buttons: [button, 'copy'] },
+    ], 'the answer waits in the chat, and no "Send it?": nothing was put in');
+    assert.deepStrictEqual(moods(s.log), ['thinking', 'happy']);
+
+    // Opened again, it is there to put in.
+    await s.actions.open();
+    assert.strictEqual(entries(s.log, 'showPanel').at(-1)[1].resumed, true);
+    await s.actions.act(2, button);
+    assert.deepStrictEqual(entries(s.log, 'helper').at(-1), ['helper', 'paste', { pid: 7, text: 'I go.', selectAll: false }]);
+  }
+});
+
+test('the person hid the panel while Buddy asked again with their box: the new text is not put in', async () => {
+  const s = setup({
+    replies: { captureSelection: (args) => ({ text: args.selectAll ? 'me go' : '' }) },
+    answers: [reply({ kind: 'box' }), () => { s.blur(); return reply({ kind: 'fix', text: 'I go.', doIt: true }); }],
+  });
+  await s.actions.open();
+  const from = s.log.length;
+  await s.actions.send('fix my english');
+  assert.deepStrictEqual(steps(s.log, from), ['ask', 'hidePanel', 'captureSelection', 'showPanel', 'ask', 'hidePanel', 'bubble']);
+  assert.deepStrictEqual(lastItem(s), { id: 3, type: 'buddy', say: '', text: 'I go.', notes: [], buttons: ['replace', 'copy'] });
+});
+
+test('"send it" while the person hid the panel: the question waits in the chat, and the panel stays hidden', async () => {
+  const s = setup({ answers: [() => { s.blur(); return reply({ kind: 'send' }); }] });
+  await s.actions.open();
+  const from = s.log.length;
+  await s.actions.send('send it');
+  assert.deepStrictEqual(steps(s.log, from), ['ask', 'hidePanel']);
+  assert.deepStrictEqual(lastItem(s), { id: 2, type: 'question', text: 'Send it?', buttons: ['send', 'not-now'] });
 });
 
 test('with no app known, "do it" copies the text', async () => {
@@ -953,6 +1017,35 @@ test('work in the app goes one step at a time: a "do it" answer waits for an Und
   // The Undo could not press its key, so the panel came back with the reason; then the new text went in.
   assert.deepStrictEqual(steps(s.log, from), ['showPanel', 'hidePanel', 'paste', 'bubble']);
   assert.deepStrictEqual(pastes(), ['Dear Sir,', 'Yours, Akshat']);
+});
+
+test('a "do it" that waited for an Undo which left the panel hidden puts nothing in: the person is in their app by then', async () => {
+  let answer;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const first = [reply({ text: 'Dear Sir,', doIt: true })];
+  const s = setup({
+    replies: { press: () => gate.then(() => ({ via: 'test' })) },
+    ask: (action, given) => {
+      s.log.push(['ask', action, given]);
+      if (first.length) return Promise.resolve({ text: '', chat: first.shift() });
+      return new Promise((resolve) => { answer = () => resolve({ text: '', chat: reply({ text: 'Yours, Akshat', doIt: true }) }); });
+    },
+  });
+  await s.actions.open();
+  await s.actions.send('write it here');
+  await s.actions.open();
+  const sending = s.actions.send('and sign it');
+  await new Promise(setImmediate);
+  const undoing = s.actions.act(2, 'undo');
+  while (!entries(s.log, 'helper').some((e) => e[1] === 'press')) await new Promise(setImmediate);
+  answer();
+  release();
+  await undoing;
+  await sending;
+  assert.deepStrictEqual(entries(s.log, 'helper').filter((e) => e[1] === 'paste').map((e) => e[2].text), ['Dear Sir,']);
+  assert.deepStrictEqual(entries(s.log, 'bubble').slice(-2), [['bubble', 'Undone'], ['bubble', 'Your answer is ready. Open me to see it.']]);
+  assert.deepStrictEqual(lastItem(s).buttons, ['insert', 'copy']);
 });
 
 test('a button that works in the app is refused while one of Buddy\'s own steps there is under way', async () => {

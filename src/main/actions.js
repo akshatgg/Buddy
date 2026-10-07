@@ -18,6 +18,7 @@ const { AI_TIMEOUT_MS } = require('./ai');
 const platform = require('./platform');
 
 const COPIED = `Copied — press ${platform.pasteKeys}`;
+const READY = 'Your answer is ready. Open me to see it.';
 const SLEEPY_MS = 5000;
 // A panel that only hid (a click somewhere else, or Buddy put text in the app) opens on the same chat for this long,
 // from the same app. Closing it (✕, Esc, the shortcut, a click on the buddy) ends the chat.
@@ -249,6 +250,20 @@ function createActions({
     }
   }
 
+  /**
+   * Whether Buddy may still work in the app for chat `c`: it is the chat on screen, and the panel is open or Buddy
+   * itself put it aside for a step there. A panel the person hid while Buddy was thinking (a click somewhere else) means
+   * they have moved on: Buddy does not read their box, look at their app or type into it behind their back.
+   */
+  function present(c) {
+    return c === chat && (aside > 0 || ui.isPanelVisible());
+  }
+
+  /** Buddy stopped short of reading the box or looking at the app (present()): the chat says what to do then. */
+  function askAgain(c) {
+    add(c, { type: 'buddy', say: `Open me again and ask once more, so I can look at ${appName(c)}.`, text: '', notes: [], buttons: [] });
+  }
+
   /** Show the panel again on the same chat, after it stepped aside: unless the chat was closed meanwhile. */
   async function comeBack(c) {
     if (c !== chat) return;
@@ -325,6 +340,10 @@ function createActions({
       from = 'box';
     } else if (reply.kind === 'screen') {
       if (!c.app) return stop(c, 'no_app', 'Open me from the app you want me to check.');
+      if (!present(c)) {
+        askAgain(c);
+        return false;
+      }
       let image;
       try {
         ({ image } = await helper.call('screenshot', { pid: c.app.pid }));
@@ -351,6 +370,10 @@ function createActions({
    * Answers the text, or null when Buddy stopped short (the reason is in the chat).
    */
   async function readBox(c, you) {
+    if (!present(c)) {
+      askAgain(c);
+      return null;
+    }
     let box;
     try {
       box = (await stepAside(() => helper.call('captureSelection', { pid: c.app.pid, selectAll: true }))).text || '';
@@ -385,14 +408,11 @@ function createActions({
     if (reply.text) buttons = reply.kind === 'answer' ? ['copy'] : [mode === 'insert' ? 'insert' : 'replace', 'copy'];
     const item = add(c, { type: 'buddy', say: reply.say, text: reply.text, notes: reply.notes, buttons, mode });
     if (reply.kind !== 'answer' && reply.doIt && reply.text) {
-      // In its turn, after any other step in the app. Buddy never sends by itself: when the message asked for it, the
-      // panel comes back to ask.
+      // In its turn, after any other step in the app; and only while the person is still with Buddy. When they hid the
+      // panel meanwhile, the answer waits in the chat, with Insert (or Replace) and Copy, and the bubble says so.
       await inApp(async () => {
-        if (c !== chat) return; // closed while it waited
-        if ((await put(c, item)) && reply.send) {
-          add(c, { type: 'question', text: 'Send it?', buttons: ['send', 'not-now'] });
-          await comeBack(c);
-        }
+        if (present(c)) await put(c, item, { askToSend: reply.send });
+        else if (c === chat) ui.bubble(READY);
       }, { wait: true });
     }
     return true;
@@ -462,33 +482,40 @@ function createActions({
    * Put a buddy's text in the app the panel was opened from: at the cursor, over the selection, or over the whole box,
    * as the item's mode says. The panel steps aside for it and stays hidden: the bubble says what happened. When the
    * text cannot go in (no app, a password field, a terminal, an app run as administrator), it goes on the clipboard
-   * instead. Answers whether it went in.
+   * instead. Answers whether it went in. `askToSend`: the message asked to send it too, so once it is in, the panel
+   * comes back with "Send it?" (Buddy never sends by itself).
    */
-  async function put(c, item) {
+  async function put(c, item, { askToSend = false } = {}) {
     const { app } = c;
-    const pasted = await stepAside(async () => {
-      if (!app) return false;
-      try {
-        await helper.call('paste', { pid: app.pid, text: item.text, selectAll: item.mode === 'replaceAll' });
-        return true;
-      } catch (err) {
-        // Could not paste: fall back to the clipboard below.
-        console.warn('[buddy] paste failed, copied instead:', err.code);
-        return false;
+    return stepAside(async () => {
+      let pasted = false;
+      if (app) {
+        try {
+          await helper.call('paste', { pid: app.pid, text: item.text, selectAll: item.mode === 'replaceAll' });
+          pasted = true;
+        } catch (err) {
+          // Could not paste: fall back to the clipboard below.
+          console.warn('[buddy] paste failed, copied instead:', err.code);
+        }
       }
+      if (pasted) {
+        item.buttons = ['undo', 'copy'];
+        add(c, { type: 'event', text: `✅ Put it in ${appName(c)}`, buttons: [] });
+        ui.bubble(`Done! It's in ${appName(c)} ✅`);
+      } else {
+        // Electron's clipboard writes are asynchronous: say "copied" only once the text is there.
+        await clipboard.writeText(forClipboard(item.text));
+        add(c, { type: 'event', text: COPIED, buttons: [] });
+        ui.bubble(COPIED);
+      }
+      push(c);
+      if (pasted && askToSend) {
+        add(c, { type: 'question', text: 'Send it?', buttons: ['send', 'not-now'] });
+        // Still stepped aside for this paste: the panel is Buddy's to show again, unless the chat was closed meanwhile.
+        if (present(c)) await comeBack(c);
+      }
+      return pasted;
     });
-    if (pasted) {
-      item.buttons = ['undo', 'copy'];
-      add(c, { type: 'event', text: `✅ Put it in ${appName(c)}`, buttons: [] });
-      ui.bubble(`Done! It's in ${appName(c)} ✅`);
-    } else {
-      // Electron's clipboard writes are asynchronous: say "copied" only once the text is there.
-      await clipboard.writeText(forClipboard(item.text));
-      add(c, { type: 'event', text: COPIED, buttons: [] });
-      ui.bubble(COPIED);
-    }
-    push(c);
-    return pasted;
   }
 
   /** Undo on text Buddy put in the app: the app comes forward and gets ⌘Z (Ctrl+Z on Windows), once. */

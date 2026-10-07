@@ -31,7 +31,8 @@ page and its `.mjs` tests), `node --test`, ESLint, headless Blender 5 (Python) f
 - Timings: drowsy at 60 s without use, asleep at 120 s; wake 1.2 s; love 2 s; dizzy 2 s; sad 2.5 s; celebrate 1.6 s;
   the yawn 1.6 s; fidgets every 15–25 s while idle, look 2 s, swing 1.5 s, hum 2 s, hop 0.8 s.
 - Gestures: petting = 3 turns left/right within 1.5 s, each after ≥ 6 points of travel, pointer on the head, not
-  pressed. Shaking = 4 turns (either axis) within 1 s, each after ≥ 24 points, while dragging.
+  pressed. Shaking = 4 turns (a stroke coming back on itself, in any direction, counted once) within 1 s, each
+  after ≥ 24 points, while dragging.
 - Frame rates: FPS 30, IDLE_FPS 15, REST_FPS 6, new SLEEP_FPS 4 (asleep). Drowsy: 30 during the yawn, else 15.
 - The buddy window grows upward by 0.6 × the buddy's size; the buddy keeps its size and place; panel and bubble keep
   their places; a saved position keeps its bottom centre.

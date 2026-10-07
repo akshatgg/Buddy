@@ -29,7 +29,8 @@ listens while the person talks. It works the same on the Mac and on Windows.
   the pointer passing by do not count. Nothing counts down while the panel is open or the pointer is on the buddy.
 - **Petting:** while the pointer is on the buddy's head (not pressed), 3 changes of direction left/right within 1.5 s,
   each at least 6 points of movement.
-- **Shaking:** while dragging, 4 changes of direction (left/right or up/down) within 1 s, each at least 24 points.
+- **Shaking:** while dragging, 4 changes of direction (any direction: a stroke coming back on itself) within 1 s,
+  each at least 24 points.
   It plays wobble while dragged, as today, and `dizzy` when let go.
 - **Today's moods stay:** `thinking`, `happy` (the answer is ready), `wave` (Buddy turns on), `wobble` (grabbed),
   `idle`. `sleepy`, which the app sends today for "no internet", now means `sad`.

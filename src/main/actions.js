@@ -6,6 +6,8 @@
  * answer says -- read their text box or look at their screen and ask again, put the text in the app they came from
  * (or on the clipboard when that is not possible), remember something about them, or offer to send. The panel holds
  * the keyboard focus while it is open, so it steps aside whenever the helper has to read from or type into that app.
+ * When the person hides the panel while Buddy is thinking, Buddy does nothing in their app: the answer waits in the
+ * chat.
  *
  * The chat lives here, not in the page: after every change the whole panel state goes to the page (ui.panelState),
  * which only draws it and sends back what the person types and the buttons they press. The state and its items are
@@ -13,10 +15,12 @@
  */
 
 const { BuddyError } = require('../../shared/errors');
+const { LIMITS } = require('../../shared/prompts');
 const { AI_TIMEOUT_MS } = require('./ai');
 const platform = require('./platform');
 
 const COPIED = `Copied — press ${platform.pasteKeys}`;
+const READY = 'Your answer is ready. Open me to see it.';
 const SLEEPY_MS = 5000;
 // A panel that only hid (a click somewhere else, or Buddy put text in the app) opens on the same chat for this long,
 // from the same app. Closing it (✕, Esc, the shortcut, a click on the buddy) ends the chat.
@@ -81,16 +85,30 @@ function createActions({
 }) {
   let chat = newChat();
   let opening = null; // the open() in progress, if any
-  let aside = false; // the panel is hidden on purpose while the helper reads from or types into the app
-  let working = false; // a button that works in the app (Insert, Replace, Undo, Send) is under way
+  let aside = 0; // how many of Buddy's steps in the app are under way with the panel hidden on purpose for them
+  let lane = Promise.resolve(); // Buddy's work in the app, one step after the other (inApp)
+  let working = 0; // how many steps in the app are under way or waiting their turn
   let sleepy = null; // the pending "back to idle" timer after a network error, if any
 
   /**
    * A chat: the app it is about, its items, the selection the next message uses, the notice about that selection, and
-   * whether the buddy is thinking. `live` once the panel has opened on it; `resumed` when an opening came back to it.
+   * whether the buddy is waiting for the AI (`busy`, which the page shows). `talking` counts its messages still being
+   * worked on (until what each answer says is done), and `lastPut` is the buddy item Buddy last put in the app, which a
+   * new version of it replaces. `live` once the panel has opened on it; `resumed` when an opening came back to it.
    */
   function newChat(app = null) {
-    return { app, items: [], nextId: 1, selection: '', notice: '', busy: false, resumed: false, live: false };
+    return {
+      app, items: [], nextId: 1, selection: '', notice: '', busy: false, talking: 0, lastPut: null, resumed: false, live: false,
+    };
+  }
+
+  /**
+   * A new chat in place of the one on screen. The old one's answer, if it is still on its way, will be dropped: the
+   * buddy stops thinking about it now, since that answer leaves the mood alone (talk()).
+   */
+  function replaceChat(next) {
+    if (chat.talking > 0) ui.mood('idle');
+    chat = next;
   }
 
   /** Text as it goes on the clipboard, with the system's line breaks. */
@@ -128,6 +146,11 @@ function createActions({
     return added;
   }
 
+  /** A buddy's text that is no longer Buddy's last change in the app: ⌘Z there would undo something else. */
+  function dropUndo(item) {
+    item.buttons = item.buttons.filter((button) => button !== 'undo');
+  }
+
   /** An item that becomes another one in its place ("Send it?" becomes "✅ Sent"), keeping its id. */
   function swap(c, item, fields) {
     c.items[c.items.indexOf(item)] = { id: item.id, ...fields };
@@ -156,7 +179,7 @@ function createActions({
     // again all the same, since the person may have selected something else meanwhile.
     const sameApp = (app?.pid ?? null) === (chat.app?.pid ?? null);
     const resumed = chat.live && sameApp && now() - ui.panelHiddenAt() < RESUME_MS;
-    if (!resumed) chat = newChat(app);
+    if (!resumed) replaceChat(newChat(app));
     Object.assign(chat, { app, selection, notice, resumed, live: true });
     await showPanel(stateOf(chat));
   }
@@ -184,7 +207,7 @@ function createActions({
    */
   async function dismiss() {
     const { app } = chat;
-    chat = newChat();
+    replaceChat(newChat());
     ui.hidePanel();
     if (!helperMovesFocus || !app) return;
     try {
@@ -205,28 +228,44 @@ function createActions({
   }
 
   async function toggle() {
-    if (aside) return; // the panel is hidden on purpose while the helper works in the app
-    if (ui.isPanelVisible()) {
+    if (aside > 0) return; // the panel is hidden on purpose while the helper works in the app
+    // On the Mac a click on the buddy takes the panel's focus first, which hides it, and only then arrives here: that
+    // click closed the panel, so it ends the chat as closing does, and must not open it again.
+    if (ui.isPanelVisible() || ui.panelJustClosed()) {
       await dismiss();
       return;
     }
-    if (ui.panelJustClosed()) return; // the click that closed it (on the Mac, by taking its focus) must not reopen it
     await open();
   }
 
   /**
    * The panel has the keyboard focus, so the helper's keys (⌘A and ⌘C to read the box, ⌘V to paste, ⌘Z, a send key)
    * would land in the panel itself, and bringing the app forward would blur it: it is hidden while the helper works.
-   * Until that is over, toggle() does nothing: a click on the buddy would open a second panel.
+   * Until that is over, toggle() does nothing: a click on the buddy would open a second panel. A count, not a flag: the
+   * end of one step must not let the panel open in the middle of another.
    */
   async function stepAside(work) {
-    aside = true;
+    aside += 1;
     ui.hidePanel();
     try {
       return await work();
     } finally {
-      aside = false;
+      aside -= 1;
     }
+  }
+
+  /**
+   * Whether Buddy may still work in the app for chat `c`: it is the chat on screen, and the panel is open or Buddy
+   * itself put it aside for a step there. A panel the person hid while Buddy was thinking (a click somewhere else)
+   * means they have moved on: Buddy does not read their box, look at their app or type into it behind their back.
+   */
+  function present(c) {
+    return c === chat && (aside > 0 || ui.isPanelVisible());
+  }
+
+  /** Buddy stopped short of reading the box or looking at the app (present()): the chat says what to do then. */
+  function askAgain(c) {
+    add(c, { type: 'buddy', say: `Open me again and ask once more, so I can look at ${appName(c)}.`, text: '', notes: [], buttons: [] });
   }
 
   /** Show the panel again on the same chat, after it stepped aside: unless the chat was closed meanwhile. */
@@ -292,32 +331,23 @@ function createActions({
     let from = sent ? 'selection' : null; // where the text the answer works on came from
     let reply = await ask({ ...asked, ...selection, step: 1 });
     if (c !== chat) return false; // closed meanwhile: this answer belongs to a chat that is over
+    // Facts come from this first answer only: the second one has read the person's box or screen, whose text (a mail
+    // someone sent them, a web page) could tell the AI to "remember" anything.
     remember(c, reply.remember);
 
     if (reply.kind === 'box') {
       if (!c.app) return stop(c, 'no_app', 'Click in the box you are writing in, then open me again.');
-      let box;
-      try {
-        box = (await stepAside(() => helper.call('captureSelection', { pid: c.app.pid, selectAll: true }))).text || '';
-      } catch (err) {
-        failed(c, err, you);
-        await comeBack(c);
-        return false;
-      }
-      if (c !== chat) return false;
-      if (!box) {
-        stop(c, 'empty_box', 'That box looks empty.');
-        await comeBack(c);
-        return false;
-      }
-      add(c, { type: 'event', text: `📖 Read your text in ${appName(c)}`, buttons: [] });
-      await comeBack(c);
+      const box = await inApp(() => readBox(c, you), { wait: true }); // in its turn, after any other step in the app
+      if (box === null || c !== chat) return false;
       reply = await ask({ ...asked, box, step: 2 }); // the box takes the place of the selection
       if (c !== chat) return false;
-      remember(c, reply.remember); // a fact already saved on the first step is not saved (or shown) again
       from = 'box';
     } else if (reply.kind === 'screen') {
       if (!c.app) return stop(c, 'no_app', 'Open me from the app you want me to check.');
+      if (!present(c)) {
+        askAgain(c);
+        return false;
+      }
       let image;
       try {
         ({ image } = await helper.call('screenshot', { pid: c.app.pid }));
@@ -330,7 +360,6 @@ function createActions({
       push(c);
       reply = await ask({ ...asked, ...selection, image, step: 2 });
       if (c !== chat) return false;
-      remember(c, reply.remember);
     }
     c.busy = false; // the answer is in: what is left is Buddy's own work
     if (reply.kind === 'box' || reply.kind === 'screen') return stop(c, 'not_found', "I couldn't find it. Select the text and ask me again.");
@@ -338,6 +367,37 @@ function createActions({
     // (an opening meanwhile may have read a new one, which stays).
     if (c.selection === sent) c.selection = '';
     return finish(c, reply, from);
+  }
+
+  /** The buttons of a buddy's text that can go in the app: Insert at the cursor, Replace over a selection or the box. */
+  const putButtons = (mode) => [mode === 'insert' ? 'insert' : 'replace', 'copy'];
+
+  /**
+   * Read the whole text box the person is writing in: the panel steps aside for it and comes back on the same chat.
+   * Answers the text, or null when Buddy stopped short (the reason is in the chat).
+   */
+  async function readBox(c, you) {
+    if (!present(c)) {
+      askAgain(c);
+      return null;
+    }
+    let box;
+    try {
+      box = (await stepAside(() => helper.call('captureSelection', { pid: c.app.pid, selectAll: true }))).text || '';
+    } catch (err) {
+      failed(c, err, you);
+      await comeBack(c);
+      return null;
+    }
+    if (c !== chat) return null;
+    if (!box) {
+      stop(c, 'empty_box', 'That box looks empty.');
+      await comeBack(c);
+      return null;
+    }
+    add(c, { type: 'event', text: `📖 Read your text in ${appName(c)}`, buttons: [] });
+    await comeBack(c);
+    return box;
   }
 
   /** The final answer: what it shows, and what Buddy does in the app. */
@@ -352,19 +412,35 @@ function createActions({
     if (from === 'box') mode = 'replaceAll';
     else if (from === 'selection' && reply.kind === 'fix') mode = 'replace';
     let buttons = [];
-    if (reply.text) buttons = reply.kind === 'answer' ? ['copy'] : [mode === 'insert' ? 'insert' : 'replace', 'copy'];
+    if (reply.text) buttons = reply.kind === 'answer' ? ['copy'] : putButtons(mode);
     const item = add(c, { type: 'buddy', say: reply.say, text: reply.text, notes: reply.notes, buttons, mode });
     if (reply.kind !== 'answer' && reply.doIt && reply.text) {
-      // Buddy never sends by itself: when the message asked for it, the panel comes back to ask.
-      if ((await put(c, item)) && reply.send) {
-        add(c, { type: 'question', text: 'Send it?', buttons: ['send', 'not-now'] });
-        await comeBack(c);
-      }
+      // In its turn, after any other step in the app; and only while the person is still with Buddy. When they hid the
+      // panel meanwhile, the answer waits in the chat, with Insert (or Replace) and Copy, and the bubble says so.
+      await inApp(async () => {
+        if (!present(c)) {
+          if (c === chat) ui.bubble(READY);
+          return;
+        }
+        // A new version of the text Buddy put in the app ("make it shorter") takes that text's place, the same way it
+        // went in, while it can still be undone there. (A chat is about one app, so that text is in this one.)
+        const last = c.lastPut;
+        const over = reply.again === true && last?.buttons.includes('undo') ? last : null;
+        if (over) {
+          item.mode = over.mode;
+          item.buttons = putButtons(over.mode);
+        }
+        await put(c, item, { over, askToSend: reply.send });
+      }, { wait: true });
     }
     return true;
   }
 
-  /** One message through to its answer, the buddy thinking meanwhile; what goes wrong becomes a line in the chat. */
+  /**
+   * One message through to its answer, the buddy thinking meanwhile; what goes wrong becomes a line in the chat. The
+   * mood after it is only for the chat on screen: a closed chat's late answer must not make the buddy of a new chat
+   * happy, idle or sleepy.
+   */
   async function talk(c, you) {
     if (sleepy !== null) {
       cancelLater(sleepy); // it would flip a busy or happy buddy back to idle
@@ -372,11 +448,15 @@ function createActions({
     }
     ui.mood('thinking');
     c.busy = true;
+    c.talking += 1;
     push(c);
     try {
-      ui.mood((await answer(c, you)) ? 'happy' : 'idle');
+      const answered = await answer(c, you);
+      if (c === chat) ui.mood(answered ? 'happy' : 'idle');
     } catch (err) {
-      if (err.code === 'network') {
+      if (c !== chat) {
+        // Closed meanwhile: the buddy stopped thinking about it then (replaceChat).
+      } else if (err.code === 'network') {
         ui.mood('sleepy');
         sleepy = later(() => {
           sleepy = null;
@@ -388,6 +468,7 @@ function createActions({
       failed(c, err, you);
     } finally {
       c.busy = false;
+      c.talking -= 1;
       push(c);
     }
   }
@@ -403,6 +484,14 @@ function createActions({
       push(c);
       return {};
     }
+    // The AI's limits, checked before the message joins the chat: refused here, the page gives the person their words
+    // back to make shorter, instead of a message in the chat that can never be answered.
+    if (text.length > LIMITS.instruction) {
+      throw new BuddyError('bad_request', `That message is too long (over ${LIMITS.instruction} characters). Try a shorter one.`);
+    }
+    if (c.selection.trim().length > LIMITS.text) {
+      throw new BuddyError('bad_request', `Your selection is too long (over ${LIMITS.text} characters). Select less, or press ✕ to leave it out.`);
+    }
     await talk(c, add(c, { type: 'you', text }));
     return {};
   }
@@ -411,33 +500,49 @@ function createActions({
    * Put a buddy's text in the app the panel was opened from: at the cursor, over the selection, or over the whole box,
    * as the item's mode says. The panel steps aside for it and stays hidden: the bubble says what happened. When the
    * text cannot go in (no app, a password field, a terminal, an app run as administrator), it goes on the clipboard
-   * instead. Answers whether it went in.
+   * instead. Answers whether it went in. `over`: the earlier text of Buddy's in the app that this one replaces.
+   * `askToSend`: the message asked to send it too, so once it is in, the panel comes back with "Send it?" (Buddy never
+   * sends by itself).
    */
-  async function put(c, item) {
+  async function put(c, item, { over = null, askToSend = false } = {}) {
     const { app } = c;
-    const pasted = await stepAside(async () => {
-      if (!app) return false;
-      try {
-        await helper.call('paste', { pid: app.pid, text: item.text, selectAll: item.mode === 'replaceAll' });
-        return true;
-      } catch (err) {
-        // Could not paste: fall back to the clipboard below.
-        console.warn('[buddy] paste failed, copied instead:', err.code);
-        return false;
+    return stepAside(async () => {
+      let pasted = false;
+      if (app) {
+        try {
+          // A whole box is simply pasted over again. Anything else is undone first, which brings back what was there
+          // before it: the selection it replaced (the paste goes over it again), or the cursor where it went in.
+          if (over && over.mode !== 'replaceAll') {
+            await helper.call('press', { pid: app.pid, ...undoKey(system) });
+            dropUndo(over);
+          }
+          await helper.call('paste', { pid: app.pid, text: item.text, selectAll: item.mode === 'replaceAll' });
+          pasted = true;
+        } catch (err) {
+          // Could not paste: fall back to the clipboard below.
+          console.warn('[buddy] paste failed, copied instead:', err.code);
+        }
       }
+      if (pasted) {
+        if (over) dropUndo(over); // its text is not in the app any more
+        item.buttons = ['undo', 'copy'];
+        c.lastPut = item;
+        add(c, { type: 'event', text: `✅ Put it in ${appName(c)}`, buttons: [] });
+        ui.bubble(`Done! It's in ${appName(c)} ✅`);
+      } else {
+        // Electron's clipboard writes are asynchronous: say "copied" only once the text is there.
+        await clipboard.writeText(forClipboard(item.text));
+        add(c, { type: 'event', text: COPIED, buttons: [] });
+        ui.bubble(COPIED);
+      }
+      push(c);
+      if (pasted && askToSend) {
+        add(c, { type: 'question', text: 'Send it?', buttons: ['send', 'not-now'] });
+        // Still stepped aside for this paste: the panel is Buddy's to show again, unless the chat was closed meanwhile.
+        if (present(c)) await comeBack(c);
+      }
+      return pasted;
     });
-    if (pasted) {
-      item.buttons = ['undo', 'copy'];
-      add(c, { type: 'event', text: `✅ Put it in ${appName(c)}`, buttons: [] });
-      ui.bubble(`Done! It's in ${appName(c)} ✅`);
-    } else {
-      // Electron's clipboard writes are asynchronous: say "copied" only once the text is there.
-      await clipboard.writeText(forClipboard(item.text));
-      add(c, { type: 'event', text: COPIED, buttons: [] });
-      ui.bubble(COPIED);
-    }
-    push(c);
-    return pasted;
   }
 
   /** Undo on text Buddy put in the app: the app comes forward and gets ⌘Z (Ctrl+Z on Windows), once. */
@@ -449,7 +554,7 @@ function createActions({
       await comeBack(c);
       return;
     }
-    item.buttons = item.buttons.filter((button) => button !== 'undo');
+    dropUndo(item);
     ui.bubble('Undone');
     push(c);
   }
@@ -483,20 +588,26 @@ function createActions({
       return;
     }
     swap(c, item, { type: 'event', text: '✅ Sent', buttons: [] });
+    // What Buddy put in the app has gone with it: none of it can be undone any more.
+    for (const i of c.items) if (i.type === 'buddy') dropUndo(i);
     ui.bubble('Sent ✅');
-    ui.mood('happy');
+    if (c === chat) ui.mood('happy'); // not for a chat closed meanwhile (Buddy turned off), as in talk()
     push(c);
   }
 
-  /** One button at a time in the app: a quick second press of Send must not send twice. */
-  async function inApp(work) {
-    if (working) throw new BuddyError('bad_request', "Wait a moment, I'm still on it.");
-    working = true;
-    try {
-      await work();
-    } finally {
-      working = false;
-    }
+  /**
+   * Work in the app, one step at a time: each one waits for the one before it, so that no step's panel comes back, or
+   * its keys land, in the middle of another. Buddy's own steps (reading the box, "do it") wait their turn; a button
+   * pressed while a step is under way or waiting is refused instead (a quick second press of Send must not send twice).
+   */
+  function inApp(work, { wait = false } = {}) {
+    if (working > 0 && !wait) return Promise.reject(new BuddyError('bad_request', "Wait a moment, I'm still on it."));
+    working += 1;
+    const step = lane.then(work);
+    lane = step.catch(() => {}); // the next step goes whether or not this one worked
+    return step.finally(() => {
+      working -= 1;
+    });
   }
 
   /** A button on an item in the chat. Only the buttons the item shows can be pressed. */

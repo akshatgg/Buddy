@@ -11,11 +11,12 @@ const { aiSection } = require('../free-state');
 const { isTap, tapKeys } = require('../../renderer/common/shortcut-keys');
 const { cleanFact } = require('../../../shared/memory-rules');
 
-const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models'];
+const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models', 'listenOnOpen'];
 const NAME_MAX = 24;
 const PERMISSION_PANES = {
   accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
   screenRecording: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+  microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
 };
 // An API key is printable ASCII with no spaces. Smart quotes, a zero-width space or a second
 // line that came along with the paste make the request fail, and that failure looks just
@@ -56,6 +57,8 @@ function registerSettingsIpc({
   account, cloud, canSignIn, version,
   // What Buddy knows about the person (memory.js), for Settings → Memory.
   memory,
+  // The microphone as macOS sees it (ipc/panel.js createMicrophone), for Settings → Permissions.
+  microphone,
   // True on the first launch after an update (updates.js firstLaunchOfNewVersion): the Permissions page says why macOS
   // asks again.
   justUpdated = false,
@@ -130,6 +133,9 @@ function registerSettingsIpc({
     }
     if (Object.hasOwn(changes, 'provider')) getProvider(changes.provider);
     if (Object.hasOwn(changes, 'models')) changes.models = checkModels(changes.models);
+    if (Object.hasOwn(changes, 'listenOnOpen') && typeof changes.listenOnOpen !== 'boolean') {
+      throw new BuddyError('bad_request', 'Listen when the panel opens must be on or off.');
+    }
     if (Object.hasOwn(changes, 'buddyName')) {
       const name = String(changes.buddyName || '').trim().slice(0, NAME_MAX);
       changes.buddyName = name || characters.get(changes.buddyId ?? store.get('buddyId')).defaultName;
@@ -200,10 +206,17 @@ function registerSettingsIpc({
     return snapshot();
   });
 
-  handle('permissions:get', () => helper.call('permissions'));
+  // Accessibility and Screen Recording are the helper's to ask about; the microphone is Buddy's own (Electron asks
+  // macOS), and is 'unknown' on Windows, which does not ask per app.
+  handle('permissions:get', async () => ({ ...(await helper.call('permissions')), microphone: microphone.status() }));
 
-  handle('permissions:request', (which) =>
-    helper.call(checkPermission(which) === 'screenRecording' ? 'requestScreenRecording' : 'requestAccessibility'));
+  handle('permissions:request', async (which) => {
+    const name = checkPermission(which);
+    // macOS asks about the microphone only once: after that, the answer is how it stands, and the switch is in System
+    // Settings (permissions:open).
+    if (name === 'microphone') return { microphone: await microphone.ask() };
+    return helper.call(name === 'screenRecording' ? 'requestScreenRecording' : 'requestAccessibility');
+  });
 
   handle('permissions:open', async (which) => {
     await openExternal(PERMISSION_PANES[checkPermission(which)]);

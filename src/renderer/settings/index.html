@@ -126,6 +126,14 @@
           <span id="perm-screenRecording" class="badge"></span>
           <button id="perm-screenRecording-btn" class="btn small" type="button" aria-label="Allow Screen Recording">Allow</button>
         </div>
+        <div class="group-row">
+          <div class="grow">
+            <p class="row-title">Microphone</p>
+            <p class="muted small">Hear you when you talk to your buddy.</p>
+          </div>
+          <span id="perm-microphone" class="badge"></span>
+          <button id="perm-microphone-btn" class="btn small" type="button" aria-label="Allow Microphone">Allow</button>
+        </div>
       </div>
       <p id="perm-status" class="status small" aria-live="polite"></p>
     </section>
@@ -138,6 +146,13 @@
             <p id="power-status" class="muted small" aria-live="polite"></p>
           </div>
           <input id="power" class="switch" type="checkbox" role="switch" aria-label="Always on">
+        </div>
+        <div class="group-row">
+          <div class="grow">
+            <p class="row-title">Listen when the panel opens</p>
+            <p class="muted small">Talk as soon as it opens. When it's off, press 🎤 to talk.</p>
+          </div>
+          <input id="listen-on-open" class="switch" type="checkbox" role="switch" aria-label="Listen when the panel opens">
         </div>
         <div class="group-row">
           <div class="grow">
@@ -163,6 +178,7 @@
           <input id="update-auto" class="switch" type="checkbox" role="switch" aria-label="Check for updates automatically">
         </div>
       </div>
+      <p id="listen-status" class="status small" aria-live="polite"></p>
       <p id="update-status" class="status small" aria-live="polite"></p>
     </section>
   </main>

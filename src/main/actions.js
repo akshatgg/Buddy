@@ -6,7 +6,8 @@
  * answer says -- read their text box or look at their screen and ask again, put the text in the app they came from
  * (or on the clipboard when that is not possible), remember something about them, or offer to send. The panel holds
  * the keyboard focus while it is open, so it steps aside whenever the helper has to read from or type into that app.
- * When the person hides the panel while Buddy is thinking, Buddy does nothing in their app: the answer waits in the chat.
+ * When the person hides the panel while Buddy is thinking, Buddy does nothing in their app: the answer waits in the
+ * chat.
  *
  * The chat lives here, not in the page: after every change the whole panel state goes to the page (ui.panelState),
  * which only draws it and sends back what the person types and the buttons they press. The state and its items are
@@ -91,9 +92,9 @@ function createActions({
 
   /**
    * A chat: the app it is about, its items, the selection the next message uses, the notice about that selection, and
-   * whether the buddy is waiting for the AI (`busy`, which the page shows) or still working on messages at all
-   * (`talking`, how many, until what each answer says is done). `lastPut` is the buddy item Buddy last put in the app, which a new
-   * version of it replaces. `live` once the panel has opened on it; `resumed` when an opening came back to it.
+   * whether the buddy is waiting for the AI (`busy`, which the page shows). `talking` counts its messages still being
+   * worked on (until what each answer says is done), and `lastPut` is the buddy item Buddy last put in the app, which a
+   * new version of it replaces. `live` once the panel has opened on it; `resumed` when an opening came back to it.
    */
   function newChat(app = null) {
     return {
@@ -255,8 +256,8 @@ function createActions({
 
   /**
    * Whether Buddy may still work in the app for chat `c`: it is the chat on screen, and the panel is open or Buddy
-   * itself put it aside for a step there. A panel the person hid while Buddy was thinking (a click somewhere else) means
-   * they have moved on: Buddy does not read their box, look at their app or type into it behind their back.
+   * itself put it aside for a step there. A panel the person hid while Buddy was thinking (a click somewhere else)
+   * means they have moved on: Buddy does not read their box, look at their app or type into it behind their back.
    */
   function present(c) {
     return c === chat && (aside > 0 || ui.isPanelVisible());

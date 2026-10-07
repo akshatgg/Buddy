@@ -1,16 +1,30 @@
-// The commands that touch the person's app: read their selection, paste an answer, take a screenshot. They follow
-// captureSelection, paste and screenshot in src/native/BuddyHelper.swift, with Ctrl where the Mac has Command. Two
-// more are for Windows only (src/main/actions.js): activate, which hands the keyboard back to the person's app when
-// the panel closes, and focusWindow, which brings the panel forward when it opens.
+// The commands that touch the person's app: read their selection, paste an answer, press a key (Send, Undo), read its
+// window's title, take a screenshot. They follow captureSelection, paste, press, windowTitle and screenshot in
+// src/native/BuddyHelper.swift, with Ctrl where the Mac has Command. Two more are for Windows only
+// (src/main/actions.js): activate, which hands the keyboard back to the person's app when the panel closes, and
+// focusWindow, which brings the panel forward when it opens.
 
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading;
 
 namespace BuddyHelper
 {
     static class Commands
     {
+        // The keys `press` may send and the modifiers it may hold, by the names Buddy uses (src/main/send-keys.js):
+        // Enter sends, Ctrl+Z undoes (D is for Mail on the Mac). Nothing else, so that Buddy can never be made to press
+        // just any key. Cmd is Ctrl here, as everywhere on Windows.
+        static readonly Dictionary<string, ushort> PressKeys = new Dictionary<string, ushort>
+        {
+            { "return", KeyInput.Return }, { "z", KeyInput.Z }, { "d", KeyInput.D },
+        };
+        static readonly Dictionary<string, ushort> PressModifiers = new Dictionary<string, ushort>
+        {
+            { "cmd", KeyInput.LeftControl }, { "ctrl", KeyInput.LeftControl }, { "shift", KeyInput.LeftShift }, { "alt", KeyInput.LeftAlt },
+        };
+
         static int PidArg(Dictionary<string, object> args)
         {
             object pid = Program.Get(args, "pid");
@@ -121,6 +135,57 @@ namespace BuddyHelper
                 ClipboardStore.Release(saved);
             }
             return Program.Obj("via", via);
+        }
+
+        /// One key with its modifiers, like Ctrl+Enter (Send) or Ctrl+Z (Undo), into the app `pid`, brought to the front
+        /// first. It is refused wherever Paste is, for the same reasons: a terminal would run its line, Windows drops the
+        /// keys sent to an app that runs as administrator without a word, and Buddy never types into a password field.
+        public static Dictionary<string, object> Press(Dictionary<string, object> args)
+        {
+            int pid = PidArg(args);
+            string name = Program.Get(args, "key") as string;
+            ushort key;
+            if (name == null || !PressKeys.TryGetValue(name, out key)) throw new HelperError("bad_request", "key must be return, z or d");
+            ushort[] modifiers = ModifiersArg(args);
+            string via = Front.EnsureFront(pid);
+            if (via == null) throw new HelperError("not_frontmost", "Could not switch back to that app.");
+            FieldKind field = FocusedField.Read();
+            if (Front.IsTerminal(Native.GetForegroundWindow()) || field.Terminal) throw new HelperError("terminal", "I don't type into terminals.");
+            if (Front.RunsAboveUs(pid)) throw new HelperError("elevated", "That app runs as administrator, so I can't type into it.");
+            if (field.Password) throw new HelperError("secure_field", "I don't type into password fields.");
+            KeyInput.PressWith(key, modifiers);
+            return Program.Obj("via", via);
+        }
+
+        /// The title of the app's window, the one last in front, which in a browser names the site that is open
+        /// (src/main/send-keys.js tells Gmail from WhatsApp by it). "" when it has none or it cannot be read: never an
+        /// error. Windows keeps every window's title itself, so an app that hangs cannot hang this. The title is passed
+        /// on, never logged.
+        public static Dictionary<string, object> WindowTitle(Dictionary<string, object> args)
+        {
+            IntPtr window = Front.WindowFor(PidArg(args));
+            if (window == IntPtr.Zero) return Program.Obj("title", "");
+            var title = new StringBuilder(512);
+            return Program.Obj("title", Native.GetWindowText(window, title, title.Capacity) > 0 ? title.ToString().Trim() : "");
+        }
+
+        /// The modifier keys of `press`, in their order, each once: none when they are not given.
+        static ushort[] ModifiersArg(Dictionary<string, object> args)
+        {
+            var keys = new List<ushort>();
+            object given = Program.Get(args, "modifiers");
+            if (given == null) return keys.ToArray();
+            // A JSON list arrives as object[].
+            var names = given as System.Collections.IList;
+            if (names == null) throw new HelperError("bad_request", "modifiers must be a list");
+            foreach (object item in names)
+            {
+                string name = item as string;
+                ushort key;
+                if (name == null || !PressModifiers.TryGetValue(name, out key)) throw new HelperError("bad_request", "modifiers must be cmd, ctrl, shift or alt");
+                if (!keys.Contains(key)) keys.Add(key);
+            }
+            return keys.ToArray();
         }
 
         public static Dictionary<string, object> Screenshot(Dictionary<string, object> args)

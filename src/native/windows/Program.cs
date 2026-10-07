@@ -157,6 +157,12 @@ namespace BuddyHelper
                     case "paste":
                         result = Commands.Paste(args);
                         break;
+                    case "press":
+                        result = Commands.Press(args);
+                        break;
+                    case "windowTitle":
+                        result = Commands.WindowTitle(args);
+                        break;
                     case "screenshot":
                         result = Commands.Screenshot(args);
                         break;

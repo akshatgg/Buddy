@@ -16,64 +16,29 @@
     </div>
   </header>
 
-  <nav class="tabs">
-    <button type="button" data-tab="write">Write for me</button>
-    <button type="button" data-tab="fix">Fix my English</button>
-    <button type="button" data-tab="check">Check screen</button>
-  </nav>
-
-  <p id="notice" class="note" hidden></p>
-
-  <section id="tab-write" class="tab">
-    <textarea id="write-text" rows="4" placeholder="What should I write? e.g. boss ko mail, kal chutti chahiye"></textarea>
-    <div class="row">
-      <div class="tones segmented" role="radiogroup" aria-label="Tone">
-        <label><input type="radio" name="tone" value="formal" checked><span>Formal</span></label>
-        <label><input type="radio" name="tone" value="friendly"><span>Friendly</span></label>
-        <label><input type="radio" name="tone" value="short"><span>Short</span></label>
-      </div>
-      <span class="spacer"></span>
-      <button id="write-go" class="btn primary" type="button">Write</button>
+  <div id="chat" class="chat">
+    <div id="empty" class="empty">
+      <p id="greeting" class="greeting">Hi! What should we do?</p>
+      <p class="examples"><span>“boss ko mail, kal chutti chahiye”</span> · <span>“fix this”</span> · <span>“what does this mean?”</span></p>
     </div>
-  </section>
-
-  <section id="tab-fix" class="tab" hidden>
-    <textarea id="fix-text" rows="5" placeholder="Select your text first, or paste it here"></textarea>
-    <div class="row">
-      <button id="fix-whole" class="btn" type="button">Use the whole box</button>
-      <span class="spacer"></span>
-      <button id="fix-go" class="btn primary" type="button">Fix</button>
-    </div>
-  </section>
-
-  <section id="tab-check" class="tab" hidden>
-    <img id="shot" alt="Screenshot of your window" hidden>
-    <input id="check-q" type="text" placeholder="Ask something (optional), e.g. is this mail okay?">
-    <div class="row">
-      <button id="check-shot" class="btn" type="button">New screenshot</button>
-      <span class="spacer"></span>
-      <button id="check-go" class="btn primary" type="button">Check</button>
-    </div>
-  </section>
-
-  <p id="busy" class="muted" aria-live="polite" hidden>Thinking…</p>
-  <div class="error-line note error">
-    <p id="error" class="error" aria-live="polite" hidden></p>
-    <button id="error-settings" class="btn small" type="button" hidden>Open Settings</button>
+    <ol id="items" class="items" aria-label="Chat" aria-live="polite"></ol>
+    <p id="thinking" class="thinking" aria-live="polite" hidden></p>
   </div>
 
-  <section id="result" hidden>
-    <p id="verdict" class="verdict" hidden></p>
-    <ul id="problems" hidden></ul>
-    <textarea id="result-text" rows="7"></textarea>
-    <div class="row">
-      <button id="insert" class="btn primary" type="button">Insert</button>
-      <button id="copy" class="btn" type="button">Copy</button>
-      <span class="spacer"></span>
-      <button id="again" class="btn quiet" type="button">Try again</button>
+  <div class="compose">
+    <p id="notice" class="note" hidden></p>
+    <p id="send-error" class="note error" aria-live="polite" hidden></p>
+    <div id="selection" class="selection" hidden>
+      <p class="grow"><span class="muted">Your selection:</span> <span id="selection-text"></span></p>
+      <button id="drop-selection" class="icon cross" type="button" title="Leave it out" aria-label="Leave the selection out"></button>
     </div>
-  </section>
+    <div class="box">
+      <textarea id="box" rows="1" placeholder="Tell me what to do…" aria-label="Tell me what to do"></textarea>
+      <button id="send" class="send" type="button" title="Send (↩)" aria-label="Send" disabled></button>
+    </div>
+  </div>
 </div>
+<script src="chat-view.js"></script>
 <script src="panel.js"></script>
 </body>
 </html>

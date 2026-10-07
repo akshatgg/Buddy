@@ -136,3 +136,45 @@ test('the build goes on when everything is packed and cloud.json is valid', asyn
     '  • cloud.json is in app.asar and valid',
   ]);
 });
+
+/**
+ * A Windows package folder as electron-builder leaves it: resources\\app.asar holding `files` (with `contents`, as in
+ * makeAsar), and the helper if `helper`.
+ */
+async function windowsPackage(t, { files, contents = {}, helper }) {
+  const archive = await makeAsar(t, files, contents);
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-win-unpacked-'));
+  t.after(() => fs.rmSync(out, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(out, 'resources', 'bin'), { recursive: true });
+  fs.copyFileSync(archive, path.join(out, 'resources', 'app.asar'));
+  if (helper) fs.writeFileSync(path.join(out, 'resources', 'bin', 'buddy-helper.exe'), 'MZ');
+  return { appOutDir: out, electronPlatformName: 'win32' };
+}
+
+const PACKED = { files: ['package.json', ...REQUIRED_IN_ASAR], contents: { 'cloud.json': JSON.stringify(CLOUD) } };
+
+test('a Windows package with everything packed, a valid cloud.json and the helper passes', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  const context = await windowsPackage(t, { ...PACKED, helper: true });
+  await assert.doesNotReject(afterPack.default(context));
+});
+
+test('a Windows package without the helper fails the build: Buddy could not copy, paste or see the screen', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  const context = await windowsPackage(t, { ...PACKED, helper: false });
+  await assert.rejects(afterPack.default(context), /buddy-helper\.exe/);
+});
+
+test('a Windows package without the three.js files fails the build: the buddy would not show', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  const context = await windowsPackage(t, { files: ['package.json', 'cloud.json'], contents: PACKED.contents, helper: true });
+  await assert.rejects(afterPack.default(context), /GLTFLoader\.js/);
+});
+
+test('a Windows package without a valid cloud.json fails the build, as a Mac one does', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  const missing = await windowsPackage(t, { files: ['package.json', ...REQUIRED_IN_ASAR.filter((n) => n !== 'cloud.json')], helper: true });
+  await assert.rejects(afterPack.default(missing), /^Error: app\.asar is missing cloud\.json/);
+  const refused = await windowsPackage(t, { ...PACKED, contents: { 'cloud.json': '{ not json' }, helper: true });
+  await assert.rejects(afterPack.default(refused), { message: NOT_VALID });
+});

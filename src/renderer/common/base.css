@@ -40,7 +40,7 @@
   --key-face: linear-gradient(#ffffff, #f4f4f6);
   --key-edge: 0 0 0 0.5px rgba(0, 0, 0, 0.2), 0 1px 0 0.5px rgba(0, 0, 0, 0.13);
 
-  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Helvetica Neue", sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {

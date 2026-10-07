@@ -3,7 +3,9 @@
 
 const $ = (id) => document.getElementById(id);
 const ALL_STEPS = ['signin', 'pick', 'accessibility', 'screen', 'ai'];
-let steps = ALL_STEPS; // without 'ai' when free mode covers this person (snap.ai.showForm is false)
+// Windows asks for no permissions, so its Welcome leaves out those two steps.
+const PERMISSION_STEPS = ['accessibility', 'screen'];
+let steps = ALL_STEPS; // without 'ai' when free mode covers this person (snap.ai.showForm is false), without the permissions on Windows
 let step = 0;
 let snap = null;
 let chosen = null;
@@ -34,9 +36,10 @@ async function checkPermissions() {
   show('scr-status', Boolean(r.screenRecording));
 }
 
-/** The steps for this person: Connect an AI only when they may need a key of their own. */
+/** The steps for this person: Connect an AI only when they may need a key of their own, the permissions only on a Mac. */
 function setSteps() {
-  steps = ALL_STEPS.filter((name) => name !== 'ai' || snap.ai.showForm);
+  steps = ALL_STEPS.filter((name) =>
+    (name !== 'ai' || snap.ai.showForm) && !(snap.platform === 'win32' && PERMISSION_STEPS.includes(name)));
   step = Math.min(step, steps.length - 1);
 }
 

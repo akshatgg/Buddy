@@ -177,7 +177,10 @@ test('signing out while a token is being renewed: the renewed token is thrown aw
   assert.strictEqual(fs.existsSync(s.file), false, 'the late refresh token was not kept');
 });
 
-test('pressing Sign in again cancels the sign-in that is still waiting', async (t) => {
+// For a test whose sign-in only the account itself can end: one it never ends fails instead of hanging.
+const NO_HANG = { timeout: 10_000 };
+
+test('pressing Sign in again cancels the sign-in that is still waiting', NO_HANG, async (t) => {
   const waiting = [];
   const s = setup(t, {
     signInWith: (options) => new Promise((resolve, reject) => {
@@ -215,7 +218,7 @@ test('a sign-in that finishes after the person signed out is thrown away', async
   assert.strictEqual(s.changes(), 0);
 });
 
-test('signing out cancels the sign-in that is still waiting for the browser', async (t) => {
+test('signing out cancels the sign-in that is still waiting for the browser', NO_HANG, async (t) => {
   const s = setup(t, {
     signInWith: (options) => new Promise((resolve, reject) => {
       options.signal.addEventListener('abort', () => reject(new BuddyError('sign_in_cancelled', 'Sign-in was cancelled.')));

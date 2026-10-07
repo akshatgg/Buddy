@@ -20,16 +20,24 @@ const CALL_TIMEOUT_MS = 30_000;
 
 // Answers of the refresh endpoint that mean the sign-in is over: the person has to sign in again.
 const SIGNED_OUT_REASONS = /TOKEN_EXPIRED|INVALID_REFRESH_TOKEN|USER_DISABLED|USER_NOT_FOUND|INVALID_GRANT_TYPE|MISSING_REFRESH_TOKEN|PROJECT_NUMBER_MISMATCH/;
+// The reason a refusal gives is logged only when it is one short word ("invalid_grant", "TOKEN_EXPIRED"), as
+// shared/providers/http.js does: anything longer could carry a token.
+const REASON_SHAPE = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
 
 const failed = () => new BuddyError('sign_in_failed', "Google didn't sign you in. Try again.");
+// Cancelled: Buddy let go of the wait itself (a newer sign-in, a sign-out), and the pages say nothing. Denied: Google
+// sent the person back without signing them in (Cancel on its page), which the pages show.
 const cancelled = () => new BuddyError('sign_in_cancelled', 'Sign-in was cancelled.');
+const denied = () => new BuddyError('sign_in_denied', "You didn't finish signing in with Google. Try again.");
 const signedOut = () => new BuddyError('signed_out', 'Sign in to use Buddy.');
 const authFailed = () => new BuddyError('auth_failed', "Couldn't check your sign-in. Try again.");
 
 const page = (title, text) => '<!doctype html><meta charset="utf-8">'
   + `<title>${title}</title><body style="font:16px -apple-system,BlinkMacSystemFont,sans-serif;text-align:center;padding:72px 24px">`
   + `<h1 style="font-size:24px">${title}</h1><p>${text}</p></body>`;
-const DONE_PAGE = page("You're signed in to Buddy", 'You can close this tab and go back to Buddy.');
+// The tab is answered as soon as Google's code arrives, before Buddy has signed in with it, so it promises nothing that
+// can still fail: Buddy itself then says "Signed in ✓", or why not.
+const DONE_PAGE = page('Almost done', 'You can close this tab. Buddy is finishing signing you in.');
 const FAILED_PAGE = page('Sign-in did not finish', 'Go back to Buddy and try again.');
 
 /** A PKCE pair: the verifier Buddy keeps, and the challenge that goes to Google. */
@@ -56,8 +64,9 @@ function authUrl({ clientId, redirectUri, challenge, state }) {
 /**
  * Listen once on 127.0.0.1, on a port the system picks, for Google's answer to the sign-in with this `state`.
  * Resolves { redirectUri, code, stop } as soon as it listens: `code` is a promise of the authorization code, which
- * rejects when the person cancels on Google's page, after `waitMs`, when `signal` aborts (at once, if it already
- * has), or on stop(). Anything else that reaches the port gets a 404, and the wait goes on.
+ * rejects when Google sends the person back without one (sign_in_denied: Cancel on its page), after `waitMs`
+ * (sign_in_timeout), and when `signal` aborts (at once, if it already has) or on stop() (sign_in_cancelled). Anything
+ * else that reaches the port gets a 404, and the wait goes on.
  */
 function listenForCode({ state, waitMs = WAIT_MS, signal }) {
   return new Promise((resolve, reject) => {
@@ -83,7 +92,7 @@ function listenForCode({ state, waitMs = WAIT_MS, signal }) {
       }
       const got = url.searchParams.get('code');
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', connection: 'close' }).end(got ? DONE_PAGE : FAILED_PAGE);
-      finish(got ? null : cancelled(), got);
+      finish(got ? null : denied(), got);
     });
     const timer = setTimeout(() => finish(new BuddyError('sign_in_timeout', 'Sign-in took too long. Try again.')), waitMs);
     const onAbort = () => finish(cancelled());
@@ -110,6 +119,17 @@ function listenForCode({ state, waitMs = WAIT_MS, signal }) {
   });
 }
 
+/**
+ * The reason Google (`error`) or Firebase (`error.message`, often followed by words of its own) gives for a refusal,
+ * cut at the first space or colon; null unless what is left is one word that is safe to log.
+ */
+function loggableReason(body) {
+  const said = typeof body?.error?.message === 'string' ? body.error.message : body?.error;
+  if (typeof said !== 'string') return null;
+  const word = said.split(/[\s:]/)[0];
+  return REASON_SHAPE.test(word) ? word : null;
+}
+
 /** POST to Google or Firebase; answers the JSON. No connection is `network`; any other failure is `onFail(reason)`. */
 async function post({ fetchImpl, url, form, json, onFail }) {
   let res;
@@ -131,8 +151,9 @@ async function post({ fetchImpl, url, form, json, onFail }) {
     // not JSON: judged by the status below
   }
   if (!res.ok) {
-    // The log gets where and the status, never a token.
-    console.warn(`[buddy] sign-in: ${new URL(url).hostname} answered ${res.status}`);
+    // The log gets where, the status and the reason as one word, never a token.
+    const reason = loggableReason(body);
+    console.warn(`[buddy] sign-in: ${new URL(url).hostname} answered ${res.status}${reason ? ` (${reason})` : ''}`);
     throw onFail(String(body?.error?.message || body?.error || ''));
   }
   return body && typeof body === 'object' ? body : {};

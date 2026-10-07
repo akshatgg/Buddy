@@ -50,6 +50,17 @@ function browserThatSignsIn(seen = {}) {
   };
 }
 
+/** What the browser does when the person presses Cancel on Google's page: Google sends it back with an error. */
+async function browserThatCancels(url) {
+  const u = new URL(url);
+  const back = new URL(u.searchParams.get('redirect_uri'));
+  back.search = new URLSearchParams({ state: u.searchParams.get('state'), error: 'access_denied' }).toString();
+  setImmediate(() => fetch(back).then((r) => r.text()));
+}
+
+// For a test that waits for the listener or a sign-in to settle: one that never does fails instead of hanging.
+const NO_HANG = { timeout: 10_000 };
+
 test('PKCE: a fresh verifier each time, and the challenge is its SHA-256', () => {
   const a = makePkce();
   const b = makePkce();
@@ -73,38 +84,46 @@ test("Google's page is asked for the person's email and name, with the challenge
   });
 });
 
-test('the listener takes the code for its own state only, then closes', async () => {
+test('the listener takes the code for its own state only, then closes', NO_HANG, async (t) => {
   const listening = await listenForCode({ state: 'st' });
+  t.after(() => listening.stop()); // a failing test must not leave the port open for five minutes
   assert.match(listening.redirectUri, /^http:\/\/127\.0\.0\.1:\d+$/);
   assert.strictEqual((await fetch(`${listening.redirectUri}/?state=other&code=nope`)).status, 404);
   assert.strictEqual((await fetch(`${listening.redirectUri}/favicon.ico`)).status, 404);
   const page = await fetch(`${listening.redirectUri}/?state=st&code=the-code`);
   assert.strictEqual(page.status, 200);
-  assert.match(await page.text(), /You're signed in to Buddy/);
+  // The tab is answered before Buddy has signed in with the code, so it promises nothing that can still fail.
+  const text = await page.text();
+  assert.match(text, /<title>Almost done<\/title>/);
+  assert.match(text, /You can close this tab\. Buddy is finishing signing you in\./);
   assert.strictEqual(await listening.code, 'the-code');
   await assert.rejects(fetch(`${listening.redirectUri}/?state=st&code=again`), 'nothing listens any more');
 });
 
-test("cancelling on Google's page, waiting too long, aborting or stopping ends the wait", async () => {
-  const cancelled = await listenForCode({ state: 'st' });
-  const page = await fetch(`${cancelled.redirectUri}/?state=st&error=access_denied`);
+test("Cancel on Google's page, waiting too long, aborting or stopping ends the wait, each in its own words", NO_HANG, async (t) => {
+  const refused = await listenForCode({ state: 'st' });
+  t.after(() => refused.stop());
+  const page = await fetch(`${refused.redirectUri}/?state=st&error=access_denied`);
   assert.match(await page.text(), /Sign-in did not finish/);
-  await assert.rejects(cancelled.code, { code: 'sign_in_cancelled', message: 'Sign-in was cancelled.' });
+  await assert.rejects(refused.code, { code: 'sign_in_denied', message: "You didn't finish signing in with Google. Try again." });
 
   const slow = await listenForCode({ state: 'st', waitMs: 20 });
+  t.after(() => slow.stop());
   await assert.rejects(slow.code, { code: 'sign_in_timeout', message: 'Sign-in took too long. Try again.' });
 
+  // Cancelled is for Buddy itself letting go of the wait (a newer sign-in, or a sign-out): the pages say nothing then.
   const controller = new AbortController();
   const aborted = await listenForCode({ state: 'st', signal: controller.signal });
+  t.after(() => aborted.stop());
   controller.abort();
-  await assert.rejects(aborted.code, { code: 'sign_in_cancelled' });
+  await assert.rejects(aborted.code, { code: 'sign_in_cancelled', message: 'Sign-in was cancelled.' });
 
   const stopped = await listenForCode({ state: 'st' });
   stopped.stop();
-  await assert.rejects(stopped.code, { code: 'sign_in_cancelled' });
+  await assert.rejects(stopped.code, { code: 'sign_in_cancelled', message: 'Sign-in was cancelled.' });
 });
 
-test('a request that is no path at all gets a 404 too, and the wait goes on', async (t) => {
+test('a request that is no path at all gets a 404 too, and the wait goes on', NO_HANG, async (t) => {
   const listening = await listenForCode({ state: 'st' });
   t.after(() => listening.stop()); // a failing test must not leave the port open for five minutes
   for (const target of ['//', '///', '//?state=st&code=nope']) {
@@ -114,7 +133,7 @@ test('a request that is no path at all gets a 404 too, and the wait goes on', as
   assert.strictEqual(await listening.code, 'the-code');
 });
 
-test('a request that names another host gets a 404 even with the right state, and the wait goes on', async (t) => {
+test('a request that names another host gets a 404 even with the right state, and the wait goes on', NO_HANG, async (t) => {
   const listening = await listenForCode({ state: 'st' });
   t.after(() => listening.stop());
   for (const target of ['//other.example/?state=st&code=nope', 'http://other.example/?state=st&code=nope']) {
@@ -124,7 +143,7 @@ test('a request that names another host gets a 404 even with the right state, an
   assert.strictEqual(await listening.code, 'the-code');
 });
 
-test('a signal that has already been aborted ends the wait at once, and the port is let go', async (t) => {
+test('a signal that has already been aborted ends the wait at once, and the port is let go', NO_HANG, async (t) => {
   const controller = new AbortController();
   controller.abort();
   const listening = await listenForCode({ state: 'st', signal: controller.signal });
@@ -134,7 +153,7 @@ test('a signal that has already been aborted ends the wait at once, and the port
   await assert.rejects(fetch(`${listening.redirectUri}/?state=st&code=x`), 'nothing listens any more');
 });
 
-test('the whole sign-in: the browser, the code, Google, then Firebase', async () => {
+test('the whole sign-in: the browser, the code, Google, then Firebase', NO_HANG, async () => {
   const seen = {};
   const fetchImpl = googleFetch({
     [GOOGLE_TOKEN]: (u, init) => {
@@ -162,7 +181,7 @@ test('the whole sign-in: the browser, the code, Google, then Firebase', async ()
   });
 });
 
-test('Google or Firebase turning the sign-in down, or no internet, ends it in plain words', async (t) => {
+test('Google or Firebase turning the sign-in down, or no internet, ends it in plain words', NO_HANG, async (t) => {
   t.mock.method(console, 'warn', () => {});
   const refused = googleFetch({ [GOOGLE_TOKEN]: { status: 400, body: { error: 'invalid_grant' } } });
   await assert.rejects(signInWithGoogle({ config: CONFIG, openBrowser: browserThatSignsIn(), fetchImpl: refused }),
@@ -176,7 +195,41 @@ test('Google or Firebase turning the sign-in down, or no internet, ends it in pl
   await assert.rejects(signInWithGoogle({ config: CONFIG, openBrowser: browserThatSignsIn(), fetchImpl: noFirebase }), { code: 'sign_in_failed' });
 });
 
-test('a sign-in that was cancelled before it began opens no Google page', async () => {
+test("pressing Cancel on Google's page ends the sign-in in words that say so", NO_HANG, async () => {
+  await assert.rejects(signInWithGoogle({ config: CONFIG, openBrowser: browserThatCancels, fetchImpl: googleFetch({}) }),
+    { code: 'sign_in_denied', message: "You didn't finish signing in with Google. Try again." });
+});
+
+test('a refusal is logged with where, the status and its reason as one word, never a token', NO_HANG, async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const token = `eyJhbGciOiJSUzI1NiJ9.${'eyJzdWIiOiIxMjMifQ'.repeat(8)}.${'c2lnbmF0dXJl'.repeat(8)}`;
+  const signIn = (routes) => signInWithGoogle({ config: CONFIG, openBrowser: browserThatSignsIn(), fetchImpl: googleFetch(routes) });
+  const refresh = (answer) => refreshIdToken({ refreshToken: 'r', config: CONFIG, fetchImpl: googleFetch({ [FIREBASE_REFRESH]: answer }) });
+
+  // Google's token endpoint names its error in `error`; Firebase in `error.message`, often followed by words of its own.
+  await assert.rejects(signIn({ [GOOGLE_TOKEN]: { status: 400, body: { error: 'invalid_grant', error_description: `Bad code ${token}` } } }),
+    { code: 'sign_in_failed' });
+  await assert.rejects(signIn({
+    [GOOGLE_TOKEN]: { body: { id_token: 'g' } },
+    [FIREBASE_IDP]: { status: 400, body: { error: { code: 400, message: `INVALID_IDP_RESPONSE : Invalid Idp Response: id_token ${token}` } } },
+  }), { code: 'sign_in_failed' });
+  await assert.rejects(refresh({ status: 400, body: { error: { code: 400, message: 'TOKEN_EXPIRED' } } }), { code: 'signed_out' });
+  // A reason that is not one word (here, a token itself), and an answer that is not JSON: where and the status only.
+  await assert.rejects(refresh({ status: 400, body: { error: { code: 400, message: token } } }), { code: 'auth_failed' });
+  await assert.rejects(refresh({ status: 503 }), { code: 'auth_failed' });
+
+  const logged = warn.mock.calls.map((c) => c.arguments.join(' '));
+  assert.deepStrictEqual(logged, [
+    '[buddy] sign-in: oauth2.googleapis.com answered 400 (invalid_grant)',
+    '[buddy] sign-in: identitytoolkit.googleapis.com answered 400 (INVALID_IDP_RESPONSE)',
+    '[buddy] sign-in: securetoken.googleapis.com answered 400 (TOKEN_EXPIRED)',
+    '[buddy] sign-in: securetoken.googleapis.com answered 400',
+    '[buddy] sign-in: securetoken.googleapis.com answered 503',
+  ]);
+  assert.doesNotMatch(logged.join('\n'), /eyJ/, 'no token reaches the log');
+});
+
+test('a sign-in that was cancelled before it began opens no Google page', NO_HANG, async () => {
   const controller = new AbortController();
   controller.abort();
   let opened = 0;
@@ -186,7 +239,7 @@ test('a sign-in that was cancelled before it began opens no Google page', async 
   assert.strictEqual(opened, 0, 'no page was opened for a sign-in nobody is waiting for');
 });
 
-test('a browser that cannot be opened ends the sign-in, and the port is let go', async () => {
+test('a browser that cannot be opened ends the sign-in, and the port is let go', NO_HANG, async () => {
   let redirect = null;
   const openBrowser = async (url) => {
     redirect = new URL(url).searchParams.get('redirect_uri');

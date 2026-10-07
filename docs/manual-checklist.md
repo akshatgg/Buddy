@@ -98,6 +98,7 @@ Run with the installed Buddy.app, signed in with a real Google account. The keys
 - [ ] Record Caps Lock → "⇪ Caps Lock" and its note; each press opens or closes Buddy once, and capitals toggle as the note says.
 - [ ] While recording, press ⌘ and B together → saved as "⌘ B", not as a ⌘ tap.
 - [ ] Buddy has Accessibility but is not in System Settings → Privacy & Security → Input Monitoring: the single key still works (macOS lets an app with Accessibility listen to the keys).
+- [ ] With Buddy's Accessibility off, click the Shortcut box: the line under it says "Buddy needs Accessibility to hear a key tapped on its own. Allow it in Permissions.", and ⇧ ⌘ B can still be recorded.
 - [ ] Turn Buddy's Accessibility off in System Settings: the note turns red ("Buddy needs Accessibility to hear this key. Allow it in Permissions."); turn it on again: within 10 seconds the key works, without restarting Buddy.
 - [ ] Quit the helper (`pkill buddy-helper`): within a few seconds the key works again.
 - [ ] Turn Buddy off (General): tapping the key does nothing; on again: it works.

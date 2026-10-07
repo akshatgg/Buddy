@@ -29,6 +29,8 @@ again closes the panel, as the shortcut does today.
   - fn: "If fn also opens emoji or dictation, set “Press 🌐 key to” to “Do Nothing” in System Settings → Keyboard."
   - without Accessibility, in place of the first line and in red: "Buddy needs Accessibility to hear this key. Allow it
     in Permissions."
+- **Recording without Accessibility:** while the box waits, the line under it says "Buddy needs Accessibility to hear a
+  key tapped on its own. Allow it in Permissions." Keys pressed together can still be recorded.
 - **Permission:** Buddy hears the keys through the Accessibility permission it already asks for. Without it the
   shortcut can't work; once it is given, the shortcut starts working within 10 seconds, without restarting Buddy.
 - Reserved combinations (⌘C …) stay refused. A single key is never "taken" by another app.
@@ -43,7 +45,8 @@ again closes the panel, as the shortcut does today.
   loop for modifier changes, key presses and mouse clicks. It reports
   `{"event": "keys", "kind": "flags", "keyCode": n, "flags": n, "t": ms}` for each modifier change (the raw flags,
   whose low bits say which side is down; `t` is milliseconds since the Mac started), and
-  `{"event": "keys", "kind": "other"}` for a key or a click **only while a modifier is held**, never which key.
+  `{"event": "keys", "kind": "other"}` for a key or a click **only while a modifier flag is on** (macOS also puts the
+  fn flag on the arrow and function keys), never which key.
   Without Accessibility the command fails with `no_accessibility`. A tap that macOS switches off is switched back on.
   The Node side of the helper says `started` each time the helper (re)starts.
 - **Tap detector (`src/main/modifier-tap.js`):** a pure state machine turning those reports into taps (keys pressed

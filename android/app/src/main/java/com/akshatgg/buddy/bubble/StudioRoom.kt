@@ -1,5 +1,6 @@
 package com.akshatgg.buddy.bubble
 
+import android.annotation.SuppressLint
 import android.util.Half
 import com.google.android.filament.Colors
 import com.google.android.filament.Engine
@@ -212,6 +213,7 @@ internal object StudioRoom {
      * freeing it waits for the GPU to finish (over a second on the emulator), which would hold up
      * the main thread.
      */
+    @SuppressLint("HalfFloat") // Half.toHalf bits put into a HALF texture buffer; lint misreads the Kotlin
     fun build(engine: Engine, prefilter: IBLPrefilterContext): IndirectLight {
         val values = trace()
         val harmonics = harmonics(values)

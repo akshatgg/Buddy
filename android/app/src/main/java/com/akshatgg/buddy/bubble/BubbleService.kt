@@ -71,6 +71,7 @@ class BubbleService : LifecycleService() {
 
     private var sleepyTimer: Job? = null
     private var hideTimer: Job? = null // while it runs the head is hidden for a picture of the screen
+    private var heldWords: String? = null // said while the head was out of the panel's way: said when the panel goes
 
     // The head draws only while it is visible, and an overlay stays "visible" with the screen off or locked, so it is
     // hidden then: the Mac's buddy:pause on lock-screen.
@@ -112,6 +113,16 @@ class BubbleService : LifecycleService() {
                     is BubbleEvent.SetMood -> mood(event.mood)
                     is BubbleEvent.Say -> say(event.text)
                     is BubbleEvent.HideFor -> hideFor(event.ms)
+                }
+            }
+        }
+        lifecycleScope.launch {
+            BubbleBus.panelOpen.collect { open ->
+                if (open) speech?.hide() // it would sit over the card
+                showOrHide()
+                if (!open) heldWords?.let {
+                    heldWords = null
+                    say(it)
                 }
             }
         }
@@ -380,7 +391,12 @@ class BubbleService : LifecycleService() {
 
     private fun say(text: String) {
         val view = head ?: return
-        if (view.visibility != View.VISIBLE) return // nobody would see it, or it would be in a picture of the screen
+        if (view.visibility != View.VISIBLE) {
+            // Out of the panel's way, and nothing else: kept until the panel goes, since Copy says "Copied — …" just
+            // before it closes the panel. Otherwise nobody would see it, or it would be in a picture of the screen.
+            if (!screenOff && hideTimer?.isActive != true && BubbleBus.panelOpen.value) heldWords = text
+            return
+        }
         if (!Settings.canDrawOverlays(this)) return // taken away a moment ago: the watcher is about to stop the service
         speech?.say(text, headBounds(), area())
     }
@@ -396,9 +412,12 @@ class BubbleService : LifecycleService() {
         showOrHide()
     }
 
-    /** The head shows unless the screen is off or locked, or a picture of the screen is being taken. Hidden, it does not draw. */
+    /**
+     * The head shows unless the screen is off or locked, the panel is open, or a picture of the screen is being taken.
+     * Hidden, it does not draw; its mood still changes, and shows when it comes back.
+     */
     private fun showOrHide() {
-        val hidden = screenOff || hideTimer?.isActive == true
+        val hidden = screenOff || BubbleBus.panelOpen.value || hideTimer?.isActive == true
         head?.visibility = if (hidden) View.INVISIBLE else View.VISIBLE
     }
 

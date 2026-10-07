@@ -11,6 +11,7 @@ import com.akshatgg.buddy.bubble.Mood
 import com.akshatgg.buddy.core.BuddyError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -60,6 +61,7 @@ class PanelModel(
 
     private var image: String? = null // the latest picture of the screen, base64 JPEG
     private var last: Request? = null // the latest request, for Try again
+    private var running: Job? = null // the request the AI is answering now, if any
 
     /** Another tab hides the answer and the error, as on the Mac. */
     fun select(tab: Tab) = current.update { it.copy(tab = tab, answer = null, error = null) }
@@ -92,6 +94,18 @@ class PanelModel(
         )
     }
 
+    /**
+     * A new opening from the buddy, as the Mac's panel.js reset(): empty boxes, and no picture, answer or error. The
+     * tab and tone stay as they were chosen. An answer still on its way belonged to the last opening: it is dropped.
+     */
+    fun reset() {
+        running?.cancel()
+        running = null
+        image = null
+        last = null
+        current.update { PanelState(tab = it.tab, tone = it.tone) }
+    }
+
     /** The same request again, whatever the boxes say now. */
     fun retry() {
         last?.let(::run)
@@ -102,21 +116,26 @@ class PanelModel(
         last = request
         current.update { it.copy(busy = true, answer = null, error = null) }
         bubble(BubbleEvent.SetMood(Mood.THINKING))
-        scope.launch {
+        running = scope.launch {
             try {
                 // One deadline for the whole request, as the Mac's AbortSignal.timeout(AI_TIMEOUT_MS) over ai.ask:
                 // a slow fetch of the free-mode settings and then a slow answer must not add up to two minutes.
                 val answer = withTimeout(AI_TIMEOUT_MS.toLong()) { ask(request.action, request.input) }
                 // The answer shows on its own tab, even if the person looked at another meanwhile.
                 current.update {
-                    it.copy(busy = false, tab = TAB_OF.getValue(request.action), answer = answer, original = request.input.text.orEmpty())
+                    it.copy(
+                        busy = false, tab = TAB_OF.getValue(request.action), answer = answer, error = null,
+                        original = request.input.text.orEmpty(),
+                    )
                 }
                 bubble(BubbleEvent.SetMood(Mood.HAPPY))
             } catch (e: TimeoutCancellationException) {
                 fail(BuddyError("timeout", "Buddy took too long to answer. Try again."))
             } catch (e: CancellationException) {
-                // The panel closed while the AI was busy: nobody is waiting for the answer, and the buddy stops thinking.
-                bubble(BubbleEvent.SetMood(Mood.IDLE))
+                // The panel closed, or opened afresh, while the AI was busy: nobody is waiting for the answer, and the
+                // buddy stops thinking, unless a new request has started meanwhile.
+                val mine = coroutineContext[Job]
+                if (running == null || running === mine) bubble(BubbleEvent.SetMood(Mood.IDLE))
                 throw e
             } catch (e: BuddyError) {
                 fail(e)

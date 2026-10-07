@@ -33,9 +33,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 private const val COPIED = "Copied — long-press the box and tap Paste"
-private const val NO_PICTURE = "Check screen needs a picture of your screen. Try again and tap Start."
+private const val NO_PICTURE = "Check screen needs a picture of your screen. Try again and allow it."
 private const val NOTHING_TO_PASTE = "Copy some text first, then tap Paste."
-private const val HIDE_MS = 1500L // the buddy is out of the picture for this long
+// The buddy is already out of the panel's way while the panel is on screen; this keeps it out of the picture even
+// if the panel is sent to the background meanwhile.
+private const val HIDE_MS = 1500L
 
 // MainActivity scrolls Settings to this section: where a key, a model or free mode is set; the account; Buddy on.
 private const val SECTION = "section"
@@ -50,7 +52,21 @@ private fun sectionFor(code: String?) = when (code) {
 
 /** Keeps the panel's state, its picture and its request through a turn of the phone. */
 class PanelViewModel : ViewModel() {
-    val model = PanelModel(AppGraph.instance.router::ask, viewModelScope, BubbleBus::send)
+    val model = PanelModel(AppGraph.instance.router::ask, viewModelScope, BubbleBus::send).apply {
+        select(chosen.first)
+        setTone(chosen.second)
+    }
+
+    override fun onCleared() {
+        val state = model.state.value
+        chosen = state.tab to state.tone
+    }
+
+    private companion object {
+        // The tab and tone last chosen, while Buddy runs: each opening starts from them, with empty boxes, as the
+        // Mac's panel keeps its tone from one opening to the next.
+        var chosen = Tab.WRITE to "formal"
+    }
 }
 
 /**
@@ -96,6 +112,24 @@ class PanelActivity : ComponentActivity() {
                 PanelScreen(state, buddyName, on)
             }
         }
+    }
+
+    // The buddy steps out of the panel's way while it is on screen. A turn of the phone stops this activity and starts
+    // the next one at once: the buddy stays hidden through it.
+    override fun onStart() {
+        super.onStart()
+        BubbleBus.panelOpen.value = true
+    }
+
+    override fun onStop() {
+        if (!isChangingConfigurations) BubbleBus.panelOpen.value = false
+        super.onStop()
+    }
+
+    /** The buddy tapped while the panel was in the background: a new opening, which starts afresh, as on the Mac. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        model.reset()
     }
 
     /** Android only lets an app read the clipboard when the person asks: here, when they press Paste. */
@@ -168,7 +202,7 @@ class PanelActivity : ComponentActivity() {
                 throw e
             } catch (e: Exception) {
                 Log.w("Buddy", "capture: failed (${e.javaClass.simpleName})")
-                showCaptureError(BuddyError("capture_failed", "Could not take the screenshot. Try again."))
+                showCaptureError(ScreenCapture.couldNotCapture())
             } finally {
                 window.decorView.alpha = 1f
                 window.setDimAmount(dim)

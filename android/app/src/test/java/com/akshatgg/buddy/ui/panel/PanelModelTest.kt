@@ -128,6 +128,43 @@ class PanelModelTest {
         assertFalse(m.state.value.busy)
     }
 
+    @Test fun anAnswerClearsAnErrorShownWhileAsking() = runTest {
+        val gate = CompletableDeferred<Answer>()
+        reply = { _, _ -> gate.await() }
+        val m = model()
+        m.select(Tab.FIX)
+        m.setFixText("i am go")
+        m.submit()
+        runCurrent()
+        m.showError(PanelError("Copy some text first, then tap Paste.", showSettings = false))
+        gate.complete(Answer("I am going.", "m"))
+        advanceUntilIdle()
+        assertNull(m.state.value.error)
+        assertEquals("I am going.", m.state.value.answer?.text)
+    }
+
+    @Test fun aNewOpeningEmptiesTheBoxesAndKeepsTheTabAndTone() = runTest {
+        val gate = CompletableDeferred<Answer>()
+        reply = { _, _ -> gate.await() }
+        val m = model()
+        m.setTone("short")
+        m.setFixText("old text")
+        m.select(Tab.CHECK)
+        m.setScreenshot("old picture", null)
+        m.setQuestion("old question")
+        m.submit()
+        runCurrent()
+        m.reset()
+        gate.complete(Answer("an answer for the last opening", "m"))
+        advanceUntilIdle()
+        assertEquals(PanelState(tab = Tab.CHECK, tone = "short"), m.state.value)
+        assertEquals(listOf(Mood.THINKING, Mood.IDLE), moods)
+        m.retry() // nothing to repeat: Try again belongs to the last opening too
+        m.submit() // and its picture is gone
+        advanceUntilIdle()
+        assertEquals(AskInput(image = null, instruction = ""), asked.last().second)
+    }
+
     @Test fun anAnswerThatTakesAMinuteIsTooLong() = runTest {
         reply = { _, _ -> awaitCancellation() }
         val m = model()
@@ -135,7 +172,8 @@ class PanelModelTest {
         m.submit()
         advanceTimeBy(59_999)
         assertTrue(m.state.value.busy)
-        advanceUntilIdle()
+        advanceTimeBy(2)
+        runCurrent()
         assertEquals(PanelError("Buddy took too long to answer. Try again.", showSettings = false, code = "timeout"), m.state.value.error)
         assertEquals(listOf(Mood.THINKING, Mood.SLEEPY), moods)
         assertFalse(m.state.value.busy)
@@ -168,7 +206,7 @@ class PanelModelTest {
         m.setInstruction("x")
         m.submit()
         advanceUntilIdle()
-        m.showError(PanelError("Check screen needs a picture of your screen. Try again and tap Start.", showSettings = false))
+        m.showError(PanelError("Check screen needs a picture of your screen. Try again and allow it.", showSettings = false))
         m.select(Tab.FIX)
         assertNull(m.state.value.answer)
         assertNull(m.state.value.error)

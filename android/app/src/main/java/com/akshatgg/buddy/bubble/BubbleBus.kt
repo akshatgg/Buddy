@@ -2,6 +2,7 @@ package com.akshatgg.buddy.bubble
 
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
@@ -21,6 +22,13 @@ object BubbleBus {
     private val flow = MutableSharedFlow<BubbleEvent>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     val events: SharedFlow<BubbleEvent> = flow.asSharedFlow()
+
+    /**
+     * True while the panel is on screen. The head steps out of its way, since it would cover the card and take its
+     * taps, and comes back when the panel goes. A state rather than an event, so that a buddy that starts meanwhile
+     * knows it too.
+     */
+    val panelOpen = MutableStateFlow(false)
 
     fun mood(m: Mood) = send(BubbleEvent.SetMood(m))
 

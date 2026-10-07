@@ -121,19 +121,30 @@ class ScreenCapture(private val context: Context) {
                         }
                     }.also { projection.registerCallback(it, main) }
                     reader.setOnImageAvailableListener({ r ->
-                        val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
-                        r.setOnImageAvailableListener(null, null)
-                        val bitmap = try {
-                            // A row in the buffer can be longer than the screen is wide: the copy is that wide, then cut.
-                            val plane = image.planes[0]
-                            val rowPixels = plane.rowStride / plane.pixelStride
-                            val wide = createBitmap(rowPixels, image.height)
-                            wide.copyPixelsFromBuffer(plane.buffer)
-                            if (rowPixels == image.width) wide else Bitmap.createBitmap(wide, 0, 0, image.width, image.height).also { wide.recycle() }
-                        } finally {
-                            image.close()
+                        try {
+                            val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+                            r.setOnImageAvailableListener(null, null)
+                            val bitmap = try {
+                                // A row in the buffer can be longer than the screen is wide: the copy is that wide, then cut.
+                                val plane = image.planes[0]
+                                val rowPixels = plane.rowStride / plane.pixelStride
+                                val wide = createBitmap(rowPixels, image.height)
+                                wide.copyPixelsFromBuffer(plane.buffer)
+                                if (rowPixels == image.width) {
+                                    wide
+                                } else {
+                                    Bitmap.createBitmap(wide, 0, 0, image.width, image.height).also { wide.recycle() }
+                                }
+                            } finally {
+                                image.close()
+                            }
+                            if (waiting.isActive) waiting.resume(bitmap) else bitmap.recycle()
+                        } catch (e: Exception) {
+                            // This runs on the main thread outside any coroutine, where an exception would take Buddy
+                            // down: a frame that cannot be read is no picture, and the panel says so.
+                            Log.w("Buddy", "capture: unreadable frame (${e.javaClass.simpleName})")
+                            if (waiting.isActive) waiting.resumeWithException(couldNotCapture())
                         }
-                        if (waiting.isActive) waiting.resume(bitmap) else bitmap.recycle()
                     }, main)
                     display = projection.createVirtualDisplay(
                         "buddy-check", size.x, size.y, context.resources.displayMetrics.densityDpi,
@@ -173,6 +184,6 @@ class ScreenCapture(private val context: Context) {
         fun buddyOff() = BuddyError("buddy_off", "Check screen needs Buddy to be on. Turn it on in Settings.")
 
         // The Mac helper's words when a screenshot fails.
-        private fun couldNotCapture() = BuddyError("capture_failed", "Could not take the screenshot. Try again.")
+        fun couldNotCapture() = BuddyError("capture_failed", "Could not take the screenshot. Try again.")
     }
 }

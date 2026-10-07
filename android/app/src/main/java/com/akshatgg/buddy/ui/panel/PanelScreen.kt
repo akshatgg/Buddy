@@ -217,7 +217,8 @@ private fun Field(value: String, onChange: (String) -> Unit, placeholder: String
         value = value,
         onValueChange = onChange,
         modifier = Modifier.fillMaxWidth(),
-        placeholder = { Text(placeholder) },
+        // A one-line box keeps its hint to one line too, rather than growing a line it loses when the person types.
+        placeholder = { Text(placeholder, maxLines = if (lines.last == 1) 1 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis) },
         minLines = lines.first,
         maxLines = lines.last,
         singleLine = lines.last == 1,

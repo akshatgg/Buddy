@@ -112,9 +112,11 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
     await ctx.actions.toggle();
     const panel = ctx.panel.window();
     await waitFor(() => panel.isVisible(), 'the panel to open');
-    const ran = await panel.webContents.executeJavaScript("window.buddy.run('write', { instruction: 'mail to my boss', tone: 'formal' })");
-    assert.deepStrictEqual(ran, { ok: true, result: { text: 'A free answer', model: 'free-model' } });
-    assert.deepStrictEqual(ctx.cloud.asks.at(-1), { action: 'write', input: { instruction: 'mail to my boss', tone: 'formal' } });
+    const sent = await panel.webContents.executeJavaScript("window.buddy.send('mail to my boss')");
+    assert.deepStrictEqual(sent, { ok: true });
+    assert.deepStrictEqual([ctx.cloud.asks.at(-1).action, ctx.cloud.asks.at(-1).input.message], ['chat', 'mail to my boss']);
+    const answer = ctx.actions.state().chat.at(-1);
+    assert.deepStrictEqual([answer.type, answer.text, answer.buttons], ['buddy', 'A free answer', ['insert', 'copy']]);
 
     // Signed out from Settings: the app forgets this person's free settings, Settings offers Sign in (and keeps what is
     // being typed), and the panel sends the person there.
@@ -132,13 +134,12 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
     assert.deepStrictEqual(await profile(), SIGNED_OUT, 'and so it does after loading again');
     const signInAt = await signInTop();
     assert.deepStrictEqual(await aiCard(), { note: null, form: true }, 'signed out: no free settings apply');
-    await panel.webContents.executeJavaScript(
-      "document.getElementById('write-text').value = 'mail to my boss'; document.getElementById('write-go').click();",
-    );
-    await waitFor(() => panel.webContents.executeJavaScript("!document.getElementById('error').hidden"), 'the error to show');
-    assert.deepStrictEqual(
-      await panel.webContents.executeJavaScript("[document.getElementById('error').textContent, !document.getElementById('error-settings').hidden]"),
-      ['Sign in to use Buddy.', true],
+    assert.deepStrictEqual(await panel.webContents.executeJavaScript("window.buddy.send('mail to my boss')"), { ok: true });
+    const refused = ctx.actions.state().chat.at(-1);
+    assert.deepStrictEqual([refused.type, refused.text, refused.buttons], ['error', 'Sign in to use Buddy.', ['retry', 'settings']]);
+    await waitFor(
+      async () => (await panel.webContents.executeJavaScript('document.body.innerText')).includes('Sign in to use Buddy.'),
+      'the error to show',
     );
     ctx.panel.hide();
 

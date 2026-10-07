@@ -11,6 +11,7 @@ const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const { app, clipboard, dialog, globalShortcut: systemShortcut, ipcMain, powerMonitor, safeStorage, screen, shell } = require('electron');
 const { createStore } = require('./store');
+const { createMemory } = require('./memory');
 const { createSecrets } = require('./secrets');
 const { loadCloudConfig } = require('./cloud-config');
 const { createAccount } = require('./account');
@@ -25,6 +26,7 @@ const { createSettingsWindows } = require('./settings-windows');
 const { createMemory } = require('./memory');
 const { installAppMenu } = require('./app-menu');
 const { createActions } = require('./actions');
+const { sendKeyFor, undoKey } = require('./send-keys');
 const { createTray, updateMenuState } = require('./tray');
 const { createPower, loginItemsFor } = require('./power');
 const { createShortcut } = require('./shortcut');
@@ -68,6 +70,8 @@ async function start(options = {}) {
 
   const userData = app.getPath('userData');
   const store = createStore({ file: path.join(userData, 'settings.json') });
+  // What Buddy knows about the person (memory.js), kept in the settings file: the panel's chat learns it, Settings shows it.
+  const memory = createMemory({ store });
   const secrets = createSecrets({ file: path.join(userData, 'keys.json'), safeStorage });
   // The end-to-end test passes its own account and server, so that it never signs in to Google or calls the real
   // server, and its own cloud.json values, so that it does not depend on this Mac's.
@@ -132,14 +136,26 @@ async function start(options = {}) {
     // The end-to-end test passes its own, so that it never reads or overwrites the person's real clipboard.
     clipboard: options.clipboard || clipboard,
     store,
+    memory,
+    sendKeyFor,
+    undoKey,
+    // The panel greets the person by their first name, and the AI knows it.
+    userName: () => (account.user()?.name || '').trim().split(/\s+/)[0],
     ui: {
       showPanel: (state) => panel.show(state, buddy.bounds(), buddy.display().workArea),
+      panelState: (state) => panel.send('panel:state', state),
       hidePanel: () => panel.hide(),
       isPanelVisible: () => panel.isVisible(),
       panelJustClosed: () => panel.justClosed(),
+      panelHiddenAt: () => panel.hiddenAt(),
       panelWindowHandle: () => windowHandle(panel.window()), // for the helper on Windows (actions.js)
+      openSettings,
       bubble: (text) => bubble.say(text, buddy.bounds(), buddy.display().workArea),
       mood: (name) => buddy.mood(name),
+      // For the buddy's feelings, which have their own design: voice (the next step) will say when the panel listens
+      // (listening(on)) and how loud the person speaks (voiceLevel(0..1), about 10 times a second). Nothing uses them yet.
+      listening() {},
+      voiceLevel() {},
     },
   });
   const onCall = () => {
@@ -282,7 +298,7 @@ async function start(options = {}) {
   }
   if (target.platform !== 'development') updatesIpc.launchCheck();
 
-  return { store, secrets, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, trayState, shortcut, updater };
+  return { store, secrets, memory, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, trayState, shortcut, updater };
 }
 
 module.exports = { start };

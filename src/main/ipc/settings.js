@@ -247,18 +247,24 @@ function registerSettingsIpc({
    * when Buddy starts) and nothing else happens.
    */
   function resumeShortcut() {
-    keyWatch.stopRecording();
     const saved = store.get('shortcut');
-    if (!power.isOn() || shortcut.current() === saved) return;
-    if (!shortcut.register(saved)) console.warn('[buddy] could not take the shortcut back');
+    if (power.isOn() && shortcut.current() !== saved && !shortcut.register(saved)) {
+      console.warn('[buddy] could not take the shortcut back');
+    }
+    // The recording ends only now that the saved shortcut is back, so that again there is no gap in hearing a key
+    // tapped on its own (see shortcut:pause).
+    keyWatch.stopRecording();
   }
 
   // While the Settings page records a new shortcut, Buddy lets go of its own, so that pressing the current one is
   // heard by the page instead of opening the panel. A key tapped on its own is heard by the Mac helper instead (the
   // page does not see fn or Caps Lock), and each tap is sent to the page.
   handleSettings('shortcut:pause', () => {
-    shortcut.unregister();
+    // The recording starts first, then the shortcut goes, so that there is no gap in hearing a key tapped on its own:
+    // with nothing to listen for in between, the helper would be switched off and on again. Taps go to the recording,
+    // so none opens the panel meanwhile.
     keyWatch.startRecording((value) => windows.send('settings', 'shortcut:tap', value));
+    shortcut.unregister();
     return {};
   });
 

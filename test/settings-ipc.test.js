@@ -2,9 +2,11 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const { EventEmitter } = require('node:events');
 const { BuddyError } = require('../shared/errors');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
 const { DEFAULTS } = require('../src/main/store');
+const { createKeyWatch } = require('../src/main/key-watch');
 const { createShortcut } = require('../src/main/shortcut');
 const { tapKeys } = require('../src/renderer/common/shortcut-keys');
 const { chooseModel, registerSettingsIpc } = require('../src/main/ipc/settings');
@@ -38,19 +40,20 @@ const ADMIN_PAGE = 'admin';
 const STRAY_KEY = "That doesn't look like an API key. Copy only the key and paste it again.";
 const FAILED = { ok: false, error: { code: 'failed', message: 'Something went wrong. Try again.' } };
 const refused = (code, message) => ({ ok: false, error: { code, message } });
+const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 /**
  * registerSettingsIpc with fakes. `registered` is the shortcut that is
  * registered right now (null: none, as when it failed at launch, or while Buddy is
  * off); `taken` are shortcuts another app owns; `buddyOn` is whether Buddy is on.
- * `realShortcut` replaces the fake shortcut. Provider calls are faked per test
+ * `realShortcut` replaces the fake shortcut and `realKeyWatch` the fake key watch. Provider calls are faked per test
  * with t.mock.method(PROVIDERS.anthropic, 'listModels', ...). `signedIn` is whether someone is signed in; `free` is
  * the server's free-mode settings as the app last got them; `signInFails` and `cloudFails` make signing in or
  * fetching those settings fail; `cloudSignsOut` makes that fetch sign the person out first, as the real one does
  * when the server turns their sign-in down twice.
  */
 function setup({
-  stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut,
+  stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut, realKeyWatch,
   signedIn = true, free = null, signInFails = null, cloudFails = null, cloudSignsOut = false,
 } = {}) {
   const data = { ...structuredClone(DEFAULTS), ...stored };
@@ -151,7 +154,7 @@ function setup({
         current = null;
       },
     },
-    keyWatch,
+    keyWatch: realKeyWatch || keyWatch,
     shell: { openExternal: async (url) => { opened.push(url); } },
     onFinishOnboarding: () => calls.push(['finished']),
     account,
@@ -1005,6 +1008,35 @@ test('shortcut:resume, and resumeShortcut when Settings closes, stop the recordi
   const off = setup({ buddyOn: false });
   off.ipc.resumeShortcut();
   assert.deepStrictEqual(off.keyWatch.log, ['stop']);
+});
+
+// The real key watch and shortcut, with a helper that records what it is told. A single key that is saved is heard by
+// the helper; recording must not switch the helper off and on again (a key tapped in that gap would be missed).
+test('recording with a single key saved leaves the helper listening: it is told once, and nothing after', async () => {
+  const told = [];
+  const helper = Object.assign(new EventEmitter(), {
+    async call(cmd, args) {
+      told.push([cmd, args]);
+      return { watching: args.on };
+    },
+  });
+  const keyWatch = createKeyWatch({ helper, onPress() {} });
+  const globalShortcut = { register: () => true, unregister() {} };
+  const shortcut = createShortcut({ globalShortcut, keyWatch, onPress() {} });
+  const s = setup({ buddyOn: true, stored: { shortcut: 'Tap:RightOption' }, realShortcut: shortcut, realKeyWatch: keyWatch });
+  assert.strictEqual(shortcut.register('Tap:RightOption'), true); // as main.js does when Buddy starts
+  await tick();
+  const toldOnce = [['watchKeys', { on: true }]];
+  assert.deepStrictEqual(told, toldOnce);
+
+  await s.call('shortcut:pause');
+  await tick();
+  assert.strictEqual(shortcut.current(), null, 'its own shortcut is let go');
+  assert.deepStrictEqual(told, toldOnce, 'pausing tells the helper nothing');
+  await s.call('shortcut:resume');
+  await tick();
+  assert.strictEqual(shortcut.current(), 'Tap:RightOption', 'and taken back');
+  assert.deepStrictEqual(told, toldOnce, 'neither does resuming');
 });
 
 test('set: a single-key shortcut is saved like any other, and one that is not well formed is refused', async () => {

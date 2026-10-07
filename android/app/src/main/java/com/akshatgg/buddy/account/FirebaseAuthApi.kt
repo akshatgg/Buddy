@@ -28,7 +28,7 @@ private val SIGNED_OUT_REASONS = Regex("TOKEN_EXPIRED|INVALID_REFRESH_TOKEN|USER
 // anything longer could carry a token.
 private val REASON_SHAPE = Regex("^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
 
-fun signedOut() = BuddyError("signed_out", "Sign in to use Buddy.")
+internal fun signedOut() = BuddyError("signed_out", "Sign in to use Buddy.")
 private fun failed() = BuddyError("sign_in_failed", "Google didn't sign you in. Try again.")
 private fun authFailed() = BuddyError("auth_failed", "Couldn't check your sign-in. Try again.")
 

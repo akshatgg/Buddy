@@ -19,7 +19,7 @@ const val RENEW_EARLY_MS = 5 * 60_000L
 private const val USER_KEY = "account.user"
 private const val REFRESH_ID = "account.refresh"
 
-private fun notSetUp() = BuddyError("not_set_up", "This copy of Buddy isn't set up for sign-in.")
+internal fun notSetUp() = BuddyError("not_set_up", "This copy of Buddy isn't set up for sign-in.")
 
 /**
  * Who is signed in to Buddy. The Firebase refresh token is kept in the keystore-backed secrets, apart from the person's
@@ -52,14 +52,22 @@ class Account(
         return User(uid, j.string("email") ?: "", j.string("name") ?: "", j.string("photo") ?: "")
     }
 
+    // Sign-in, sign-out and the end of a renewal each change what is saved. They take this lock, and a renewal checks
+    // `generation` inside it, so that a sign-out on one thread is never undone by a renewal finishing on another.
+    private val commit = Any()
+
     private fun keep(user: User, refreshToken: String) {
+        try {
+            secrets.set(REFRESH_ID, refreshToken) // first: if the keystore fails, nothing half-saved is left behind
+        } catch (e: Exception) {
+            throw BuddyError("no_keychain", "Your phone's keystore is not available, so Buddy cannot keep you signed in.")
+        }
         kv.putString(USER_KEY, buildJsonObject {
             put("uid", user.uid); put("email", user.email); put("name", user.name); put("photo", user.photo)
         }.toString())
-        secrets.set(REFRESH_ID, refreshToken)
     }
 
-    private fun forget() {
+    private fun forget() = synchronized(commit) {
         generation++
         token = null
         kv.putString(USER_KEY, null)
@@ -73,15 +81,33 @@ class Account(
     suspend fun signIn(googleIdToken: suspend () -> String): User {
         val api = auth ?: throw notSetUp()
         val r = api.signInWithGoogle(googleIdToken())
-        generation++
-        keep(r.user, r.refreshToken)
-        token = Token(r.idToken, now() + r.expiresInSec * 1000)
-        state.value = r.user
+        synchronized(commit) {
+            generation++
+            keep(r.user, r.refreshToken)
+            token = Token(r.idToken, now() + r.expiresInSec * 1000)
+            state.value = r.user
+        }
         return r.user
     }
 
-    fun signOut() {
-        if (state.value != null) forget()
+    /** Always forgets what is saved, even when nobody usable was signed in: the Mac removes account.json every time. */
+    fun signOut() = forget()
+
+    // A renewal that failed is told to everyone who was waiting for it, as the Mac's shared `renewing` promise is.
+    @Volatile private var renewals = 0
+    @Volatile private var lastFailure: BuddyError? = null
+
+    private suspend fun renewOnce(): String {
+        try {
+            val id = renew()
+            lastFailure = null
+            return id
+        } catch (e: BuddyError) {
+            lastFailure = e
+            throw e
+        } finally {
+            renewals++
+        }
     }
 
     private suspend fun renew(): String {
@@ -90,18 +116,20 @@ class Account(
         val refreshToken = secrets.get(REFRESH_ID)?.ifEmpty { null }
         if (refreshToken == null) {
             // The keystore no longer has what was saved (a new phone, a reset): sign in again.
-            if (generation == who) forget()
+            synchronized(commit) { if (generation == who) forget() }
             throw signedOut()
         }
         val r = try {
             auth!!.refresh(refreshToken)
         } catch (e: BuddyError) {
-            if (e.code == "signed_out" && generation == who) forget()
+            if (e.code == "signed_out") synchronized(commit) { if (generation == who) forget() }
             throw e
         }
-        if (generation != who) throw signedOut() // signed out (or in as someone else) meanwhile: this token is not theirs
-        if (r.refreshToken != refreshToken) keep(person, r.refreshToken)
-        token = Token(r.idToken, now() + r.expiresInSec * 1000)
+        synchronized(commit) {
+            if (generation != who) throw signedOut() // signed out (or in as someone else) meanwhile: this token is not theirs
+            if (r.refreshToken != refreshToken) keep(person, r.refreshToken)
+            token = Token(r.idToken, now() + r.expiresInSec * 1000)
+        }
         return r.idToken
     }
 
@@ -111,13 +139,17 @@ class Account(
     suspend fun idToken(force: Boolean = false): String {
         if (state.value == null) throw signedOut()
         if (auth == null) throw notSetUp()
-        if (!force) fresh()?.let { return it }
         val before = token
+        val seen = renewals
+        if (!force) fresh()?.let { return it }
         return renewing.withLock {
             if (state.value == null) throw signedOut()
-            // Someone renewed while this call waited: theirs is as good as a renewal of its own.
-            if (token !== before) fresh()?.let { return@withLock it }
-            renew()
+            // A renewal finished while this call waited: its answer, or its failure, is this call's too.
+            if (renewals != seen) {
+                lastFailure?.let { throw it }
+                if (token !== before) fresh()?.let { return@withLock it }
+            }
+            renewOnce()
         }
     }
 }

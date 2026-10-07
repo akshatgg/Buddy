@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'">
@@ -50,15 +50,18 @@
       <div class="group-row">
         <div class="grow">
           <label for="model" class="row-title">Model</label>
-          <p id="models-note" class="muted"></p>
+          <p id="models-note" class="muted" aria-live="polite"></p>
         </div>
-        <select id="model"></select>
-        <button id="models-refresh" class="btn" type="button">Refresh</button>
+        <div class="row model-pick">
+          <select id="model"></select>
+          <button id="models-refresh" class="btn" type="button">Refresh</button>
+        </div>
       </div>
     </div>
+    <p id="models-warning" class="note error" aria-live="polite" hidden></p>
 
     <div class="row actions">
-      <span id="save-status" class="muted"></span>
+      <span id="save-status" class="muted" aria-live="polite"></span>
       <button id="save" class="btn primary" type="button">Save</button>
     </div>
   </section>
@@ -66,7 +69,7 @@
   <section id="users-card" class="section" hidden>
     <div class="row section-head">
       <h2>Users</h2>
-      <p id="users-status" class="muted"></p>
+      <p id="users-status" class="muted" aria-live="polite"></p>
       <span class="spacer"></span>
       <button id="users-refresh" class="btn" type="button">Refresh</button>
     </div>
@@ -75,6 +78,7 @@
         <thead><tr><th>Name</th><th>Email</th><th class="num">Today</th><th>Last active</th><th></th></tr></thead>
         <tbody id="users"></tbody>
       </table>
+      <p id="users-empty" class="muted" hidden>No users yet.</p>
     </div>
   </section>
 </main>

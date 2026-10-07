@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'">
@@ -15,7 +15,7 @@
     <h1>Hi! Sign in to start</h1>
     <p>Sign in with your Google account. Buddy only learns your name and your email address.</p>
     <button id="sign-in" class="btn primary large" type="button">Sign in with Google</button>
-    <p id="signin-status" class="muted"></p>
+    <p id="signin-status" class="muted" aria-live="polite"></p>
   </section>
 
   <section id="step-pick" class="step" hidden>
@@ -34,7 +34,7 @@
       <button id="acc-open" class="btn primary" type="button">Open System Settings</button>
       <button id="acc-check" class="btn" type="button">Check again</button>
     </div>
-    <p id="acc-status" class="muted"></p>
+    <p id="acc-status" class="muted" aria-live="polite"></p>
   </section>
 
   <section id="step-screen" class="step" hidden>
@@ -44,7 +44,7 @@
       <button id="scr-open" class="btn primary" type="button">Open System Settings</button>
       <button id="scr-check" class="btn" type="button">Check again</button>
     </div>
-    <p id="scr-status" class="muted"></p>
+    <p id="scr-status" class="muted" aria-live="polite"></p>
   </section>
 
   <section id="step-ai" class="step" hidden>
@@ -54,7 +54,7 @@
     <div id="ai"></div>
   </section>
 
-  <p id="finish-status" class="error" hidden></p>
+  <p id="finish-status" class="note error" aria-live="polite" hidden></p>
 
   <footer class="row">
     <button id="back" class="btn" type="button">Back</button>

@@ -14,12 +14,14 @@ body.admin main { padding: 24px 32px 32px; }
    left margin is set: the rows keep their own vertical spacing. */
 .indent { margin-left: 26px; }
 #daily { width: 96px; }
-/* The provider list is as wide as the model list and its Refresh button together, so the two lists line up. */
-#model { width: 240px; }
-#models-refresh { width: 76px; }
-#provider { width: 328px; }
+/* The provider list, and the model list with its Refresh button, take the same width: the model list has what the
+   button leaves, so the two lists line up whatever the button's width. */
+#provider, .model-pick { flex: none; width: 328px; }
+.model-pick > select { min-width: 0; }
 #models-note { margin: 1px 0 0; font-size: 12px; line-height: 1.4; }
 #models-note:empty { display: none; }
+/* A problem with the list of models: under the Model row, the width of the form. */
+#models-warning { margin: 12px 0 0; }
 
 .actions { justify-content: flex-end; gap: 12px; margin-top: 16px; }
 #save { min-width: 88px; }
@@ -47,3 +49,5 @@ td { height: 44px; }
 tbody tr + tr td { border-top: 1px solid var(--line-soft); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 tr.blocked td { color: var(--muted); }
+/* No users: this, in place of a table header over nothing. */
+#users-empty { margin: 0; padding: 14px 0; text-align: center; }

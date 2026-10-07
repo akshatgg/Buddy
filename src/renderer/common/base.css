@@ -133,6 +133,8 @@ button.primary:active:not(:disabled), .btn.primary:active:not(:disabled) { backg
 /* Drawn 24 px tall; the click still lands on a 30 px strip. */
 .btn.small { position: relative; min-height: 24px; padding: 2px 10px; font-size: 12px; }
 .btn.small::after { content: ""; position: absolute; inset: -3px 0; }
+/* For the one thing to do on a page (the Welcome's Sign in). */
+.btn.large { min-height: 38px; padding: 8px 20px; border-radius: 9px; font-size: 14px; }
 .btn.block { display: flex; width: 100%; }
 
 /* ---- Text boxes and lists ---- */
@@ -291,7 +293,8 @@ input[type="checkbox"].switch:disabled { opacity: 0.45; }
 .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .badge:empty { display: none; }
 .badge.good { background: var(--good-soft); color: var(--good); }
-.badge.off { background: var(--track); color: var(--muted); }
+/* A shade nearer the text colour than --muted, so that it reads at 4.5:1 on the grey in dark mode too. */
+.badge.off { background: var(--track); color: color-mix(in srgb, var(--muted) 80%, var(--fg)); }
 
 /* ---- Key cap ---- */
 
@@ -366,6 +369,18 @@ kbd {
 .buddy-card input, .ai-choice input { position: absolute; opacity: 0; pointer-events: none; }
 .buddy-card img { width: 80px; height: 80px; object-fit: contain; }
 .ai-choice { justify-content: center; padding: 12px 8px; text-align: center; }
+
+/* The AI form (ai-form.js): its question, its labels and the line under the key box, spaced the same on every page. */
+.ai-form legend { margin: 0 0 8px; }
+.ai-form > label { margin: 18px 0 6px; }
+.ai-form > p.row { margin: 6px 0 0; font-size: 12px; }
+
+/* ---- Glyphs: small icons cut out with clip-path (the pages load no images). An element with a glyph class draws
+   it where it likes with `clip-path: var(--glyph)`: the panel's Settings button, and Settings' General. ---- */
+
+.glyph-gear {
+  --glyph: path("M5.94 2.06L6.15 0.3A6.75 6.75 0 0 1 7.85 0.3L8.06 2.06A5.05 5.05 0 0 1 9.74 2.76L11.14 1.67A6.75 6.75 0 0 1 12.33 2.86L11.24 4.26A5.05 5.05 0 0 1 11.94 5.94L13.7 6.15A6.75 6.75 0 0 1 13.7 7.85L11.94 8.06A5.05 5.05 0 0 1 11.24 9.74L12.33 11.14A6.75 6.75 0 0 1 11.14 12.33L9.74 11.24A5.05 5.05 0 0 1 8.06 11.94L7.85 13.7A6.75 6.75 0 0 1 6.15 13.7L5.94 11.94A5.05 5.05 0 0 1 4.26 11.24L2.86 12.33A6.75 6.75 0 0 1 1.67 11.14L2.76 9.74A5.05 5.05 0 0 1 2.06 8.06L0.3 7.85A6.75 6.75 0 0 1 0.3 6.15L2.06 5.94A5.05 5.05 0 0 1 2.76 4.26L1.67 2.86A6.75 6.75 0 0 1 2.86 1.67L4.26 2.76A5.05 5.05 0 0 1 5.94 2.06ZM7 4.8A2.2 2.2 0 1 0 7 9.2A2.2 2.2 0 1 0 7 4.8Z");
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }

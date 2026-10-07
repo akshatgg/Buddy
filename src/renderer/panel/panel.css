@@ -22,7 +22,7 @@ header { display: flex; align-items: center; justify-content: space-between; gap
 header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tools { display: flex; flex: none; gap: 2px; margin-right: -6px; }
 
-/* Icon buttons, their glyphs drawn here (the same gear as in Settings), so both are the same size and weight. */
+/* Icon buttons, their glyphs drawn here (the gear is base.css's, as in Settings), so both are the same size and weight. */
 .icon {
   position: relative;
   width: 28px;
@@ -36,13 +36,8 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
 .icon:hover { background: var(--hover); color: var(--fg); }
 .icon:active { background: var(--track); }
 .icon::before, .icon::after { content: ""; position: absolute; left: 50%; top: 50%; background: currentColor; }
-.gear::before {
-  width: 14px;
-  height: 14px;
-  margin: -7px 0 0 -7px;
-  clip-path: path("M5.94 2.06L6.15 0.3A6.75 6.75 0 0 1 7.85 0.3L8.06 2.06A5.05 5.05 0 0 1 9.74 2.76L11.14 1.67A6.75 6.75 0 0 1 12.33 2.86L11.24 4.26A5.05 5.05 0 0 1 11.94 5.94L13.7 6.15A6.75 6.75 0 0 1 13.7 7.85L11.94 8.06A5.05 5.05 0 0 1 11.24 9.74L12.33 11.14A6.75 6.75 0 0 1 11.14 12.33L9.74 11.24A5.05 5.05 0 0 1 8.06 11.94L7.85 13.7A6.75 6.75 0 0 1 6.15 13.7L5.94 11.94A5.05 5.05 0 0 1 4.26 11.24L2.86 12.33A6.75 6.75 0 0 1 1.67 11.14L2.76 9.74A5.05 5.05 0 0 1 2.06 8.06L0.3 7.85A6.75 6.75 0 0 1 0.3 6.15L2.06 5.94A5.05 5.05 0 0 1 2.76 4.26L1.67 2.86A6.75 6.75 0 0 1 2.86 1.67L4.26 2.76A5.05 5.05 0 0 1 5.94 2.06ZM7 4.8A2.2 2.2 0 1 0 7 9.2A2.2 2.2 0 1 0 7 4.8Z");
-}
-.gear::after { display: none; }
+.icon.glyph-gear::before { width: 14px; height: 14px; margin: -7px 0 0 -7px; clip-path: var(--glyph); }
+.icon.glyph-gear::after { display: none; }
 .cross::before, .cross::after {
   width: 13px;
   height: 1.5px;
@@ -98,6 +93,13 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
   border-radius: var(--radius-sm);
   background: var(--bg);
 }
+/* With an answer under it, the screenshot shrinks. If the answer still does not fit (a check with a verdict and
+   problems above its text), the text box gives up the room, down to three lines, so that Replace and Copy stay in
+   view without scrolling. An answer that fits keeps its full box. */
+.panel:has(#result:not([hidden])) #shot { max-height: 56px; }
+#result { min-height: 0; }
+#result > * { flex-shrink: 0; }
+#result-text { flex-shrink: 1; min-height: 68px; } /* three lines */
 #notice { margin: 0; }
 
 /* Working on it: a small spinner (still, for someone who asked for less motion). */
@@ -115,15 +117,8 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
   to { transform: rotate(360deg); }
 }
 
-/* What went wrong, in the error tint, with the way to Settings beside it when the fix is there. */
-.error-line {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 7px 7px 11px;
-  border-radius: var(--radius-sm);
-  background: var(--error-soft);
-}
+/* What went wrong (base.css's error note), with the way to Settings beside it when the fix is there. */
+.error-line { display: flex; align-items: center; gap: 10px; padding: 7px 7px 7px 11px; }
 .error-line:has(> #error[hidden]) { display: none; }
 .error-line:has(> #error-settings[hidden]) { padding-right: 11px; }
 #error { flex: 1; min-width: 0; margin: 0; }

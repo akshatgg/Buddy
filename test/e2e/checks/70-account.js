@@ -209,6 +209,11 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
     await waitFor(() => w("document.getElementById('next')?.disabled === true").catch(() => false), 'the Welcome window, with Next off');
     assert.deepStrictEqual(await w('window.buddy.finishOnboarding({})'),
       { ok: false, error: { code: 'signed_out', message: 'Sign in with Google first.' } });
+    // Each step sits at the top of its card, so the title is in the same place on every step; and once signed in, the
+    // line that says so takes the button's place, at its size, so nothing on the step moves.
+    const box = (selector) => w(`(({ top, left, width, height }) => [top, left, width, height].map(Math.round))(document.querySelector('${selector}').getBoundingClientRect())`);
+    const button = await box('#sign-in');
+    const title = await box('#step-signin h1');
 
     // Cancel on Google's page: the Welcome says so, the person stays signed out, and Next stays off.
     ctx.account.nextSignInError = denied();
@@ -220,12 +225,15 @@ module.exports = async function accountCheck(ctx, { assert, waitFor }) {
     await w("document.getElementById('sign-in').click()");
     await waitFor(() => w("document.getElementById('next').disabled === false"), 'Next to come on once signed in');
     assert.strictEqual(ctx.account.isSignedIn(), true);
+    assert.deepStrictEqual(await box('#signin-status'), button, '"Signed in as …" is where the button was, at its size');
+    assert.deepStrictEqual(await box('#step-signin h1'), title, 'and the title has not moved');
 
     // Signed out behind its back on a later step: when it gets the focus back, the Welcome goes back to its first step
     // and offers Sign in again, instead of leaving the person to find out at the last step.
     assert.strictEqual(await signInStatus(), 'Signed in as e2e@example.com ✓');
     await w("document.getElementById('next').click()");
     assert.deepStrictEqual(await shownSteps(), ['pick'], 'on to the next step');
+    assert.deepStrictEqual(await box('#step-pick h1'), title, "whose title is where the first step's was");
     ctx.account.signOut();
     await w("window.dispatchEvent(new Event('focus'))");
     await waitFor(async () => JSON.stringify(await shownSteps()) === '["signin"]' && (await signInOfferedWithNextOff()),

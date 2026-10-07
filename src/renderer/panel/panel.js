@@ -74,7 +74,9 @@ function setTab(name) {
   currentTab = name;
   for (const t of TABS) {
     show($(`tab-${t}`), t === name);
-    document.querySelector(`[data-tab="${t}"]`).classList.toggle('active', t === name);
+    const tab = document.querySelector(`[data-tab="${t}"]`);
+    tab.classList.toggle('active', t === name);
+    tab.setAttribute('aria-pressed', String(t === name)); // so a screen reader says which tab is chosen
   }
   show($('result'), false);
   showError('');

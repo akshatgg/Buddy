@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'">
@@ -11,7 +11,7 @@
   <header>
     <div class="title"><strong id="who">Buddy</strong> <span id="where" class="muted"></span></div>
     <div class="tools">
-      <button id="settings" class="icon gear" type="button" title="Settings" aria-label="Settings"></button>
+      <button id="settings" class="icon glyph-gear" type="button" title="Settings" aria-label="Settings"></button>
       <button id="close" class="icon cross" type="button" title="Close (Esc)" aria-label="Close"></button>
     </div>
   </header>
@@ -56,9 +56,9 @@
     </div>
   </section>
 
-  <p id="busy" class="muted" hidden>Thinking…</p>
-  <div class="error-line">
-    <p id="error" class="error" hidden></p>
+  <p id="busy" class="muted" aria-live="polite" hidden>Thinking…</p>
+  <div class="error-line note error">
+    <p id="error" class="error" aria-live="polite" hidden></p>
     <button id="error-settings" class="btn small" type="button" hidden>Open Settings</button>
   </div>
 

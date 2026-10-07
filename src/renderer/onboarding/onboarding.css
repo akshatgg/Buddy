@@ -1,7 +1,8 @@
 /*
  * The Welcome: one step at a time on a card in the middle of the window, the steps as dots above it, and Back and
- * Next below it. The card always has the same size, with the step in its middle, so that from one step to the next
- * only what is on the card changes: its edges, the dots and the buttons (under the pointer) stay where they are.
+ * Next below it. The card always has the same size, with the step at its top, so that from one step to the next only
+ * what is on the card changes: its edges, each step's title, the dots and the buttons (under the pointer) stay where
+ * they are.
  */
 
 html, body.welcome { height: 100%; }
@@ -16,9 +17,12 @@ body.welcome main {
 }
 body.welcome main > :not(.step) { flex: none; }
 
-/* ---- The steps: a dot for each; the one shown is longer, in the accent; the ones done keep a little of it ---- */
+/* ---- The steps: a dot for each; the one shown is longer, in the accent; the ones done keep some of it ---- */
 
+/* Each dot stands out 3:1 from the window, in both modes (measured). */
 .steps {
+  --dot-later: color-mix(in srgb, var(--fg) 48%, transparent);
+  --dot-done: color-mix(in srgb, var(--accent) 75%, transparent);
   display: flex;
   justify-content: center;
   gap: 6px;
@@ -26,13 +30,14 @@ body.welcome main > :not(.step) { flex: none; }
   padding: 0;
   list-style: none;
 }
-.steps li {
-  width: 6px;
-  height: 6px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--fg) 30%, transparent);
+@media (prefers-color-scheme: dark) {
+  .steps {
+    --dot-later: color-mix(in srgb, var(--fg) 35%, transparent);
+    --dot-done: color-mix(in srgb, var(--accent) 60%, transparent);
+  }
 }
-.steps li.done { background: color-mix(in srgb, var(--accent) 60%, transparent); }
+.steps li { width: 6px; height: 6px; border-radius: 3px; background: var(--dot-later); }
+.steps li.done { background: var(--dot-done); }
 .steps li.current { width: 22px; background: var(--accent); }
 
 /* ---- The card that holds the step: all the room between the dots and the buttons ---- */
@@ -41,7 +46,6 @@ body.welcome main > :not(.step) { flex: none; }
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: safe center;
   min-height: 0;
   overflow-y: auto;
   padding: 24px 28px;
@@ -55,62 +59,35 @@ body.welcome main > :not(.step) { flex: none; }
 .step > .row { margin-top: 20px; }
 .step > label { margin: 20px 0 6px; }
 
-/* The status lines keep their room while they are empty, so that the step, centred on the card, does not move when
-   one of them appears. */
-
-/* Sign in: the one thing to do on this step, so its button is large. Signed in, the line under it says as whom. */
-.btn.large { min-height: 38px; padding: 8px 20px; border-radius: 9px; font-size: 14px; }
+/* Sign in: the one thing to do on this step, so its button is large (base.css's .btn.large). Under it, a wait or why
+   it did not work. Signed in, the line that says as whom takes the button's place, at its size and with its corners,
+   so nothing on the step moves. */
 #sign-in { width: 100%; margin-top: 22px; }
-#signin-status { min-height: 1lh; margin-top: 14px; }
-#sign-in[hidden] + #signin-status { margin-top: 20px; }
-#signin-status.good { padding: 9px 12px; border-radius: var(--radius-sm); background: var(--good-soft); }
+#signin-status { margin-top: 14px; }
+#signin-status.good { display: flex; align-items: center; min-height: 38px; padding: 9px 12px; border-radius: 9px; background: var(--good-soft); }
+#sign-in[hidden] + #signin-status { margin-top: 22px; }
 
-/* Accessibility and Screen Recording: allowed or not, as a badge like the ones in Settings. A problem stays a line. */
-#acc-status, #scr-status { min-height: 22px; margin-top: 14px; }
-:is(#acc-status, #scr-status):is(.good, .muted):not(:empty) {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: fit-content;
-  height: 22px;
-  padding: 0 9px 0 8px;
-  border-radius: 11px;
-  background: var(--track);
-  font-size: 12px;
-  font-weight: 500;
-}
-:is(#acc-status, #scr-status):is(.good, .muted):not(:empty)::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-:is(#acc-status, #scr-status).good:not(:empty) { background: var(--good-soft); }
-/* A shade nearer the text colour than --muted, so that it reads at 4.5:1 on the grey in dark mode too. */
-:is(#acc-status, #scr-status).muted:not(:empty) { color: color-mix(in srgb, var(--muted) 80%, var(--fg)); }
+/* Accessibility and Screen Recording: allowed or not, as a badge (base.css's, as in Settings); a problem, as a note. */
+#acc-status, #scr-status { margin-top: 14px; }
+:is(#acc-status, #scr-status).badge { align-self: flex-start; }
 
 /* Pick your buddy. */
 #step-pick .buddies { margin-top: 18px; }
 
-/* Connect an AI: the free-mode note, then the form, fitted to the card (its choices a little shorter than in
-   Settings, so that the step fits the window with the note too). */
+/* Connect an AI: the free-mode note, then the form (spaced by base.css), fitted to the card: its choices and labels a
+   little closer than in Settings, so that the step fits the window with the note too. */
 #ai-note { margin-top: 14px; }
 #ai { margin-top: 16px; }
-#ai legend { margin: 0 0 8px; }
 #ai .ai-choice { padding-block: 10px; }
-#ai > label { margin: 14px 0 6px; }
-#ai p.row { margin: 6px 0 0; font-size: 12px; }
+#ai > label { margin-top: 14px; }
 
 /* ---- Back and Next, at the bottom; a refusal to finish shows just above them ---- */
 
-/* The error tint is laid over the card's colour, so that the red words read at 4.5:1 on the window's grey too. */
-#finish-status {
-  margin: 12px 0 0;
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(var(--error-soft), var(--error-soft)), var(--card);
-}
+#finish-status { margin-top: 12px; padding-block: 8px; }
 body.welcome footer { margin: 0; padding-top: 16px; }
 #finish-status:not([hidden]) + footer { padding-top: 12px; }
 body.welcome footer .btn { min-width: 88px; }
+
+/* The Welcome could not load its settings: why, on a card in the middle of the window. */
+body.welcome main:has(> .load-error) { justify-content: center; }
+.load-error { align-self: center; max-width: 360px; padding: 16px 20px; text-align: center; }

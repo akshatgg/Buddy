@@ -15,7 +15,7 @@ module.exports = async function adminCheck(ctx, { assert, waitFor }) {
   const blocked = ctx.cloud.adminUsers[0].blocked;
   // Three calls of the fake server are held back, counted or made to fail for a while below: they are put back too.
   const { admin } = ctx.cloud;
-  const { settings: adminSettings, users: adminUsers, block: adminBlock } = admin;
+  const { settings: adminSettings, users: adminUsers, block: adminBlock, models: adminModels } = admin;
   let answerSettings = () => {};
   try {
     assert.strictEqual(ctx.trayState().isAdmin, false, 'no Admin… for someone who is not the admin');
@@ -131,6 +131,33 @@ module.exports = async function adminCheck(ctx, { assert, waitFor }) {
       await waitFor(async () => listed === 1 && JSON.stringify(await usersStatus()) === '["1 user","muted"]', 'Refresh to load the list');
       assert.strictEqual(listed, 1, 'loaded once');
       admin.users = adminUsers;
+
+      // Nobody yet: a line says so where the table was (no header over nothing).
+      const usersShown = () => page("[document.querySelector('.users table').hidden, document.getElementById('users-empty').hidden, document.getElementById('users-empty').textContent]");
+      admin.users = async () => ({ users: [] });
+      await page("document.getElementById('users-refresh').click()");
+      await waitFor(async () => JSON.stringify(await usersStatus()) === '["0 users","muted"]', 'the empty list');
+      assert.deepStrictEqual(await usersShown(), [true, false, 'No users yet.']);
+      admin.users = adminUsers;
+      await page("document.getElementById('users-refresh').click()");
+      await waitFor(async () => JSON.stringify(await usersShown()) === JSON.stringify([false, true, 'No users yet.']), 'the table to be back');
+
+      // The server could only give the usual models: its words show in a note under the Model row, as wide as the
+      // form, not squeezed beside "Model". The next list that loads takes the note away.
+      const warning = "Couldn't load the model list for the server's Claude (Anthropic) key. Showing the usual models.";
+      const modelsShown = () => page(`(() => {
+        const note = document.getElementById('models-warning');
+        return { note: note.hidden ? null : note.textContent, inGroup: Boolean(note.closest('.group')),
+          wide: note.hidden || note.getBoundingClientRect().width === document.querySelector('#free-card .group').getBoundingClientRect().width,
+          beside: document.getElementById('models-note').textContent };
+      })()`);
+      admin.models = async () => ({ models: ['claude-haiku-4-5-20251001'], live: false, warning });
+      await page("document.getElementById('models-refresh').click()");
+      await waitFor(async () => (await modelsShown()).note === warning, 'the warning');
+      assert.deepStrictEqual(await modelsShown(), { note: warning, inGroup: false, wide: true, beside: '' });
+      admin.models = adminModels;
+      await page("document.getElementById('models-refresh').click()");
+      await waitFor(async () => (await modelsShown()).note === null, 'the warning to go');
     } finally {
       ctx.windows.close('admin');
       await waitFor(() => win.isDestroyed(), 'the Admin window to close');
@@ -147,6 +174,7 @@ module.exports = async function adminCheck(ctx, { assert, waitFor }) {
     admin.settings = adminSettings;
     admin.users = adminUsers;
     admin.block = adminBlock;
+    admin.models = adminModels;
     ctx.cloud.server = server;
     ctx.cloud.free = kept;
     ctx.cloud.adminConfig = adminConfig;

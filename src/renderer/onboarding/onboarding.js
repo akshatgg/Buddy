@@ -14,22 +14,22 @@ function showStatus(id, text, kind) {
   $(id).className = kind;
 }
 
-/** Shown in place of the page when its settings cannot be loaded. */
+/** Shown in place of the page when its settings cannot be loaded: why, on a card in the middle of the window. */
 function showLoadError(message) {
-  const p = document.createElement('p');
-  p.className = 'error';
-  p.textContent = message;
-  document.querySelector('main').replaceChildren(p);
+  document.querySelector('main').replaceChildren(Object.assign(document.createElement('p'), {
+    className: 'note error load-error', textContent: message,
+  }));
 }
 
 async function checkPermissions() {
   const r = await window.buddy.permissions();
   if (!r.ok) {
-    showStatus('acc-status', r.error.message, 'error');
-    showStatus('scr-status', r.error.message, 'error');
+    showStatus('acc-status', r.error.message, 'note error');
+    showStatus('scr-status', r.error.message, 'note error');
     return;
   }
-  const show = (id, granted) => showStatus(id, granted ? 'Allowed ✓' : 'Not allowed yet', granted ? 'good' : 'muted');
+  // A badge, as in Settings: its dot says it, so "Allowed" needs no ✓.
+  const show = (id, granted) => showStatus(id, granted ? 'Allowed' : 'Not allowed yet', granted ? 'badge good' : 'badge off');
   show('acc-status', Boolean(r.accessibility));
   show('scr-status', Boolean(r.screenRecording));
 }
@@ -68,7 +68,7 @@ function renderSignIn() {
   $('sign-in').hidden = account.signedIn;
   $('sign-in').disabled = !canSignIn;
   if (account.signedIn) showStatus('signin-status', `Signed in as ${account.email} ✓`, 'good');
-  else if (!canSignIn) showStatus('signin-status', "This copy of Buddy isn't set up for sign-in.", 'error');
+  else if (!canSignIn) showStatus('signin-status', "This copy of Buddy isn't set up for sign-in.", 'note error');
 }
 
 function renderAiNote() {
@@ -88,7 +88,7 @@ async function allow(which, statusId) {
   const asked = await window.buddy.requestPermission(which);
   const opened = await window.buddy.openPermissionSettings(which);
   const failed = [asked, opened].find((r) => !r.ok);
-  if (failed) showStatus(statusId, failed.error.message, 'error');
+  if (failed) showStatus(statusId, failed.error.message, 'note error');
 }
 
 function pick(character) {
@@ -110,7 +110,7 @@ $('sign-in').addEventListener('click', async () => {
   }
   if (!r.ok) {
     // Cancelled means the button was pressed again: the newer sign-in speaks for itself.
-    if (r.error.code !== 'sign_in_cancelled') showStatus('signin-status', r.error.message, 'error');
+    if (r.error.code !== 'sign_in_cancelled') showStatus('signin-status', r.error.message, 'note error');
     return;
   }
   snap = r;

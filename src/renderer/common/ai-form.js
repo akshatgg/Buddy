@@ -23,6 +23,7 @@ async function mountAiForm(root) {
   const model = el('select', { id: 'ai-model' });
   const refresh = el('button', { type: 'button', textContent: 'Refresh' });
 
+  root.classList.add('ai-form'); // base.css spaces the form by this class
   root.replaceChildren(
     el('fieldset', {}, [el('legend', { textContent: 'Which AI do you have a key for?' }), choices]),
     el('label', { htmlFor: 'ai-key', textContent: 'API key' }),

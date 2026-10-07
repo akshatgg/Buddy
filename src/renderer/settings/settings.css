@@ -73,7 +73,7 @@ body.settings { overflow: hidden; }
 .nav-item:active:not(.active) { background: var(--hover); }
 .nav-item.active { background: var(--accent-soft); }
 
-/* Each 14 x 14 glyph: shapes clockwise, holes counter-clockwise. */
+/* Each 14 x 14 glyph: shapes clockwise, holes counter-clockwise. General's gear is shared with the panel (base.css). */
 .nav-item[data-section="buddy"] {
   --tile: linear-gradient(#38b6a7, #1b8577);
   --glyph: path("M5.9 3.7H8.1A4.2 4.2 0 0 1 12.3 7.9V8.8A4.2 4.2 0 0 1 8.1 13H5.9A4.2 4.2 0 0 1 1.7 8.8V7.9A4.2 4.2 0 0 1 5.9 3.7ZM5.6 5.9A2.1 2.1 0 0 0 3.5 8V8.7A2.1 2.1 0 0 0 5.6 10.8H8.4A2.1 2.1 0 0 0 10.5 8.7V8A2.1 2.1 0 0 0 8.4 5.9ZM5.45 7.4A0.95 0.95 0 1 1 5.45 9.3A0.95 0.95 0 1 1 5.45 7.4ZM8.55 7.4A0.95 0.95 0 1 1 8.55 9.3A0.95 0.95 0 1 1 8.55 7.4ZM1.2 6.6H1.4A0.7 0.7 0 0 1 2.1 7.3V9.3A0.7 0.7 0 0 1 1.4 10H1.2A0.7 0.7 0 0 1 0.5 9.3V7.3A0.7 0.7 0 0 1 1.2 6.6ZM12.6 6.6H12.8A0.7 0.7 0 0 1 13.5 7.3V9.3A0.7 0.7 0 0 1 12.8 10H12.6A0.7 0.7 0 0 1 11.9 9.3V7.3A0.7 0.7 0 0 1 12.6 6.6ZM6.55 2.3H7.45V4.2H6.55ZM7 2.7Q4.5 3.2 4.1 0.9Q6.6 0.6 7 2.7ZM7 2.7Q7.4 0.6 9.9 0.9Q9.5 3.2 7 2.7Z");
@@ -90,10 +90,7 @@ body.settings { overflow: hidden; }
   --tile: linear-gradient(#4aa3ff, #1f6fe5);
   --glyph: path("M3.4 6.8V4.6A3.6 3.6 0 0 1 10.6 4.6V6.8H8.95V4.6A1.95 1.95 0 0 0 5.05 4.6V6.8ZM3.5 6.4H10.5A1.7 1.7 0 0 1 12.2 8.1V11.9A1.7 1.7 0 0 1 10.5 13.6H3.5A1.7 1.7 0 0 1 1.8 11.9V8.1A1.7 1.7 0 0 1 3.5 6.4ZM7 8.35A1.15 1.15 0 0 0 6.45 10.51V11.75H7.55V10.51A1.15 1.15 0 0 0 7 8.35Z");
 }
-.nav-item[data-section="general"] {
-  --tile: linear-gradient(#a7a7ad, #7f7f86);
-  --glyph: path("M5.94 2.06L6.15 0.3A6.75 6.75 0 0 1 7.85 0.3L8.06 2.06A5.05 5.05 0 0 1 9.74 2.76L11.14 1.67A6.75 6.75 0 0 1 12.33 2.86L11.24 4.26A5.05 5.05 0 0 1 11.94 5.94L13.7 6.15A6.75 6.75 0 0 1 13.7 7.85L11.94 8.06A5.05 5.05 0 0 1 11.24 9.74L12.33 11.14A6.75 6.75 0 0 1 11.14 12.33L9.74 11.24A5.05 5.05 0 0 1 8.06 11.94L7.85 13.7A6.75 6.75 0 0 1 6.15 13.7L5.94 11.94A5.05 5.05 0 0 1 4.26 11.24L2.86 12.33A6.75 6.75 0 0 1 1.67 11.14L2.76 9.74A5.05 5.05 0 0 1 2.06 8.06L0.3 7.85A6.75 6.75 0 0 1 0.3 6.15L2.06 5.94A5.05 5.05 0 0 1 2.76 4.26L1.67 2.86A6.75 6.75 0 0 1 2.86 1.67L4.26 2.76A5.05 5.05 0 0 1 5.94 2.06ZM7 4.8A2.2 2.2 0 1 0 7 9.2A2.2 2.2 0 1 0 7 4.8Z");
-}
+.nav-item[data-section="general"] { --tile: linear-gradient(#a7a7ad, #7f7f86); } /* the glyph is base.css's gear */
 
 .sidebar-foot { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding: 12px 4px 0; }
 /* The line under Sign in or Sign out keeps the room of two lines while it is empty, so that the button above it does
@@ -166,8 +163,5 @@ body.settings { overflow: hidden; }
 #shortcut-status { margin: 0; }
 #shortcut-reset { margin-right: -8px; } /* its text lines up with the box's right edge */
 
-/* AI: the form fits the column. */
+/* AI: the free-mode note, then the form (spaced by base.css). */
 #section-ai > .note + #ai { margin-top: 18px; }
-#ai legend { margin: 0 0 8px; }
-#ai > label { margin: 18px 0 6px; }
-#ai p.row { margin: 6px 0 0; font-size: 12px; }

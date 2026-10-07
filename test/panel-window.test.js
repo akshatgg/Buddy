@@ -202,3 +202,20 @@ test("the panel's window, once made, may have the microphone; a window of the pa
   assert.notStrictEqual(panel.window(), first);
   assert.strictEqual(session.request(panel.window().webContents, 'media', microphone()), true);
 });
+
+test('while macOS asks about the microphone the panel stays open, and gets the keyboard back after', async () => {
+  const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession() });
+  await panel.show({}, BUDDY, AREA);
+  const w = panel.window();
+  let focused = 0;
+  w.focus = () => { focused += 1; };
+  const answer = await panel.whileHeld(async () => {
+    w.events.blur(); // macOS's question takes the focus
+    assert.strictEqual(w.isVisible(), true, 'not hidden while the question is up');
+    return 'granted';
+  });
+  assert.strictEqual(answer, 'granted');
+  assert.strictEqual(focused, 1, 'the panel has the keyboard again');
+  w.events.blur(); // a click somewhere else afterwards hides it as always
+  assert.strictEqual(w.isVisible(), false);
+});

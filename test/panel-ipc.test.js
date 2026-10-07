@@ -22,7 +22,11 @@ function setup(actions = {}, { platform = 'darwin', mic = 'granted', openFails =
       handle: (channel, fn) => { handlers[channel] = fn; },
       on: (channel, fn) => { listeners[channel] = fn; },
     },
-    panel: { window: () => ({ webContents: PANEL_PAGE }), hide: () => calls.push('hide') },
+    panel: {
+      window: () => ({ webContents: PANEL_PAGE }),
+      hide: () => calls.push('hide'),
+      whileHeld: async (ask) => { calls.push('hold'); try { return await ask(); } finally { calls.push('let go'); } },
+    },
     actions,
     openSettings: (section) => calls.push(['openSettings', section]),
     microphone: {
@@ -149,7 +153,7 @@ test('the page asks for the microphone before it records, and hears how it stand
   for (const mic of ['granted', 'denied', 'restricted', 'unknown']) {
     const s = setup({}, { mic });
     assert.deepStrictEqual(await s.handlers['panel:mic-access'](s.fromPanel), { ok: true, mic }, mic);
-    assert.deepStrictEqual(s.calls, ['askMicrophone']);
+    assert.deepStrictEqual(s.calls, ['hold', 'askMicrophone', 'let go'], 'the panel stays open while macOS asks');
   }
 });
 

@@ -52,7 +52,8 @@ function registerPanelIpc({ ipcMain, panel, actions, openSettings, microphone, u
   handle('panel:drop-selection', () => actions.dropSelection());
 
   // Before it records, the page asks for the microphone: the first time, macOS asks the person.
-  handle('panel:mic-access', async () => ({ mic: await microphone.ask() }));
+  // macOS's question takes the focus from the panel, which stays open meanwhile (panel-window.js whileHeld).
+  handle('panel:mic-access', async () => ({ mic: await panel.whileHeld(() => microphone.ask()) }));
   // What was said, written down by Buddy's server: { text }. The page sends the words as a message of its own.
   handle('panel:transcribe', (audio, mime) => actions.transcribe(audio, mime));
 

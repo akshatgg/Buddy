@@ -89,6 +89,10 @@ function createPanelWindow({ BrowserWindow = electron.BrowserWindow, session = e
   session.setPermissionRequestHandler(rules.request);
   session.setPermissionCheckHandler(rules.check);
 
+  // While macOS asks the person whether Buddy may use the microphone, its question has the focus: the panel must not
+  // hide on that blur, or the page would stop listening before the person has answered.
+  let held = 0;
+
   function hide() {
     if (win && win.isVisible()) {
       win.hide();
@@ -132,7 +136,7 @@ function createPanelWindow({ BrowserWindow = electron.BrowserWindow, session = e
     w.setAlwaysOnTop(true, 'pop-up-menu');
     w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     w.on('blur', () => {
-      if (!w.isDestroyed() && !w.webContents.isDevToolsOpened()) hide();
+      if (!w.isDestroyed() && !w.webContents.isDevToolsOpened() && held === 0) hide();
     });
     // Buddy hides the panel rather than closing it (the menu's Close Window leaves it alone). A window that
     // is closed all the same cannot be shown again: it is forgotten here, so the next open makes a new one.
@@ -157,6 +161,16 @@ function createPanelWindow({ BrowserWindow = electron.BrowserWindow, session = e
 
   return {
     window: () => win,
+    /** Runs `ask()` (a question the system puts on screen) with the panel kept open, and gives it the keyboard back after. */
+    async whileHeld(ask) {
+      held += 1;
+      try {
+        return await ask();
+      } finally {
+        held -= 1;
+        if (held === 0 && win && !win.isDestroyed() && win.isVisible()) win.focus();
+      }
+    },
     async show(state, buddyBounds, area) {
       if (!win) create();
       const w = win;

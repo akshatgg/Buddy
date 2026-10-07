@@ -1,24 +1,53 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import {
-  FPS, IDLE_FPS, REST_FPS, BLINK_LOOKAHEAD, SWEEP_HZ, SWEEP_LAG,
-  fpsFor, isActive, wakeDelay, floatOffset, createBlinker, blinkWeight, lookAt, moodPose,
+  FPS, IDLE_FPS, REST_FPS, SLEEP_FPS, BLINK_LOOKAHEAD, SWEEP_HZ, SWEEP_LAG, FIDGETS,
+  fpsFor, isActive, wakeDelay, floatOffset, createBlinker, blinkWeight, lookAt, moodPose, createFidgeter,
 } from '../src/renderer/buddy/moods.js';
 
 // A buddy with nothing going on, and nothing for a long time.
 const resting = { mood: 'idle', pressing: false, sinceLookChange: Infinity, blinkSoon: false, sinceActive: Infinity };
 
-test('three frame rates: 30 for a mood, a press or a blink; 15 while settling; 6 at rest', () => {
+// The moods that draw at the full rate all the time they play: all but idle, drowsy and asleep.
+const LIVELY = [
+  'thinking', 'happy', 'wave', 'wobble', 'sleepy', 'sad', 'wake', 'love', 'dizzy', 'celebrate', 'listening',
+  'look', 'swing', 'hum', 'hop',
+];
+
+test('four frame rates: 30 for a mood, a press or a blink; 15 while settling; 6 at rest; 4 asleep', () => {
   assert.strictEqual(FPS, 30);
   assert.strictEqual(IDLE_FPS, 15);
   assert.strictEqual(REST_FPS, 6);
+  assert.strictEqual(SLEEP_FPS, 4);
   assert.strictEqual(fpsFor(resting), 6);
 });
 
-test('full rate for any mood but idle', () => {
-  for (const mood of ['wave', 'happy', 'thinking', 'sleepy', 'wobble']) {
+test('full rate for any mood but idle, drowsy (once it has yawned) and asleep', () => {
+  for (const mood of LIVELY) {
     assert.strictEqual(fpsFor({ ...resting, mood }), 30, mood);
+    assert.strictEqual(fpsFor({ ...resting, mood, since: 0.5 }), 30, mood);
   }
+});
+
+test('asleep draws 4 frames a second, whatever the blinker and the pointer do', () => {
+  const asleep = { ...resting, mood: 'asleep', since: 30 };
+  assert.strictEqual(fpsFor(asleep), 4);
+  assert.strictEqual(fpsFor({ ...asleep, since: 0 }), 4, 'also while it falls asleep');
+  assert.strictEqual(fpsFor({ ...asleep, blinkSoon: true }), 4, 'a blink coming: sleeping eyes do not blink');
+  assert.strictEqual(fpsFor({ ...asleep, sinceLookChange: 0 }), 4, 'a sleeping head does not follow the pointer');
+  assert.strictEqual(fpsFor({ ...asleep, sinceActive: 0 }), 4);
+  assert.strictEqual(fpsFor({ ...asleep, pressing: true }), 30, 'but a press is drawn at the full rate');
+});
+
+test('drowsy draws its yawn at 30 frames a second, then 15', () => {
+  const drowsy = { ...resting, mood: 'drowsy' };
+  assert.strictEqual(fpsFor(drowsy), 30, 'with no `since`, it has just started');
+  assert.strictEqual(fpsFor({ ...drowsy, since: 0 }), 30);
+  assert.strictEqual(fpsFor({ ...drowsy, since: 1.59 }), 30, 'still yawning');
+  assert.strictEqual(fpsFor({ ...drowsy, since: 1.6 }), 15, 'the yawn is over');
+  assert.strictEqual(fpsFor({ ...drowsy, since: 59 }), 15, 'and never 6, however long it lasts');
+  assert.strictEqual(fpsFor({ ...drowsy, since: 5, blinkSoon: true }), 15, 'a blink coming: half-shut eyes do not blink');
+  assert.strictEqual(fpsFor({ ...drowsy, since: 5, pressing: true }), 30, 'a press');
 });
 
 test('full rate while the pointer is pressed or dragging', () => {
@@ -62,6 +91,18 @@ test('active means a mood or a press; a blink and a head turn do not count', () 
   assert.strictEqual(isActive({ ...calm, pressing: true }), true);
   assert.strictEqual(isActive({ ...calm, sinceLookChange: 0 }), false, 'the head turning is not');
   assert.strictEqual(isActive({ ...calm, blinkSoon: true }), false, 'nor is a blink');
+});
+
+test('active: a press, or any mood but idle, drowsy once it has yawned, and asleep', () => {
+  const calm = { mood: 'idle', pressing: false };
+  for (const mood of LIVELY) assert.strictEqual(isActive({ ...calm, mood, since: 0.5 }), true, mood);
+  assert.strictEqual(isActive({ ...calm, mood: 'drowsy', since: 0 }), true, 'yawning');
+  assert.strictEqual(isActive({ ...calm, mood: 'drowsy', since: 1.59 }), true, 'still yawning');
+  assert.strictEqual(isActive({ ...calm, mood: 'drowsy', since: 1.6 }), false, 'the yawn is over');
+  assert.strictEqual(isActive({ ...calm, mood: 'drowsy' }), true, 'with no `since`, it has just started');
+  for (const since of [0, 1, 100]) assert.strictEqual(isActive({ ...calm, mood: 'asleep', since }), false, `asleep, ${since} s`);
+  assert.strictEqual(isActive({ ...calm, mood: 'asleep', since: 100, pressing: true }), true, 'a press always is');
+  assert.strictEqual(isActive({ ...calm, mood: 'drowsy', since: 30, pressing: true }), true);
 });
 
 test('the blink lookahead is one rest frame, so the frame before a blink always sees it coming', () => {
@@ -167,9 +208,12 @@ test('wave raises the left arm and ends after 1.8 s', () => {
   assert.strictEqual(moodPose('wave', 2).armL, 0);
 });
 
-test('sleepy closes the eyes and stays', () => {
-  assert.strictEqual(moodPose('sleepy', 10).eyesClosed, true);
-  assert.strictEqual(moodPose('sleepy', 10).done, false);
+test('sleepy, which the app sends for "no internet", is now the sad pose, and ends with it', () => {
+  for (const since of [0, 0.3, 1, 2, 2.4, 2.5, 10]) {
+    assert.deepStrictEqual(moodPose('sleepy', since), moodPose('sad', since), `at ${since} s`);
+  }
+  assert.strictEqual(moodPose('sleepy', 1).eyesClosed, false, 'droopy eyes, not shut ones');
+  assert.strictEqual(moodPose('sleepy', 2.5).done, true);
 });
 
 test('thinking tilts the head; unknown moods rest', () => {
@@ -204,8 +248,12 @@ test('while thinking the right eye line trails the left one', () => {
   assert.ok(top.eyeR > 0.5, 'but not far behind');
 });
 
-test('the eye lines rest in place when not thinking', () => {
-  for (const [mood, since] of [['idle', 3], ['happy', 0.5], ['wave', 0.9], ['sleepy', 10], ['wobble', 0.2]]) {
+test('the eye lines rest in place when not thinking (listening raises the eyes a little, below)', () => {
+  const moods = [
+    ['idle', 3], ['happy', 0.5], ['wave', 0.9], ['sleepy', 10], ['wobble', 0.2], ['sad', 1], ['drowsy', 5], ['asleep', 10],
+    ['wake', 0.6], ['love', 1], ['dizzy', 1], ['celebrate', 0.5], ['look', 1], ['swing', 0.7], ['hum', 1], ['hop', 0.4],
+  ];
+  for (const [mood, since] of moods) {
     const p = moodPose(mood, since);
     assert.strictEqual(p.eyeL, 0, `${mood}: eyeL`);
     assert.strictEqual(p.eyeR, 0, `${mood}: eyeR`);
@@ -213,7 +261,8 @@ test('the eye lines rest in place when not thinking', () => {
 });
 
 test('a pose that shuts the eyes gives a blink weight of 1, whatever the blinker says', () => {
-  for (const [mood, since] of [['sleepy', 0], ['sleepy', 10], ['thinking', 0], ['thinking', 0.4], ['thinking', 7]]) {
+  const shut = [['drowsy', 0.5], ['drowsy', 1.2], ['wake', 0], ['wake', 0.2], ['thinking', 0], ['thinking', 0.4], ['thinking', 7]];
+  for (const [mood, since] of shut) {
     const pose = moodPose(mood, since);
     for (const blink of [0, 0.5, 1]) {
       assert.strictEqual(blinkWeight(pose, blink), 1, `${mood} at ${since} s, blink ${blink}`);
@@ -222,8 +271,11 @@ test('a pose that shuts the eyes gives a blink weight of 1, whatever the blinker
 });
 
 // The blink and the smile both reshape the same eye, and on top of each other they tear it (see blinkWeight). So no pose
-// may ask for both, whatever the mood and however long it has lasted. 'confused' is not a mood: it rests.
-const MOODS = ['idle', 'thinking', 'happy', 'wave', 'sleepy', 'wobble', 'confused'];
+// may ask for both, whatever the mood and however long it has lasted. 'confused' is not a mood: it ends at once.
+const MOODS = [
+  'idle', 'thinking', 'happy', 'wave', 'sleepy', 'wobble', 'drowsy', 'asleep', 'wake', 'love', 'dizzy', 'sad', 'celebrate',
+  'listening', 'look', 'swing', 'hum', 'hop', 'confused',
+];
 
 test('no mood, at any time in its first 10 seconds, both smiles and shuts the eyes', () => {
   for (const name of MOODS) {
@@ -251,4 +303,376 @@ test('the happy "∩" eyes never blink: while smiling the blink weight is 0, eve
 test('an idle pose passes the blinker through', () => {
   const pose = moodPose('idle', 100);
   for (const blink of [0, 0.4, 1]) assert.strictEqual(blinkWeight(pose, blink), blink, `blink ${blink}`);
+});
+
+// ---------------------------------------------------------------- the feelings
+
+const near = (actual, expected, within = 1e-9) => Math.abs(actual - expected) <= within;
+/** Times from `from` to `to`, both included, `step` apart. */
+const times = (from, to, step = 0.01) => Array.from({ length: Math.round((to - from) / step) + 1 }, (_, i) => from + i * step);
+
+// The rest pose: every field a pose has. The page reads them all, so every pose has every one.
+const REST_POSE = {
+  lift: 0, scaleX: 1, scaleY: 1, headTilt: 0, headPitch: 0, headYaw: 0, armL: 0, armR: 0, smile: 0, mouthO: 0,
+  eyesClosed: false, eyeL: 0, eyeR: 0, heart: 0, swirl: 0, sad: 0, half: 0, sleep: 0, glow: 1, ears: 1, look: 1,
+  float: 1, effect: null, done: false,
+};
+const NUMBERS = Object.keys(REST_POSE).filter((field) => typeof REST_POSE[field] === 'number');
+// The eye shapes. Each reshapes both eyes, as the blink does.
+const SHAPES = ['smile', 'heart', 'swirl', 'sad', 'half', 'sleep'];
+// How long each timed mood lasts, in seconds. The others last until another mood replaces them.
+const LENGTHS = {
+  happy: 1.2, wave: 1.8, sad: 2.5, sleepy: 2.5, wake: 1.2, love: 2, dizzy: 2, celebrate: 1.6,
+  look: 2, swing: 1.5, hum: 2, hop: 0.8,
+};
+
+/** The numeric fields in which two poses differ by more than `within`. */
+const differences = (a, b, fields = NUMBERS, within = 1e-9) => fields.filter((field) => !near(a[field], b[field], within));
+
+test('idle is the rest pose, with every field', () => {
+  assert.deepStrictEqual(moodPose('idle', 3), REST_POSE);
+});
+
+test('every pose has every field of the rest pose, and no other', () => {
+  for (const name of MOODS) {
+    for (const since of [0, 0.25, 0.7, 1.4, 2.2, 10]) {
+      const pose = moodPose(name, since, { level: 0.5 });
+      const at = `${name} at ${since} s`;
+      assert.deepStrictEqual(Object.keys(pose).sort(), Object.keys(REST_POSE).sort(), at);
+      for (const field of NUMBERS) assert.ok(Number.isFinite(pose[field]), `${at}: ${field} is ${pose[field]}`);
+      assert.strictEqual(typeof pose.eyesClosed, 'boolean', at);
+      assert.strictEqual(typeof pose.done, 'boolean', at);
+      assert.ok(pose.effect === null || typeof pose.effect === 'string', `${at}: effect ${pose.effect}`);
+    }
+  }
+});
+
+test('each timed mood is done at its length, and not before', () => {
+  for (const [name, length] of Object.entries(LENGTHS)) {
+    assert.strictEqual(moodPose(name, 0).done, false, `${name} at 0 s`);
+    assert.strictEqual(moodPose(name, length - 0.001).done, false, `${name} just before ${length} s`);
+    assert.strictEqual(moodPose(name, length).done, true, `${name} at ${length} s`);
+  }
+});
+
+test('drowsy, asleep and listening last until another mood replaces them', () => {
+  for (const name of ['drowsy', 'asleep', 'listening']) {
+    for (const since of [0, 1, 1.6, 2.5, 60, 3600]) assert.strictEqual(moodPose(name, since).done, false, `${name} at ${since} s`);
+  }
+});
+
+test('an unknown mood is done at once, in the rest pose', () => {
+  for (const name of ['confused', '', undefined]) {
+    assert.deepStrictEqual(moodPose(name, 0), { ...REST_POSE, done: true }, String(name));
+  }
+});
+
+test('each feeling shows its eyes and its symbols', () => {
+  // mood, a time in its middle, the eye shape it shows in full, the symbols
+  const shown = [
+    ['sad', 1.2, 'sad', 'drop'], ['sleepy', 1.2, 'sad', 'drop'], ['drowsy', 5, 'half', null], ['asleep', 5, 'sleep', 'z'],
+    ['love', 1, 'heart', 'hearts'], ['dizzy', 1, 'swirl', 'stars'], ['celebrate', 0.8, 'smile', 'sparkles'],
+    ['hum', 1, 'smile', 'notes'],
+  ];
+  for (const [name, since, shape, effect] of shown) {
+    const pose = moodPose(name, since);
+    assert.strictEqual(pose[shape], 1, `${name} shows ${shape}`);
+    for (const other of SHAPES.filter((s) => s !== shape)) assert.strictEqual(pose[other], 0, `${name}: no ${other}`);
+    assert.strictEqual(pose.eyesClosed, false, `${name}: not shut`);
+    assert.strictEqual(pose.effect, effect, `${name}: symbols`);
+  }
+  for (const [name, since] of [['wake', 0.6], ['listening', 5], ['look', 1], ['swing', 0.7], ['hop', 0.4]]) {
+    const pose = moodPose(name, since);
+    for (const shape of SHAPES) assert.strictEqual(pose[shape], 0, `${name}: no ${shape}`);
+    assert.strictEqual(pose.effect, null, `${name}: no symbols`);
+  }
+  for (const name of ['idle', 'thinking', 'happy', 'wave', 'wobble']) assert.strictEqual(moodPose(name, 0.5).effect, null, name);
+});
+
+test('sad: droopy eyes, the head and arms down, and one sigh', () => {
+  const pose = moodPose('sad', 1.5);
+  assert.ok(near(pose.headPitch, 0.18), `the head down: ${pose.headPitch}`);
+  assert.ok(pose.armL < 0 && pose.armL > -0.2 && near(pose.armR, pose.armL), 'both arms down a little');
+  const body = times(0, 2.5).map((t) => ({ t, scaleY: moodPose('sad', t).scaleY }));
+  const lowest = body.reduce((a, b) => (b.scaleY < a.scaleY ? b : a));
+  assert.ok(near(lowest.scaleY, 0.97, 0.005), `the body sinks to about 97 %: ${lowest.scaleY}`);
+  assert.ok(lowest.t > 0.8 && lowest.t < 1.2, `around 1 s: ${lowest.t}`);
+  assert.ok(body.filter(({ t }) => t >= 1.6).every(({ scaleY }) => near(scaleY, 1)), 'and comes back: one sigh');
+});
+
+test('drowsy: a yawn, then half-shut eyes, the head a little down and a slower float', () => {
+  const yawn = times(0, 1.6).map((t) => moodPose('drowsy', t));
+  assert.ok(near(Math.max(...yawn.map((p) => p.mouthO)), 1), 'the mouth opens wide');
+  for (const t of [0.2, 0.5, 1, 1.39]) assert.strictEqual(moodPose('drowsy', t).eyesClosed, true, `the eyes shut at ${t} s`);
+  for (const t of [0, 0.19, 1.4, 1.6, 30]) assert.strictEqual(moodPose('drowsy', t).eyesClosed, false, `not at ${t} s`);
+  const arms = Math.max(...yawn.map((p) => p.armL));
+  assert.ok(arms > 0.2 && arms < 1, `the arms out a little: ${arms}`);
+  for (const t of [1.6, 5, 59]) {
+    const pose = moodPose('drowsy', t);
+    assert.strictEqual(pose.half, 1, `half-shut eyes at ${t} s`);
+    assert.deepStrictEqual(differences(pose, { ...REST_POSE, half: 1, headPitch: 0.08, float: 0.6 }), [], `at ${t} s`);
+  }
+});
+
+test('asleep: sleeping eyes, the head down, slow breathing, the glow at half, the pointer ignored', () => {
+  const fading = moodPose('asleep', 0.3).sleep;
+  assert.ok(fading > 0 && fading < 1, `the sleeping eyes fade in: ${fading}`);
+  assert.strictEqual(moodPose('asleep', 0.6).sleep, 1, 'over 0.6 s');
+  for (const t of [3, 10, 61.5, 3600]) {
+    const pose = moodPose('asleep', t);
+    const at = `at ${t} s`;
+    assert.strictEqual(pose.sleep, 1, at);
+    assert.ok(near(pose.headPitch, 0.22), `the head down ${at}`);
+    assert.ok(near(pose.scaleY, 1 + 0.02 * Math.sin((2 * Math.PI * t) / 4)), `a breath every 4 s, ${at}`);
+    assert.ok(near(pose.glow, 0.5) && near(pose.ears, 0.5), `the glow at half ${at}`);
+    assert.ok(near(pose.look, 0), `the head does not follow the pointer ${at}`);
+    assert.ok(near(pose.float, 0.5), `less float ${at}`);
+    assert.strictEqual(pose.effect, 'z', at);
+  }
+});
+
+test('wake: the eyes open after 0.25 s, the arms stretch up, then a little shake of the head', () => {
+  for (const t of [0, 0.1, 0.24]) assert.strictEqual(moodPose('wake', t).eyesClosed, true, `shut at ${t} s`);
+  for (const t of [0.25, 0.5, 1.1]) assert.strictEqual(moodPose('wake', t).eyesClosed, false, `open at ${t} s`);
+  const stretch = times(0.25, 0.85).map((t) => moodPose('wake', t));
+  assert.ok(near(Math.max(...stretch.map((p) => p.armL)), 2.4, 0.01), 'the arms up to about 2.4');
+  assert.ok(near(Math.max(...stretch.map((p) => p.scaleY)), 1.06, 0.005), 'the body stretches up with them');
+  for (const t of [...times(0, 0.25), ...times(0.85, 1.2)]) {
+    const { armL, armR } = moodPose('wake', t);
+    assert.ok(near(armL, 0) && near(armR, 0), `the arms rest at ${t} s`);
+  }
+  const shake = times(0, 1.2).map((t) => ({ t, yaw: Math.abs(moodPose('wake', t).headYaw) }));
+  assert.ok(shake.filter(({ t }) => t <= 0.85).every(({ yaw }) => near(yaw, 0)), 'no shake before 0.85 s');
+  const early = Math.max(...shake.filter(({ t }) => t > 0.85 && t < 1).map(({ yaw }) => yaw));
+  const late = Math.max(...shake.filter(({ t }) => t >= 1.1).map(({ yaw }) => yaw));
+  assert.ok(early > 0.05, `a shake of the head: ${early}`);
+  assert.ok(late < early / 3, `that dies away: ${early} then ${late}`);
+});
+
+test('love: heart eyes and a gentle sway of the head', () => {
+  for (const t of [0.4, 0.8, 1.2]) {
+    const pose = moodPose('love', t);
+    assert.strictEqual(pose.heart, 1, `at ${t} s`);
+    assert.ok(near(pose.headTilt, 0.1 * Math.sin(4 * t)), `the sway at ${t} s: ${pose.headTilt}`);
+  }
+});
+
+test('dizzy: swirl eyes, the head circling until 1.6 s, then it shakes it off', () => {
+  // The head's tilt and pitch go round together: the angle they make keeps turning the same way.
+  const angles = times(0.3, 1.25).map((t) => moodPose('dizzy', t)).map((p) => Math.atan2(p.headPitch, p.headTilt));
+  const steps = angles.slice(1).map((angle, i) => Math.atan2(Math.sin(angle - angles[i]), Math.cos(angle - angles[i])));
+  assert.ok(steps.every((s) => s < 0) || steps.every((s) => s > 0), 'one way round');
+  const turned = Math.abs(steps.reduce((a, b) => a + b, 0));
+  assert.ok(turned > 2 * Math.PI, `more than once round: ${turned} radians`);
+  for (const t of times(1.6, 2)) {
+    const pose = moodPose('dizzy', t);
+    assert.ok(near(pose.headTilt, 0) && near(pose.headPitch, 0), `no more circling at ${t} s`);
+  }
+  for (const t of times(0, 1.6)) assert.ok(near(moodPose('dizzy', t).headYaw, 0), `no shake yet at ${t} s`);
+  const yaws = times(1.6, 2).map((t) => moodPose('dizzy', t).headYaw);
+  assert.ok(Math.max(...yaws) > 0.05 && Math.min(...yaws) < -0.05, 'a shake of the head, both ways');
+  assert.strictEqual(moodPose('dizzy', 1.5).swirl, 1);
+  const fading = moodPose('dizzy', 1.85).swirl;
+  assert.ok(fading > 0 && fading < 1, `the swirls fade while it shakes: ${fading}`);
+});
+
+test('celebrate: a jump with happy eyes and the arms up', () => {
+  const highest = Math.max(...times(0, 0.6).map((t) => moodPose('celebrate', t).lift));
+  assert.ok(near(highest, 0.15, 0.002), `up about 0.15: ${highest}`);
+  for (const t of times(0.6, 1.6)) assert.ok(near(moodPose('celebrate', t).lift, 0), `down by 0.6 s, at ${t} s`);
+  const landing = Math.min(...times(0.6, 1).map((t) => moodPose('celebrate', t).scaleY));
+  assert.ok(landing < 0.95, `a squash on landing: ${landing}`);
+  const top = moodPose('celebrate', 0.4);
+  assert.ok(top.armL > 1.8 && near(top.armR, top.armL), 'both arms up');
+  const lowering = times(0.7, 1.6).map((t) => moodPose('celebrate', t).armL);
+  assert.ok(lowering.every((arm, i) => i === 0 || arm <= lowering[i - 1]), 'then coming down');
+  assert.strictEqual(moodPose('celebrate', 0.5).smile, 1, 'happy eyes');
+});
+
+test('listening: the head tilted, the eyes a little up, the ear rims glowing with the voice', () => {
+  const pose = moodPose('listening', 5, { level: 0.4 });
+  assert.ok(near(pose.headTilt, 0.14) && near(pose.headPitch, -0.04), 'the head tilted, as if leaning in');
+  assert.ok(near(pose.eyeL, 0.15) && near(pose.eyeR, 0.15), 'the eyes a little up');
+  assert.ok(near(pose.look, 0.5), 'it follows the pointer only halfway');
+  for (const level of [0, 0.25, 0.4, 1]) {
+    assert.ok(near(moodPose('listening', 5, { level }).ears, 1 + 1.5 * level), `level ${level}`);
+  }
+  assert.strictEqual(moodPose('listening', 5).ears, 1, 'no level: silence');
+  assert.strictEqual(moodPose('listening', 5, {}).ears, 1);
+  assert.ok(near(moodPose('listening', 5, { level: 3 }).ears, 2.5), 'a level above 1 counts as 1');
+  assert.strictEqual(moodPose('listening', 5, { level: -1 }).ears, 1, 'one below 0, as 0');
+  assert.strictEqual(moodPose('listening', 5, { level: NaN }).ears, 1, 'and one that is not a number, as silence');
+  assert.strictEqual(moodPose('happy', 0.5, { level: 1 }).ears, 1, 'only listening shows the voice');
+});
+
+test('the look fidget glances one way, then the other, and back, not following the pointer meanwhile', () => {
+  const yaws = times(0, 2).map((t) => moodPose('look', t).headYaw);
+  const one = yaws.findIndex((yaw) => Math.abs(yaw) > 0.2);
+  const other = yaws.findIndex((yaw, i) => i > one && Math.abs(yaw) > 0.2 && Math.sign(yaw) !== Math.sign(yaws[one]));
+  assert.ok(one >= 0 && other > one, 'one way, then the other');
+  assert.ok(near(moodPose('look', 2).headYaw, 0), 'and back');
+  for (const t of times(0.3, 1.7)) assert.ok(near(moodPose('look', t).look, 0), `not following the pointer at ${t} s`);
+});
+
+test('the swing fidget swings the arms in turn, dying away', () => {
+  const apart = times(0, 1.5).map((t) => moodPose('swing', t)).map((p) => p.armL - p.armR);
+  let turns = 0;
+  let last = 0;
+  for (const sign of apart.map(Math.sign).filter((sign) => sign !== 0)) {
+    if (last !== 0 && sign !== last) turns += 1;
+    last = sign;
+  }
+  assert.ok(turns >= 3, `the arms take turns: ${turns} times`);
+  const early = Math.max(...apart.slice(0, 50).map(Math.abs));
+  const late = Math.max(...apart.slice(120).map(Math.abs));
+  assert.ok(late < early / 3, `dying away: ${early} then ${late}`);
+  for (const t of times(0, 1.5)) {
+    const { armL, armR } = moodPose('swing', t);
+    assert.ok(armL > -0.15 && armR > -0.15, `the arms stay clear of the body at ${t} s`);
+  }
+});
+
+test('the hum fidget: happy eyes and a gentle sway, while notes rise', () => {
+  assert.strictEqual(moodPose('hum', 1).smile, 1);
+  assert.strictEqual(moodPose('hum', 1).effect, 'notes');
+  const sway = times(0, 2).map((t) => moodPose('hum', t).headTilt);
+  assert.ok(Math.max(...sway) > 0.04 && Math.min(...sway) < -0.04, 'the head sways both ways');
+  assert.ok(Math.max(...sway.map(Math.abs)) < 0.15, 'gently');
+});
+
+test('the hop fidget: one small hop, with a squash', () => {
+  const lifts = times(0, 0.8).map((t) => moodPose('hop', t).lift);
+  assert.ok(near(Math.max(...lifts), 0.06, 0.002), `about 0.06 up: ${Math.max(...lifts)}`);
+  assert.strictEqual(lifts.filter((lift, i) => lift > 0 && !(lifts[i - 1] > 0)).length, 1, 'one hop');
+  assert.ok(Math.min(...times(0, 0.8).map((t) => moodPose('hop', t).scaleY)) < 0.96, 'with a squash');
+});
+
+test('no mood jumps: from one moment to the next, nothing moves by more than a little', () => {
+  // Shut eyes are all or nothing, so where the eyes shut or open the eye shapes may change at once.
+  const step = 1 / 240;
+  for (const name of MOODS) {
+    let before = moodPose(name, 0, { level: 0.5 });
+    for (let i = 1; i * step <= (LENGTHS[name] ?? 10); i += 1) {
+      const pose = moodPose(name, i * step, { level: 0.5 });
+      const fields = pose.eyesClosed === before.eyesClosed ? NUMBERS : NUMBERS.filter((field) => !SHAPES.includes(field));
+      for (const field of fields) {
+        const jump = Math.abs(pose[field] - before[field]);
+        assert.ok(jump <= 0.1, `${name} at ${(i * step).toFixed(3)} s: ${field} jumps by ${jump}`);
+      }
+      before = pose;
+    }
+  }
+});
+
+test('a timed feeling ends in the rest pose, so going back to idle does not jump', () => {
+  // thinking, happy, wave and wobble are as they were; these are the new ones.
+  for (const name of ['sad', 'sleepy', 'wake', 'love', 'dizzy', 'celebrate', 'look', 'swing', 'hum', 'hop']) {
+    const length = LENGTHS[name];
+    assert.deepStrictEqual(differences(moodPose(name, length), REST_POSE), [], `${name} at ${length} s`);
+    assert.deepStrictEqual(differences(moodPose(name, length - 0.001), REST_POSE, NUMBERS, 1e-3), [], `${name} just before`);
+    assert.strictEqual(moodPose(name, length - 0.001).eyesClosed, false, name);
+  }
+});
+
+test('a feeling that comes from idle starts in the rest pose', () => {
+  for (const name of ['sad', 'sleepy', 'drowsy', 'love', 'celebrate', 'listening', 'look', 'swing', 'hum', 'hop']) {
+    const pose = moodPose(name, 0);
+    assert.deepStrictEqual(differences(pose, REST_POSE), [], name);
+    assert.strictEqual(pose.eyesClosed, false, name);
+  }
+});
+
+test('asleep, wake and dizzy pick up where the mood before them leaves off', () => {
+  // asleep comes after drowsy: the half-shut eyes, the head and the float carry on.
+  assert.deepStrictEqual(differences(moodPose('asleep', 0), moodPose('drowsy', 30)), [], 'asleep after drowsy');
+  // wake comes after asleep: the head, the glow and the float carry on, and the eyes are still shut.
+  const asleep = moodPose('asleep', 60);
+  const wake = moodPose('wake', 0);
+  assert.deepStrictEqual(differences(wake, asleep, ['headPitch', 'glow', 'ears', 'look', 'float']), [], 'wake after asleep');
+  assert.ok(wake.eyesClosed && asleep.sleep === 1, 'shut eyes in both');
+  // dizzy comes after a shaken drag: wobble's open mouth carries on.
+  assert.strictEqual(moodPose('dizzy', 0).mouthO, moodPose('wobble', 1).mouthO);
+});
+
+test('no pose shows more than one eye: shut eyes and the eye shapes add up to at most 1', () => {
+  // Shapes on top of each other tear the eye, as the blink and the smile do; fading one into another is fine.
+  for (const name of MOODS) {
+    for (const t of times(0, 10)) {
+      const pose = moodPose(name, t);
+      const total = (pose.eyesClosed ? 1 : 0) + SHAPES.reduce((sum, shape) => sum + pose[shape], 0);
+      assert.ok(total <= 1 + 1e-9, `${name} at ${t.toFixed(2)} s: ${total}`);
+    }
+  }
+});
+
+test('the eyes blink only when they are the plain open ones', () => {
+  const rest = moodPose('idle', 0);
+  for (const shape of SHAPES) {
+    for (const weight of [0.01, 0.5, 1]) {
+      assert.strictEqual(blinkWeight({ ...rest, [shape]: weight }, 0.7), 0, `${shape} at ${weight}`);
+    }
+  }
+  assert.strictEqual(blinkWeight({ ...rest, eyesClosed: true }, 0.3), 1, 'shut eyes are shut');
+  const shaped = [
+    ['sad', 1], ['sleepy', 1], ['drowsy', 0.1], ['drowsy', 5], ['asleep', 0], ['asleep', 5], ['wake', 0.3], ['love', 1],
+    ['dizzy', 1], ['celebrate', 0.5], ['hum', 1],
+  ];
+  for (const [mood, since] of shaped) {
+    for (const blink of [0.5, 1]) {
+      assert.strictEqual(blinkWeight(moodPose(mood, since), blink), 0, `${mood} at ${since} s, blink ${blink}`);
+    }
+  }
+  for (const [mood, since] of [['listening', 5], ['look', 1], ['swing', 0.7], ['hop', 0.4], ['wake', 0.6]]) {
+    assert.strictEqual(blinkWeight(moodPose(mood, since), 0.6), 0.6, `${mood} at ${since} s blinks`);
+  }
+});
+
+// ---------------------------------------------------------------- fidgets
+
+test('four fidgets, each a mood that ends by itself within 2 s', () => {
+  assert.deepStrictEqual(FIDGETS, ['look', 'swing', 'hum', 'hop']);
+  for (const name of FIDGETS) {
+    assert.strictEqual(moodPose(name, 0).done, false, name);
+    assert.strictEqual(moodPose(name, 2).done, true, name);
+  }
+});
+
+test('a fidget is due 15 to 25 s after reset(); take() returns null until then', () => {
+  const soonest = createFidgeter(() => 0);
+  soonest.reset(100);
+  assert.strictEqual(soonest.take(114.99), null);
+  assert.strictEqual(soonest.take(115), 'look', '15 s, and the first fidget');
+  const latest = createFidgeter(() => 0.999);
+  latest.reset(100);
+  assert.strictEqual(latest.take(124.9), null);
+  assert.strictEqual(latest.take(125), 'hop', 'almost 25 s, and the last fidget');
+});
+
+test('take() hands out one fidget, and the next wait starts from then', () => {
+  const fidgeter = createFidgeter(() => 0.5); // a 20 s wait, and the third fidget
+  fidgeter.reset(10); // due at 30 s
+  assert.strictEqual(fidgeter.take(33), 'hum', 'asked a little late');
+  assert.strictEqual(fidgeter.take(33.1), null, 'one at a time');
+  assert.strictEqual(fidgeter.take(52.9), null, 'the next wait runs from the take, not from when it was due');
+  assert.strictEqual(fidgeter.take(53), 'hum', '20 s after the last one');
+});
+
+test('reset() pushes the next fidget back, so a buddy in use does not fidget', () => {
+  const fidgeter = createFidgeter(() => 0.5);
+  fidgeter.reset(10); // due at 30 s
+  fidgeter.reset(25); // used again: now due at 45 s
+  assert.strictEqual(fidgeter.take(30), null);
+  assert.strictEqual(fidgeter.take(44.9), null);
+  assert.strictEqual(fidgeter.take(45), 'hum');
+});
+
+test('before the first reset() the wait runs from time 0; take() draws the fidget, then the next wait', () => {
+  const draws = [0.25, 0.25, 0.75, 0.5, 0]; // the first wait; a fidget and a wait; a fidget and a wait
+  const fidgeter = createFidgeter(() => draws.shift());
+  assert.strictEqual(fidgeter.take(17.4), null, 'the first is due at 15 + 0.25 * 10 = 17.5 s');
+  assert.strictEqual(draws.length, 4, 'asking early draws nothing');
+  assert.strictEqual(fidgeter.take(17.5), 'swing', 'FIDGETS[floor(0.25 * 4)]');
+  assert.strictEqual(fidgeter.take(39.9), null, 'the next is due 15 + 0.75 * 10 = 22.5 s later, at 40 s');
+  assert.strictEqual(fidgeter.take(40), 'hum', 'FIDGETS[floor(0.5 * 4)]');
+  assert.strictEqual(draws.length, 0);
 });

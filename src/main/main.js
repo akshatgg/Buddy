@@ -7,7 +7,9 @@
  */
 
 const path = require('node:path');
-const { app, clipboard, globalShortcut: systemShortcut, ipcMain, powerMonitor, safeStorage, screen, shell } = require('electron');
+const { execFile, spawn } = require('node:child_process');
+const { promisify } = require('node:util');
+const { app, clipboard, dialog, globalShortcut: systemShortcut, ipcMain, powerMonitor, safeStorage, screen, shell } = require('electron');
 const { createStore } = require('./store');
 const { createSecrets } = require('./secrets');
 const { loadCloudConfig } = require('./cloud-config');
@@ -22,14 +24,20 @@ const { createPanelWindow } = require('./panel-window');
 const { createSettingsWindows } = require('./settings-windows');
 const { installAppMenu } = require('./app-menu');
 const { createActions } = require('./actions');
-const { createTray } = require('./tray');
+const { createTray, updateMenuState } = require('./tray');
 const { createPower, loginItemsFor } = require('./power');
 const { createShortcut } = require('./shortcut');
 const { registerBuddyIpc } = require('./ipc/buddy');
 const { registerPanelIpc } = require('./ipc/panel');
 const { registerSettingsIpc } = require('./ipc/settings');
 const { registerAdminIpc } = require('./ipc/admin');
+const { registerUpdatesIpc } = require('./ipc/updates');
+const { createUpdater, replaceableBundle, firstLaunchOfNewVersion } = require('./updates');
 const { helperFile, windows: onWindows } = require('./platform');
+
+// Buddy's own version, from the app's package.json (which is packed into the built app). Not app.getVersion(): when
+// Electron runs a script (the end-to-end test) there is no app package.json for it to read, and it answers Electron's.
+const VERSION = require('../../package.json').version;
 
 function helperPath() {
   return app.isPackaged
@@ -87,6 +95,28 @@ async function start(options = {}) {
   const panel = createPanelWindow();
   const windows = createSettingsWindows({ app });
   const openSettings = (section) => windows.open('settings', section ? { section } : undefined);
+
+  // Update now (updates.js, ipc/updates.js). A development run never installs anything, since it is not the app that
+  // would be replaced: it only says where the new version is (the "download" kind), and never checks by itself.
+  let updatesIpc = null;
+  const updater = createUpdater({
+    currentVersion: VERSION,
+    platform: app.isPackaged ? process.platform : 'development',
+    fetchImpl: (...args) => fetch(...args),
+    downloadDir: path.join(app.getPath('temp'), 'buddy-updates'),
+    getSettings: () => store.all(),
+    patchSettings: (patch) => store.set(patch),
+    bundle: app.isPackaged && process.platform === 'darwin' ? replaceableBundle(process.execPath) : null,
+    spawn,
+    runCommand: promisify(execFile),
+    onChange(state) {
+      updatesIpc?.stateChanged(state);
+      windows.send('settings', 'updates:changed', state);
+      tray?.refresh();
+    },
+  });
+  // The first launch after an update: on the Mac, macOS asks for the permissions again (see the end of start()).
+  const justUpdated = firstLaunchOfNewVersion(store, VERSION);
   installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings, Welcome and Admin, and no Cmd+Q (none on Windows)
 
   const actions = createActions({
@@ -142,6 +172,7 @@ async function start(options = {}) {
     buddyOn: power.isOn(),
     visible: buddy.isVisible(),
     isAdmin: account.isSignedIn() && cloud.last()?.isAdmin === true,
+    update: updateMenuState(updater.state()),
   });
   tray = createTray({
     getState: trayState,
@@ -154,6 +185,7 @@ async function start(options = {}) {
       openSettings,
       openAdmin: () => windows.open('admin'),
       setBuddyOn: (on) => power.setOn(on),
+      updateNow: () => updatesIpc.updateNow(),
       quit: () => app.quit(),
     },
   });
@@ -177,9 +209,8 @@ async function start(options = {}) {
   const settingsIpc = registerSettingsIpc({
     ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut,
     account, cloud, canSignIn: Boolean(cloudConfig),
-    // Buddy's own version, from the app's package.json (which is packed into the built app). Not app.getVersion(): when
-    // Electron runs a script (the end-to-end test) there is no app package.json for it to read, and it answers Electron's.
-    version: require('../../package.json').version,
+    version: VERSION,
+    justUpdated,
     onFinishOnboarding() {
       windows.close('onboarding');
       buddy.reloadModel();
@@ -191,6 +222,15 @@ async function start(options = {}) {
     if (kind === 'settings') settingsIpc.resumeShortcut();
   });
   registerAdminIpc({ ipcMain, windows, cloud });
+  updatesIpc = registerUpdatesIpc({
+    ipcMain,
+    electron: { app, shell, dialog },
+    getUpdater: () => updater,
+    allowed: (webContents) => windows.owns(webContents, 'settings'),
+    store,
+    // While the panel is open, a finished download does not restart Buddy under the person: Update now waits.
+    isBusy: () => panel.isVisible(),
+  });
 
   app.on('second-instance', () => openSettings()); // Electron passes the event first: it must not become a section
   app.on('will-quit', () => {
@@ -224,7 +264,16 @@ async function start(options = {}) {
   }
   tray.refresh();
 
-  return { store, secrets, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, trayState, shortcut };
+  // After an update on the Mac, macOS has forgotten Buddy's permissions (an ad-hoc signed app is a new app to it, and
+  // the update cleared its old entries): Settings opens on them and says why.
+  if (justUpdated && process.platform === 'darwin' && store.get('onboarded')) {
+    helper.call('permissions').then((granted) => {
+      if (!granted?.accessibility) openSettings('permissions');
+    }).catch((err) => console.warn('[buddy] could not check the permissions after the update:', err.code || err.name));
+  }
+  if (app.isPackaged) updatesIpc.launchCheck();
+
+  return { store, secrets, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, trayState, shortcut, updater };
 }
 
 module.exports = { start };

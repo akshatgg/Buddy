@@ -50,6 +50,9 @@ function checkPermission(which) {
 function registerSettingsIpc({
   ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, onFinishOnboarding, shell,
   account, cloud, canSignIn, version,
+  // True on the first launch after an update (updates.js firstLaunchOfNewVersion): the Permissions page says why macOS
+  // asks again.
+  justUpdated = false,
   platform = process.platform,
 }) {
   // The Settings and Welcome windows only: the Admin window has calls of its own (ipc/admin.js).
@@ -99,6 +102,7 @@ function registerSettingsIpc({
       account: user ? { signedIn: true, email: user.email, name: user.name, photo: user.photo || '' } : { signedIn: false },
       canSignIn,
       version,
+      justUpdated,
       ai: aiSection(user ? cloud.last() : null), // free-mode settings apply only to someone signed in
     };
   }

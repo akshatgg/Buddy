@@ -222,3 +222,16 @@ test('on Windows the window comes forward by itself: app.focus, which would focu
   assert.strictEqual(first.focused, 1);
   assert.deepStrictEqual(focusCalls, []);
 });
+
+test('send() reaches a kind of window while it is open, and nothing when it is not', () => {
+  const { windows } = setup();
+  windows.send('settings', 'updates:changed', { status: 'checking' }); // none open: nothing to do, nothing thrown
+  const settings = windows.open('settings');
+  const welcome = windows.open('onboarding');
+  windows.send('settings', 'updates:changed', { status: 'current' });
+  assert.deepStrictEqual(settings.sent, [['updates:changed', { status: 'current' }]]);
+  assert.deepStrictEqual(welcome.sent, []);
+  settings.close();
+  windows.send('settings', 'updates:changed', { status: 'ready' });
+  assert.strictEqual(settings.sent.length, 1);
+});

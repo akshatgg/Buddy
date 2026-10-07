@@ -1,5 +1,5 @@
 'use strict';
-/* global mountAiForm, renderBuddyGrid, ShortcutKeys */
+/* global mountAiForm, renderBuddyGrid, ShortcutKeys, updateView */
 
 const $ = (id) => document.getElementById(id);
 const SECTIONS = ['buddy', 'shortcut', 'ai', 'permissions', 'general'];
@@ -11,6 +11,7 @@ let gridBuilt = false;
 let signingIn = 0; // sign-ins that wait for the browser: pressing the button again starts a newer one
 let recording = false; // the Shortcut box is waiting for keys
 let loadFailed = false; // the settings could not be loaded: the page only says why
+let updates = null; // Update now's state (src/main/updates.js), as the main process last sent it
 const FADE_AFTER_MS = 3000; // how long a success ("Saved ✓") is shown before it fades
 const fading = new Map(); // a status line's id -> the timer that fades its success
 
@@ -170,6 +171,7 @@ function render({ fields = true } = {}) {
     ? `Your buddy is on, and comes back every time your ${onWindows() ? 'PC' : 'Mac'} starts.`
     : 'Your buddy is off.';
   $('version').textContent = snap.version ? `Buddy ${snap.version}` : '';
+  $('update-auto').checked = snap.settings.checkForUpdates !== false;
   const { symbols, defaultShortcut } = shortcutKeys();
   $('shortcut-reset').textContent = `Reset to ${symbols(defaultShortcut).join(' ')}`;
   // Windows asks for no permissions: its sidebar has no Permissions, and a window opened on that section shows Buddy.
@@ -188,6 +190,8 @@ async function save(patch, statusId) {
 async function renderPermissions() {
   if (onWindows()) return; // nothing to ask for, and the section is not shown
   const r = await window.buddy.permissions();
+  // Right after an update macOS has forgotten Buddy's permissions (an ad-hoc signed app is a new app to it): say why.
+  $('perm-updated').hidden = !(snap?.justUpdated && r.ok && !r.accessibility);
   for (const which of ['accessibility', 'screenRecording']) {
     const granted = Boolean(r.ok && r[which]);
     $(`perm-${which}`).textContent = granted ? 'Allowed' : 'Not allowed';
@@ -195,6 +199,30 @@ async function renderPermissions() {
     $(`perm-${which}-btn`).hidden = granted;
   }
   showStatus('perm-status', r.ok ? '' : r.error.message, r.ok ? 'muted' : 'error');
+}
+
+// ---- updates ----
+
+/** Show Update now's state: a line under the version, and the row with Update now while a newer Buddy is out. */
+function renderUpdates(state) {
+  if (state) updates = state;
+  const v = updateView(updates);
+  $('update-line').textContent = v.line;
+  $('update-line').className = `small ${v.lineKind}`;
+  $('update-check').disabled = v.checking;
+  $('update-row').hidden = !v.row;
+  if (!v.row) return;
+  $('update-title').textContent = v.row.title;
+  $('update-detail').textContent = v.row.detail;
+  $('update-now').textContent = v.row.button;
+  $('update-now').disabled = v.row.disabled;
+}
+
+/** Run an update call; a refused one says why on the section's line. */
+async function updateCall(call) {
+  const r = await call();
+  if (!r.ok) showStatus('update-status', r.error.message, 'error');
+  return r;
 }
 
 // ---- the shortcut recorder ----
@@ -328,6 +356,16 @@ for (const which of ['accessibility', 'screenRecording']) {
     showStatus('perm-status', failed ? failed.error.message : '', failed ? 'error' : 'muted');
   });
 }
+$('update-check').addEventListener('click', () => updateCall(window.buddy.checkUpdates));
+$('update-now').addEventListener('click', () => updateCall(window.buddy.installUpdate));
+$('update-notes').addEventListener('click', () => updateCall(window.buddy.openReleaseNotes));
+$('update-auto').addEventListener('change', async () => {
+  const want = $('update-auto').checked;
+  const r = await updateCall(() => window.buddy.setAutoUpdates(want));
+  if (r.ok) showStatus('update-status', 'Saved ✓', 'good');
+  else $('update-auto').checked = !want;
+});
+window.buddy.onUpdates((state) => renderUpdates(state));
 // Coming back to this window: System Settings may have changed the permissions, and the account may have changed
 // behind this page's back. Show what changed; what is being typed stays, and a waiting sign-in answers by itself.
 window.addEventListener('focus', async () => {
@@ -349,6 +387,8 @@ window.addEventListener('focus', async () => {
     return;
   }
   render();
+  const update = await window.buddy.updates();
+  if (update.ok) renderUpdates(update);
   await renderPermissions();
   await mountAiForm($('ai'));
   // The admin may have changed free mode since the app last asked; what is typed meanwhile stays.

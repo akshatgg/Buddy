@@ -162,6 +162,7 @@ body.settings { overflow: hidden; }
 #section-shortcut .row { margin-top: 6px; min-height: 28px; }
 #shortcut-status { margin: 0; }
 #shortcut-reset { margin-right: -8px; } /* its text lines up with the box's right edge */
+#shortcut-note { margin-top: 12px; }
 
 /* AI: the free-mode note, then the form (spaced by base.css). */
 #section-ai > .note + #ai { margin-top: 18px; }

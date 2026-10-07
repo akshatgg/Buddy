@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { createShortcut } = require('../src/main/shortcut');
+const { tapKeys } = require('../src/renderer/common/shortcut-keys');
 
 function fakeGlobalShortcut(taken = []) {
   const registered = new Map();
@@ -114,5 +115,69 @@ test('while released, a new shortcut that is taken fails and nothing is left reg
   shortcut.unregister();
   assert.strictEqual(shortcut.register('Command+Space'), false);
   assert.deepStrictEqual([...globalShortcut.registered.keys()], []);
+  assert.strictEqual(shortcut.current(), null);
+});
+
+/** Stands in for key-watch.js: takes a well-formed single-key shortcut, or none. */
+function fakeKeyWatch() {
+  return {
+    shortcut: null,
+    setShortcut(value) {
+      if (value !== null && !tapKeys(value)) return false;
+      this.shortcut = value;
+      return true;
+    },
+  };
+}
+
+test('a single-key shortcut is heard through the key watch, not registered with the system', () => {
+  const globalShortcut = fakeGlobalShortcut();
+  const keyWatch = fakeKeyWatch();
+  const shortcut = createShortcut({ globalShortcut, keyWatch, onPress: () => {} });
+  assert.strictEqual(shortcut.register('Tap:RightOption'), true);
+  assert.strictEqual(keyWatch.shortcut, 'Tap:RightOption');
+  assert.deepStrictEqual([...globalShortcut.registered.keys()], []);
+  assert.strictEqual(shortcut.current(), 'Tap:RightOption');
+});
+
+test('changing between a single key and keys pressed together lets the old one go', () => {
+  const globalShortcut = fakeGlobalShortcut();
+  const keyWatch = fakeKeyWatch();
+  const shortcut = createShortcut({ globalShortcut, keyWatch, onPress: () => {} });
+  shortcut.register('Alt+Space');
+  shortcut.register('Tap:LeftCommand');
+  assert.deepStrictEqual([...globalShortcut.registered.keys()], []);
+  assert.strictEqual(keyWatch.shortcut, 'Tap:LeftCommand');
+  shortcut.register('Alt+Space');
+  assert.deepStrictEqual([...globalShortcut.registered.keys()], ['Alt+Space']);
+  assert.strictEqual(keyWatch.shortcut, null);
+});
+
+test('a single-key shortcut that is not well formed fails and keeps the old one', () => {
+  const globalShortcut = fakeGlobalShortcut();
+  const keyWatch = fakeKeyWatch();
+  const shortcut = createShortcut({ globalShortcut, keyWatch, onPress: () => {} });
+  shortcut.register('Alt+Space');
+  assert.strictEqual(shortcut.register('Tap:Bogus'), false);
+  assert.deepStrictEqual([...globalShortcut.registered.keys()], ['Alt+Space']);
+  assert.strictEqual(shortcut.current(), 'Alt+Space');
+  assert.strictEqual(keyWatch.shortcut, null);
+});
+
+test('a taken shortcut after a single key puts the single key back', () => {
+  const keyWatch = fakeKeyWatch();
+  const shortcut = createShortcut({ globalShortcut: fakeGlobalShortcut(['Command+Space']), keyWatch, onPress: () => {} });
+  shortcut.register('Tap:RightOption');
+  assert.strictEqual(shortcut.register('Command+Space'), false);
+  assert.strictEqual(keyWatch.shortcut, 'Tap:RightOption');
+  assert.strictEqual(shortcut.current(), 'Tap:RightOption');
+});
+
+test('unregister lets a single-key shortcut go', () => {
+  const keyWatch = fakeKeyWatch();
+  const shortcut = createShortcut({ globalShortcut: fakeGlobalShortcut(), keyWatch, onPress: () => {} });
+  shortcut.register('Tap:Fn');
+  shortcut.unregister();
+  assert.strictEqual(keyWatch.shortcut, null);
   assert.strictEqual(shortcut.current(), null);
 });

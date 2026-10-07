@@ -67,11 +67,15 @@ const SECTIONS_SHOWN = `({
 
 // The sidebar moves between the sections. The Shortcut box records the keys pressed and saves them at once; while it
 // waits for them, Buddy lets go of its global shortcut (the fake one in ctx.globalShortcut), and takes the saved one
-// back when the waiting ends: saved, refused, Esc, another section chosen, or the window losing the focus. The
+// back when the waiting ends: saved, refused, Esc, another section chosen, or the window losing the focus (a second
+// after, so that a key tapped just then is still saved: fn, when macOS opens its emoji picker). The
 // modifiers held show as key caps and follow the keys; a key that can't be used says why and the box goes on waiting;
 // a shortcut another app owns (⌃⌘K, in the fake) is refused and the old one kept. Esc cancels, and Reset puts back
-// ⌥ Space. The keys are synthetic: no real key is pressed.
-async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
+// ⌥ Space. A key tapped on its own is heard by the Mac helper (the fake one in ctx.helper, which the check makes report
+// the taps): it is recorded and saved, opens the panel when it is tapped alone and not with another key, and has a note
+// under the box that turns red without Accessibility, where a box that waits for keys says so too. The keys, and the
+// taps the helper reports, are synthetic: no real key is pressed.
+async function sectionsAndShortcutCheck(ctx, win, { assert, delay, waitFor }) {
   const page = (script) => win.webContents.executeJavaScript(script);
   const registered = () => [...ctx.globalShortcut.registered.keys()];
   const recording = () => page("document.getElementById('shortcut').classList.contains('recording')");
@@ -205,6 +209,94 @@ async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
   assert.strictEqual(saves, 0, 'nothing was saved');
   assert.deepStrictEqual(registered(), ['Alt+Space']);
 
+  // A key tapped on its own. While the box waits, the Mac helper (the fake in ctx.helper) listens to the modifier keys;
+  // the tap it reports is saved at once, and from then on the helper listens for it, not Electron. Tapped on its own it
+  // opens the panel; with another key pressed meanwhile it does not. The reports are the real helper's: a key code, the
+  // flags after the change (their bits say which side is down) and the time in milliseconds.
+  const keys = (...events) => {
+    for (const event of events) ctx.helper.emit('keys', event);
+  };
+  const change = (keyCode, flags, t) => ({ kind: 'flags', keyCode, flags, t });
+  const RIGHT_OPTION_DOWN = 0x80040; // an ⌥ is down, and it is the right one
+  const note = () => page("document.getElementById('shortcut-note').hidden ? null : document.getElementById('shortcut-note').textContent");
+  const TAP_NOTE = 'Tap it on its own to open your buddy: press and let go, with no other key.';
+  const CAPS_NOTE = `${TAP_NOTE} Caps Lock also turns capitals on and off when you tap it.`;
+  assert.strictEqual(await note(), null, 'no note for keys pressed together');
+  await page("document.getElementById('shortcut').click()");
+  await waitFor(() => registered().length === 0 && ctx.helper.watching === true, 'the helper to listen while the box waits');
+  keys(change(61, RIGHT_OPTION_DOWN, 1000), change(61, 0, 1120));
+  await waitFor(() => ctx.store.get('shortcut') === 'Tap:RightOption', 'the tapped key to be saved');
+  await waitFor(async () => (await status()) === 'Saved ✓', 'the Shortcut box to say it is saved');
+  assert.deepStrictEqual(await caps(), ['Right ⌥'], 'the key is shown with its side');
+  assert.strictEqual(await recording(), false);
+  assert.deepStrictEqual(registered(), [], 'nothing is registered with Electron');
+  await waitFor(async () => (await note()) === TAP_NOTE, 'the note under the box');
+  assert.strictEqual(ctx.helper.watching, true, 'the helper listens for the shortcut');
+
+  keys(change(61, RIGHT_OPTION_DOWN, 5000), { kind: 'other' }, change(61, 0, 5100)); // ⌥ with a letter
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.strictEqual(ctx.panel.isVisible(), false, 'Right ⌥ with another key does not open the panel');
+  keys(change(61, RIGHT_OPTION_DOWN, 6000), change(61, 0, 6100));
+  await waitFor(() => ctx.panel.isVisible(), 'Right ⌥ tapped on its own to open the panel');
+  ctx.panel.hide();
+  await waitFor(() => !ctx.panel.isVisible(), 'the panel to close');
+
+  // Caps Lock: one press is a tap, and the note says what macOS also does with it.
+  await page("document.getElementById('shortcut').click()");
+  await waitFor(() => recording(), 'the box to wait for keys');
+  // The box waits at once; Buddy lets go of its shortcut, and starts to hear the taps for the box, a moment later. A tap
+  // reported before that would be lost.
+  await waitFor(() => ctx.shortcut.current() === null, 'the saved shortcut to be let go');
+  keys(change(57, 0x10000, 9000));
+  await waitFor(() => ctx.store.get('shortcut') === 'Tap:CapsLock', 'Caps Lock to be saved');
+  assert.deepStrictEqual(await caps(), ['⇪ Caps Lock']);
+  await waitFor(async () => (await note()) === CAPS_NOTE, 'the Caps Lock note');
+
+  // Without Accessibility Buddy cannot hear a key tapped on its own. Coming back to the window (from System Settings,
+  // where the permission was taken away) turns the note red, and a box that waits for keys says so too, as keys pressed
+  // together can still be recorded. Given again, the note is as it was.
+  const CANNOT_HEAR = 'Buddy needs Accessibility to hear this key. Allow it in Permissions.';
+  const CANNOT_HEAR_TAPS = 'Buddy needs Accessibility to hear a key tapped on its own. Allow it in Permissions.';
+  const noteRed = () => page("document.getElementById('shortcut-note').classList.contains('error')");
+  const comeBack = () => page("window.dispatchEvent(new Event('focus'))");
+  assert.strictEqual(await noteRed(), false, 'the note is not red while Buddy can hear the key');
+  ctx.helper.accessibility = false;
+  await comeBack();
+  await waitFor(async () => (await noteRed()) && ((await note()) ?? '').startsWith(CANNOT_HEAR), 'the note to turn red');
+  assert.strictEqual(await note(), `${CANNOT_HEAR} Caps Lock also turns capitals on and off when you tap it.`);
+  // The note is a live region, which a screen reader reads out when it is written: coming back to the window with
+  // nothing changed must not write it again.
+  const asked = () => ctx.helper.calls.filter((call) => call.cmd === 'permissions').length;
+  await page(`window.__noteWrites = [];
+    new MutationObserver((records) => window.__noteWrites.push(...records.map((record) => record.type)))
+      .observe(document.getElementById('shortcut-note'), { attributes: true, childList: true, characterData: true, subtree: true });`);
+  const askedBefore = asked();
+  await comeBack();
+  await waitFor(() => asked() >= askedBefore + 2, 'the page to ask about the permissions again (for itself, and for the note)');
+  await delay(200);
+  assert.deepStrictEqual(await page('window.__noteWrites'), [], 'the note says the same, so it is not written again');
+  await page("document.getElementById('shortcut').click()");
+  await waitFor(async () => (await status()) === CANNOT_HEAR_TAPS, 'the box to say it cannot hear a key tapped on its own');
+  assert.strictEqual(await page("document.getElementById('shortcut-status').className"), 'status small muted', 'in the normal style');
+  assert.strictEqual(await recording(), true, 'and the box still waits for keys');
+  assert.strictEqual(ctx.shortcut.current(), null, 'with the saved shortcut let go');
+  await press({ code: 'Escape', key: 'Escape' });
+  await waitFor(() => ctx.shortcut.current() === 'Tap:CapsLock', 'the saved shortcut to be taken back');
+  assert.strictEqual(await recording(), false);
+  assert.strictEqual(await status(), '', 'the line goes when the box stops waiting');
+  ctx.helper.accessibility = true;
+  await comeBack();
+  await waitFor(async () => !(await noteRed()) && (await note()) === CAPS_NOTE, 'the note to be as it was');
+
+  // Reset: ⌥ Space again, the helper stops listening, and the note goes.
+  await page("document.getElementById('shortcut-reset').click()");
+  await waitFor(() => ctx.store.get('shortcut') === 'Alt+Space', 'the default shortcut to be saved');
+  await waitFor(() => ctx.helper.watching === false, 'the helper to stop listening');
+  assert.deepStrictEqual(registered(), ['Alt+Space']);
+  await waitFor(async () => (await note()) === null, 'the note to go');
+  // Hidden or not, the note is part of what describes the Shortcut box: nothing of it may be left to be read.
+  assert.strictEqual(await page("document.getElementById('shortcut-note').textContent"), '', 'no words are left in the hidden note');
+
   // Choosing another section ends a recording, and the shortcut is given back.
   await page("document.getElementById('shortcut').click()");
   await waitFor(() => registered().length === 0, 'the shortcut to be let go again');
@@ -241,13 +333,49 @@ async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
   assert.deepStrictEqual(registered(), ['Alt+Space'], 'and its shortcut is taken again');
   await waitFor(() => ctx.buddy.isVisible(), 'the buddy to be back');
 
-  // The window losing the focus ends a recording too, and the shortcut is given back.
+  // The window losing the focus ends a recording too (a second later), and the shortcut is given back.
   await page(`document.querySelector('.nav-item[data-section="shortcut"]').click()`);
   await page("document.getElementById('shortcut').click()");
   await waitFor(() => registered().length === 0, 'the shortcut to be let go again');
   await page("window.dispatchEvent(new Event('blur'))");
   await waitFor(() => registered().length === 1, 'the shortcut to be given back when the window loses the focus');
   assert.deepStrictEqual(registered(), ['Alt+Space']);
+  assert.strictEqual(await recording(), false);
+
+  // With "Press 🌐 key to: Show Emoji & Symbols", tapping fn while the box waits opens the emoji picker, which takes the
+  // focus: the window loses it as the tap arrives. A key tapped within the second after the window loses the focus is
+  // still saved (and the picker is left for the person to close; the note says how to stop it from opening).
+  const FN_NOTE = `${TAP_NOTE} If fn also opens emoji or dictation, set “Press 🌐 key to” to “Do Nothing” in System Settings → Keyboard.`;
+  await page("document.getElementById('shortcut').click()");
+  await waitFor(() => registered().length === 0 && ctx.helper.watching === true, 'the helper to listen while the box waits');
+  await page("window.dispatchEvent(new Event('blur'))");
+  assert.strictEqual(await recording(), true, 'the box still waits the moment the window loses the focus');
+  keys(change(63, 0x800000, 20000), change(63, 0, 20080)); // fn tapped, at once
+  await waitFor(() => ctx.store.get('shortcut') === 'Tap:Fn', 'fn, tapped as the window lost the focus, to be saved');
+  await waitFor(async () => (await status()) === 'Saved ✓', 'the Shortcut box to say it is saved');
+  assert.deepStrictEqual(await caps(), ['fn']);
+  assert.strictEqual(await recording(), false);
+  await waitFor(async () => (await note()) === FN_NOTE, 'the fn note under the box');
+  // The recording is over: the focus coming back, or the second running out, ends nothing and changes nothing.
+  await delay(1200);
+  assert.strictEqual(ctx.store.get('shortcut'), 'Tap:Fn');
+  assert.strictEqual(ctx.shortcut.current(), 'Tap:Fn', 'the saved shortcut is the one that is taken');
+  // Put back what the checks after this one expect: ⌥ Space, and the helper not listening.
+  await page("document.getElementById('shortcut-reset').click()");
+  await waitFor(() => ctx.store.get('shortcut') === 'Alt+Space', 'the default shortcut to be saved');
+  await waitFor(() => ctx.helper.watching === false && registered().length === 1, 'the helper to stop listening, and ⌥ Space to be registered');
+  assert.deepStrictEqual(registered(), ['Alt+Space']);
+
+  // A window that gets the focus back within that second keeps recording: nothing ends it.
+  await page("document.getElementById('shortcut').click()");
+  await waitFor(() => registered().length === 0, 'the shortcut to be let go again');
+  await page("window.dispatchEvent(new Event('blur'))");
+  await page("window.dispatchEvent(new Event('focus'))");
+  await delay(1300);
+  assert.strictEqual(await recording(), true, 'the box still waits: the window had the focus back');
+  assert.deepStrictEqual(registered(), [], 'and the shortcut is still let go');
+  await press({ code: 'Escape', key: 'Escape' });
+  await waitFor(() => registered().length === 1, 'the saved shortcut to be registered again');
   assert.strictEqual(await recording(), false);
 }
 
@@ -358,13 +486,17 @@ module.exports = async function settingsCheck(ctx, { assert, delay, waitFor }) {
     shown: ['section-buddy'], active: ['buddy'], current: ['buddy'],
   }, 'Settings opens on Buddy');
   // For a screen reader: the page's language, the lines that say how something went (read out when they change, as is
-  // what the Shortcut box shows), and each Allow button named for what it allows.
+  // what the Shortcut box shows), each Allow button named for what it allows, and what describes the Shortcut box (its
+  // hint, and the note that comes with a key tapped on its own).
   assert.deepStrictEqual(await win.webContents.executeJavaScript(`({
     lang: document.documentElement.lang,
     live: [...document.querySelectorAll('.status'), document.getElementById('shortcut-keys')]
       .filter((el) => el.getAttribute('aria-live') !== 'polite').map((el) => el.id),
     allow: [...document.querySelectorAll('#section-permissions button')].map((b) => b.getAttribute('aria-label')),
-  })`), { lang: 'en', live: [], allow: ['Allow Accessibility', 'Allow Screen Recording'] });
+    described: document.getElementById('shortcut').getAttribute('aria-describedby'),
+  })`), {
+    lang: 'en', live: [], allow: ['Allow Accessibility', 'Allow Screen Recording'], described: 'shortcut-hint shortcut-note',
+  });
   const before = ctx.buddy.window().getBounds();
   const r = await win.webContents.executeJavaScript("window.buddy.set({ size: 'large' })");
   assert.strictEqual(r.ok, true, 'size saved');
@@ -382,7 +514,7 @@ module.exports = async function settingsCheck(ctx, { assert, delay, waitFor }) {
   // These two press the Mac's keys (⌘⇧B, ⌃⌘K) and read its symbols. Windows' keys and names are in
   // test/shortcut-keys.test.js, and 36-platform-pages checks what its Settings show.
   if (process.platform !== 'win32') {
-    await sectionsAndShortcutCheck(ctx, win, { assert, waitFor });
+    await sectionsAndShortcutCheck(ctx, win, { assert, delay, waitFor });
     await statusLinesCheck(ctx, win, { assert, waitFor });
   }
   await closingWhileRecordingCheck(ctx, win, { assert, waitFor }); // and the window is gone

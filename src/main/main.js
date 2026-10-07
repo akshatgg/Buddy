@@ -27,6 +27,7 @@ const { createActions } = require('./actions');
 const { createTray, updateMenuState } = require('./tray');
 const { createPower, loginItemsFor } = require('./power');
 const { createShortcut } = require('./shortcut');
+const { createKeyWatch } = require('./key-watch');
 const { registerBuddyIpc } = require('./ipc/buddy');
 const { registerPanelIpc } = require('./ipc/panel');
 const { registerSettingsIpc } = require('./ipc/settings');
@@ -143,8 +144,10 @@ async function start(options = {}) {
     actions.toggle().catch((err) => console.error('[buddy] could not open the panel', err));
   };
 
-  // The shortcut is taken only while Buddy is on: it opens the panel, and the panel reads the person's selection.
-  const shortcut = createShortcut({ globalShortcut, onPress: onCall });
+  // The shortcut is taken only while Buddy is on: it opens the panel, and the panel reads the person's selection. A key
+  // tapped on its own ("Tap:RightOption") is heard through the helper; any other shortcut is registered with the system.
+  const keyWatch = createKeyWatch({ helper, onPress: onCall });
+  const shortcut = createShortcut({ globalShortcut, keyWatch, onPress: onCall });
   function takeShortcut() {
     const accelerator = store.get('shortcut');
     if (!shortcut.register(accelerator)) console.warn(`[buddy] could not register the shortcut ${accelerator}`);
@@ -209,7 +212,7 @@ async function start(options = {}) {
   registerBuddyIpc({ ipcMain, buddy, characters, store, onClick: onCall });
   registerPanelIpc({ ipcMain, panel, actions, openSettings });
   const settingsIpc = registerSettingsIpc({
-    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut,
+    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch,
     account, cloud, canSignIn: Boolean(cloudConfig),
     version: VERSION,
     justUpdated,

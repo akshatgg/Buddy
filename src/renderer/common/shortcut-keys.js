@@ -3,12 +3,15 @@
 /* exported ShortcutKeys */
 
 /**
- * Key presses into a shortcut, and a shortcut into key caps. A shortcut is an Electron accelerator
- * ("Shift+Command+B", "Alt+Space", "Control+Shift+Space"): what Settings saves and the main process registers. The
- * Settings page loads this as a script; the unit tests require it (module.exports at the end).
+ * Key presses into a shortcut, and a shortcut into key caps. A shortcut is an Electron accelerator ("Shift+Command+B",
+ * "Alt+Space", "Control+Shift+Space") or, on the Mac, a key tapped on its own ("Tap:RightOption"): what Settings saves
+ * and the main process takes. The Settings page loads this as a script; the main process requires it too (shortcut.js,
+ * key-watch.js, modifier-tap.js and ipc/settings.js), and so do the unit tests (module.exports at the end). So it must
+ * stay free of the DOM and of browser globals.
  *
  * ShortcutKeys itself is the Mac's set; ShortcutKeys.forPlatform('win32') is Windows', where the modifiers are named
- * (Ctrl, Alt, Shift), the Windows key belongs to Windows, and Ctrl+Alt is AltGr on many keyboards.
+ * (Ctrl, Alt, Shift), the Windows key belongs to Windows, Ctrl+Alt is AltGr on many keyboards, and no key can be tapped
+ * on its own (only the Mac helper hears that).
  */
 const ShortcutKeys = (() => {
   // Keys that only modify: pressing one of them alone is not a shortcut yet.
@@ -54,6 +57,7 @@ const ShortcutKeys = (() => {
     needModifier: 'Hold ⌘, ⌥ or ⌃ with the key.',
     refuse: () => null,
     defaultShortcut: 'Alt+Space',
+    canTap: true, // a single-key shortcut, heard by the Mac helper (key-watch.js)
   };
 
   const WINDOWS = {
@@ -91,7 +95,46 @@ const ShortcutKeys = (() => {
     },
     // The same spelling as platform.js's defaultShortcut, so a reset saves what a new install starts with.
     defaultShortcut: 'Ctrl+Shift+Space',
+    canTap: false, // the Windows helper does not hear a key tapped on its own
   };
+
+  // A single-key shortcut (the Mac only): one or more modifier keys tapped on their own (pressed and let go, with no
+  // other key), saved as "Tap:" and their names in this order ("Tap:RightOption", "Tap:LeftShift+LeftCommand"). Left and
+  // right are different keys. Caps Lock is only ever tapped alone. The Mac helper hears these (src/main/key-watch.js),
+  // not Electron.
+  const TAP = 'Tap:';
+  const TAP_KEYS = [
+    { name: 'Fn', cap: 'fn' },
+    { name: 'LeftControl', cap: 'Left ⌃' },
+    { name: 'RightControl', cap: 'Right ⌃' },
+    { name: 'LeftOption', cap: 'Left ⌥' },
+    { name: 'RightOption', cap: 'Right ⌥' },
+    { name: 'LeftShift', cap: 'Left ⇧' },
+    { name: 'RightShift', cap: 'Right ⇧' },
+    { name: 'LeftCommand', cap: 'Left ⌘' },
+    { name: 'RightCommand', cap: 'Right ⌘' },
+    { name: 'CapsLock', cap: '⇪ Caps Lock' },
+  ];
+  const TAP_NAMES = TAP_KEYS.map((k) => k.name);
+
+  /** True for a single-key shortcut ("Tap:…"), well formed or not. */
+  function isTap(value) {
+    return typeof value === 'string' && value.startsWith(TAP);
+  }
+
+  /** The keys of a single-key shortcut, in their order; null when `value` is not a well-formed one. */
+  function tapKeys(value) {
+    if (!isTap(value)) return null;
+    const names = value.slice(TAP.length).split('+');
+    if (!names.every((name) => TAP_NAMES.includes(name)) || new Set(names).size !== names.length) return null;
+    if (names.includes('CapsLock') && names.length > 1) return null;
+    return TAP_NAMES.filter((name) => names.includes(name));
+  }
+
+  /** The single-key shortcut for these keys, in their order: ['LeftCommand', 'LeftShift'] is "Tap:LeftShift+LeftCommand". */
+  function tapValue(names) {
+    return TAP + TAP_NAMES.filter((name) => names.includes(name)).join('+');
+  }
 
   /** The accelerator's name for a key (KeyboardEvent.code), or null for a key a shortcut cannot use. */
   function keyFor(code) {
@@ -121,8 +164,9 @@ const ShortcutKeys = (() => {
       return key.length === 1 ? key.toUpperCase() : key;
     }
 
-    /** The key caps for an accelerator, however it is spelled: "Shift+Command+B" and "cmd+shift+b" are both ['⇧', '⌘', 'B']. */
+    /** The key caps for a shortcut, however it is spelled: "Shift+Command+B" and "cmd+shift+b" are both ['⇧', '⌘', 'B'], and "Tap:RightOption" is ['Right ⌥']. */
     function symbols(accelerator) {
+      if (isTap(accelerator)) return (tapKeys(accelerator) || []).map((name) => TAP_KEYS.find((k) => k.name === name).cap);
       const words = String(accelerator || '').split('+').map((w) => w.trim()).filter(Boolean);
       const key = words.pop();
       if (!key) return [];
@@ -161,7 +205,7 @@ const ShortcutKeys = (() => {
       return { accelerator, keys: symbols(accelerator) };
     }
 
-    return { fromKeyEvent, heldSymbols, symbols, keyFor, defaultShortcut: set.defaultShortcut };
+    return { fromKeyEvent, heldSymbols, symbols, keyFor, isTap, tapKeys, tapValue, defaultShortcut: set.defaultShortcut, canTap: set.canTap };
   }
 
   const mac = make(MAC);

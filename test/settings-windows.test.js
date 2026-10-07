@@ -235,3 +235,17 @@ test('send() reaches a kind of window while it is open, and nothing when it is n
   windows.send('settings', 'updates:changed', { status: 'ready' });
   assert.strictEqual(settings.sent.length, 1);
 });
+
+test('send() reaches the page of the open window of that kind, and no other', () => {
+  const { windows, created } = setup();
+  windows.open('settings');
+  windows.open('admin');
+  const [settings, admin] = created;
+  windows.send('settings', 'shortcut:tap', 'Tap:Fn');
+  assert.deepStrictEqual(settings.sent, [['shortcut:tap', 'Tap:Fn']]);
+  assert.deepStrictEqual(admin.sent, []);
+  settings.close();
+  windows.send('settings', 'shortcut:tap', 'Tap:Fn');
+  assert.deepStrictEqual(settings.sent, [['shortcut:tap', 'Tap:Fn']], 'a closed window is sent nothing');
+  windows.send('onboarding', 'shortcut:tap', 'Tap:Fn'); // never opened: nothing happens, nothing throws
+});

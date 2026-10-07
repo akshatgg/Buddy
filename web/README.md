@@ -4,6 +4,8 @@ Vercel functions that give Buddy its free mode: the admin's switches and the use
 (project `buddy-7f8c2`), and free answers use the server's own AI key. Design:
 `docs/superpowers/specs/2026-10-07-buddy-phase-2-free-mode-design.md`.
 
+`public/` is the download website (https://buddywrites.vercel.app); it is deployed with the functions.
+
 | Route | Who | What |
 |---|---|---|
 | `GET /api/config` | signed in | what free mode means for this person |

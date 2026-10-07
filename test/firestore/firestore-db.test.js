@@ -23,6 +23,7 @@ const NOW = new Date('2026-10-07T06:30:00.000Z');
 const LATER = new Date('2026-10-07T07:00:00.000Z');
 const TODAY = '2026-10-07';
 const count = (extra = {}) => db.countRequest({ uid: 'u1', email: 'a@x.com', name: 'A', day: TODAY, now: NOW, limit: null, ...extra });
+const refund = (extra = {}) => db.refundRequest({ uid: 'u1', day: TODAY, limit: 10, ...extra });
 
 test.beforeEach(async () => {
   // The emulator's own way to wipe a project's data.
@@ -69,11 +70,34 @@ test('requests made at the same moment cannot slip past the limit', async () => 
 test('refundRequest gives back one request of the same day only', async () => {
   await count();
   await count();
-  await db.refundRequest({ uid: 'u1', day: TODAY });
-  await db.refundRequest({ uid: 'u1', day: '2026-10-06' });
-  await db.refundRequest({ uid: 'nobody', day: TODAY });
+  assert.deepStrictEqual(await refund(), { ok: true, refundCount: 1 });
+  assert.deepStrictEqual(await refund({ day: '2026-10-06' }), { ok: false, reason: 'not_counted' });
+  assert.deepStrictEqual(await refund({ uid: 'nobody' }), { ok: false, reason: 'not_counted' });
   const [u] = await db.listUsers({ limit: 10 });
   assert.strictEqual(u.usedCount, 1);
+  assert.deepStrictEqual(await refund(), { ok: true, refundCount: 2 });
+  assert.deepStrictEqual(await refund(), { ok: false, reason: 'not_counted' }, 'nothing is left to give back');
+});
+
+test('refundRequest gives back at most `limit` requests a day, and a new day starts again from zero', async () => {
+  for (let i = 0; i < 3; i += 1) await count();
+  assert.deepStrictEqual(await refund({ limit: 2 }), { ok: true, refundCount: 1 });
+  assert.deepStrictEqual(await refund({ limit: 2 }), { ok: true, refundCount: 2 });
+  assert.deepStrictEqual(await refund({ limit: 2 }), { ok: false, reason: 'limit', refundCount: 2 });
+  let [u] = await db.listUsers({ limit: 10 });
+  assert.strictEqual(u.usedCount, 1, 'past the limit the request stays counted');
+  await count({ day: '2026-10-08' });
+  assert.deepStrictEqual(await refund({ limit: 2, day: '2026-10-08' }), { ok: true, refundCount: 1 });
+  [u] = await db.listUsers({ limit: 10 });
+  assert.deepStrictEqual([u.usedDay, u.usedCount], ['2026-10-08', 0]);
+});
+
+test('give-backs made at the same moment cannot slip past the limit', async () => {
+  for (let i = 0; i < 4; i += 1) await count();
+  const results = await Promise.all(Array.from({ length: 4 }, () => refund({ limit: 2 })));
+  assert.strictEqual(results.filter((r) => r.ok).length, 2);
+  const [u] = await db.listUsers({ limit: 10 });
+  assert.strictEqual(u.usedCount, 2);
 });
 
 test('a blocked person is not counted; setBlocked answers the person, or null for nobody', async () => {

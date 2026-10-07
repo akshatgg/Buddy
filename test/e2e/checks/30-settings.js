@@ -81,7 +81,8 @@ async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
   const press = (init, type = 'keydown') => page(`document.dispatchEvent(new KeyboardEvent('${type}', ${JSON.stringify({ ...init, bubbles: true })}))`);
   const letGo = (init) => press(init, 'keyup');
   // The colour of the box's edge as [r, g, b] (a canvas reads any CSS colour), with its transition off, so that what
-  // is read is the colour it ends at.
+  // is read is the colour it ends at. It is only ever asked whether it is red: the real pointer may be over the box,
+  // which gives it its (grey) hover edge.
   await win.webContents.insertCSS('#shortcut { transition: none !important; }');
   const edge = () => page(`(() => {
     const canvas = document.createElement('canvas').getContext('2d');
@@ -109,7 +110,6 @@ async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
   // The recorder: a click starts it, and the global shortcut is let go while it waits.
   assert.deepStrictEqual(registered(), ['Alt+Space'], 'the shortcut is registered before recording');
   assert.strictEqual(await keysShown(), '⌥Space');
-  const idle = await edge();
   await page("document.getElementById('shortcut').click()");
   assert.strictEqual(await recording(), true, 'the box waits for keys');
   await waitFor(() => registered().length === 0, 'the shortcut to be let go while recording');
@@ -160,7 +160,7 @@ async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
   await waitFor(() => registered().length === 1, 'the saved shortcut to be registered again');
   assert.strictEqual(ctx.store.get('shortcut'), 'Shift+Command+B', 'nothing was saved');
   assert.strictEqual(await status(), '', 'no refusal is left once the box stops waiting');
-  assert.deepStrictEqual(await edge(), idle, 'and the box is not red');
+  assert.ok(!red(await edge()), 'and the box is not red');
   assert.strictEqual(await keysShown(), '⇧⌘B');
 
   // ⌃⌘K belongs to another app (in the fake): it is refused, the box shows the saved keys again with a red edge, and
@@ -180,7 +180,7 @@ async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
   assert.strictEqual(await status(), '', 'a new recording starts afresh');
   await press({ code: 'Escape', key: 'Escape' });
   await waitFor(() => registered().length === 1, 'the saved shortcut to be registered again');
-  assert.deepStrictEqual(await edge(), idle, 'and the box is not red any more');
+  assert.ok(!red(await edge()), 'and the box is not red any more');
 
   // Reset puts back ⌥ Space (and leaves it so, for the checks after this one).
   await page("document.getElementById('shortcut-reset').click()");

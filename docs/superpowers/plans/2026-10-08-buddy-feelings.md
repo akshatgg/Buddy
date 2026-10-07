@@ -245,5 +245,9 @@ sleeping, `docs/manual-checklist.md`, `README.md`.
   the sleep countdown; the panel open → `hold('panel', true)`, closed → `hold('panel', false)`; the chat panel's
   `ui.listening(on)` → `hold('voice', on)` and `buddy.mood(on ? 'listening' : 'idle')`; `ui.voiceLevel(level)` →
   `buddy.voiceLevel(level)`. Tests for each in the existing actions/main tests.
+- The page cannot see the panel: tell it when the panel opens and closes, so the buddy does not fidget while the
+  person is using the panel (Task 5's review, M2). Add a small `buddy` method and IPC for it, next to `voiceLevel`.
+- For the PR text (owner's calls): petting does not cut short `thinking` or `listening`; a buddy saved within 0.6 × its
+  size of the top of the screen starts that much lower, because the taller window must stay on screen.
 - Docs: a "Feelings" section in `docs/manual-checklist.md` (the design's section 7 manual list); README's buddy
   description if it lists moods.

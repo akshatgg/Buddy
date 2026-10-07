@@ -36,7 +36,7 @@ chosen section is remembered while the window stays open.
 ## 3. Shortcut recorder
 
 - The box shows the shortcut as key caps in the Mac's order and symbols: ⌃ ⌥ ⇧ ⌘, then the key (e.g. **⌥ Space**,
-  **⌘ ⇧ B**, **⌃ ↑**).
+  **⇧ ⌘ B**, **⌃ ↑**).
 - Click it (or focus it and press Return or Space): it says **"Press your shortcut…"** with an accent outline.
   While it waits, Buddy lets go of its global shortcut, so pressing the current one doesn't open the panel; it is
   taken back whenever the waiting ends (saved, cancelled, the window loses focus or closes).
@@ -71,7 +71,8 @@ Every element id the pages and tests use stays, unless a test is updated with it
 ## 6. Out of scope
 
 A web dashboard, avatars uploaded by the user, editing the Google name, more sections, animations beyond simple
-transitions, window resizing.
+transitions, window resizing. (A small loading spinner, such as the panel's while it thinks, is allowed: it is the usual
+sign that something is under way, and it stands still for someone who asks for less motion.)
 
 ## 7. Testing
 

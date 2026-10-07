@@ -87,7 +87,10 @@ export function createPetDetector({ turns = 3, withinMs = 1500, step = 6 } = {})
 /**
  * Shaking: the buddy dragged back and forth, on either axis. feed(x, y, t) takes the pointer's screen position in points
  * and the time in ms, and answers true once, when `turns` turns, on either axis and in any mix, fall within `withinMs`.
- * Then it counts afresh. reset() forgets what it has seen, for when a drag starts.
+ * A move is one turn at most, whether x turns on it, or y, or both: a diagonal shake at 45 degrees turns both at once,
+ * and needs as many reversals as a straight one. Two axes that turn on two moves, one after the other (a diagonal at
+ * another angle, a shaky hand), are two turns. Then it counts afresh. reset() forgets what it has seen, for when a drag
+ * starts.
  */
 export function createShakeDetector({ turns = 4, withinMs = 1000, step = 24 } = {}) {
   const horizontal = createAxis(step);
@@ -96,11 +99,11 @@ export function createShakeDetector({ turns = 4, withinMs = 1000, step = 24 } = 
   return {
     feed(x, y, t) {
       if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(t)) return false;
-      // Each axis sees every move, whether the other has just turned or not.
-      let done = false;
-      if (horizontal.feed(x) && count.add(t)) done = true;
-      if (vertical.feed(y) && count.add(t)) done = true;
-      return done;
+      // Each axis sees every move, whether the other has just turned or not: so both are fed before anything is decided.
+      const horizontalTurn = horizontal.feed(x);
+      const verticalTurn = vertical.feed(y);
+      // And a move is one turn, whichever of them turned on it, or both.
+      return (horizontalTurn || verticalTurn) && count.add(t);
     },
     reset() {
       horizontal.reset();

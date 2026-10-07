@@ -62,6 +62,12 @@ const wagging = (strokes, length, axis = 'x') => Array.from({ length: strokes + 
   return axis === 'x' ? [at, 300] : [300, at];
 });
 
+/** The route of a hand wagging along a diagonal: `strokes` strokes of `length` points on each axis, there and back in turn. */
+const diagonally = (strokes, length, [dx, dy]) => Array.from({ length: strokes + 1 }, (_, i) => [
+  300 + (i % 2) * dx * length,
+  300 + (i % 2) * dy * length,
+]);
+
 /** How often the pointer changes direction from one event to the next, however little: what a plain detector would count. */
 function reversals(events, axis = 'x') {
   let last = 0;
@@ -133,7 +139,7 @@ test('turns more than 1.5 s apart do not add up: a slow rub, or one that stops i
   assert.deepStrictEqual(petted(slow.events), []);
   // The same strokes at the hand's usual pace do count (seven turns: at the third and at the sixth): it is only the pace.
   assert.strictEqual(petted(hand(across(...rubbing(8, 60)), { jitter: 1 }).events).length, 2);
-  // Two quick turns, then the hand stops for 1.6 s, and the third turn comes after: first to last it is more than 1.5 s.
+  // One turn, then the hand stops for 1.6 s, and the second and third turns come after it: first to last, more than 1.5 s.
   const stops = hand(across(100, 160, 100, { rest: 1600 }, 160, 100));
   assert.deepStrictEqual(petted(stops.events), []);
 });
@@ -238,7 +244,8 @@ test('the number of turns, the time they must fall in and the step can be set', 
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Shaking: the pointer dragged back and forth, on either axis. 4 turns within 1 s, each after at least 24 points.
+// Shaking: the pointer dragged back and forth, on either axis. 4 turns within 1 s, each after at least 24 points. A move is
+// one turn at most, whichever axis turns on it, or both.
 
 test('shaking from side to side is shaking: it says so at the fourth turn, once', () => {
   // Five strokes of 120 points, 15 points between events 16 ms apart, 4 points of jitter: right, left, right, left, right.
@@ -249,11 +256,23 @@ test('shaking from side to side is shaking: it says so at the fourth turn, once'
   assert.ok(done[0] <= reached[4] + 5, 'and then at once: within a few events');
 });
 
-test('shaking up and down is shaking, and so is a diagonal shake', () => {
+test('shaking up and down is shaking', () => {
   const vertical = hand(wagging(5, 120, 'y'), { speed: 15, jitter: 4 });
   assert.strictEqual(shaken(vertical.events).length, 1);
-  const diagonal = hand([[300, 300], [420, 420], [300, 300], [420, 420], [300, 300], [420, 420]], { speed: 20, jitter: 4 });
-  assert.ok(shaken(diagonal.events).length >= 1);
+});
+
+test('a steady diagonal shake at 45 degrees is shaking, and needs four reversals like any other: three are not enough', () => {
+  // The pointer reverses on both axes on the same move, and that is one turn, not two. 120 points on each axis, 20 points
+  // along the diagonal between events, in each of the four diagonal directions.
+  for (const direction of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    const why = `diagonal ${direction}`;
+    const options = { speed: 20, jitter: 0 };
+    const four = hand(diagonally(5, 120, direction), options); // away, back, away, back, away: four reversals
+    const done = shaken(four.events);
+    assert.strictEqual(done.length, 1, why);
+    assert.ok(done[0] > four.reached[4] && done[0] <= four.reached[4] + 5, `${why}: at the fourth reversal, not before`);
+    assert.deepStrictEqual(shaken(hand(diagonally(4, 120, direction), options).events), [], `${why}: three reversals`);
+  }
 });
 
 test('a turn on either axis counts: two turns on x and two on y make four', () => {
@@ -334,14 +353,22 @@ test('after it says so it counts afresh: nine strokes are eight turns, so twice'
   assert.strictEqual(shaken(hand(wagging(8, 120), { speed: 15, jitter: 4 }).events).length, 1, 'seven turns: once');
 });
 
-test('a turn on both axes at once is two turns, and neither axis misses the move that completes the gesture', () => {
+test('a turn on both axes at once is one turn, not two: the fourth turn of a diagonal shake is its fourth reversal', () => {
   // The pointer goes down and to the right and back, again and again. After the first move away, every move is a turn on
-  // both axes at once. Three turns make a shake here. The move back is two turns; the move away after it is the third
-  // (x), so a shake, and the first of a new count (y); the move back after that is the second (x) and the third (y):
-  // a shake again, but only if y saw the move on which x completed the first one.
-  const shake = createShakeDetector({ turns: 3 });
-  const moves = [[0, 0, 0], [50, 50, 100], [0, 0, 200], [50, 50, 300], [0, 0, 400]];
-  assert.deepStrictEqual(moves.map(([x, y, t]) => shake.feed(x, y, t)), [false, false, false, true, true]);
+  // both axes at once: the turns are at 200, 300, 400 and 500, so the shake is at 500, and not at 300.
+  const shake = createShakeDetector();
+  const moves = [[0, 0, 0], [50, 50, 100], [0, 0, 200], [50, 50, 300], [0, 0, 400], [50, 50, 500]];
+  assert.deepStrictEqual(moves.map(([x, y, t]) => shake.feed(x, y, t)), [false, false, false, false, false, true]);
+});
+
+test('neither axis misses a move on which the other turns: a turn on one axis alone still counts after a turn on both', () => {
+  // Away on both axes and back on both (the first turn), then a turn on one axis alone (the second). The axis that turns
+  // there only sees it if it saw the move before, on which the other axis turned too.
+  for (const [alone, last] of [['y', [0, 50, 300]], ['x', [50, 0, 300]]]) {
+    const shake = createShakeDetector({ turns: 2 });
+    const moves = [[0, 0, 0], [50, 50, 100], [0, 0, 200], last];
+    assert.deepStrictEqual(moves.map(([x, y, t]) => shake.feed(x, y, t)), [false, false, false, true], `then ${alone} alone`);
+  }
 });
 
 test('shake turns are timed by the event that shows them: four within 1000 ms count; a ms more does not', () => {

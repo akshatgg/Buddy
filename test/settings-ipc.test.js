@@ -930,6 +930,27 @@ test('a shortcut that is taken while paused is refused, and resume puts the old 
   assert.strictEqual(s.store.get('shortcut'), 'Alt+Space');
 });
 
+test('shortcut:resume logs it when another app took the saved shortcut during the pause, and still answers ok', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const s = setup({ buddyOn: true, registered: null, taken: ['Alt+Space'] });
+  assert.deepStrictEqual(await s.call('shortcut:resume'), { ok: true });
+  assert.deepStrictEqual(s.calls, [['register', 'Alt+Space']]);
+  assert.strictEqual(s.shortcutNow(), null, 'it could not be taken back');
+  assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments), [['[buddy] could not take the shortcut back']]);
+  s.ipc.resumeShortcut(); // the main process asks the same way, when Settings closes
+  assert.strictEqual(warn.mock.callCount(), 2);
+});
+
+test('shortcut:resume says nothing when the shortcut is back, was never let go, or Buddy is off', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  await setup({ buddyOn: true, registered: null }).call('shortcut:resume');
+  await setup({ buddyOn: true }).call('shortcut:resume');
+  const off = setup({ buddyOn: false, registered: null, taken: ['Alt+Space'] });
+  await off.call('shortcut:resume');
+  assert.deepStrictEqual(off.calls, [], 'Buddy is off: no attempt, so nothing failed');
+  assert.strictEqual(warn.mock.callCount(), 0);
+});
+
 test("the snapshot carries the person's photo and the app's version", async () => {
   const r = await setup().call('settings:get');
   assert.strictEqual(r.account.photo, 'https://lh3.googleusercontent.com/a/rahul');

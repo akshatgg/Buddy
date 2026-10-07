@@ -114,8 +114,14 @@ test('a rotated refresh token is kept; two calls at once share one renewal; forc
   assert.deepStrictEqual(both, ['id-r1', 'id-r1']);
   assert.strictEqual(s.refreshes.length, 1);
   assert.strictEqual(JSON.parse(fs.readFileSync(s.file, 'utf8')).refreshToken, Buffer.from('enc:refresh-r1').toString('base64'));
+  // Keeping the new refresh token writes the account file again: it must not lose the photo (or who the person is).
+  const photo = 'https://lh3.googleusercontent.com/a/photo';
+  assert.strictEqual(JSON.parse(fs.readFileSync(s.file, 'utf8')).photo, photo, 'on disk');
+  assert.deepStrictEqual(s.account.user(), { uid: 'uid-1', email: 'rahul@gmail.com', name: 'Rahul', photo }, 'and in the account');
   assert.strictEqual(await s.account.idToken({ force: true }), 'id-r2');
   assert.strictEqual(s.refreshes[1].refreshToken, 'refresh-r1');
+  assert.strictEqual(JSON.parse(fs.readFileSync(s.file, 'utf8')).photo, photo, 'and after the next rotation too');
+  assert.strictEqual(s.account.user().photo, photo);
 });
 
 test('a refresh token Firebase no longer takes signs the person out', async (t) => {

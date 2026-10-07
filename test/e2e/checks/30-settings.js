@@ -138,6 +138,28 @@ async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
   assert.match(await page("document.getElementById('version').textContent"), /^Buddy \S/);
 }
 
+// Settings goes away while the Shortcut box is waiting for keys, with Buddy's own shortcut let go. A page that is on its
+// way out may never get to give it back (its call can arrive after the window is gone, and then it is refused), so
+// Buddy's main process takes the saved shortcut back once the window has closed. The window is destroyed here, not
+// closed: a closing window lets its page run a little longer, and the page gives the shortcut back itself when it loses
+// the focus, which would hide whether the main process does it too. This step ends with the Settings window gone.
+async function closingWhileRecordingCheck(ctx, win, { assert, waitFor }) {
+  const page = (script) => win.webContents.executeJavaScript(script);
+  const registered = () => [...ctx.globalShortcut.registered.keys()];
+
+  await page(`document.querySelector('.nav-item[data-section="shortcut"]').click()`); // a recording stops when the section is left
+  assert.deepStrictEqual(registered(), ['Alt+Space'], 'the saved shortcut is registered before recording');
+  await page("document.getElementById('shortcut').click()");
+  assert.strictEqual(await page("document.getElementById('shortcut').classList.contains('recording')"), true, 'the box waits for keys');
+  await waitFor(() => registered().length === 0, 'the shortcut to be let go while recording');
+
+  win.destroy();
+  await waitFor(() => win.isDestroyed(), 'the Settings window to be gone');
+  await waitFor(() => registered().length === 1, 'the saved shortcut to be registered again once Settings has closed');
+  assert.deepStrictEqual(registered(), ['Alt+Space'], 'the shortcut that was saved is the one that came back');
+  assert.strictEqual(ctx.store.get('shortcut'), 'Alt+Space', 'and nothing was saved meanwhile');
+}
+
 module.exports = async function settingsCheck(ctx, { assert, waitFor }) {
   const win = ctx.windows.open('settings');
   await waitFor(
@@ -163,8 +185,5 @@ module.exports = async function settingsCheck(ctx, { assert, waitFor }) {
 
   await aiFormCheck(ctx, win, { assert, waitFor });
   await sectionsAndShortcutCheck(ctx, win, { assert, waitFor });
-
-  win.close();
-  // A window that is closing still counts as open, so wait for it to be gone: the next check may open Settings again.
-  await waitFor(() => win.isDestroyed(), 'the Settings window to close');
+  await closingWhileRecordingCheck(ctx, win, { assert, waitFor }); // and the window is gone: the next check may open Settings again
 };

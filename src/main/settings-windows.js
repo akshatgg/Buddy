@@ -18,7 +18,8 @@ function createSettingsWindows({ app, BrowserWindow = require('electron').Browse
   const alive = (win) => win && !win.isDestroyed();
 
   return {
-    open(kind, { section } = {}) {
+    open(kind, options) {
+      const { section } = options || {}; // no options, or null, is no section
       if (alive(windows[kind])) {
         // As when it first opens: Buddy has no Dock icon, so the app must come forward too or the window stays behind.
         app.focus({ steal: true });

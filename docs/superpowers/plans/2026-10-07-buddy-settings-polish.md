@@ -123,6 +123,78 @@ test('symbols: any saved accelerator becomes key caps in the Mac order', () => {
   assert.deepStrictEqual(symbols(''), []);
   assert.deepStrictEqual(symbols(undefined), []);
 });
+
+// Electron takes an accelerator in any case ("cmd+shift+b" is as good as "Command+Shift+B"), and before the recorder the
+// Shortcut box was free text, so what was saved is whatever its owner typed.
+test('symbols: a shortcut saved in any case, or with Super or Meta, shows all of its keys', () => {
+  for (const [accelerator, keys] of [
+    ['alt+space', ['⌥', 'Space']],
+    ['cmd+shift+b', ['⇧', '⌘', 'B']],
+    ['CTRL+ALT+X', ['⌃', '⌥', 'X']],
+    ['ctrl+alt+x', ['⌃', '⌥', 'X']],
+    ['Super+B', ['⌘', 'B']],
+    ['Meta+B', ['⌘', 'B']],
+    ['Meta+Return', ['⌘', '↩']],
+    ['control+up', ['⌃', '↑']],
+    ['f12', ['F12']],
+    ['SHIFT+COMMAND+b', ['⇧', '⌘', 'B']],
+    ['commandorcontrol+Option+enter', ['⌥', '⌘', '↩']],
+    ['CmdOrCtrl+ESC', ['⌘', 'Esc']],
+    ['altgr+TAB', ['⌥', '⇥']],
+    ['ctrl+backspace', ['⌃', '⌫']],
+    ['Command+DELETE', ['⌘', '⌦']],
+    ['alt+Down', ['⌥', '↓']],
+    ['alt+LEFT', ['⌥', '←']],
+    ['alt+right', ['⌥', '→']],
+    ['SUPER+SPACE', ['⌘', 'Space']],
+    ['meta+f1', ['⌘', 'F1']],
+    ['META+F24', ['⌘', 'F24']],
+    ['  cmd + shift + b ', ['⇧', '⌘', 'B']],
+  ]) {
+    assert.deepStrictEqual(symbols(accelerator), keys, accelerator);
+  }
+});
+
+test('symbols: every spelling of a modifier, in every case, is that modifier', () => {
+  for (const [spellings, cap] of [
+    [['command', 'cmd', 'commandorcontrol', 'cmdorctrl', 'super', 'meta'], '⌘'],
+    [['control', 'ctrl'], '⌃'],
+    [['alt', 'option', 'altgr'], '⌥'],
+    [['shift'], '⇧'],
+  ]) {
+    for (const spelling of spellings) {
+      const title = spelling[0].toUpperCase() + spelling.slice(1);
+      for (const written of [spelling, spelling.toUpperCase(), title]) {
+        assert.deepStrictEqual(symbols(`${written}+K`), [cap, 'K'], written);
+      }
+    }
+  }
+});
+
+test('symbols: every key the recorder can make shows the same in lower and upper case', () => {
+  const codes = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map((letter) => `Key${letter}`)
+    .concat([...'0123456789'].map((digit) => `Digit${digit}`))
+    .concat(Array.from({ length: 24 }, (_, i) => `F${i + 1}`))
+    .concat(['Space', 'Enter', 'Tab', 'Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+      'Minus', 'Equal', 'BracketLeft', 'BracketRight', 'Backslash', 'Semicolon', 'Quote', 'Comma', 'Period', 'Slash', 'Backquote']);
+  for (const code of codes) {
+    const key = keyFor(code);
+    const caps = symbols(`Control+Alt+Shift+Command+${key}`);
+    assert.deepStrictEqual(caps.slice(0, 4), ['⌃', '⌥', '⇧', '⌘'], code);
+    assert.strictEqual(caps.length, 5, code);
+    assert.deepStrictEqual(symbols(`control+alt+shift+command+${key.toLowerCase()}`), caps, `${code} in lower case`);
+    assert.deepStrictEqual(symbols(`CONTROL+ALT+SHIFT+COMMAND+${key.toUpperCase()}`), caps, `${code} in upper case`);
+  }
+});
+
+test('symbols: names it has no key cap for are shown as written, and no object property counts as a name it knows', () => {
+  assert.deepStrictEqual(symbols('Command+PageUp'), ['⌘', 'PageUp']);
+  assert.deepStrictEqual(symbols('Command+constructor'), ['⌘', 'constructor']);
+  assert.deepStrictEqual(symbols('Command+toString'), ['⌘', 'toString']);
+  assert.deepStrictEqual(symbols('constructor+B'), ['B'], 'a word that is no modifier is no modifier, whatever an object has by that name');
+  assert.deepStrictEqual(symbols('__proto__+B'), ['B']);
+  assert.deepStrictEqual(symbols('Command+F25'), ['⌘', 'F25'], 'there is no F25');
+});
 ```
 
 Run: `node --test test/shortcut-keys.test.js` — Expected: FAIL (`Cannot find module '../src/renderer/common/shortcut-keys'`).
@@ -157,13 +229,19 @@ const ShortcutKeys = (() => {
     Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Semicolon: ';', Quote: "'",
     Comma: ',', Period: '.', Slash: '/', Backquote: '`',
   };
+  // Electron ignores case in an accelerator ("cmd+shift+b" works), and a shortcut typed into the old Shortcut box is
+  // saved as it was typed. So the two tables below are in lower case, and a word is looked up in lower case.
+  // How a key looks on its key cap (Enter is another name for Return, Esc for Escape).
   const KEY_SYMBOL = {
-    Return: '↩', Tab: '⇥', Backspace: '⌫', Delete: '⌦', Up: '↑', Down: '↓', Left: '←', Right: '→', Escape: 'Esc',
+    return: '↩', enter: '↩', tab: '⇥', backspace: '⌫', delete: '⌦', up: '↑', down: '↓', left: '←', right: '→',
+    escape: 'Esc', esc: 'Esc', space: 'Space',
   };
-  // Other spellings Electron accepts for the same modifier (and Enter for Return).
-  const ALIASES = {
-    Cmd: 'Command', CommandOrControl: 'Command', CmdOrCtrl: 'Command', Ctrl: 'Control', Option: 'Alt', AltGr: 'Alt',
-    Enter: 'Return',
+  // Every spelling Electron takes for a modifier, and the name used for it above (Super and Meta are ⌘ on a Mac).
+  const MODIFIER_SPELLING = {
+    control: 'Control', ctrl: 'Control',
+    alt: 'Alt', option: 'Alt', altgr: 'Alt',
+    shift: 'Shift',
+    command: 'Command', cmd: 'Command', commandorcontrol: 'Command', cmdorctrl: 'Command', super: 'Command', meta: 'Command',
   };
 
   /** The accelerator's name for a key (KeyboardEvent.code), or null for a key a shortcut cannot use. */
@@ -178,15 +256,29 @@ const ShortcutKeys = (() => {
     return Object.hasOwn(NAMED, text) ? NAMED[text] : null;
   }
 
-  /** The key caps for an accelerator: "Shift+Command+B" -> ['⇧', '⌘', 'B']. */
+  /** The modifier a word of an accelerator stands for ("cmd" -> "Command"), or null when it is none. */
+  function modifierNamed(word) {
+    const spelling = word.toLowerCase();
+    return Object.hasOwn(MODIFIER_SPELLING, spelling) ? MODIFIER_SPELLING[spelling] : null;
+  }
+
+  /** How a key looks on its key cap: Return is ↩, f12 is F12, b is B. A key with no cap of its own is left as it was written. */
+  function keyCap(key) {
+    const spelling = key.toLowerCase();
+    if (Object.hasOwn(KEY_SYMBOL, spelling)) return KEY_SYMBOL[spelling];
+    const functionKey = /^f([1-9]|1[0-9]|2[0-4])$/.exec(spelling);
+    if (functionKey) return `F${functionKey[1]}`;
+    return key.length === 1 ? key.toUpperCase() : key;
+  }
+
+  /** The key caps for an accelerator, however it is spelled: "Shift+Command+B" and "cmd+shift+b" are both ['⇧', '⌘', 'B']. */
   function symbols(accelerator) {
-    const parts = String(accelerator || '').split('+').map((p) => p.trim()).filter(Boolean)
-      .map((p) => (Object.hasOwn(ALIASES, p) ? ALIASES[p] : p));
-    const key = parts.pop();
+    const words = String(accelerator || '').split('+').map((w) => w.trim()).filter(Boolean);
+    const key = words.pop();
     if (!key) return [];
-    const mods = MODIFIERS.filter((m) => parts.includes(m.name)).map((m) => m.symbol);
-    const shown = Object.hasOwn(KEY_SYMBOL, key) ? KEY_SYMBOL[key] : (key.length === 1 ? key.toUpperCase() : key);
-    return [...mods, shown];
+    const named = words.map(modifierNamed);
+    const mods = MODIFIERS.filter((m) => named.includes(m.name)).map((m) => m.symbol);
+    return [...mods, keyCap(key)];
   }
 
   /**

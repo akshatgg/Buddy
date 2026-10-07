@@ -200,3 +200,15 @@ test('onClosed hears which kind of window closed', () => {
   win.handlers.closed();
   assert.deepStrictEqual(heard, ['settings']);
 });
+
+test('no options, null or empty options all mean no section, for a new window and for one that is open', () => {
+  const { windows, created } = setup();
+  for (const options of [undefined, null, {}, { section: undefined }, { section: '' }]) {
+    const first = windows.open('settings', options);
+    assert.strictEqual(first.loadOptions, undefined, `new window, ${JSON.stringify(options)}`);
+    assert.doesNotThrow(() => windows.open('settings', options), `open window, ${JSON.stringify(options)}`);
+    assert.deepStrictEqual(first.sent, [], `nothing sent, ${JSON.stringify(options)}`);
+    windows.close('settings');
+  }
+  assert.strictEqual(created.length, 5, 'each round opened a window of its own');
+});

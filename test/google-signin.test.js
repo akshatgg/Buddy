@@ -295,7 +295,7 @@ test('the errors that sign-in shares with the account are in plain words', () =>
   assert.deepStrictEqual([signedOut().code, signedOut().message], ['signed_out', 'Sign in to use Buddy.']);
 });
 
-test('the photo is kept only when it is an https address', async () => {
+test('the photo is kept only when it is an https address', NO_HANG, async () => {
   for (const [photoUrl, photo] of [['http://example.com/p.jpg', ''], ['javascript:alert(1)', ''], [undefined, ''], [42, '']]) {
     const fetchImpl = googleFetch({
       [GOOGLE_TOKEN]: { body: { id_token: 'google-id' } },

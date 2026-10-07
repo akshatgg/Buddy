@@ -238,10 +238,14 @@ function registerSettingsIpc({
     onFinishOnboarding();
   });
 
-  /** The saved shortcut, registered again while Buddy is on (after a recording, or when Settings closes). */
+  /**
+   * The saved shortcut, registered again while Buddy is on (after a recording, or when Settings closes). If another app
+   * took it while it was let go, that is logged (as main.js does when Buddy starts) and nothing else happens.
+   */
   function resumeShortcut() {
     const saved = store.get('shortcut');
-    if (power.isOn() && shortcut.current() !== saved) shortcut.register(saved);
+    if (!power.isOn() || shortcut.current() === saved) return;
+    if (!shortcut.register(saved)) console.warn('[buddy] could not take the shortcut back');
   }
 
   // While the Settings page records a new shortcut, Buddy lets go of its own, so that pressing the current one is

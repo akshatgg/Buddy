@@ -6,6 +6,7 @@
  * answer says -- read their text box or look at their screen and ask again, put the text in the app they came from
  * (or on the clipboard when that is not possible), remember something about them, or offer to send. The panel holds
  * the keyboard focus while it is open, so it steps aside whenever the helper has to read from or type into that app.
+ * When the person hides the panel while Buddy is thinking, Buddy does nothing in their app: the answer waits in the chat.
  *
  * The chat lives here, not in the page: after every change the whole panel state goes to the page (ui.panelState),
  * which only draws it and sends back what the person types and the buttons they press. The state and its items are
@@ -90,13 +91,13 @@ function createActions({
 
   /**
    * A chat: the app it is about, its items, the selection the next message uses, the notice about that selection, and
-   * whether the buddy is waiting for the AI (`busy`, which the page shows) or still working on a message at all
-   * (`talking`, until what the answer says is done). `lastPut` is the buddy item Buddy last put in the app, which a new
+   * whether the buddy is waiting for the AI (`busy`, which the page shows) or still working on messages at all
+   * (`talking`, how many, until what each answer says is done). `lastPut` is the buddy item Buddy last put in the app, which a new
    * version of it replaces. `live` once the panel has opened on it; `resumed` when an opening came back to it.
    */
   function newChat(app = null) {
     return {
-      app, items: [], nextId: 1, selection: '', notice: '', busy: false, talking: false, lastPut: null, resumed: false, live: false,
+      app, items: [], nextId: 1, selection: '', notice: '', busy: false, talking: 0, lastPut: null, resumed: false, live: false,
     };
   }
 
@@ -105,7 +106,7 @@ function createActions({
    * buddy stops thinking about it now, since that answer leaves the mood alone (talk()).
    */
   function replaceChat(next) {
-    if (chat.talking) ui.mood('idle');
+    if (chat.talking > 0) ui.mood('idle');
     chat = next;
   }
 
@@ -446,7 +447,7 @@ function createActions({
     }
     ui.mood('thinking');
     c.busy = true;
-    c.talking = true;
+    c.talking += 1;
     push(c);
     try {
       const answered = await answer(c, you);
@@ -466,7 +467,7 @@ function createActions({
       failed(c, err, you);
     } finally {
       c.busy = false;
-      c.talking = false;
+      c.talking -= 1;
       push(c);
     }
   }

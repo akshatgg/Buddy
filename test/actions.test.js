@@ -1344,6 +1344,33 @@ test('a new chat in place of one still thinking (opened from another app) ends t
   assert.deepStrictEqual(moods(s.log), ['thinking', 'idle']);
 });
 
+test('a second message sent while the first one\'s "Send it?" comes back: closing the chat still ends the thinking', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let shown = 0;
+  let answer;
+  const first = [reply({ text: 'See you.', doIt: true, send: true })];
+  const s = setup({
+    windows: true,
+    replies: { focusWindow: () => { shown += 1; return shown === 2 ? gate.then(() => ({})) : {}; } },
+    ask: () => (first.length
+      ? Promise.resolve({ text: '', chat: first.shift() })
+      : new Promise((resolve) => { answer = () => resolve({ text: '', chat: reply({ text: 'Hi' }) }); })),
+  });
+  await s.actions.open();
+  const one = s.actions.send('reply see you and send it');
+  while (shown < 2) await new Promise(setImmediate); // the panel is coming back with "Send it?"
+  const two = s.actions.send('and say hi');
+  await new Promise(setImmediate);
+  release();
+  await one;
+  await s.actions.dismiss();
+  assert.strictEqual(moods(s.log).at(-1), 'idle', 'the second message was still thinking');
+  answer();
+  await two;
+  assert.strictEqual(moods(s.log).at(-1), 'idle');
+});
+
 test('closing a chat that is not thinking leaves the mood as it is', async () => {
   const s = setup();
   await s.actions.open();

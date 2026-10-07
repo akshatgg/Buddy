@@ -19,8 +19,12 @@ let snap = null;
 let gridBuilt = false;
 let signingIn = 0; // sign-ins that wait for the browser: pressing the button again starts a newer one
 let recording = false; // the Shortcut box is waiting for keys
+let blurEnd = null; // the timer that ends a recording BLUR_GRACE_MS after the window loses the focus
 let loadFailed = false; // the settings could not be loaded: the page only says why
 const FADE_AFTER_MS = 3000; // how long a success ("Saved ✓") is shown before it fades
+// A recording does not end the moment the window loses the focus, but this long after: with "Press 🌐 key to: Show Emoji
+// & Symbols", tapping fn opens the emoji picker, which takes the focus before the tap has reached the page.
+const BLUR_GRACE_MS = 1000;
 const fading = new Map(); // a status line's id -> the timer that fades its success
 
 /**
@@ -218,8 +222,15 @@ async function renderPermissions() {
 
 // ---- the shortcut recorder ----
 
+/** Do not end the recording for the focus the window lost: it has the focus back, or the recording is over anyway. */
+function cancelBlurEnd() {
+  clearTimeout(blurEnd);
+  blurEnd = null;
+}
+
 async function startRecording() {
   if (recording) return;
+  cancelBlurEnd();
   recording = true;
   $('shortcut').classList.remove('save-failed');
   $('shortcut').classList.add('recording');
@@ -232,6 +243,7 @@ async function startRecording() {
 
 /** Stop waiting for keys and keep the saved shortcut. A key refused while it waited no longer matters, so its line goes. */
 async function stopRecording() {
+  cancelBlurEnd();
   if (!recording) return;
   recording = false;
   $('shortcut').classList.remove('recording');
@@ -241,6 +253,7 @@ async function stopRecording() {
 }
 
 async function saveShortcut(accelerator) {
+  cancelBlurEnd();
   recording = false;
   $('shortcut').classList.remove('recording', 'save-failed');
   showKeys(accelerator);
@@ -299,7 +312,13 @@ $('shortcut-reset').addEventListener('click', () => {
   }
   saveShortcut(DEFAULT_SHORTCUT);
 });
-window.addEventListener('blur', () => { stopRecording(); });
+// The window losing the focus ends a recording too, a moment later: a key tapped just then (fn, when macOS opens its emoji
+// picker) is still saved. The window getting the focus back keeps the recording (the focus handler below).
+window.addEventListener('blur', () => {
+  if (!recording) return;
+  cancelBlurEnd();
+  blurEnd = setTimeout(stopRecording, BLUR_GRACE_MS);
+});
 
 // ---- account, buddy, power, permissions ----
 
@@ -357,6 +376,7 @@ for (const which of ['accessibility', 'screenRecording']) {
 // Coming back to this window: System Settings may have changed the permissions, and the account may have changed
 // behind this page's back. Show what changed; what is being typed stays, and a waiting sign-in answers by itself.
 window.addEventListener('focus', async () => {
+  cancelBlurEnd();
   renderPermissions();
   if (signingIn || !snap?.ok) return;
   const fresh = await window.buddy.get();

@@ -67,7 +67,8 @@ const SECTIONS_SHOWN = `({
 
 // The sidebar moves between the sections. The Shortcut box records the keys pressed and saves them at once; while it
 // waits for them, Buddy lets go of its global shortcut (the fake one in ctx.globalShortcut), and takes the saved one
-// back when the waiting ends: saved, refused, Esc, another section chosen, or the window losing the focus. The
+// back when the waiting ends: saved, refused, Esc, another section chosen, or the window losing the focus (a second
+// after, so that a key tapped just then is still saved: fn, when macOS opens its emoji picker). The
 // modifiers held show as key caps and follow the keys; a key that can't be used says why and the box goes on waiting;
 // a shortcut another app owns (⌃⌘K, in the fake) is refused and the old one kept. Esc cancels, and Reset puts back
 // ⌥ Space. A key tapped on its own is heard by the Mac helper (the fake one in ctx.helper, which the check makes report
@@ -332,13 +333,49 @@ async function sectionsAndShortcutCheck(ctx, win, { assert, delay, waitFor }) {
   assert.deepStrictEqual(registered(), ['Alt+Space'], 'and its shortcut is taken again');
   await waitFor(() => ctx.buddy.isVisible(), 'the buddy to be back');
 
-  // The window losing the focus ends a recording too, and the shortcut is given back.
+  // The window losing the focus ends a recording too (a second later), and the shortcut is given back.
   await page(`document.querySelector('.nav-item[data-section="shortcut"]').click()`);
   await page("document.getElementById('shortcut').click()");
   await waitFor(() => registered().length === 0, 'the shortcut to be let go again');
   await page("window.dispatchEvent(new Event('blur'))");
   await waitFor(() => registered().length === 1, 'the shortcut to be given back when the window loses the focus');
   assert.deepStrictEqual(registered(), ['Alt+Space']);
+  assert.strictEqual(await recording(), false);
+
+  // With "Press 🌐 key to: Show Emoji & Symbols", tapping fn while the box waits opens the emoji picker, which takes the
+  // focus: the window loses it as the tap arrives. A key tapped within the second after the window loses the focus is
+  // still saved (and the picker is left for the person to close; the note says how to stop it from opening).
+  const FN_NOTE = `${TAP_NOTE} If fn also opens emoji or dictation, set “Press 🌐 key to” to “Do Nothing” in System Settings → Keyboard.`;
+  await page("document.getElementById('shortcut').click()");
+  await waitFor(() => registered().length === 0 && ctx.helper.watching === true, 'the helper to listen while the box waits');
+  await page("window.dispatchEvent(new Event('blur'))");
+  assert.strictEqual(await recording(), true, 'the box still waits the moment the window loses the focus');
+  keys(change(63, 0x800000, 20000), change(63, 0, 20080)); // fn tapped, at once
+  await waitFor(() => ctx.store.get('shortcut') === 'Tap:Fn', 'fn, tapped as the window lost the focus, to be saved');
+  await waitFor(async () => (await status()) === 'Saved ✓', 'the Shortcut box to say it is saved');
+  assert.deepStrictEqual(await caps(), ['fn']);
+  assert.strictEqual(await recording(), false);
+  await waitFor(async () => (await note()) === FN_NOTE, 'the fn note under the box');
+  // The recording is over: the focus coming back, or the second running out, ends nothing and changes nothing.
+  await delay(1200);
+  assert.strictEqual(ctx.store.get('shortcut'), 'Tap:Fn');
+  assert.strictEqual(ctx.shortcut.current(), 'Tap:Fn', 'the saved shortcut is the one that is taken');
+  // Put back what the checks after this one expect: ⌥ Space, and the helper not listening.
+  await page("document.getElementById('shortcut-reset').click()");
+  await waitFor(() => ctx.store.get('shortcut') === 'Alt+Space', 'the default shortcut to be saved');
+  await waitFor(() => ctx.helper.watching === false && registered().length === 1, 'the helper to stop listening, and ⌥ Space to be registered');
+  assert.deepStrictEqual(registered(), ['Alt+Space']);
+
+  // A window that gets the focus back within that second keeps recording: nothing ends it.
+  await page("document.getElementById('shortcut').click()");
+  await waitFor(() => registered().length === 0, 'the shortcut to be let go again');
+  await page("window.dispatchEvent(new Event('blur'))");
+  await page("window.dispatchEvent(new Event('focus'))");
+  await delay(1300);
+  assert.strictEqual(await recording(), true, 'the box still waits: the window had the focus back');
+  assert.deepStrictEqual(registered(), [], 'and the shortcut is still let go');
+  await press({ code: 'Escape', key: 'Escape' });
+  await waitFor(() => registered().length === 1, 'the saved shortcut to be registered again');
   assert.strictEqual(await recording(), false);
 }
 

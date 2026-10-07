@@ -44,10 +44,11 @@ history of answers.
   no internet or an error), **wave** (hello: smile and a little head wiggle, since there are no arms),
   **wobble** (while dragged).
 - Drag it anywhere; on release it glides to the nearest left or right edge. The position is remembered.
-- Tap it: the panel opens. Drag it onto the ✕ that appears at the bottom while dragging: Buddy hides until it is
-  turned on again (from the notification or the app).
+- Tap it: the panel opens. Drag it onto the ✕ that appears at the bottom while dragging: Buddy turns off (as
+  *Turn off* does) until it is turned on again in the app.
 - A short speech bubble beside the head for status lines ("Copied — long-press the box and tap Paste").
-- While it is on, Android shows Buddy's notification ("Buddy is on" · Hide · Turn off), as every always-on app must.
+- While it is on, Android shows Buddy's notification ("Buddy is on" · Turn off; a tap opens Settings), as every
+  always-on app must.
 
 ### The panel
 
@@ -116,7 +117,7 @@ Kotlin, Jetpack Compose, Android 8.0 (API 26) and up, target API 36. In `android
 | `ai/Router` | the routing table; calls `CloudClient` or a provider |
 | `ai/providers/*` | Anthropic, OpenAI, Groq, Gemini: `complete()`, `listModels()`, `isVisionModel()` — ports of `shared/providers` |
 | `ai/Prompts` | reads `shared.json`; `buildPrompt()`, `parseCheck()` |
-| `store/Settings`, `store/Secrets` | settings (DataStore); keys and the refresh token encrypted with an Android Keystore AES key |
+| `store/AppSettings`, `store/Secrets` | settings (SharedPreferences); keys and the refresh token encrypted with an Android Keystore AES key |
 | `BootReceiver` | starts Buddy after a restart when it is on |
 
 The `.glb` files are copied from `assets/buddies/` into the APK's assets by a Gradle task at build time, so the Mac

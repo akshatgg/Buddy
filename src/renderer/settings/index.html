@@ -76,6 +76,7 @@
     </section>
     <section id="section-permissions" class="section" hidden>
       <h1>Permissions</h1>
+      <p id="perm-updated" class="note" hidden>Buddy was updated, and macOS asks for Accessibility again after an update. Click Allow, then switch Buddy on in System Settings.</p>
       <div class="group">
         <div class="group-row">
           <div class="grow">
@@ -107,16 +108,37 @@
           <input id="power" class="switch" type="checkbox" role="switch" aria-label="Always on">
         </div>
         <div class="group-row">
-          <p class="grow row-title">Version</p>
+          <div class="grow">
+            <p class="row-title">Version</p>
+            <p id="update-line" class="small muted" aria-live="polite"></p>
+          </div>
           <span id="version" class="muted"></span>
+          <button id="update-check" class="btn small" type="button">Check now</button>
+        </div>
+        <div id="update-row" class="group-row" hidden>
+          <div class="grow">
+            <p id="update-title" class="row-title"></p>
+            <p id="update-detail" class="muted small" aria-live="polite"></p>
+          </div>
+          <button id="update-notes" class="btn quiet small" type="button">What's new</button>
+          <button id="update-now" class="btn primary small" type="button">Update now</button>
+        </div>
+        <div class="group-row">
+          <div class="grow">
+            <p class="row-title">Check for updates automatically</p>
+            <p class="muted small">When Buddy opens, and every hour while it runs.</p>
+          </div>
+          <input id="update-auto" class="switch" type="checkbox" role="switch" aria-label="Check for updates automatically">
         </div>
       </div>
+      <p id="update-status" class="status small" aria-live="polite"></p>
     </section>
   </main>
 </div>
 <script src="../common/buddy-grid.js"></script>
 <script src="../common/ai-form.js"></script>
 <script src="../common/shortcut-keys.js"></script>
+<script src="../common/update-view.js"></script>
 <script src="settings.js"></script>
 </body>
 </html>

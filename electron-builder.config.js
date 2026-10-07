@@ -136,16 +136,21 @@ module.exports = {
 
   nsis: {
     // One click: installs for the person using the PC (no administrator needed), adds Start menu and desktop
-    // shortcuts, then opens Buddy. "Buddy Setup <version>.exe".
+    // shortcuts, then opens Buddy.
     oneClick: true,
     perMachine: false,
     runAfterFinish: true,
     // Uninstalling keeps the settings and keys (in %APPDATA%\Buddy), as deleting Buddy.app does on the Mac.
     deleteAppDataOnUninstall: false,
+    // The same name in every release (no version in it): the website links to releases/latest/download/<name>, and
+    // Update now (src/main/updates.js) looks for it.
+    artifactName: 'Buddy-Setup-${arch}.${ext}',
   },
 
   dmg: {
     title: 'Buddy ${version}',
+    // Buddy-arm64.dmg in every release, for the same reason as the Windows installer's name.
+    artifactName: 'Buddy-${arch}.${ext}',
     contents: [
       { x: 140, y: 200, type: 'file' },
       { x: 400, y: 200, type: 'link', path: '/Applications' },

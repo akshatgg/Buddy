@@ -87,6 +87,16 @@ Run with the installed Buddy.app, signed in with a real Google account. The keys
 - [ ] Sign out at the bottom of the sidebar → "Not signed in", and Sign in with Google in its place; Sign in with Google → finish in the browser → back in Settings, your name, email, photo and Sign out. The button doesn't jump when a line appears under it.
 - [ ] Every window in light and dark mode (System Settings → Appearance): Settings (each section), the Welcome (each step), Admin, the panel (each tab, with an answer and with an error) and the bubble.
 
+## Releases and Update now
+
+- [ ] Pushing a tag `vX.Y.Z` runs Actions → Release; every job is green and the release has `Buddy-arm64.dmg`, `Buddy-Setup-x64.exe`, `latest-mac.yml` and `latest.yml`.
+- [ ] The website's Download for Mac gives `Buddy-arm64.dmg` of that release.
+- [ ] With an older Buddy installed in Applications, opening it shows "Buddy X.Y.Z is available" once; Update now downloads, quits, swaps the app and opens the new one (Settings → General shows the new version).
+- [ ] After that update, Settings opens on Permissions with the "Buddy was updated" note; Allow, switch Buddy on in System Settings, and copy/paste work again.
+- [ ] The menu bar menu shows "Update now (Buddy X.Y.Z)" while a newer version is out, and "Updating… N%" after it is pressed.
+- [ ] Check now with no internet says "Could not reach GitHub…" in plain words; switching off "Check for updates automatically" stops the launch dialog.
+- [ ] Buddy run from the mounted DMG (not Applications) offers Download instead of Update now.
+
 ## Single-key shortcut
 
 - [ ] Settings → Shortcut: click the box and tap Right ⌥ on its own → saved as "Right ⌥", with the note "Tap it on its own to open your buddy: press and let go, with no other key."

@@ -71,3 +71,10 @@ repository root before either (copy it from the Mac). The Mac's list is `docs/ma
 - [ ] Over a full-screen browser window (F11) the buddy still shows.
 - [ ] Light and dark mode (Settings → Personalisation → Colours) both look right (panel, Settings, Welcome, bubble), and the tray icon shows on a dark and on a light taskbar.
 - [ ] Buddy's processes stay at a few % CPU while idle (Task Manager).
+
+## Update now
+
+- [ ] With an older Buddy installed, opening it shows "Buddy X.Y.Z is available"; Update now downloads, Buddy closes, the installer runs silently and Buddy opens again at the new version (Settings → General).
+- [ ] The tray menu shows "Update now (Buddy X.Y.Z)" while a newer version is out.
+- [ ] Quitting Buddy with an update downloaded installs it without opening Buddy again.
+

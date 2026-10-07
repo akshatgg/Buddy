@@ -59,15 +59,17 @@ private fun textOf(intent: Intent): String {
     return runCatching { intent.getCharSequenceExtra(key)?.toString() }.getOrNull().orEmpty()
 }
 
-// Only a selection the app lets Buddy change can be replaced: shared or read-only text can only be copied, and so can
-// text whose read-only flag cannot be read.
-private fun replaceable(intent: Intent) = intent.action == Intent.ACTION_PROCESS_TEXT &&
+// Only a selection the app lets Buddy change can be replaced, and only when the app waits for the fixed text (`waiting`:
+// it started the sheet for a result). Compose's text menu, in Buddy's own boxes and in other apps, starts it without
+// waiting, so Replace would change nothing there. Shared or read-only text can only be copied, and so can text whose
+// read-only flag cannot be read.
+private fun replaceable(intent: Intent, waiting: Boolean) = waiting && intent.action == Intent.ACTION_PROCESS_TEXT &&
     runCatching { intent.getBooleanExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, false) }.getOrNull() == false
 
 /**
  * "Fix with Buddy" in any app's text menu, and Share → Buddy: a sheet over that app that fixes the text at once.
  * Replace hands the fixed text back to the app, which puts it in place of the selection; text the app does not let
- * Buddy change (read-only, or shared) can only be copied.
+ * Buddy change (read-only, shared, or not waited for) can only be copied.
  */
 class FixActivity : ComponentActivity() {
     private val kept: FixViewModel by viewModels()
@@ -76,7 +78,7 @@ class FixActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val model = kept.model
-        kept.start(textOf(intent), replaceable(intent))
+        kept.start(textOf(intent), replaceable(intent, waiting = callingActivity != null))
         val on = FixCallbacks(
             replace = ::replace,
             copy = ::copy,
@@ -98,12 +100,14 @@ class FixActivity : ComponentActivity() {
 
     /**
      * Share → Buddy again while this sheet is still open, behind the app the last share came from: Android brings
-     * this sheet back with the new text (it is singleTop), and the sheet fixes that text, not the last one.
+     * this sheet back with the new text (it is singleTop), and the sheet fixes that text, not the last one. A
+     * selection's "Fix with Buddy" reaches the open sheet only from the sheet's own answer: it does not take it over.
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (intent.action != Intent.ACTION_SEND) return
         setIntent(intent)
-        kept.restart(textOf(intent), replaceable(intent))
+        kept.restart(textOf(intent), canReplace = false) // shared text can only be copied
     }
 
     // The buddy steps out of the sheet's way while it is on screen, as for the panel.

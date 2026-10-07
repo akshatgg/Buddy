@@ -64,6 +64,15 @@ class FixActivityTest {
         assertEquals(listOf(Action.FIX to AskInput(text = "i am go to market")), asked)
     }
 
+    // Compose's text menu starts the sheet this way: nobody waits for a result, so Replace would change nothing.
+    @Test fun aSelectionNobodyWaitsForCanOnlyBeCopied() {
+        ActivityScenario.launch<FixActivity>(processText("i am go to market")).use {
+            compose.onNodeWithText("I went to the market.").assertIsDisplayed()
+            compose.onNodeWithText("Copy").assertIsDisplayed()
+            compose.onNodeWithText("Replace").assertDoesNotExist()
+        }
+    }
+
     @Test fun readOnlyTextCanOnlyBeCopied() {
         val intent = processText("i am go to market").putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true)
         ActivityScenario.launchActivityForResult<FixActivity>(intent).use {
@@ -102,6 +111,17 @@ class FixActivityTest {
             compose.onNodeWithText("alpha share one").assertDoesNotExist()
             compose.onNodeWithText("I went to the market.").assertIsDisplayed()
             compose.onNodeWithText("Replace").assertDoesNotExist()
+        }
+        assertEquals(listOf(Action.FIX to AskInput(text = "alpha share one"), Action.FIX to AskInput(text = "beta share two")), asked)
+    }
+
+    @Test fun aSelectionThatReachesTheOpenSheetDoesNotTakeItOver() {
+        ActivityScenario.launch<FixActivity>(share("alpha share one")).use {
+            compose.onNodeWithText("alpha share one").assertIsDisplayed()
+            context.startActivity(processText("gamma from the answer").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            // Intents reach the sheet in order: once the share after it shows, the selection has been and gone.
+            context.startActivity(share("beta share two"))
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("beta share two").fetchSemanticsNodes().isNotEmpty() }
         }
         assertEquals(listOf(Action.FIX to AskInput(text = "alpha share one"), Action.FIX to AskInput(text = "beta share two")), asked)
     }

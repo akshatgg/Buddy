@@ -119,6 +119,12 @@ class HeadView(context: Context) : FrameLayout(context) {
         } catch (e: Exception) {
             Log.w("Buddy", "head: $characterId failed to load (${e.javaClass.simpleName})")
             return false
+        } catch (e: LinkageError) {
+            // Filament could not start on this phone (its graphics, or its native code): the first try fails with an
+            // ExceptionInInitializerError, and every later one with a NoClassDefFoundError. The buddy then has no
+            // head, rather than crashing each time Android starts it again.
+            Log.w("Buddy", "head: no 3D engine (${e.javaClass.simpleName})")
+            return false
         }
         moodSince = now() // a mood set while the model was loading starts now
         wake() // draw the new head at once, over the old one's last frame

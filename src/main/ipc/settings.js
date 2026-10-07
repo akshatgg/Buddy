@@ -8,6 +8,7 @@ const { AI_TIMEOUT_MS } = require('../ai');
 const { SIZES } = require('../geometry');
 const { guarded } = require('./result');
 const { aiSection } = require('../free-state');
+const { isTap, tapKeys } = require('../../renderer/common/shortcut-keys');
 
 const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models'];
 const NAME_MAX = 24;
@@ -67,10 +68,12 @@ function registerSettingsIpc({
    * compared with the shortcut that is registered now, not the saved one, so saving again retries
    * one that failed at launch. While Buddy is off its shortcut is let go: the new one is only
    * checked (registered, then let go at once), so the user still hears when it is taken. It is
-   * registered for real when Buddy is turned on.
+   * registered for real when Buddy is turned on. A key tapped on its own ("Tap:RightOption") is never another app's, so
+   * then it is only checked for being well formed: registering it would switch the helper on and off for nothing.
    */
   function useShortcut(accelerator) {
     if (power.isOn()) return accelerator === shortcut.current() || shortcut.register(accelerator);
+    if (isTap(accelerator)) return tapKeys(accelerator) !== null;
     if (!shortcut.register(accelerator)) return false;
     shortcut.unregister();
     return true;

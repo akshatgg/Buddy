@@ -1062,6 +1062,33 @@ test('set: a single-key shortcut is saved like any other, and one that is not we
   assert.strictEqual(keyWatch.shortcut, 'Tap:RightOption');
 });
 
+// A key tapped on its own can never be another app's, so with Buddy off it is only looked at, not registered and let go:
+// that would switch the helper on and off for nothing.
+test('set: while Buddy is off a single-key shortcut is saved and the helper is told nothing; one that is not well formed is refused', async () => {
+  const told = [];
+  const helper = Object.assign(new EventEmitter(), {
+    async call(cmd, args) {
+      told.push([cmd, args]);
+      return { watching: args.on };
+    },
+  });
+  const keyWatch = createKeyWatch({ helper, onPress() {} });
+  const globalShortcut = { register: () => true, unregister() {} };
+  const shortcut = createShortcut({ globalShortcut, keyWatch, onPress() {} });
+  const s = setup({ buddyOn: false, realShortcut: shortcut, realKeyWatch: keyWatch });
+  const r = await s.call('settings:set', { shortcut: 'Tap:RightOption' });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(s.store.get('shortcut'), 'Tap:RightOption');
+  assert.strictEqual(shortcut.current(), null, 'it is not taken until Buddy is turned on');
+  assert.deepStrictEqual(
+    await s.call('settings:set', { shortcut: 'Tap:Bogus' }),
+    refused('shortcut_taken', '"Tap:Bogus" can\'t be used. Try another one.'),
+  );
+  assert.strictEqual(s.store.get('shortcut'), 'Tap:RightOption', 'nothing changed');
+  await tick();
+  assert.deepStrictEqual(told, [], 'the helper is told nothing');
+});
+
 test("the snapshot carries the person's photo and the app's version", async () => {
   const r = await setup().call('settings:get');
   assert.strictEqual(r.account.photo, 'https://lh3.googleusercontent.com/a/rahul');

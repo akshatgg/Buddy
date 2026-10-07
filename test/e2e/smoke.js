@@ -47,10 +47,13 @@ const clipboard = {
 };
 
 // Nor may it grab the person's real shortcut (⌥Space), which another app of theirs may be using. This one only
-// records what the app registers; a check calls the handler to press it.
+// records what the app registers; a check calls the handler to press it. ⌃⌘K belongs to another app here: registering
+// it fails, as the real one's does for a shortcut that is taken.
 const globalShortcut = {
   registered: new Map(), // accelerator -> handler
+  taken: new Set(['Control+Command+K']),
   register(accelerator, handler) {
+    if (this.taken.has(accelerator)) return false;
     this.registered.set(accelerator, handler);
     return true;
   },

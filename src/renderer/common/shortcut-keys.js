@@ -37,6 +37,13 @@ const ShortcutKeys = (() => {
     shift: 'Shift',
     command: 'Command', cmd: 'Command', commandorcontrol: 'Command', cmdorctrl: 'Command', super: 'Command', meta: 'Command',
   };
+  // Shortcuts that every app uses, and what they do there (⌘Tab and ⌘Space are the Mac's own). Taken by Buddy, the key
+  // would stop doing that in every app.
+  const RESERVED = {
+    'Command+C': 'Copy', 'Command+V': 'Paste', 'Command+X': 'Cut', 'Command+Z': 'Undo', 'Shift+Command+Z': 'Redo',
+    'Command+A': 'Select All', 'Command+Q': 'Quit', 'Command+W': 'Close Window', 'Command+S': 'Save', 'Command+H': 'Hide',
+    'Command+M': 'Minimise', 'Command+Tab': 'switching apps', 'Command+Space': 'Spotlight',
+  };
 
   /** The accelerator's name for a key (KeyboardEvent.code), or null for a key a shortcut cannot use. */
   function keyFor(code) {
@@ -75,6 +82,11 @@ const ShortcutKeys = (() => {
     return [...mods, keyCap(key)];
   }
 
+  /** The symbols of the modifiers a key event says are held, in the Mac's order. A keyup says what is still held. */
+  function heldSymbols(e) {
+    return MODIFIERS.filter((m) => e[m.prop]).map((m) => m.symbol);
+  }
+
   /**
    * What a keydown means while a shortcut is being recorded:
    *   { held }                only modifiers so far (their symbols, to show)
@@ -83,7 +95,7 @@ const ShortcutKeys = (() => {
    */
   function fromKeyEvent(e) {
     const mods = MODIFIERS.filter((m) => e[m.prop]);
-    const held = mods.map((m) => m.symbol);
+    const held = heldSymbols(e);
     if (MODIFIER_CODE.test(String(e.code || ''))) return { held };
     const key = keyFor(e.code);
     if (!key) return { refused: "That key can't be part of a shortcut.", held };
@@ -91,10 +103,13 @@ const ShortcutKeys = (() => {
     const strong = mods.some((m) => m.name !== 'Shift');
     if (!strong && !functionKey) return { refused: 'Hold ⌘, ⌥ or ⌃ with the key.', held };
     const accelerator = [...mods.map((m) => m.name), key].join('+');
+    if (Object.hasOwn(RESERVED, accelerator)) {
+      return { refused: `${held.join('')}${key} is used by every app (${RESERVED[accelerator]}). Pick another one.`, held };
+    }
     return { accelerator, keys: symbols(accelerator) };
   }
 
-  return { fromKeyEvent, symbols, keyFor };
+  return { fromKeyEvent, heldSymbols, symbols, keyFor };
 })();
 
 if (typeof module !== 'undefined') module.exports = ShortcutKeys;

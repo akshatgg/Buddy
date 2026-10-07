@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { fromKeyEvent, symbols, keyFor } = require('../src/renderer/common/shortcut-keys');
+const { fromKeyEvent, heldSymbols, symbols, keyFor } = require('../src/renderer/common/shortcut-keys');
 
 /** A keydown as the page sees it: the physical key's code and the modifiers held. */
 const ev = (code, mods = {}) => ({ code, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...mods });
@@ -44,6 +44,53 @@ test('a key needs ⌘, ⌥ or ⌃ (⇧ alone would take over typing capitals); F
   assert.deepStrictEqual(fromKeyEvent(ev('F5')), { accelerator: 'F5', keys: ['F5'] });
   assert.deepStrictEqual(fromKeyEvent(ev('F5', { shiftKey: true })), { accelerator: 'Shift+F5', keys: ['⇧', 'F5'] });
   assert.deepStrictEqual(fromKeyEvent(ev('Numpad5', { metaKey: true })), { refused: "That key can't be part of a shortcut.", held: ['⌘'] });
+});
+
+// Taking one of these would break it in every app while Buddy holds it (or, for ⌘Tab and ⌘Space, the Mac's own).
+test('the shortcuts every app uses are refused, each named for what it does', () => {
+  for (const [code, mods, message] of [
+    ['KeyC', { metaKey: true }, '⌘C is used by every app (Copy). Pick another one.'],
+    ['KeyV', { metaKey: true }, '⌘V is used by every app (Paste). Pick another one.'],
+    ['KeyX', { metaKey: true }, '⌘X is used by every app (Cut). Pick another one.'],
+    ['KeyZ', { metaKey: true }, '⌘Z is used by every app (Undo). Pick another one.'],
+    ['KeyZ', { metaKey: true, shiftKey: true }, '⇧⌘Z is used by every app (Redo). Pick another one.'],
+    ['KeyA', { metaKey: true }, '⌘A is used by every app (Select All). Pick another one.'],
+    ['KeyQ', { metaKey: true }, '⌘Q is used by every app (Quit). Pick another one.'],
+    ['KeyW', { metaKey: true }, '⌘W is used by every app (Close Window). Pick another one.'],
+    ['KeyS', { metaKey: true }, '⌘S is used by every app (Save). Pick another one.'],
+    ['KeyH', { metaKey: true }, '⌘H is used by every app (Hide). Pick another one.'],
+    ['KeyM', { metaKey: true }, '⌘M is used by every app (Minimise). Pick another one.'],
+    ['Tab', { metaKey: true }, '⌘Tab is used by every app (switching apps). Pick another one.'],
+    ['Space', { metaKey: true }, '⌘Space is used by every app (Spotlight). Pick another one.'],
+  ]) {
+    const held = mods.shiftKey ? ['⇧', '⌘'] : ['⌘'];
+    assert.deepStrictEqual(fromKeyEvent(ev(code, mods)), { refused: message, held }, message);
+  }
+});
+
+test('those keys with other modifiers are shortcuts like any other', () => {
+  for (const [code, mods, accelerator] of [
+    ['KeyC', { metaKey: true, altKey: true }, 'Alt+Command+C'],
+    ['KeyC', { metaKey: true, shiftKey: true }, 'Shift+Command+C'],
+    ['KeyC', { ctrlKey: true }, 'Control+C'],
+    ['KeyZ', { metaKey: true, shiftKey: true, altKey: true }, 'Alt+Shift+Command+Z'],
+    ['KeyQ', { metaKey: true, ctrlKey: true }, 'Control+Command+Q'],
+    ['Tab', { altKey: true }, 'Alt+Tab'],
+    ['Space', { metaKey: true, ctrlKey: true }, 'Control+Command+Space'],
+    ['Space', { altKey: true }, 'Alt+Space'],
+  ]) {
+    assert.strictEqual(fromKeyEvent(ev(code, mods)).accelerator, accelerator, accelerator);
+  }
+});
+
+// While recording, the box shows the modifiers held as caps and follows them as they are let go: a keyup says what is
+// still held, whichever key it is for (the Mac can keep a key's keydown to itself and still send its keyup).
+test('heldSymbols: the modifiers a key event says are held, in the Mac order', () => {
+  assert.deepStrictEqual(heldSymbols(ev('MetaLeft', { metaKey: true, shiftKey: true })), ['⇧', '⌘']);
+  assert.deepStrictEqual(heldSymbols(ev('ShiftLeft', { metaKey: true })), ['⌘'], 'the keyup of ⇧, with ⌘ still held');
+  assert.deepStrictEqual(heldSymbols(ev('MetaLeft')), [], 'the keyup of the last one');
+  assert.deepStrictEqual(heldSymbols(ev('ArrowUp', { ctrlKey: true, altKey: true })), ['⌃', '⌥'], 'the keyup of a key');
+  assert.deepStrictEqual(heldSymbols(ev('KeyK', { metaKey: true, ctrlKey: true, altKey: true, shiftKey: true })), ['⌃', '⌥', '⇧', '⌘']);
 });
 
 test('symbols: any saved accelerator becomes key caps in the Mac order', () => {

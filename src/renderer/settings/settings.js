@@ -97,10 +97,20 @@ function renderAi() {
   $('ai').hidden = !snap.ai.showForm;
 }
 
+/** Key caps in the Shortcut box; `waiting` adds a faint "…" cap, for the key still to come. */
+function showCaps(caps, { waiting = false } = {}) {
+  const cap = (text, className = '') => Object.assign(document.createElement('kbd'), { textContent: text, className });
+  $('shortcut-keys').replaceChildren(...caps.map((k) => cap(k)), ...(waiting ? [cap('…', 'waiting')] : []));
+}
+
 function showKeys(accelerator) {
-  $('shortcut-keys').replaceChildren(
-    ...ShortcutKeys.symbols(accelerator).map((k) => Object.assign(document.createElement('kbd'), { textContent: k })),
-  );
+  showCaps(ShortcutKeys.symbols(accelerator));
+}
+
+/** While recording: the modifiers held so far, as caps, or the prompt while none is. */
+function showHeld(held) {
+  if (held.length) showCaps(held, { waiting: true });
+  else $('shortcut-keys').textContent = 'Press your shortcut…';
 }
 
 /** Show `snap`. With `fields: false` the text boxes are left alone: a refresh must not throw away what is being typed. */
@@ -148,23 +158,26 @@ async function renderPermissions() {
 async function startRecording() {
   if (recording) return;
   recording = true;
+  $('shortcut').classList.remove('save-failed');
   $('shortcut').classList.add('recording');
-  $('shortcut-keys').textContent = 'Press your shortcut…';
+  showHeld([]);
   showStatus('shortcut-status', '');
   await window.buddy.pauseShortcut();
 }
 
+/** Stop waiting for keys and keep the saved shortcut. A key refused while it waited no longer matters, so its line goes. */
 async function stopRecording() {
   if (!recording) return;
   recording = false;
   $('shortcut').classList.remove('recording');
   showKeys(snap.settings.shortcut);
+  showStatus('shortcut-status', '');
   await window.buddy.resumeShortcut();
 }
 
 async function saveShortcut(accelerator) {
   recording = false;
-  $('shortcut').classList.remove('recording');
+  $('shortcut').classList.remove('recording', 'save-failed');
   showKeys(accelerator);
   const r = await window.buddy.set({ shortcut: accelerator });
   if (r.ok) {
@@ -172,6 +185,7 @@ async function saveShortcut(accelerator) {
     showStatus('shortcut-status', 'Saved ✓', 'good');
   } else {
     showKeys(snap.settings.shortcut);
+    $('shortcut').classList.add('save-failed'); // its edge says so too, until the box is clicked again
     const keys = ShortcutKeys.symbols(accelerator).join(' ');
     showStatus('shortcut-status', r.error.code === 'shortcut_taken' ? `${keys} is taken. Try another one.` : r.error.message, 'error');
   }
@@ -195,10 +209,25 @@ document.addEventListener('keydown', (e) => {
     saveShortcut(r.accelerator);
     return;
   }
-  $('shortcut-keys').textContent = r.held.length ? `${r.held.join(' ')} …` : 'Press your shortcut…';
+  showHeld(r.held);
   if (r.refused) showStatus('shortcut-status', r.refused, 'error');
 }, true);
-$('shortcut-reset').addEventListener('click', () => saveShortcut(DEFAULT_SHORTCUT));
+// A modifier let go: the caps follow, back to the prompt once none is held.
+document.addEventListener('keyup', (e) => {
+  if (!recording) return;
+  e.preventDefault();
+  e.stopPropagation();
+  showHeld(ShortcutKeys.heldSymbols(e));
+}, true);
+$('shortcut-reset').addEventListener('click', () => {
+  // However it was spelled when it was saved, ⌥ Space is ⌥ Space: there is nothing to save.
+  if (ShortcutKeys.symbols(snap.settings.shortcut).join(' ') === ShortcutKeys.symbols(DEFAULT_SHORTCUT).join(' ')) {
+    stopRecording();
+    showStatus('shortcut-status', 'Already ⌥ Space.');
+    return;
+  }
+  saveShortcut(DEFAULT_SHORTCUT);
+});
 window.addEventListener('blur', () => { stopRecording(); });
 
 // ---- account, buddy, power, permissions ----

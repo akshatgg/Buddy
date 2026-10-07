@@ -137,6 +137,9 @@ body.settings { overflow: hidden; }
 .recorder .keys { display: inline-flex; align-items: center; gap: 8px; }
 /* Caps with one symbol are all the same width, as on a keyboard; Space is wider. */
 .recorder kbd { min-width: 46px; height: 46px; padding: 0 12px; border-radius: 8px; font-size: 19px; font-weight: 400; }
+/* While it waits: the place of the key still to come, an empty cap drawn in outline. The "…" sits on the baseline:
+   the padding lifts it to the middle of the cap. */
+.recorder kbd.waiting { padding-bottom: 10px; border: 1px dashed var(--line); background: none; box-shadow: none; color: var(--muted); }
 .recorder.recording {
   border-color: var(--accent);
   color: var(--accent-text);
@@ -147,9 +150,10 @@ body.settings { overflow: hidden; }
 @keyframes listening {
   50% { box-shadow: 0 0 0 6px var(--accent-soft); }
 }
-/* Saved, or refused: the box's edge takes the colour of what the line under it says. */
+/* Saved: the box's edge is green while the line under it says so. A save that was refused (the shortcut is taken)
+   leaves it red until the box is clicked again; a key refused while it waited does not, as it changed nothing. */
 #section-shortcut:has(#shortcut-status.good) .recorder:not(.recording) { border-color: color-mix(in srgb, var(--good) 60%, var(--line-soft)); }
-#section-shortcut:has(#shortcut-status.error) .recorder:not(.recording) { border-color: color-mix(in srgb, var(--error) 70%, var(--line-soft)); }
+.recorder.save-failed:not(.recording) { border-color: color-mix(in srgb, var(--error) 70%, var(--line-soft)); }
 #shortcut-hint { margin-top: 10px; }
 #section-shortcut .row { margin-top: 6px; min-height: 28px; }
 #shortcut-status { margin: 0; }

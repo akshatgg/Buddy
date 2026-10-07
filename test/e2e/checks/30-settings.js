@@ -67,14 +67,29 @@ const SECTIONS_SHOWN = `({
 
 // The sidebar moves between the sections. The Shortcut box records the keys pressed and saves them at once; while it
 // waits for them, Buddy lets go of its global shortcut (the fake one in ctx.globalShortcut), and takes the saved one
-// back when the waiting ends. Esc cancels, and Reset puts back ⌥ Space. The keys are synthetic: no real key is pressed.
+// back when the waiting ends: saved, refused, Esc, another section chosen, or the window losing the focus. The
+// modifiers held show as key caps and follow the keys; a key that can't be used says why and the box goes on waiting;
+// a shortcut another app owns (⌃⌘K, in the fake) is refused and the old one kept. Esc cancels, and Reset puts back
+// ⌥ Space. The keys are synthetic: no real key is pressed.
 async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
   const page = (script) => win.webContents.executeJavaScript(script);
   const registered = () => [...ctx.globalShortcut.registered.keys()];
   const recording = () => page("document.getElementById('shortcut').classList.contains('recording')");
   const keysShown = () => page("document.getElementById('shortcut-keys').textContent");
+  const caps = () => page("[...document.querySelectorAll('#shortcut-keys kbd')].map((cap) => cap.textContent)");
   const status = () => page("document.getElementById('shortcut-status').textContent");
-  const press = (init) => page(`document.dispatchEvent(new KeyboardEvent('keydown', ${JSON.stringify({ ...init, bubbles: true })}))`);
+  const press = (init, type = 'keydown') => page(`document.dispatchEvent(new KeyboardEvent('${type}', ${JSON.stringify({ ...init, bubbles: true })}))`);
+  const letGo = (init) => press(init, 'keyup');
+  // The colour of the box's edge as [r, g, b] (a canvas reads any CSS colour), with its transition off, so that what
+  // is read is the colour it ends at.
+  await win.webContents.insertCSS('#shortcut { transition: none !important; }');
+  const edge = () => page(`(() => {
+    const canvas = document.createElement('canvas').getContext('2d');
+    canvas.fillStyle = getComputedStyle(document.getElementById('shortcut')).borderTopColor;
+    canvas.fillRect(0, 0, 1, 1);
+    return [...canvas.getImageData(0, 0, 1, 1).data].slice(0, 3);
+  })()`);
+  const red = ([r, g, b]) => r - Math.max(g, b) > 60;
 
   // Sections: the sidebar shows one at a time, and marks the one shown.
   await page(`document.querySelector('.nav-item[data-section="shortcut"]').click()`);
@@ -94,6 +109,7 @@ async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
   // The recorder: a click starts it, and the global shortcut is let go while it waits.
   assert.deepStrictEqual(registered(), ['Alt+Space'], 'the shortcut is registered before recording');
   assert.strictEqual(await keysShown(), '⌥Space');
+  const idle = await edge();
   await page("document.getElementById('shortcut').click()");
   assert.strictEqual(await recording(), true, 'the box waits for keys');
   await waitFor(() => registered().length === 0, 'the shortcut to be let go while recording');
@@ -118,6 +134,54 @@ async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
   assert.strictEqual(await recording(), false);
   assert.strictEqual(await keysShown(), '⇧⌘B');
 
+  // While it waits, the modifiers held show as key caps, with a cap for the key still to come, and they follow the keys
+  // as they are let go.
+  await page("document.getElementById('shortcut').click()");
+  await waitFor(() => registered().length === 0, 'the shortcut to be let go again');
+  assert.strictEqual(await keysShown(), 'Press your shortcut…');
+  await press({ code: 'MetaLeft', key: 'Meta', metaKey: true });
+  assert.deepStrictEqual(await caps(), ['⌘', '…'], '⌘ held');
+  await press({ code: 'ShiftLeft', key: 'Shift', metaKey: true, shiftKey: true });
+  assert.deepStrictEqual(await caps(), ['⇧', '⌘', '…'], '⇧ and ⌘ held, in the Mac order');
+  await letGo({ code: 'ShiftLeft', key: 'Shift', metaKey: true });
+  assert.deepStrictEqual(await caps(), ['⌘', '…'], '⇧ let go');
+  await letGo({ code: 'MetaLeft', key: 'Meta' });
+  assert.deepStrictEqual(await caps(), [], 'nothing held');
+  assert.strictEqual(await keysShown(), 'Press your shortcut…');
+
+  // A key that can't make a shortcut says why, and so does one that every app uses; the box goes on waiting. Esc then
+  // gives up: what was said goes with it, and the box is not left red around the saved shortcut.
+  await press({ code: 'KeyB', key: 'b' });
+  assert.strictEqual(await status(), 'Hold ⌘, ⌥ or ⌃ with the key.');
+  await press({ code: 'KeyC', key: 'c', metaKey: true });
+  assert.strictEqual(await status(), '⌘C is used by every app (Copy). Pick another one.');
+  assert.strictEqual(await recording(), true, 'the box still waits');
+  await press({ code: 'Escape', key: 'Escape' });
+  await waitFor(() => registered().length === 1, 'the saved shortcut to be registered again');
+  assert.strictEqual(ctx.store.get('shortcut'), 'Shift+Command+B', 'nothing was saved');
+  assert.strictEqual(await status(), '', 'no refusal is left once the box stops waiting');
+  assert.deepStrictEqual(await edge(), idle, 'and the box is not red');
+  assert.strictEqual(await keysShown(), '⇧⌘B');
+
+  // ⌃⌘K belongs to another app (in the fake): it is refused, the box shows the saved keys again with a red edge, and
+  // the saved shortcut is registered again. The red goes when the box is clicked again.
+  await page("document.getElementById('shortcut').click()");
+  await waitFor(() => registered().length === 0, 'the shortcut to be let go again');
+  await press({ code: 'KeyK', key: 'k', ctrlKey: true, metaKey: true });
+  await waitFor(async () => (await status()).includes('taken'), 'the shortcut to be refused');
+  assert.strictEqual(await status(), '⌃ ⌘ K is taken. Try another one.');
+  assert.strictEqual(await keysShown(), '⇧⌘B', 'the saved keys are shown again');
+  await waitFor(() => registered().length === 1, 'the saved shortcut to be registered again');
+  assert.deepStrictEqual(registered(), ['Shift+Command+B']);
+  assert.strictEqual(ctx.store.get('shortcut'), 'Shift+Command+B', 'nothing was saved');
+  assert.strictEqual(await recording(), false);
+  assert.ok(red(await edge()), 'the box is red');
+  await page("document.getElementById('shortcut').click()");
+  assert.strictEqual(await status(), '', 'a new recording starts afresh');
+  await press({ code: 'Escape', key: 'Escape' });
+  await waitFor(() => registered().length === 1, 'the saved shortcut to be registered again');
+  assert.deepStrictEqual(await edge(), idle, 'and the box is not red any more');
+
   // Reset puts back ⌥ Space (and leaves it so, for the checks after this one).
   await page("document.getElementById('shortcut-reset').click()");
   await waitFor(() => ctx.store.get('shortcut') === 'Alt+Space', 'the default shortcut to be saved');
@@ -125,8 +189,31 @@ async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
   assert.deepStrictEqual(registered(), ['Alt+Space']);
   assert.strictEqual(await keysShown(), '⌥Space');
 
-  // General: Always on is a switch, on, and the version is shown.
+  // Reset with ⌥ Space already saved says so, and saves nothing.
+  const { set } = ctx.store;
+  let saves = 0;
+  ctx.store.set = function counted(patch) {
+    if (Object.hasOwn(patch, 'shortcut')) saves += 1;
+    return set.call(this, patch);
+  };
+  try {
+    await page("document.getElementById('shortcut-reset').click()");
+    await waitFor(async () => (await status()) === 'Already ⌥ Space.', 'Reset to say it is ⌥ Space already');
+  } finally {
+    ctx.store.set = set;
+  }
+  assert.strictEqual(saves, 0, 'nothing was saved');
+  assert.deepStrictEqual(registered(), ['Alt+Space']);
+
+  // Choosing another section ends a recording, and the shortcut is given back.
+  await page("document.getElementById('shortcut').click()");
+  await waitFor(() => registered().length === 0, 'the shortcut to be let go again');
   await page(`document.querySelector('.nav-item[data-section="general"]').click()`);
+  await waitFor(() => registered().length === 1, 'the shortcut to be given back when another section is chosen');
+  assert.deepStrictEqual(registered(), ['Alt+Space']);
+  assert.strictEqual(await recording(), false);
+
+  // General: Always on is a switch, on, and the version is shown.
   assert.deepStrictEqual(await page(SECTIONS_SHOWN), {
     shown: ['section-general'], active: ['general'], current: ['general'],
   }, 'the General section, and only it');
@@ -136,6 +223,27 @@ async function sectionsAndShortcutCheck(ctx, win, { assert, waitFor }) {
     'Always on is a switch, and it is on',
   );
   assert.match(await page("document.getElementById('version').textContent"), /^Buddy \S/);
+
+  // The switch turns Buddy off and on again: the switch, its words, the saved setting and the shortcut follow.
+  const power = () => page("[document.getElementById('power').checked, document.getElementById('power-status').textContent]");
+  await page("document.getElementById('power').click()");
+  await waitFor(() => ctx.store.get('buddyOn') === false, 'Buddy to be turned off');
+  await waitFor(async () => JSON.stringify(await power()) === JSON.stringify([false, 'Your buddy is off.']), 'the switch to show Buddy off');
+  assert.deepStrictEqual(registered(), [], 'its shortcut is let go');
+  await page("document.getElementById('power').click()");
+  await waitFor(() => ctx.store.get('buddyOn') === true, 'Buddy to be turned on again');
+  await waitFor(async () => (await power())[0] === true && (await power())[1].startsWith('Your buddy is on'), 'the switch to show Buddy on');
+  assert.deepStrictEqual(registered(), ['Alt+Space'], 'and its shortcut is taken again');
+  await waitFor(() => ctx.buddy.isVisible(), 'the buddy to be back');
+
+  // The window losing the focus ends a recording too, and the shortcut is given back.
+  await page(`document.querySelector('.nav-item[data-section="shortcut"]').click()`);
+  await page("document.getElementById('shortcut').click()");
+  await waitFor(() => registered().length === 0, 'the shortcut to be let go again');
+  await page("window.dispatchEvent(new Event('blur'))");
+  await waitFor(() => registered().length === 1, 'the shortcut to be given back when the window loses the focus');
+  assert.deepStrictEqual(registered(), ['Alt+Space']);
+  assert.strictEqual(await recording(), false);
 }
 
 // Settings goes away while the Shortcut box is waiting for keys, with Buddy's own shortcut let go. A page that is on its

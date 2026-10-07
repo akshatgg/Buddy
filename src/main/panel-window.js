@@ -141,8 +141,10 @@ function createPanelWindow({
     win = w;
     w.setAlwaysOnTop(true, 'pop-up-menu');
     w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    // A blur that arrives after the panel was shown and focused again (Buddy hid it for a moment to work in the app)
+    // is a late one from that hide: the panel has the keyboard, so it stays.
     w.on('blur', () => {
-      if (!w.isDestroyed() && !w.webContents.isDevToolsOpened() && held === 0) hide();
+      if (!w.isDestroyed() && !w.webContents.isDevToolsOpened() && held === 0 && !w.isFocused()) hide();
     });
     // Buddy hides the panel rather than closing it (the menu's Close Window leaves it alone). A window that
     // is closed all the same cannot be shown again: it is forgotten here, so the next open makes a new one.

@@ -140,6 +140,10 @@ class FakeWindow {
 
   focus() {}
 
+  isFocused() {
+    return Boolean(this.focused);
+  }
+
   isVisible() {
     return this.visible;
   }
@@ -269,4 +273,16 @@ test('a page whose load fails outright is gone too, and without onGone nothing b
   await quiet.show({}, BUDDY, AREA);
   quiet.window().destroy();
   assert.strictEqual(quiet.window(), null);
+});
+
+test('a late blur from Buddy\'s own brief hide leaves the panel open when it has the keyboard again', async () => {
+  const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession() });
+  await panel.show({}, BUDDY, AREA);
+  const w = panel.window();
+  w.focused = true; // shown again and focused, then the blur of the earlier hide arrives
+  w.events.blur();
+  assert.strictEqual(w.isVisible(), true);
+  w.focused = false; // a real click somewhere else
+  w.events.blur();
+  assert.strictEqual(w.isVisible(), false);
 });

@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { buttonLabel, selectionPreview, thinkingLine, canSend, itemParts } = require('../src/renderer/panel/chat-view.js');
+const { buttonLabel, selectionPreview, thinkingLine, canSend, itemParts, speaker, spokenLine } = require('../src/renderer/panel/chat-view.js');
 
 test('every button has its label', () => {
   assert.deepStrictEqual(
@@ -116,4 +116,26 @@ test('an item the page does not know, or one with nothing in it, is not drawn', 
   assert.strictEqual(itemParts({ id: 14, type: 'event', text: '' }), null);
   assert.strictEqual(itemParts(null), null);
   assert.strictEqual(itemParts('you'), null);
+});
+
+test('a screen reader hears who each message is from: you, or the buddy by its name', () => {
+  assert.strictEqual(speaker('you', 'Aarav'), 'You:');
+  for (const kind of ['buddy', 'error', 'question']) assert.strictEqual(speaker(kind, 'Aarav'), 'Aarav:', kind);
+  assert.strictEqual(speaker('buddy', ''), 'Buddy:');
+  assert.strictEqual(speaker('buddy', undefined), 'Buddy:');
+  // A small line about what happened is from nobody.
+  assert.strictEqual(speaker('event', 'Aarav'), '');
+});
+
+test('a new item is read out as who it is from, then all its words', () => {
+  const answer = itemParts({
+    id: 1, type: 'buddy', say: 'Here is your mail.', text: 'Dear Sir,\nI need a day off.', notes: ['"has" → "have"'], buttons: ['insert'],
+  });
+  assert.strictEqual(spokenLine(answer, 'Aarav'), 'Aarav: Here is your mail. Dear Sir,\nI need a day off. "has" → "have"');
+  assert.strictEqual(spokenLine(itemParts({ id: 2, type: 'you', text: 'fix this' }), 'Aarav'), 'You: fix this');
+  assert.strictEqual(spokenLine(itemParts({ id: 3, type: 'error', text: 'Sign in to use Buddy.', buttons: ['retry'] }), ''), 'Buddy: Sign in to use Buddy.');
+  assert.strictEqual(spokenLine(itemParts({ id: 4, type: 'question', text: 'Send it?', buttons: ['send', 'not-now'] }), 'Aarav'), 'Aarav: Send it?');
+  assert.strictEqual(spokenLine(itemParts({ id: 5, type: 'event', text: '✅ Sent' }), 'Aarav'), '✅ Sent');
+  // An answer that is only its line has no empty text after it.
+  assert.strictEqual(spokenLine(itemParts({ id: 6, type: 'buddy', say: 'Got it!', text: '' }), 'Aarav'), 'Aarav: Got it!');
 });

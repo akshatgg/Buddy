@@ -282,6 +282,20 @@ test('toggle closes an open panel, and a panel that just closed stays closed', a
   assert.strictEqual(entries(s.log, 'showPanel').length, 1);
 });
 
+test('a click on the buddy that closed the panel (on the Mac, by taking its focus first) ends the chat, as closing does', async () => {
+  const s = setup();
+  await s.actions.toggle();
+  await s.actions.send('hello');
+  s.blur(); // the click takes the panel's focus, which hides it...
+  s.setJustClosed(true);
+  await s.actions.toggle(); // ...and then arrives
+  assert.strictEqual(entries(s.log, 'showPanel').length, 1, 'it does not open again');
+  s.setJustClosed(false);
+  await s.actions.toggle();
+  const shown = entries(s.log, 'showPanel').at(-1)[1];
+  assert.deepStrictEqual([shown.resumed, shown.chat], [false, []], 'the next opening is a new chat');
+});
+
 // The same chat, or a new one
 
 test('a panel that only hid, opened again from the same app within 5 minutes, shows the same chat with a fresh selection', async () => {

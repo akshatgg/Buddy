@@ -207,11 +207,12 @@ function createActions({
 
   async function toggle() {
     if (aside) return; // the panel is hidden on purpose while the helper works in the app
-    if (ui.isPanelVisible()) {
+    // On the Mac a click on the buddy takes the panel's focus first, which hides it, and only then arrives here: that
+    // click closed the panel, so it ends the chat as closing does, and must not open it again.
+    if (ui.isPanelVisible() || ui.panelJustClosed()) {
       await dismiss();
       return;
     }
-    if (ui.panelJustClosed()) return; // the click that closed it (on the Mac, by taking its focus) must not reopen it
     await open();
   }
 

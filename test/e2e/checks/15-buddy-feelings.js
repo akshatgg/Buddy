@@ -14,12 +14,36 @@ module.exports = async function feelingsCheck(ctx, { assert, delay, waitFor }) {
   const moodIs = (name) => async () => (await js('window.__buddyMood')) === name;
   const symbols = (kind) => js(`document.querySelectorAll('#symbols .buddy-symbol${kind ? `--${kind}` : ''}').length`);
 
+  // The "z" letters come back every 12 s on a timer of their own (Z_CYCLE in symbols.js), which symbols.js looks up on
+  // the page's window each time: watch which of those timers are pending.
+  await js(`(() => {
+    const { setTimeout: set, clearTimeout: clear } = window;
+    const cycles = new Set();
+    window.__zCycles = cycles;
+    window.setTimeout = (fn, ms, ...rest) => {
+      const id = set.call(window, (...args) => {
+        cycles.delete(id);
+        fn(...args);
+      }, ms, ...rest);
+      if (ms === 12000) cycles.add(id);
+      return id;
+    };
+    window.clearTimeout = (id) => {
+      cycles.delete(id);
+      clear.call(window, id);
+    };
+    window.__unwatchTimers = () => Object.assign(window, { setTimeout: set, clearTimeout: clear });
+    return true;
+  })()`);
+  const cycles = () => js('window.__zCycles.size');
+
   // 1. Asleep: the sleeping eyes, the glow going down and "z" letters; 4 frames a second, which the pointer moving does
-  // not change (a sleeping head does not follow it); and a later mood replaces it.
+  // not change (a sleeping head does not follow it); no symbols while paused; and a later mood replaces it.
   ctx.buddy.mood('asleep');
   await waitFor(moodIs('asleep'), 'the buddy to fall asleep');
   // The letters come in bursts, 4.9 s of every 12, starting with the mood: so look now.
   assert.strictEqual(await symbols('z'), 3, 'three "z" letters rise as it falls asleep');
+  assert.strictEqual(await cycles(), 1, 'and the next burst is due in 12 s');
   await waitFor(() => js('window.__buddyPose?.sleep > 0.9 && window.__buddyPose.glow < 1'), 'the sleeping eyes, and the glow going down');
   const before = await js('window.__buddyFrames');
   for (let i = 0; i < 20; i += 1) {
@@ -28,6 +52,22 @@ module.exports = async function feelingsCheck(ctx, { assert, delay, waitFor }) {
   }
   const frames = (await js('window.__buddyFrames')) - before;
   assert.ok(frames >= 4 && frames <= 12, `asleep it draws about 8 frames in 2 s, the pointer moving or not (${frames})`);
+  // Paused (hidden, or the screen locked): no letters, and none to come, even when the sleep countdown sends its moods
+  // meanwhile; when it shows again, the letters are back.
+  ctx.buddy.pause(true);
+  // At once: the burst's last letter would end by itself only about 2 s later.
+  await waitFor(async () => (await symbols()) === 0, 'the symbols to go while the buddy is paused', 1000);
+  assert.strictEqual(await cycles(), 0, 'no burst of "z" letters is due while it is paused');
+  ctx.buddy.mood('drowsy');
+  await waitFor(moodIs('drowsy'), 'drowsy, while paused');
+  ctx.buddy.mood('asleep');
+  await waitFor(moodIs('asleep'), 'asleep, while paused');
+  assert.strictEqual(await symbols(), 0, 'falling asleep while paused shows no letters');
+  assert.strictEqual(await cycles(), 0, 'nor sets a burst for later');
+  ctx.buddy.pause(false);
+  await waitFor(async () => (await symbols('z')) === 3, 'the "z" letters to come back when the buddy shows again');
+  assert.strictEqual(await cycles(), 1, 'with the next burst due');
+  await js('window.__unwatchTimers(); true');
   // Main sends the pointer only when it moves: tell the page where it really is again.
   const pointer = screen.getCursorScreenPoint();
   const box = ctx.buddy.bounds();

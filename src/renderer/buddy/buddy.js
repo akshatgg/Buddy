@@ -79,6 +79,7 @@ let press = null; // { x, y, moved, shaken } while the pointer is down on the bu
 const voice = { reading: 0, level: 0, at: now() }; // the voice level last read, the level drawn and when (listening)
 let timer = null; // the one pending frame; null while the loop is paused
 let lastTick = -Infinity; // when the last frame was drawn, in now() seconds
+let paused = false; // main paused the page (buddy:pause: the buddy is hidden, or the screen is locked)
 
 window.__buddyMood = mood.name; // for the end-to-end test, with __buddyPose and __buddyFrames
 window.__buddyFrames = 0;
@@ -169,10 +170,13 @@ function placeSymbols() {
   symbols.place(headMark(rig.headBox, camera, window.innerWidth, window.innerHeight));
 }
 
-/** Show the symbols of a mood that is starting (again, if it is the same one), or none. */
+/**
+ * Show the symbols of a mood that is starting (again, if it is the same one), or none. None while the page is paused:
+ * the "z" letters would come back every 12 s for nobody. The page starts them when it resumes.
+ */
 function startSymbols(name) {
   const { effect } = moodPose(name, 0);
-  if (effect) symbols.play(effect);
+  if (effect && !paused) symbols.play(effect);
   else symbols.stop();
 }
 
@@ -426,9 +430,16 @@ window.buddy.onCursor((point) => {
 window.buddy.onVoiceLevel((level) => {
   if (mood.name === 'listening') voice.reading = typeof level === 'number' ? Math.min(1, Math.max(0, level)) || 0 : 0;
 });
-window.buddy.onPause((paused) => {
-  if (paused) stopLoop();
-  else startLoop();
+window.buddy.onPause((value) => {
+  if (Boolean(value) === paused) return; // main says so again at every load and every show
+  paused = Boolean(value);
+  if (paused) {
+    stopLoop();
+    symbols.stop(); // the "z" letters have a timer of their own
+  } else {
+    startLoop(); // a mood that ended while paused gives way to idle here
+    startSymbols(mood.name); // and the mood showing now gets its symbols back
+  }
 });
 window.buddy.onReload(() => {
   load().catch((err) => console.error('[buddy] model failed to load', err));

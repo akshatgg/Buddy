@@ -157,6 +157,8 @@ kbd { font: 600 14px/1 var(--body); background: var(--cream); border: 1px solid 
 .dl__tile--main p, .dl__tile--main small { color: var(--ink); }
 .ico { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: var(--cream); }
 .dl__tile--main .ico { background: rgba(255, 255, 255, .55); }
+.dl__tile .brew { margin-top: 8px; font-size: 14px; }
+.brew code { display: block; margin-top: 4px; padding: 8px 12px; border-radius: 12px; background: rgba(255, 255, 255, .55); color: var(--ink); font: 500 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; user-select: all; }
 .tag { margin-top: 8px; font-size: 13px; font-weight: 600; padding: 4px 12px; border-radius: 999px; background: var(--cream); color: var(--ink-2); }
 .note { margin-top: 24px; padding: 16px 20px; border-radius: 18px; background: var(--paper); box-shadow: 0 0 0 1px var(--line); font-size: 15px; color: var(--ink-2); }
 .note b { color: var(--ink); }

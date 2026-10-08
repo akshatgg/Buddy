@@ -1,0 +1,63 @@
+/*
+ * The notch page: one black shape (the notch's rectangle plus a wing on each side) over a see-through window, with
+ * an eye in each wing and, beside the right eye, what Buddy says. Every size and movement is set by notch.js from
+ * the layout main sends and the eyes module's frames; this file only gives the pieces their look.
+ */
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
+body { position: relative; user-select: none; -webkit-user-select: none; }
+
+/* The black shape: flush with the top of the screen, rounded at the bottom only, so the notch looks wider. */
+#shape {
+  position: absolute;
+  top: 0;
+  display: flex;
+  overflow: hidden;
+  background: #000;
+  border-radius: 0 0 var(--corner, 12px) var(--corner, 12px);
+  cursor: pointer;
+}
+.wing { position: relative; flex: none; height: 100%; }
+#notch { flex: none; height: 100%; }
+
+/* An eye: 10 × 14 pt, white, centred in the wing (notch.js sets `left`: the right wing also holds the text); its
+   pieces are faded in and out by notch.js. */
+.eye {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 14px;
+  margin: -7px 0 0 -5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+}
+.eye i { display: block; }
+.ball { width: 10px; height: 14px; border-radius: 5px; background: #fff; }
+/* Closed: the happy arch (∩) and the sleeping smile (‿), a 2.5 pt white curve where the eye's top or bottom was. */
+.arch, .curl { position: absolute; left: 0; width: 10px; height: 6px; opacity: 0; }
+.arch { top: 3px; border-top: 2.5px solid #fff; border-radius: 5px 5px 0 0; }
+.curl { bottom: 3px; border-bottom: 2.5px solid #fff; border-radius: 0 0 5px 5px; }
+/* The thinking dot, under the right eye. */
+.dot { position: absolute; top: 100%; left: 50%; width: 3px; height: 3px; margin: 3px 0 0 -1.5px; border-radius: 50%; background: #fff; opacity: 0; }
+
+/* What Buddy says: one line, white, beside the right eye, cut with an ellipsis at the wing's edge. */
+.say-text {
+  font: 500 13px/16px -apple-system, BlinkMacSystemFont, system-ui, "SF Pro Text", "Segoe UI", sans-serif;
+  letter-spacing: 0.01em;
+  color: #fff;
+  white-space: nowrap;
+}
+#say {
+  position: absolute;
+  top: 50%;
+  margin-top: -8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+}
+/* The ruler measures a text's width where nobody sees it. */
+#ruler { position: absolute; top: -100px; left: 0; visibility: hidden; }

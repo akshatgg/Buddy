@@ -155,7 +155,8 @@ const NotchEyes = (() => {
           wide = { from: wideValue(t), to: wideTarget(), since: t };
         }
         const widening = t - wide.since < WIDE_MS;
-        const active = mood in TIMED || mood === 'thinking' || b.shut > 0 || widening;
+        const closing = mood === 'asleep' && elapsed < RAMP_MS; // the other ramps are in timed moods, active anyway
+        const active = mood in TIMED || mood === 'thinking' || closing || b.shut > 0 || widening;
         return {
           left: s.left,
           right: s.right,

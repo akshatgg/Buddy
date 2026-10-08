@@ -184,6 +184,7 @@ test('sleepy: half closed; asleep: closed as a smile, no blinks', () => {
   assert.ok(eyes.frame(3100).left.open < 0.5, 'a slow blink closes it further');
   assert.strictEqual(eyes.frame(3000 + BLINK_SLOW_MS).left.open, 0.5);
   eyes.setMood('asleep', 4000);
+  assert.strictEqual(eyes.frame(4000).active, true); // the eyes are closing: drawn at the full rate
   const asleep = eyes.frame(4000 + RAMP_MS);
   assert.deepStrictEqual(asleep.left, { ...open, open: 0, curl: 1 });
   assert.deepStrictEqual(asleep.right, { ...open, open: 0, curl: 1 });

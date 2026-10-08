@@ -1,0 +1,234 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert');
+const { createFeelings, buddyLevel, NORMAL_VOICE, LISTEN_END_MS } = require('../src/main/feelings');
+const { createSleep, DROWSY_MS, ASLEEP_MS } = require('../src/main/sleep');
+
+/**
+ * Fake timers: nothing runs until `advance` says that much time has gone by. Then each timer that comes due runs at its
+ * time, the earliest first, and so do the timers set meanwhile.
+ */
+function fakeClock() {
+  let now = 0;
+  let nextId = 1;
+  const timers = new Map(); // id → { at, fn }
+  return {
+    later(fn, ms) {
+      timers.set(nextId, { at: now + ms, fn });
+      return nextId++;
+    },
+    cancelLater(id) {
+      timers.delete(id);
+    },
+    advance(ms) {
+      const end = now + ms;
+      for (;;) {
+        const due = [...timers].filter(([, timer]) => timer.at <= end).sort(([a, x], [b, y]) => x.at - y.at || a - b)[0];
+        if (!due) break;
+        const [id, timer] = due;
+        timers.delete(id);
+        now = timer.at;
+        timer.fn();
+      }
+      now = end;
+    },
+  };
+}
+
+/**
+ * The feelings with a fake buddy window and a fake sleep countdown, which both write to one log, in order. `busy` is
+ * whether Buddy is still waiting for the answer to a message (a test can change it on `state`).
+ */
+function setup({ busy = false } = {}) {
+  const log = [];
+  const clock = fakeClock();
+  const state = { busy };
+  const buddy = {
+    mood: (name) => log.push(['mood', name]),
+    panelOpen: (open) => log.push(['panelOpen', open]),
+    voiceLevel: (level) => log.push(['voiceLevel', level]),
+  };
+  const sleep = {
+    poke: () => log.push(['poke']),
+    hold: (reason, on) => log.push(['hold', reason, on]),
+  };
+  const feelings = createFeelings({ buddy, sleep, busy: () => state.busy, later: clock.later, cancelLater: clock.cancelLater });
+  return { feelings, log, clock, state };
+}
+
+/**
+ * The feelings with the real sleep countdown (sleep.js), both on one fake clock, wired as main wires them: the
+ * countdown's own moods go straight to the buddy. `moods` is every mood the buddy was sent, in order.
+ */
+function withSleep() {
+  const clock = fakeClock();
+  const moods = [];
+  const buddy = { mood: (name) => moods.push(name), panelOpen() {}, voiceLevel() {} };
+  const sleep = createSleep({ onMood: (name) => buddy.mood(name), later: clock.later, cancelLater: clock.cancelLater });
+  const feelings = createFeelings({ buddy, sleep, later: clock.later, cancelLater: clock.cancelLater });
+  return { feelings, sleep, clock, moods };
+}
+
+const moodsIn = (log) => log.filter((e) => e[0] === 'mood').map((e) => e[1]);
+
+// Moods from the app
+
+test('every mood the app sends is a use: the sleep countdown hears it first, then the buddy gets it', () => {
+  const s = setup();
+  for (const name of ['wave', 'thinking', 'happy', 'celebrate', 'sad', 'idle']) s.feelings.mood(name);
+  assert.deepStrictEqual(s.log, [
+    ['poke'], ['mood', 'wave'], ['poke'], ['mood', 'thinking'], ['poke'], ['mood', 'happy'],
+    ['poke'], ['mood', 'celebrate'], ['poke'], ['mood', 'sad'], ['poke'], ['mood', 'idle'],
+  ]);
+});
+
+test('a sleeping buddy wakes first and then shows the mood the app sent, and the countdown starts again from it', () => {
+  const s = withSleep();
+  s.clock.advance(ASLEEP_MS);
+  assert.deepStrictEqual(s.moods, ['drowsy', 'asleep']);
+  s.feelings.mood('happy');
+  assert.deepStrictEqual(s.moods, ['drowsy', 'asleep', 'wake', 'happy'], 'the mood comes last, so it is what shows');
+  assert.strictEqual(s.sleep.state(), 'awake');
+  s.clock.advance(DROWSY_MS - 1);
+  assert.deepStrictEqual(s.moods.slice(4), []);
+  s.clock.advance(1);
+  assert.deepStrictEqual(s.moods.slice(4), ['drowsy']);
+});
+
+test('the app sending moods now and then keeps the buddy awake', () => {
+  const s = withSleep();
+  for (let i = 0; i < 10; i += 1) {
+    s.clock.advance(DROWSY_MS - 1);
+    s.feelings.mood(i % 2 ? 'thinking' : 'happy');
+  }
+  assert.deepStrictEqual(s.moods.filter((name) => ['drowsy', 'asleep', 'wake'].includes(name)), []);
+});
+
+// The panel
+
+test('the panel open holds the sleep countdown and tells the page; closed, it lets go and tells the page', () => {
+  const s = setup();
+  s.feelings.panel(true);
+  s.feelings.panel(false);
+  assert.deepStrictEqual(s.log, [['hold', 'panel', true], ['panelOpen', true], ['hold', 'panel', false], ['panelOpen', false]]);
+});
+
+test('nothing counts down while the panel is open; it wakes a sleeping buddy, and the count starts when it closes', () => {
+  const s = withSleep();
+  s.clock.advance(ASLEEP_MS);
+  s.feelings.panel(true);
+  assert.deepStrictEqual(s.moods, ['drowsy', 'asleep', 'wake']);
+  s.clock.advance(10 * ASLEEP_MS);
+  assert.deepStrictEqual(s.moods, ['drowsy', 'asleep', 'wake'], 'not drowsy, however long it stays open');
+  s.feelings.panel(false);
+  s.clock.advance(DROWSY_MS);
+  assert.deepStrictEqual(s.moods, ['drowsy', 'asleep', 'wake', 'drowsy']);
+});
+
+// The microphone
+
+test('while the panel listens the buddy listens and nothing counts down; when it stops, the buddy is idle a moment later', () => {
+  const s = setup();
+  s.feelings.listening(true);
+  assert.deepStrictEqual(s.log, [['hold', 'voice', true], ['poke'], ['mood', 'listening']]);
+  s.log.length = 0;
+  s.feelings.listening(false);
+  assert.deepStrictEqual(s.log, [['hold', 'voice', false]], 'not idle at once');
+  s.clock.advance(LISTEN_END_MS - 1);
+  assert.deepStrictEqual(s.log, [['hold', 'voice', false]]);
+  s.clock.advance(1);
+  assert.deepStrictEqual(s.log, [['hold', 'voice', false], ['poke'], ['mood', 'idle']]);
+});
+
+test('↩ while listening stops it and sends the message: the buddy goes from listening straight to thinking', () => {
+  const s = setup();
+  s.feelings.listening(true);
+  s.feelings.listening(false);
+  s.feelings.mood('thinking');
+  s.clock.advance(10 * LISTEN_END_MS);
+  assert.deepStrictEqual(moodsIn(s.log), ['listening', 'thinking'], 'never idle in between');
+});
+
+test('a listening that stops while Buddy is still waiting for an answer goes back to thinking at once', () => {
+  const s = setup({ busy: true });
+  s.feelings.listening(true);
+  s.feelings.listening(false);
+  assert.deepStrictEqual(moodsIn(s.log), ['listening', 'thinking']);
+  s.clock.advance(10 * LISTEN_END_MS);
+  assert.deepStrictEqual(moodsIn(s.log), ['listening', 'thinking']);
+});
+
+test('a mood the app sent while the panel listened (an answer, an error, a new message) plays out when it stops', () => {
+  for (const name of ['happy', 'sad', 'celebrate', 'thinking']) {
+    const s = setup();
+    s.feelings.listening(true);
+    s.feelings.mood(name);
+    s.feelings.listening(false);
+    s.clock.advance(10 * LISTEN_END_MS);
+    assert.deepStrictEqual(moodsIn(s.log), ['listening', name], name);
+  }
+});
+
+test('main says the listening stopped whenever it hides the panel: only a change counts', () => {
+  const s = setup();
+  s.feelings.mood('thinking');
+  s.log.length = 0;
+  s.feelings.listening(false); // the panel steps aside for Buddy to read the box, while it thinks
+  s.clock.advance(10 * LISTEN_END_MS);
+  assert.deepStrictEqual(s.log, [], 'thinking goes on, and the countdown hears nothing');
+  s.feelings.listening(true);
+  s.feelings.listening(true);
+  assert.deepStrictEqual(moodsIn(s.log), ['listening'], 'listening once');
+  assert.deepStrictEqual(s.log.filter((e) => e[0] === 'hold'), [['hold', 'voice', true]]);
+});
+
+test('listening again before the buddy went back to idle keeps it listening', () => {
+  const s = setup();
+  s.feelings.listening(true);
+  s.feelings.listening(false);
+  s.feelings.listening(true);
+  s.clock.advance(10 * LISTEN_END_MS);
+  assert.deepStrictEqual(moodsIn(s.log), ['listening', 'listening']);
+});
+
+test('the panel and the voice hold the countdown each for itself: it starts again once both have let go', () => {
+  const s = withSleep();
+  s.feelings.panel(true);
+  s.feelings.listening(true);
+  s.feelings.panel(false);
+  s.clock.advance(10 * ASLEEP_MS);
+  assert.deepStrictEqual(s.moods, ['listening'], 'still listening: not drowsy');
+  s.feelings.listening(false);
+  s.clock.advance(LISTEN_END_MS);
+  assert.deepStrictEqual(s.moods, ['listening', 'idle']);
+  s.clock.advance(DROWSY_MS);
+  assert.deepStrictEqual(s.moods, ['listening', 'idle', 'drowsy']);
+});
+
+// The voice level
+
+test('the voice level: a normal voice is the middle, twice as loud three quarters, and it never reaches the top', () => {
+  assert.strictEqual(NORMAL_VOICE, 0.1);
+  assert.strictEqual(buddyLevel(0), 0);
+  assert.strictEqual(buddyLevel(NORMAL_VOICE), 0.5);
+  assert.strictEqual(buddyLevel(2 * NORMAL_VOICE), 0.75);
+  assert.ok(Math.abs(buddyLevel(0.05) - 0.29) < 0.01, 'a quiet voice');
+  assert.ok(Math.abs(buddyLevel(0.4) - 0.94) < 0.01, 'a loud one');
+  assert.ok(buddyLevel(1) > 0.99 && buddyLevel(1) < 1, 'the loudest');
+  assert.ok(buddyLevel(0.003) < 0.03, 'a quiet room stays dark');
+  for (let rms = 0; rms < 1; rms += 0.01) assert.ok(buddyLevel(rms + 0.01) > buddyLevel(rms), `louder is brighter at ${rms}`);
+});
+
+test('a voice level that is not a number is silence, and one out of range stays between 0 and 1', () => {
+  for (const [given, level] of [[-0.2, 0], [Infinity, 1], [-Infinity, 0], [NaN, 0], ['0.1', 0], [undefined, 0], [null, 0]]) {
+    assert.strictEqual(buddyLevel(given), level, String(given));
+  }
+});
+
+test('voiceLevel sends the buddy the level it shows', () => {
+  const s = setup();
+  s.feelings.voiceLevel(NORMAL_VOICE);
+  s.feelings.voiceLevel(0);
+  assert.deepStrictEqual(s.log, [['voiceLevel', 0.5], ['voiceLevel', 0]]);
+});

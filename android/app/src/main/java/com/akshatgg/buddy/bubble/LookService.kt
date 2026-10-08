@@ -32,7 +32,7 @@ import com.akshatgg.buddy.typing.TypingTarget
  * this process, and from there only with the person's question to the AI.
  */
 class LookService : AccessibilityService() {
-    private val target by lazy { TypingTarget<AccessibilityNodeInfo>(packageName, ::recycle) }
+    private val target by lazy { TypingTarget(packageName, ::recycle, ::copy) }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -47,17 +47,13 @@ class LookService : AccessibilityService() {
         if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) target.onWindow(from, fromKeyboard)
         if (fromBuddy || fromKeyboard) return // LookFilter says NONE, and TypingTarget keeps nothing of theirs
         val node = if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) null else event.source
-        var kept = false
         try {
             val editable = node?.isEditable == true
             val password = node?.isPassword == true
             if (node != null && editable && type in BOX_EVENTS) {
-                if (password) {
-                    target.onPassword(from)
-                } else {
-                    target.onBox(from, node)
-                    kept = true
-                }
+                // A copy is kept, which only TypingTarget touches (under its lock): this one is used below for the
+                // look, on this thread, while the chat may be using the kept one on another.
+                if (password) target.onPassword(from) else target.onBox(from, copy(node))
             }
             if (!BubbleBus.listening) return // no buddy on screen: nobody to turn
             when (LookFilter.action(type, fromBuddy, fromKeyboard, editable, password)) {
@@ -66,7 +62,7 @@ class LookService : AccessibilityService() {
                 LookAction.NONE -> Unit
             }
         } finally {
-            if (!kept) node?.let(::recycle)
+            node?.let(::recycle)
         }
     }
 
@@ -92,34 +88,31 @@ class LookService : AccessibilityService() {
      * The kept box as it is now, read because the chat asked: its text (empty when it only shows its hint) and its
      * selection. Null when there is none, it has gone, it cannot be read, or it has become a password box.
      */
-    fun read(): BoxText? {
-        val box = fresh() ?: return null
+    fun read(): BoxText? = target.withBox { node ->
+        val box = fresh(node) ?: return@withBox null
         val text = if (box.isShowingHintText) "" else box.text?.toString().orEmpty()
-        return BoxText(text, box.textSelectionStart, box.textSelectionEnd)
+        BoxText(text, box.textSelectionStart, box.textSelectionEnd)
     }
 
     /** Set the kept box's whole text and put the cursor at `cursor`: false when it could not be set. */
-    fun write(text: String, cursor: Int): Boolean {
-        val box = fresh() ?: return false
+    fun write(text: String, cursor: Int): Boolean = target.withBox { node ->
+        val box = fresh(node) ?: return@withBox false
         val words = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
-        if (!box.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, words)) return false
+        if (!box.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, words)) return@withBox false
         val at = Bundle().apply {
             putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, cursor)
             putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, cursor)
         }
         box.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, at) // the cursor after the words: nice, not needed
-        return true
-    }
+        true
+    } == true
 
-    /** The kept box, brought up to date; null when it is gone or is not a box Buddy may touch. */
-    private fun fresh(): AccessibilityNodeInfo? {
-        val box = target.box ?: return null
-        return try {
-            box.takeIf { it.refresh() && it.isEditable && !it.isPassword }
-        } catch (e: IllegalStateException) {
-            null // let go of meanwhile, by a newer event
-        }
-    }
+    /**
+     * The chat's copy of the kept box (TypingTarget.withBox), brought up to date; null when it is gone or is not a box
+     * Buddy may touch. A node Android has let go of throws IllegalStateException, which withBox takes as gone.
+     */
+    private fun fresh(box: AccessibilityNodeInfo): AccessibilityNodeInfo? =
+        box.takeIf { it.refresh() && it.isEditable && !it.isPassword }
 
     /** The keyboard's package, from the default input method ("pkg/.Cls"), or null. */
     private fun keyboardPackage(): String? =
@@ -153,6 +146,10 @@ class LookService : AccessibilityService() {
         val x = if (before) c.right else c.left
         return ScreenRect(x, c.top, x, c.bottom)
     }
+
+    /** A node of one's own, for the same box: it reaches the app as the original does (refresh, actions). */
+    private fun copy(node: AccessibilityNodeInfo): AccessibilityNodeInfo =
+        if (Build.VERSION.SDK_INT >= 33) AccessibilityNodeInfo(node) else @Suppress("DEPRECATION") AccessibilityNodeInfo.obtain(node)
 
     private fun recycle(node: AccessibilityNodeInfo) {
         // Android asks for it before 13, and does it by itself from 13.

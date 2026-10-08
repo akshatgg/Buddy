@@ -570,13 +570,28 @@ class PanelModel(
         publish()
     }
 
-    /** Buddy's own work in the app, one at a time: a quick second press does nothing. */
+    /**
+     * Buddy's own work in the app, one at a time: a quick second press does nothing. It runs in the app's scope, so
+     * nothing may escape it: a failure is a red line (and the bubble says it, as the panel may be behind the app).
+     */
     private fun inApp(work: suspend () -> Unit) {
         if (working) return
         working = true
+        val c = chat
         scope.launch {
             try {
                 work()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val err = e as? BuddyError ?: BuddyError("failed", "Something went wrong. Try again.").also {
+                    Log.w("Buddy", "in the app: unexpected ${e.javaClass.simpleName}")
+                }
+                if (c === chat) {
+                    add(c) { ChatError(it, err.message.orEmpty(), err.code, emptyList()) }
+                    say(err.message.orEmpty())
+                    publish()
+                }
             } finally {
                 working = false
             }

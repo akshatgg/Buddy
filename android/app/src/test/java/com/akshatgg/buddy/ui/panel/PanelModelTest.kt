@@ -35,10 +35,14 @@ private class FakeTypeIn : TypeIn {
     var app: String? = "WhatsApp"
     var box: BoxText? = BoxText("", 0, 0)
     var writable = true
+    var failRead: Exception? = null
     val writes = mutableListOf<Pair<String, Int>>()
     override fun on() = on
     override fun appName() = app
-    override suspend fun read() = box
+    override suspend fun read(): BoxText? {
+        failRead?.let { throw it }
+        return box
+    }
     override suspend fun write(text: String, cursor: Int): Boolean {
         writes += text to cursor
         if (writable) box = BoxText(text, cursor, cursor)
@@ -442,6 +446,20 @@ class PanelModelTest {
         advanceUntilIdle()
         assertEquals("Hi Bob" to 6, typeIn.writes.last())
         assertTrue(ChatButton.UNDO in first.buttons) // its own Undo still checks the box first
+    }
+
+    @Test fun somethingUnexpectedWhilePuttingTextInTheAppIsARedLineNotACrash() = runTest {
+        val m = model()
+        m.say("write")
+        advanceUntilIdle()
+        typeIn.failRead = IllegalStateException("node recycled")
+        m.press(m.buddy().id, ChatButton.INSERT)
+        advanceUntilIdle()
+        assertEquals(ChatError(3, "Something went wrong. Try again.", "failed", emptyList()), m.last())
+        typeIn.failRead = null
+        m.press(m.buddy().id, ChatButton.INSERT) // not stuck: the next press works
+        advanceUntilIdle()
+        assertEquals("Dear Sir," to 9, typeIn.writes.last())
     }
 
     @Test fun anAnswerThatComesWhileThePanelIsHiddenWaitsInTheChat() = runTest {

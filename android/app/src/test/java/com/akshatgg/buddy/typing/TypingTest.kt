@@ -43,7 +43,8 @@ class TextEditTest {
 
 class TypingTargetTest {
     private val released = mutableListOf<String>()
-    private val target = TypingTarget<String>("com.akshatgg.buddy") { released += it }
+    private val copies = mutableListOf<String>()
+    private val target = TypingTarget<String>("com.akshatgg.buddy", release = { released += it }, copy = { "$it copy".also(copies::add) })
 
     @Test fun theLastBoxAndItsAppAreKept() {
         target.onWindow("com.whatsapp", keyboard = false)
@@ -82,5 +83,33 @@ class TypingTargetTest {
         assertNull(target.box)
         assertEquals("com.bank", target.app)
         assertEquals(listOf("user name box"), released)
+    }
+
+    @Test fun theChatUsesACopyOfTheBoxWhichANewerEventCannotLetGoOfMeanwhile() {
+        target.onBox("com.whatsapp", "box")
+        val got = target.withBox { node ->
+            // The service's thread moves on to another box while the chat's thread is using this one.
+            target.onBox("com.whatsapp", "box 2")
+            assertEquals(listOf("box"), released) // the kept one is let go of, not the copy in use
+            "read $node"
+        }
+        assertEquals("read box copy", got)
+        assertEquals(listOf("box copy"), copies)
+        assertEquals("the copy is let go of after use", listOf("box", "box copy"), released)
+        assertEquals("box 2", target.box)
+    }
+
+    @Test fun noBoxIsNothingToUse() {
+        var used = false
+        assertNull(target.withBox { used = true; "x" })
+        assertEquals(false, used)
+        assertEquals(emptyList<String>(), copies)
+    }
+
+    @Test fun aBoxLetGoOfByAndroidMidWayIsABoxGone() {
+        target.onBox("com.whatsapp", "box")
+        val got: String? = target.withBox { throw IllegalStateException("Cannot perform this action on a not sealed instance.") }
+        assertNull(got)
+        assertEquals(listOf("box copy"), released)
     }
 }

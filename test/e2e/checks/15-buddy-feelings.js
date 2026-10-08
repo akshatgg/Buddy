@@ -14,6 +14,22 @@ module.exports = async function feelingsCheck(ctx, { assert, delay, waitFor }) {
   await waitFor(() => js('window.__buddyReady === true').catch(() => false), 'the buddy page');
   const moodIs = (name) => async () => (await js('window.__buddyMood')) === name;
   const symbols = (kind) => js(`document.querySelectorAll('#symbols .buddy-symbol${kind ? `--${kind}` : ''}').length`);
+  // From here on, every mood the page starts, in order, in window.__buddyMoods (the page says each one in
+  // window.__buddyMood, as in 16-buddy-sleep.js).
+  const recordMoods = () => js(`(() => {
+    let current = window.__buddyMood;
+    window.__buddyMoods = [];
+    Object.defineProperty(window, '__buddyMood', {
+      configurable: true,
+      enumerable: true,
+      get: () => current,
+      set: (name) => {
+        current = name;
+        window.__buddyMoods.push(name);
+      },
+    });
+    return true;
+  })()`);
 
   // The "z" letters come back every 12 s on a timer of their own (Z_CYCLE in symbols.js), which symbols.js looks up on
   // the page's window each time: watch which of those timers are pending.
@@ -168,22 +184,9 @@ module.exports = async function feelingsCheck(ctx, { assert, delay, waitFor }) {
   // playing plays out first.
   ctx.buddy.micOn(true);
   await waitFor(moodIs('listening'), 'the buddy to listen when the microphone is on');
-  // Every mood the page starts from here on, in order (it says each one in window.__buddyMood, as in 16-buddy-sleep.js):
-  // listening again straight after happy would pass with an idle flash in between.
-  await js(`(() => {
-    let current = window.__buddyMood;
-    window.__buddyMoods = [];
-    Object.defineProperty(window, '__buddyMood', {
-      configurable: true,
-      enumerable: true,
-      get: () => current,
-      set: (name) => {
-        current = name;
-        window.__buddyMoods.push(name);
-      },
-    });
-    return true;
-  })()`);
+  // Every mood the page starts from here on: listening again straight after happy would pass with an idle flash in
+  // between.
+  await recordMoods();
   ctx.buddy.mood('happy');
   await waitFor(moodIs('happy'), 'an answer while it listens');
   await waitFor(moodIs('listening'), 'listening again once happy is over, not idle', 4000);
@@ -239,4 +242,26 @@ module.exports = async function feelingsCheck(ctx, { assert, delay, waitFor }) {
     assert.strictEqual(await js('window.__buddyMood'), 'idle', 'no fidget as it shows again');
     await delay(100);
   }
+
+  // 6. A mood that lasts until something replaces it, sent again while it shows (thinking, while Buddy works), is not
+  // started over: its pose would jump back to its start each time, and the buddy would jerk. Idle again is no change
+  // either. A mood that ends by itself plays again.
+  await recordMoods();
+  ctx.buddy.mood('thinking');
+  await waitFor(moodIs('thinking'), 'the buddy to think');
+  for (let i = 0; i < 5; i += 1) {
+    ctx.buddy.mood('thinking');
+    await delay(50);
+  }
+  ctx.buddy.mood('idle');
+  await waitFor(moodIs('idle'), 'the buddy to stop thinking');
+  ctx.buddy.mood('idle');
+  ctx.buddy.mood('wave');
+  await waitFor(moodIs('wave'), 'a wave');
+  ctx.buddy.mood('wave');
+  await delay(300); // a second wave, or anything else, would show by now
+  assert.deepStrictEqual(await js('window.__buddyMoods'), ['thinking', 'idle', 'wave', 'wave'],
+    'thinking started once, idle once, and a wave each time');
+  ctx.buddy.mood('idle');
+  await waitFor(moodIs('idle'), 'the buddy at rest again');
 };

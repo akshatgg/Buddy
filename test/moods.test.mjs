@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import {
   FPS, IDLE_FPS, REST_FPS, SLEEP_FPS, BLINK_LOOKAHEAD, SWEEP_HZ, SWEEP_LAG, FIDGETS, EYE_SHAPES,
   fpsFor, isActive, countsAsActive, wakeDelay, floatOffset, createBlinker, blinkWeight, lookAt, moodPose, createFidgeter,
-  restingMood, moodForMic,
+  restingMood, moodForMic, isRepeat,
 } from '../src/renderer/buddy/moods.js';
 
 // A buddy with nothing going on, and nothing for a long time.
@@ -749,6 +749,23 @@ test('anything else the buddy is doing when the microphone comes on or stops pla
     assert.strictEqual(moodForMic(name, true), null, `${name}, the microphone on`);
     assert.strictEqual(moodForMic(name, false), null, `${name}, the microphone off`);
   }
+});
+
+// ---------------------------------------------------------------- a mood sent again
+
+test('the same mood again, when it lasts until something replaces it, is only a repeat: it is not started over', () => {
+  for (const name of ['idle', 'thinking', 'listening', 'drowsy', 'asleep', 'wobble']) {
+    assert.strictEqual(isRepeat(name, name), true, name);
+  }
+});
+
+test('a mood that ends by itself plays again when it is sent again, and a different mood is never a repeat', () => {
+  for (const name of ['happy', 'celebrate', 'sad', 'sleepy', 'wave', 'love', 'dizzy', 'wake', ...FIDGETS, 'no-such-mood']) {
+    assert.strictEqual(isRepeat(name, name), false, name);
+  }
+  assert.strictEqual(isRepeat('thinking', 'happy'), false);
+  assert.strictEqual(isRepeat('happy', 'thinking'), false);
+  assert.strictEqual(isRepeat('idle', 'listening'), false, 'the microphone coming on');
 });
 
 // ---------------------------------------------------------------- the frame rate, as the page asks for it

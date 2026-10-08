@@ -8,7 +8,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
   BLINK_LOOKAHEAD, EYE_SHAPES, fpsFor, countsAsActive, wakeDelay, floatOffset, createBlinker, createFidgeter,
-  blinkWeight, lookAt, moodPose, restingMood, moodForMic,
+  blinkWeight, lookAt, moodPose, restingMood, moodForMic, isRepeat,
 } from './moods.js';
 import { BLEND, blendPose, smoothLevel } from './blend.js';
 import { fitCamera, fromWindow, headMark } from './layout.js';
@@ -215,7 +215,7 @@ async function load() {
  * back to listening then.
  */
 function setMood(name, t) {
-  const next = name === 'idle' ? restingMood(micOn) : name;
+  const next = asShown(name);
   blend = shown ? { from: shown, since: t } : null;
   if (next === 'asleep') held ??= cursor;
   else held = null;
@@ -226,8 +226,17 @@ function setMood(name, t) {
   startSymbols(next);
 }
 
-/** A mood from outside the frame loop (main, the pointer): start it and draw it at once. */
+/** The mood that shows for `name`: idle is the buddy at rest, which listens while the microphone is on. */
+function asShown(name) {
+  return name === 'idle' ? restingMood(micOn) : name;
+}
+
+/**
+ * A mood from outside the frame loop (main, the pointer): start it and draw it at once. The same lasting mood again is
+ * not started over (moods.js isRepeat): main may send thinking again while Buddy works, for example.
+ */
 function changeMood(name) {
+  if (isRepeat(mood.name, asShown(name))) return;
   setMood(name, now());
   wake();
 }

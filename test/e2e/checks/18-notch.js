@@ -57,7 +57,7 @@ module.exports = async function notchCheck(ctx, { assert, waitFor }) {
     await ctx.home.refresh();
     assert.strictEqual(ctx.home.where(), 'floating');
     await waitFor(() => floating()?.isVisible(), 'the floating buddy to show');
-    assert.strictEqual(win.isVisible(), false, 'the notch window is hidden');
+    assert.ok(win.isDestroyed() && !notchWindow(), 'the notch window is gone, so no paused page stays alive');
     ctx.store.set({ home: 'notch' });
     await ctx.home.refresh();
     assert.strictEqual(ctx.home.where(), 'notch');

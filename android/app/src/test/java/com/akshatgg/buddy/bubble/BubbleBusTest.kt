@@ -1,6 +1,10 @@
 package com.akshatgg.buddy.bubble
 
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runTest
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -28,5 +32,20 @@ class BubbleBusTest {
         BubbleBus.sheetShown(fix)
         BubbleBus.sheetGone(fix)
         assertFalse(BubbleBus.sheetOpen.value)
+    }
+
+    @Test fun whereThePersonTypesReachesTheBuddy() = runTest {
+        val got = mutableListOf<BubbleEvent>()
+        val buddy = launch(UnconfinedTestDispatcher(testScheduler)) { BubbleBus.events.collect { got += it } }
+        BubbleBus.lookAt(120f, 1800f)
+        BubbleBus.lookAway()
+        assertEquals(listOf(BubbleEvent.LookAt(120f, 1800f), BubbleEvent.LookAway), got)
+        buddy.cancel()
+    }
+
+    @Test fun aLookNeverShowsAHeadThatASheetHides() {
+        BubbleBus.sheetShown(panel)
+        BubbleBus.lookAt(120f, 1800f)
+        assertTrue(BubbleBus.sheetOpen.value)
     }
 }

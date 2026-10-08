@@ -66,6 +66,17 @@ class HeadView(context: Context) : FrameLayout(context) {
             wake()
         }
 
+    /**
+     * Turn the head toward where the person types (`turn` from Look.turn), or back to the front with Turn.FRONT. It
+     * eases there over a quarter of a second (LookEase), drawing at no less than the settling rate on the way, as the
+     * picker's turn does; once there, the rates are what they would be anyway.
+     */
+    @MainThread
+    fun look(turn: Turn) {
+        lookEase.to(turn, now())
+        wake()
+    }
+
     /** True while the head is touched: it draws at the full rate. */
     var pressing: Boolean = false
         @MainThread set(value) {
@@ -88,6 +99,7 @@ class HeadView(context: Context) : FrameLayout(context) {
     private var scheduled = false // the one pending frame; false while the loop is stopped
     private var visible = false
     private var turnUntil = 0.0 // the head turns until then, in now() seconds
+    private val lookEase = LookEase() // the turn toward where the person types
 
     private val frame = Choreographer.FrameCallback { tick(it) }
 
@@ -142,7 +154,7 @@ class HeadView(context: Context) : FrameLayout(context) {
         lastTick = t
         if (currentMood != Mood.IDLE || pressing) lastActive = t
         val fps = Moods.fpsFor(currentMood, pressing, blinker.soon(t, BLINK_LOOKAHEAD), t - lastActive)
-        val turns = t < turnUntil
+        val turns = t < turnUntil || lookEase.moving(t)
         schedule(1.0 / (if (turns) max(fps, Moods.IDLE_FPS) else fps) - (now() - t))
 
         val renderer = renderer ?: return
@@ -151,7 +163,9 @@ class HeadView(context: Context) : FrameLayout(context) {
             currentMood = Mood.IDLE
             moodSince = t
         }
-        val shown = if (turns) pose.copy(yaw = pose.yaw + Moods.turn(t)) else pose
+        val picker = if (t < turnUntil) pose.copy(yaw = pose.yaw + Moods.turn(t)) else pose
+        val look = lookEase.value(t)
+        val shown = if (look == Turn.FRONT) picker else picker.copy(yaw = picker.yaw + look.yaw, pitch = picker.pitch + look.pitch)
         renderer.setPose(shown, blinker.value(t), Moods.floatOffset(t))
         renderer.render(frameTimeNanos)
     }

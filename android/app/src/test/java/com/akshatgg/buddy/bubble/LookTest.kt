@@ -109,4 +109,29 @@ class LookTest {
         assertEquals(LookAction.NONE, action(TYPE_WINDOW_STATE_CHANGED, editable = false, fromKeyboard = true))
         assertEquals(LookAction.NONE, action(TYPE_VIEW_TEXT_CHANGED, fromKeyboard = true))
     }
+
+    @Test fun theHeadLooksBackThreeSecondsAfterTheLastLook() {
+        var now = 1000L
+        val hold = LookHold(clock = { now })
+        assertEquals(null, hold.target())
+        hold.lookAt(LookPoint(10f, 20f))
+        assertEquals(LookPoint(10f, 20f), hold.target())
+        assertEquals(3000L, hold.msLeft())
+        now += 2000
+        hold.lookAt(LookPoint(30f, 40f)) // typing on: the three seconds start again
+        now += 2999
+        assertEquals(LookPoint(30f, 40f), hold.target())
+        assertEquals(1L, hold.msLeft())
+        now += 1
+        assertEquals(null, hold.target())
+        assertEquals(0L, hold.msLeft())
+    }
+
+    @Test fun lookingAwayEndsTheLookAtOnce() {
+        val hold = LookHold(clock = { 0L })
+        hold.lookAt(LookPoint(10f, 20f))
+        hold.away()
+        assertEquals(null, hold.target())
+        assertEquals(0L, hold.msLeft())
+    }
 }

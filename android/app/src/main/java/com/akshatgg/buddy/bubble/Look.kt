@@ -76,6 +76,32 @@ object LookFilter {
     }
 }
 
+private const val HOLD_MS = 3000L
+
+/**
+ * The 3 s look: the head looks where the person last typed until HOLD_MS after it, then back to the front, unless
+ * told to look away sooner. `clock` is milliseconds (SystemClock.elapsedRealtime in the app, a fake in a test).
+ */
+class LookHold(private val clock: () -> Long) {
+    private var point: LookPoint? = null
+    private var at = 0L
+
+    fun lookAt(p: LookPoint) {
+        point = p
+        at = clock()
+    }
+
+    fun away() {
+        point = null
+    }
+
+    /** Where to look now, or null for the front. */
+    fun target(): LookPoint? = if (msLeft() > 0) point else null
+
+    /** How long until the head looks back to the front; 0 when it already does. */
+    fun msLeft(): Long = if (point == null) 0 else max(0L, HOLD_MS - (clock() - at))
+}
+
 private const val EASE_SECONDS = 0.25
 
 /**

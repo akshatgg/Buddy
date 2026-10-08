@@ -85,7 +85,8 @@ listens while the person talks. It works the same on the Mac and on Windows.
   `symbols.css` (new) draw the symbols; `buddy.js` applies all of it to the model and the page.
 - **Main** (`src/main/`): `sleep.js` (new) counts down to `drowsy` and `asleep` and sends `wake` on use; it is told
   about use by the buddy's IPC (pointer on it, press, drag, click), by every mood the app sends, and by the panel
-  opening and closing. `buddy-window.js` gains `voiceLevel(level)` (IPC `buddy:voice-level`, 0 to 1).
+  opening and closing. `buddy-window.js` gains `voiceLevel(level)` (IPC `buddy:voice-level`, 0 to 1) and `micOn(on)`
+  (IPC `buddy:mic-on`), which a page that loads is told again: while the microphone is on, the buddy at rest listens.
 - **The rest of the app** sends `celebrate` after Buddy puts text into the app or sends it, `sad` on an error, and
   `listening` while the microphone is on, with the voice level about 10 times a second. These calls are made where the
   panel's code already sends moods; the panel itself is not changed by this work.

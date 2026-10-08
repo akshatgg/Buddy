@@ -10,9 +10,10 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 /**
  * registerAdminIpc with a fake server: `calls` records what reached it; `fails` makes every admin call fail;
- * `refreshFails` makes the app's own fetch of the free settings (which follows a save) fail.
+ * `refreshFails` makes the app's own fetch of the free settings (which follows a save) fail; `voiceOn` is what the
+ * server says about voice.
  */
-function setup({ fails = null, refreshFails = null } = {}) {
+function setup({ fails = null, refreshFails = null, voiceOn = false } = {}) {
   const handlers = {};
   const calls = [];
   const answer = (name, value) => async (...args) => {
@@ -22,8 +23,8 @@ function setup({ fails = null, refreshFails = null } = {}) {
   };
   const cloud = {
     admin: {
-      settings: answer('settings', { config: { enabled: false }, providers: [] }),
-      save: answer('save', { config: { enabled: true }, providers: [] }),
+      settings: answer('settings', { config: { enabled: false }, providers: [], voiceOn }),
+      save: answer('save', { config: { enabled: true }, providers: [], voiceOn }),
       models: answer('models', { models: ['m'], live: true }),
       users: answer('users', { users: [] }),
       block: answer('block', { user: { uid: 'u1', blocked: true } }),
@@ -55,7 +56,7 @@ test('only the admin window may use these calls', async () => {
 
 test('each call goes to the server, and its answer comes back', async () => {
   const s = setup();
-  assert.deepStrictEqual(await s.call('admin:settings'), { ok: true, config: { enabled: false }, providers: [] });
+  assert.deepStrictEqual(await s.call('admin:settings'), { ok: true, config: { enabled: false }, providers: [], voiceOn: false });
   assert.deepStrictEqual(await s.call('admin:models', 'groq'), { ok: true, models: ['m'], live: true });
   assert.deepStrictEqual(await s.call('admin:users'), { ok: true, users: [] });
   assert.deepStrictEqual(await s.call('admin:block', 'u1', true), { ok: true, user: { uid: 'u1', blocked: true } });
@@ -64,8 +65,14 @@ test('each call goes to the server, and its answer comes back', async () => {
 
 test("saving sends the switches, and the admin's own app follows them at once", async () => {
   const s = setup();
-  assert.deepStrictEqual(await s.call('admin:save', { enabled: true }), { ok: true, config: { enabled: true }, providers: [] });
+  assert.deepStrictEqual(await s.call('admin:save', { enabled: true }), { ok: true, config: { enabled: true }, providers: [], voiceOn: false });
   assert.deepStrictEqual(s.calls, [['save', { enabled: true }], ['refresh', { force: true }]]);
+});
+
+test('whether voice is on reaches the Admin page as the server says it, with the settings and after a save', async () => {
+  const s = setup({ voiceOn: true });
+  assert.strictEqual((await s.call('admin:settings')).voiceOn, true);
+  assert.strictEqual((await s.call('admin:save', { enabled: true })).voiceOn, true);
 });
 
 test('arguments that are not valid are refused before the server is asked', async () => {
@@ -103,7 +110,7 @@ test('a fetch that fails after a save does not fail the save: it is logged, by i
     new TypeError('x is not a function'),
   ]) {
     const s = setup({ refreshFails: failure });
-    assert.deepStrictEqual(await s.call('admin:save', { enabled: true }), { ok: true, config: { enabled: true }, providers: [] });
+    assert.deepStrictEqual(await s.call('admin:save', { enabled: true }), { ok: true, config: { enabled: true }, providers: [], voiceOn: false });
     await tick(); // the fetch is not waited for: let its failure be dealt with
   }
   assert.deepStrictEqual(warned.mock.calls.map((c) => c.arguments), [

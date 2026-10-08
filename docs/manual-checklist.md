@@ -37,6 +37,13 @@ terminal.
 - [ ] `my ATM PIN is 4321` → nothing is remembered. Adding "My card number is 4111 1111 1111 1111" in Settings is refused.
 - [ ] "Learn about me from chats" off → a chat saves nothing new, and what is saved is still used.
 
+## Voice
+- [ ] The first 🎤 (or the first opening with "Listen when the panel opens" on) → macOS asks for the microphone, the panel stays open → Allow → it listens.
+- [ ] Say `boss ko mail likho, kal chutti chahiye` and stop → "Writing down what you said…" → the words appear and are sent. Also in English, and in Hindi.
+- [ ] Say nothing → it stops quietly after about 8 seconds. Type a letter while it listens → it stops and nothing is sent.
+- [ ] Settings → General → "Listen when the panel opens" off → the panel doesn't listen until 🎤 is pressed.
+- [ ] Microphone refused in System Settings → 🎤 → "Allow the microphone in Settings." with Open Settings → Settings → Permissions shows the Microphone row.
+- [ ] Without GROQ_API_KEY on the server → 🎤 → "Voice isn't set up yet."; the Admin window says "Voice needs GROQ_API_KEY in Vercel."
 
 ## Safety and errors
 - [ ] Cursor in a password field in Safari, in Chrome and in one native app (Notes → Lock Note asks for a password),
@@ -93,7 +100,7 @@ Run with the installed Buddy.app, signed in with a real Google account. The keys
 - [ ] ⇧⌘B → "Saved ✓". In TextEdit, ⇧⌘B opens the panel and ⌥ Space no longer does. Reset to ⌥ Space → ⌥ Space opens it again; Reset once more says "Already ⌥ Space."
 - [ ] The sidebar shows your Google photo, round. (Signed in before photos were kept, it shows your initials until you sign in again.)
 - [ ] Sign out at the bottom of the sidebar → "Not signed in", and Sign in with Google in its place; Sign in with Google → finish in the browser → back in Settings, your name, email, photo and Sign out. The button doesn't jump when a line appears under it.
-- [ ] Every window in light and dark mode (System Settings → Appearance): Settings (each section), the Welcome (each step), Admin, the panel (empty, a long chat, an error, "Send it?") and the bubble.
+- [ ] Every window in light and dark mode (System Settings → Appearance): Settings (each section), the Welcome (each step), Admin, the panel (empty, a long chat, an error, "Send it?", listening) and the bubble.
 
 ## Releases and Update now
 

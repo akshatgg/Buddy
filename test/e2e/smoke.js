@@ -312,6 +312,7 @@ async function waitFor(fn, what, ms = 8000) {
       loginItems: { get: () => false, set: (on) => loginCalls.push(on) },
     });
     Object.assign(ctx, { helper, clipboard, globalShortcut, loginCalls, systemPreferences });
+    ctx.home ??= ctx.buddy; // where Buddy lives (the notch or the floating buddy), as main returns it
     const dir = path.join(__dirname, 'checks');
     for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js')).sort()) {
       await require(path.join(dir, file))(ctx, { assert, delay, waitFor });

@@ -202,6 +202,9 @@ function render({ fields = true } = {}) {
   }
   if (fields) $('name').value = snap.settings.buddyName;
   for (const radio of $('size').querySelectorAll('input')) radio.checked = radio.value === snap.settings.size;
+  // Where Buddy lives is a choice only on a Mac with a notch screen on now.
+  $('home-row').hidden = !snap.hasNotch;
+  for (const radio of $('home').querySelectorAll('input')) radio.checked = radio.value === snap.settings.home;
   if (!recording) showKeys(snap.settings.shortcut);
   $('power').checked = snap.buddyOn;
   $('power-status').textContent = snap.buddyOn
@@ -526,6 +529,9 @@ $('sign-out').addEventListener('click', async () => {
 $('name').addEventListener('change', () => save({ buddyName: $('name').value }, 'name-status'));
 for (const radio of $('size').querySelectorAll('input')) {
   radio.addEventListener('change', () => save({ size: radio.value }, 'size-status'));
+}
+for (const radio of $('home').querySelectorAll('input')) {
+  radio.addEventListener('change', () => save({ home: radio.value }, 'home-status'));
 }
 $('power').addEventListener('change', async () => {
   const want = $('power').checked;

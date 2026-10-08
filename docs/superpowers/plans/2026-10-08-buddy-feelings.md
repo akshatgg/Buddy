@@ -16,9 +16,8 @@ page and its `.mjs` tests), `node --test`, ESLint, headless Blender 5 (Python) f
 
 ## Global Constraints
 
-- The owner's rule: no AI-assistant credit anywhere: no "Co-Authored-By" lines, and no mention of Claude or any
-  assistant in commits, comments or docs. (The product's existing provider name "Claude (Anthropic)" in the code is
-  fine.)
+- The owner's rule: no AI-assistant credit anywhere: no "Co-Authored-By" lines, and no mention of an assistant in
+  commits, comments or docs. (The AI providers' names that the product already shows are fine.)
 - Commit messages in this repo's style (`feat: …`, `fix: …`, `test: …`, `docs: …`, `art: …`), plain short English.
 - Never run `npm start` or `npm run dist:*`; never post real key or mouse events to the system; leave no processes
   running (Blender, Electron). `npm test`, `npm run test:e2e` and `npm run build:buddies` are fine.

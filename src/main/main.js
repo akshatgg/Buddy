@@ -107,6 +107,7 @@ async function start(options = {}) {
   const bubble = createBubbleWindow();
   // Buddy as the rest of main sees it: in the notch (on a Mac with one) or the floating buddy, whichever is in use.
   const buddy = createHome({ floating, notch: createNotchWindow({ screen }), bubble, store, helper, screen });
+  helper.on('started', () => buddy.refresh()); // a helper that was down or slow at launch: ask again
   const panel = createPanelWindow({
     // Its page crashed or did not load, or its window was closed: a listening there is over, and the page cannot say so.
     onGone: () => ui.listening(false),

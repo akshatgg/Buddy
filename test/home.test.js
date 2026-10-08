@@ -259,6 +259,20 @@ test('a helper that fails is logged by kind, and Buddy floats', async (t) => {
   assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments), [['[buddy] could not ask about the notch:', 'helper_down']]);
 });
 
+test('a helper that was down at launch: a refresh once it starts asks again, and Buddy moves into the notch while shown', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const s = setup({ notches: Object.assign(new Error("Buddy's helper is not running."), { code: 'helper_down' }) });
+  await s.home.refresh(); // main's refresh at start: the helper is not there yet
+  s.home.show();
+  assert.strictEqual(s.home.where(), 'floating');
+  s.calls.length = 0;
+  s.setNotches([ENTRY]); // it started: main's helper.on('started') refreshes again
+  await s.home.refresh();
+  assert.deepStrictEqual(s.calls, [['helper', 'notch'], ['floating.hide'], ['notch.show', NOTCH, 1]]);
+  assert.strictEqual(s.home.where(), 'notch');
+  assert.strictEqual(s.home.isVisible(), true);
+});
+
 test('a helper answer with no list in it is no notch', async () => {
   const s = setup();
   s.setNotches(undefined);

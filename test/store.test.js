@@ -57,3 +57,13 @@ test('updates are checked for unless turned off, and no version has run yet', (t
   assert.strictEqual(store.get('lastUpdateCheck'), 0);
   assert.strictEqual(store.get('lastRunVersion'), null);
 });
+
+test('the panel listens as it opens unless that is turned off (Settings → General)', (t) => {
+  const store = createStore({ file: tmpFile(t) });
+  assert.strictEqual(store.get('listenOnOpen'), true);
+  // A settings file from before voice has no such setting: it is on for that person too.
+  const file = tmpFile(t);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ onboarded: true, buddyOn: true }));
+  assert.strictEqual(createStore({ file }).get('listenOnOpen'), true);
+});

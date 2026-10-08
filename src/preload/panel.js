@@ -11,4 +11,10 @@ contextBridge.exposeInMainWorld('buddy', {
   dropSelection: () => ipcRenderer.invoke('panel:drop-selection'),
   close: () => ipcRenderer.send('panel:close'),
   openSettings: (code) => ipcRenderer.send('panel:open-settings', typeof code === 'string' ? code : undefined),
+  // Voice: may the panel use the microphone (on the Mac this asks macOS the first time), write down a recording
+  // (base64) through Buddy's server, and tell main when the panel listens and how loud the voice is (0 to 1).
+  micAccess: () => ipcRenderer.invoke('panel:mic-access'),
+  transcribe: (audio, mime) => ipcRenderer.invoke('panel:transcribe', audio, mime),
+  listening: (on) => ipcRenderer.send('panel:listening', Boolean(on)),
+  voiceLevel: (level) => ipcRenderer.send('panel:voice-level', level),
 });

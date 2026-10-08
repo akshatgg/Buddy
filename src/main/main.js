@@ -9,7 +9,9 @@
 const path = require('node:path');
 const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
-const { app, clipboard, dialog, globalShortcut: systemShortcut, ipcMain, powerMonitor, safeStorage, screen, shell } = require('electron');
+const {
+  app, clipboard, dialog, globalShortcut: systemShortcut, ipcMain, powerMonitor, safeStorage, screen, shell, systemPreferences,
+} = require('electron');
 const { createStore } = require('./store');
 const { createMemory } = require('./memory');
 const { createSecrets } = require('./secrets');
@@ -31,7 +33,7 @@ const { createPower, loginItemsFor } = require('./power');
 const { createShortcut } = require('./shortcut');
 const { createKeyWatch } = require('./key-watch');
 const { registerBuddyIpc } = require('./ipc/buddy');
-const { registerPanelIpc } = require('./ipc/panel');
+const { registerPanelIpc, createMicrophone } = require('./ipc/panel');
 const { registerSettingsIpc } = require('./ipc/settings');
 const { registerAdminIpc } = require('./ipc/admin');
 const { registerUpdatesIpc } = require('./ipc/updates');
@@ -85,6 +87,9 @@ async function start(options = {}) {
   const ai = createAi({ store, secrets, cloud, account });
   const helper = options.helper || new Helper({ binPath: helperPath() });
   helper.start();
+  // Whether macOS lets Buddy use the microphone, for the panel's voice ('unknown' on Windows, which does not ask per
+  // app). The end-to-end test passes its own systemPreferences, so that it never asks this Mac.
+  const microphone = createMicrophone({ systemPreferences: options.systemPreferences || systemPreferences });
   // The end-to-end test passes its own, so that it never grabs the person's real shortcut.
   const globalShortcut = options.globalShortcut || systemShortcut;
 
@@ -97,7 +102,10 @@ async function start(options = {}) {
     onGiveUp: () => tray?.refresh(), // the page crashed again and again, and the window is gone: the menu must say so
   });
   const bubble = createBubbleWindow();
-  const panel = createPanelWindow();
+  const panel = createPanelWindow({
+    // Its page crashed or did not load, or its window was closed: a listening there is over, and the page cannot say so.
+    onGone: () => ui.listening(false),
+  });
   const windows = createSettingsWindows({ app });
   const openSettings = (section) => windows.open('settings', section ? { section } : undefined);
   // Settings → Memory follows each change to what Buddy knows about the person.
@@ -128,6 +136,27 @@ async function start(options = {}) {
   const justUpdated = firstLaunchOfNewVersion(store, VERSION);
   installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings, Welcome and Admin, and no Cmd+Q (none on Windows)
 
+  // What actions.js (and, for voice, ipc/panel.js) does with the panel, the bubble and the buddy.
+  const ui = {
+    showPanel: (state) => panel.show(state, buddy.bounds(), buddy.display().workArea),
+    panelState: (state) => panel.send('panel:state', state),
+    hidePanel() {
+      panel.hide();
+      ui.listening(false); // a listening ends with the panel (the page says so too, a moment later)
+    },
+    isPanelVisible: () => panel.isVisible(),
+    panelJustClosed: () => panel.justClosed(),
+    panelHiddenAt: () => panel.hiddenAt(),
+    panelWindowHandle: () => windowHandle(panel.window()), // for the helper on Windows (actions.js)
+    openSettings,
+    bubble: (text) => bubble.say(text, buddy.bounds(), buddy.display().workArea),
+    mood: (name) => buddy.mood(name),
+    // For the buddy's feelings, which have their own design: when the panel listens (listening(on), from its page; and
+    // false when main hides the panel or its page is gone) and how loud the person speaks (voiceLevel(0..1), about 10
+    // times a second). Nothing uses them yet.
+    listening() {},
+    voiceLevel() {},
+  };
   const actions = createActions({
     helper,
     ai,
@@ -137,24 +166,19 @@ async function start(options = {}) {
     memory,
     sendKeyFor,
     undoKey,
+    // Buddy's server writes down what was said into the panel, for someone signed in.
+    cloud,
+    signedIn: () => account.isSignedIn(),
+    // Whether the panel may listen: voice is on for this person (the server has a Groq key, and they are not blocked),
+    // "Listen when the panel opens" (Settings → General), and the microphone.
+    voice: () => ({
+      on: account.isSignedIn() && cloud.last()?.voiceOn === true && cloud.last()?.blocked !== true,
+      auto: store.get('listenOnOpen') === true,
+      mic: microphone.status(),
+    }),
     // The panel greets the person by their first name, and the AI knows it.
     userName: () => (account.user()?.name || '').trim().split(/\s+/)[0],
-    ui: {
-      showPanel: (state) => panel.show(state, buddy.bounds(), buddy.display().workArea),
-      panelState: (state) => panel.send('panel:state', state),
-      hidePanel: () => panel.hide(),
-      isPanelVisible: () => panel.isVisible(),
-      panelJustClosed: () => panel.justClosed(),
-      panelHiddenAt: () => panel.hiddenAt(),
-      panelWindowHandle: () => windowHandle(panel.window()), // for the helper on Windows (actions.js)
-      openSettings,
-      bubble: (text) => bubble.say(text, buddy.bounds(), buddy.display().workArea),
-      mood: (name) => buddy.mood(name),
-      // For the buddy's feelings, which have their own design: voice (the next step) will say when the panel listens
-      // (listening(on)) and how loud the person speaks (voiceLevel(0..1), about 10 times a second). Nothing uses them yet.
-      listening() {},
-      voiceLevel() {},
-    },
+    ui,
   });
   const onCall = () => {
     // The shortcut is let go while Buddy is off. This is the second guard, for a press that was already on its way.
@@ -229,10 +253,10 @@ async function start(options = {}) {
   cloud.onChange(() => tray.refresh());
 
   registerBuddyIpc({ ipcMain, buddy, characters, store, onClick: onCall });
-  registerPanelIpc({ ipcMain, panel, actions, openSettings });
+  registerPanelIpc({ ipcMain, panel, actions, openSettings, microphone, ui, shell });
   const settingsIpc = registerSettingsIpc({
     ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch,
-    account, cloud, memory, canSignIn: Boolean(cloudConfig),
+    account, cloud, memory, microphone, canSignIn: Boolean(cloudConfig),
     version: VERSION,
     justUpdated,
     onFinishOnboarding() {

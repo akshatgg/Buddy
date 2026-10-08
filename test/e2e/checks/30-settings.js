@@ -495,7 +495,10 @@ module.exports = async function settingsCheck(ctx, { assert, delay, waitFor }) {
     allow: [...document.querySelectorAll('#section-permissions button')].map((b) => b.getAttribute('aria-label')),
     described: document.getElementById('shortcut').getAttribute('aria-describedby'),
   })`), {
-    lang: 'en', live: [], allow: ['Allow Accessibility', 'Allow Screen Recording'], described: 'shortcut-hint shortcut-note',
+    lang: 'en',
+    live: [],
+    allow: ['Allow Accessibility', 'Allow Screen Recording', 'Allow Microphone'],
+    described: 'shortcut-hint shortcut-note',
   });
   const before = ctx.buddy.window().getBounds();
   const r = await win.webContents.executeJavaScript("window.buddy.set({ size: 'large' })");
@@ -508,7 +511,9 @@ module.exports = async function settingsCheck(ctx, { assert, delay, waitFor }) {
   assert.deepStrictEqual(bad, { ok: false, error: { code: 'bad_request', message: 'Unknown size.' } });
 
   const perms = await win.webContents.executeJavaScript('window.buddy.permissions()');
-  assert.deepStrictEqual(perms, { ok: true, accessibility: true, screenRecording: true });
+  // The microphone as macOS says (the test's systemPreferences); Windows does not ask per app.
+  const microphone = process.platform === 'darwin' ? ctx.systemPreferences.microphone : 'unknown';
+  assert.deepStrictEqual(perms, { ok: true, accessibility: true, screenRecording: true, microphone });
 
   await aiFormCheck(ctx, win, { assert, waitFor });
   // These two press the Mac's keys (⌘⇧B, ⌃⌘K) and read its symbols. Windows' keys and names are in

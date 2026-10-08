@@ -26,6 +26,9 @@ let loadFailed = false; // the settings could not be loaded: the page only says 
 let updates = null; // Update now's state (src/main/updates.js), as the main process last sent it
 let memory = { facts: [], learning: true }; // Settings → Memory: what Buddy knows (src/main/memory.js), as last sent
 let addingFact = false; // a fact typed into Memory is on its way: Return pressed again does not send it twice
+// How the microphone stood when the Permissions page last asked: macOS asks about it only once ('not-determined' until
+// then); after that, Allow opens System Settings.
+let microphone = null;
 const FADE_AFTER_MS = 3000; // how long a success ("Saved ✓") is shown before it fades
 // A recording does not end the moment the window loses the focus, but this long after: with "Press 🌐 key to: Show Emoji
 // & Symbols", tapping fn opens the emoji picker, which takes the focus before the tap has reached the page.
@@ -206,6 +209,7 @@ function render({ fields = true } = {}) {
     : 'Your buddy is off.';
   $('version').textContent = snap.version ? `Buddy ${snap.version}` : '';
   $('update-auto').checked = snap.settings.checkForUpdates !== false;
+  $('listen-on-open').checked = snap.settings.listenOnOpen !== false;
   const { symbols, defaultShortcut, canTap } = shortcutKeys();
   $('shortcut-reset').textContent = `Reset to ${symbols(defaultShortcut).join(' ')}`;
   // Only the Mac hears a key tapped on its own.
@@ -231,8 +235,10 @@ async function renderPermissions() {
   const r = await window.buddy.permissions();
   // Right after an update macOS has forgotten Buddy's permissions (an ad-hoc signed app is a new app to it): say why.
   $('perm-updated').hidden = !(snap?.justUpdated && r.ok && !r.accessibility);
-  for (const which of ['accessibility', 'screenRecording']) {
-    const granted = Boolean(r.ok && r[which]);
+  if (r.ok) microphone = r.microphone;
+  for (const which of ['accessibility', 'screenRecording', 'microphone']) {
+    // The microphone is described in words ('granted', 'denied', …), the other two as true or false.
+    const granted = Boolean(r.ok && (which === 'microphone' ? r.microphone === 'granted' : r[which]));
     $(`perm-${which}`).textContent = granted ? 'Allowed' : 'Not allowed';
     $(`perm-${which}`).className = `badge ${granted ? 'good' : 'off'}`;
     $(`perm-${which}-btn`).hidden = granted;
@@ -540,6 +546,15 @@ for (const which of ['accessibility', 'screenRecording']) {
     showStatus('perm-status', failed ? failed.error.message : '', failed ? 'error' : 'muted');
   });
 }
+// The microphone: macOS asks the person the first time; once they have answered, the switch is in System Settings.
+$('perm-microphone-btn').addEventListener('click', async () => {
+  const r = microphone === 'not-determined'
+    ? await window.buddy.requestPermission('microphone')
+    : await window.buddy.openPermissionSettings('microphone');
+  await renderPermissions(); // how it stands now that macOS has asked (which empties the line under the rows)
+  if (!r.ok) showStatus('perm-status', r.error.message, 'error');
+});
+$('listen-on-open').addEventListener('change', () => save({ listenOnOpen: $('listen-on-open').checked }, 'listen-status'));
 $('update-check').addEventListener('click', () => updateCall(window.buddy.checkUpdates));
 $('update-now').addEventListener('click', () => updateCall(window.buddy.installUpdate));
 $('update-notes').addEventListener('click', () => updateCall(window.buddy.openReleaseNotes));

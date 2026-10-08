@@ -27,19 +27,25 @@
 
   <div class="compose">
     <p id="notice" class="note" hidden></p>
-    <p id="send-error" class="note error" aria-live="polite" hidden></p>
+    <div id="send-error" class="note error" aria-live="polite" hidden>
+      <p id="send-error-text" class="grow"></p>
+      <button id="send-error-settings" class="btn small" type="button" hidden>Open Settings</button>
+    </div>
     <div id="selection" class="selection" hidden>
       <p class="grow"><span class="muted">Your selection:</span> <span id="selection-text"></span></p>
       <button id="drop-selection" class="icon cross" type="button" title="Leave it out" aria-label="Leave the selection out"></button>
     </div>
-    <div class="box">
+    <div id="box-frame" class="box">
       <textarea id="box" rows="1" placeholder="Tell me what to do…" aria-label="Tell me what to do"></textarea>
+      <span id="voice-bars" class="bars" aria-hidden="true" hidden><i></i><i></i><i></i></span>
+      <button id="mic" class="mic" type="button" title="Talk" aria-label="Talk" aria-pressed="false"></button>
       <button id="send" class="send" type="button" title="Send (↩)" aria-label="Send" disabled></button>
     </div>
   </div>
 </div>
 <div id="announce" class="visually-hidden" aria-live="polite"></div>
 <script src="chat-view.js"></script>
+<script src="voice-timing.js"></script>
 <script src="panel.js"></script>
 </body>
 </html>

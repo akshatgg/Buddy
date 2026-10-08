@@ -133,3 +133,20 @@ Run with the installed Buddy.app, signed in with a real Google account. The keys
 - [ ] Sleep and wake the Mac: the key still works.
 - [ ] Turn Buddy off (General): tapping the key does nothing; on again: it works.
 - [ ] Reset to ⌥ Space: ⌥ Space works again and tapping the key does nothing.
+
+## In the notch
+- [ ] On a MacBook with a notch, a fresh Buddy lives in the notch: two eyes either side of the camera, the notch a little wider, nothing floating. Settings → Buddy shows "Where Buddy lives" with "In the notch" chosen.
+- [ ] The black shape matches the real notch in the light and the dark menu bar: no seam, no lighter or darker edge, the bottom corners rounded.
+- [ ] The eyes blink, look toward the pointer, and the hover: the wings grow and the pointer is a hand over the shape; beside it, clicks reach the menu bar as before.
+- [ ] A click on it opens the panel centred under the notch, its top at the bottom of the menu bar; a click anywhere else closes it; a click on it again toggles it, as on the floating buddy.
+- [ ] Hinglish mail end to end from the notch: "boss ko mail, kal chutti chahiye" in Gmail, Do it: the text lands in Gmail and "Done! It's in Gmail ✅" slides out beside the right eye for a moment, then the notch shrinks back. No bubble window.
+- [ ] A long sentence from Buddy ends with … and never grows wider than about 260 pt; a second one replaces the first at once.
+- [ ] The moods: happy ^ ^ for a moment after a Do it; celebrate bounces twice; thinking looks up-left with the dot; sad droops; wave winks once at start; listening (🎤 in the panel) opens the eyes a little wider.
+- [ ] Over a full-screen app (a video, Keynote) and on every desktop the notch Buddy is still there and still clickable.
+- [ ] Lock the screen and unlock it: the eyes stop while locked and come back.
+- [ ] Plug in an external screen and close the lid: Buddy floats on the external screen where it last was. Open the lid: back in the notch, the floating one gone.
+- [ ] Settings → Buddy → Floating: the floating Buddy appears where it was and the notch is just a notch; In the notch: back in the notch. "Saved ✓" under the row each time.
+- [ ] Size (Settings → Buddy) changes the floating Buddy only; in the notch nothing changes.
+- [ ] Show buddy / Hide buddy and Turn off buddy in the menu bar menu act on the notch Buddy; with it hidden, the notch shows nothing.
+- [ ] A Mac without a notch (or an external screen only): no "Where Buddy lives" row and the floating Buddy as before.
+- [ ] Buddy's processes stay at a few % CPU while the notch Buddy idles (Activity Monitor).

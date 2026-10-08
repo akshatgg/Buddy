@@ -2,8 +2,9 @@
 
 Phase 1 is the sections from The chat panel to Look and feel (the chat panel replaced the three tabs). Phase 2 is the section
 "Phase 2: sign-in and free mode". The section "Settings: the sidebar and the
-shortcut recorder" is the Settings polish, and the last one, "Single-key shortcut",
-is the shortcut that is one key tapped on its own.
+shortcut recorder" is the Settings polish, "Single-key shortcut" is the shortcut
+that is one key tapped on its own, and the last one, "Feelings", is the buddy's
+feelings: sleep, petting, shaking, sad, celebrate and listening.
 
 Run Phase 1 before calling it done, and again after any change to
 `src/native/`, `src/main/actions.js` or the panel. Run it with the installed
@@ -50,7 +51,7 @@ terminal.
   open the panel → "I don't read password fields." and nothing is read.
 - [ ] With the cursor still in that native password field, ask the panel to write something → it copies the answer ("Copied — press ⌘V") and types nothing into the field.
 - [ ] Accessibility switched off for Buddy, then Insert → "Copied — press ⌘V" and the text is on the clipboard.
-- [ ] Wi-Fi off → send a message → "Couldn't reach …" with Try again; the buddy looks sleepy, then wakes up after a few seconds.
+- [ ] Wi-Fi off → send a message → "Couldn't reach …" with Try again; the buddy looks sad for a moment.
 - [ ] A wrong key in Settings → "Your … key was rejected. Check it in Settings."
 - [ ] With no key saved, and again with a wrong key → send a message → the error comes with an "Open Settings" button; it opens Settings, and the panel steps aside.
 
@@ -87,7 +88,7 @@ Run with the installed Buddy.app built with a real `cloud.json`, against the dep
 - [ ] Block yourself while signed in as the admin, then Unblock: the Admin window keeps working (blocking stops free answers only).
 - [ ] Admin → Free mode off, Save. Settings shows the key form again, and a key saved earlier is still there.
 - [ ] `what does this mean?` with a mail open, free mode on → Buddy looks at the screen and answers (the free model can read screenshots); it costs one free request, not two.
-- [ ] Wi-Fi off with free mode on: Write says "Couldn't reach Buddy's server. Check your internet." and the buddy looks sleepy.
+- [ ] Wi-Fi off with free mode on: Write says "Couldn't reach Buddy's server. Check your internet." and the buddy looks sad.
 - [ ] With the server deliberately broken (for example FIREBASE_SERVICE_ACCOUNT removed and redeployed), using Buddy shows a server problem and nobody is signed out; put it back and redeploy.
 - [ ] Firestore console: users/{uid} holds only email, name, joined, lastActive, blocked, usedDay and usedCount — no text.
 
@@ -133,3 +134,23 @@ Run with the installed Buddy.app, signed in with a real Google account. The keys
 - [ ] Sleep and wake the Mac: the key still works.
 - [ ] Turn Buddy off (General): tapping the key does nothing; on again: it works.
 - [ ] Reset to ⌥ Space: ⌥ Space works again and tapping the key does nothing.
+
+## Feelings
+
+Run with the installed Buddy, on the Mac and on Windows. "Left alone" means the panel is closed, the pointer is
+elsewhere, and no answer is on its way.
+- [ ] Left alone for a minute, the buddy yawns (mouth open, eyes shut, arms out a little), then its eyes stay half shut and it floats more slowly.
+- [ ] A minute later it falls asleep: sleeping eyes ‿ ‿, head down, slow breathing, the glow of its eyes and ear rims dimmed. It no longer follows the pointer.
+- [ ] Asleep, "z" letters rise above its head in bursts: three letters, then a pause, a burst about every 12 seconds. They go when it wakes. With Buddy turned off or the screen locked meanwhile, none come back until it shows again.
+- [ ] Move the pointer onto the sleeping buddy → its eyes blink open, it stretches both arms up and gives a little shake, then it follows the pointer again. The shortcut (the panel opens) and a click wake it too.
+- [ ] Open the panel and leave it open, untouched, for three minutes → the buddy neither gets drowsy nor fidgets. Close it → a minute later it yawns.
+- [ ] Left alone and awake, it fidgets every 15 to 25 seconds: it looks around, swings its arms, hums (happy eyes, "♪" rising) or hops.
+- [ ] Rub the pointer left and right over its head, not pressed, with a real mouse and again with the trackpad → heart eyes, small hearts rising, a gentle sway. Passing over it once, or resting on it, does nothing; so does rubbing while it thinks or listens.
+- [ ] Grab it and shake it hard → it wobbles while held; let go → swirl eyes, stars circling, its head going round, then it shakes it off. An ordinary drag only snaps it to the side.
+- [ ] Wi-Fi off → send a message → the buddy is sad for a moment (droopy eyes, head and arms down, one sigh, a small sweat drop), then idle. The same with a wrong key, and when today's free requests are used up.
+- [ ] TextEdit: a fix that goes in ("Done! It's in TextEdit ✅") → the buddy jumps with happy eyes and both arms up, with sparkles. The same for Insert, and for Send ("Sent ✅"). When the text can only be copied ("Copied — press ⌘V"), it is only happy.
+- [ ] Talk to the panel → the buddy tilts its head as if leaning in; its ear rims go dim while you are quiet and light up as you talk: a normal voice clearly brighter than at rest, a loud one brighter still. When you stop, it stops listening, then thinks about what you said.
+- [ ] Press 🎤 while Buddy is still thinking about a message → it listens; when you stop, it goes back to thinking until the answer comes.
+- [ ] Turn Buddy off, wait three minutes, turn it on → it wakes and waves.
+- [ ] Both buddies at each size (small, medium, large): the eye shapes (heart, swirl, droopy, half shut, sleeping ‿) look right, and the symbols above the head are not cut off.
+- [ ] CPU (Activity Monitor; Task Manager on Windows), Buddy's renderer: a minute after it falls asleep it uses less than the awake buddy at rest, which is how today's buddy rests (4 frames a second asleep, against 6 plus blinks).

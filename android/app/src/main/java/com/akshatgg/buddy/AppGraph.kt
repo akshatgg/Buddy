@@ -17,10 +17,14 @@ import com.akshatgg.buddy.core.Shared
 import com.akshatgg.buddy.net.Http
 import com.akshatgg.buddy.net.UrlConnectionHttp
 import com.akshatgg.buddy.store.AppSettings
+import com.akshatgg.buddy.store.Fact
+import com.akshatgg.buddy.store.Facts
 import com.akshatgg.buddy.store.KeyValue
 import com.akshatgg.buddy.store.KeystoreSecrets
 import com.akshatgg.buddy.store.Secrets
 import com.akshatgg.buddy.store.SharedPrefsKeyValue
+import com.akshatgg.buddy.typing.ServiceTypeIn
+import com.akshatgg.buddy.typing.TypeIn
 import kotlinx.coroutines.CoroutineScope
 import com.akshatgg.buddy.bubble.LookService
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +46,7 @@ class AppGraph(
     val google: GoogleIdTokens = CredentialManagerGoogle(BuildConfig.GOOGLE_WEB_CLIENT_ID),
     ask: (suspend (Action, AskInput) -> Answer)? = null,
 ) {
+    val appContext: Context = context.applicationContext
     val shared: Shared = Shared.load(context)
     val settings = AppSettings(kv)
     val providers = Providers(shared, http)
@@ -57,8 +62,25 @@ class AppGraph(
     /** How the panel and the Fix sheet ask the AI: through the router, unless a test answers instead. */
     val ask: suspend (Action, AskInput) -> Answer = ask ?: router::ask
 
-    // Lives as long as the process, like the objects above.
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    /** Buddy can type for you: the box the person types in, through LookService. */
+    val typeIn: TypeIn = ServiceTypeIn(appContext)
+
+    /** What Buddy knows about the person. */
+    val facts: Facts = object : Facts { // replaced by Memory when the memory branch merges
+        override fun facts(): List<Fact> = emptyList()
+        override fun add(text: String, source: String): Fact? = null
+        override fun remove(id: String) = false
+        override val learning = true
+    }
+
+    /** The signed-in person's first name, or "". */
+    fun firstName(): String = account.user.value?.name?.trim()?.split(Regex("\\s+"))?.firstOrNull().orEmpty()
+
+    /**
+     * Lives as long as the process, like the objects above. The chat's work runs here, so that Buddy can finish putting
+     * text in an app after the Fix with Buddy sheet has stepped out of its way (and closed).
+     */
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     init {
         // Whenever the person is signed out (from Settings, or because the server or Firebase turned the sign-in

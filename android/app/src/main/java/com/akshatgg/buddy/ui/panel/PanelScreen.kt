@@ -1,13 +1,13 @@
 package com.akshatgg.buddy.ui.panel
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,16 +18,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -40,6 +44,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,41 +54,39 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.addPathNodes
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.akshatgg.buddy.ai.CheckResult
 import com.akshatgg.buddy.ui.theme.Buddy
 import com.akshatgg.buddy.ui.theme.BuddyRadius
 
-/** What the panel's boxes and buttons do. PanelActivity wires them to PanelModel and to Android; a test leaves them be. */
+/** What the panel's box and buttons do. PanelActivity and FixActivity wire them to PanelModel; a test leaves them be. */
 class PanelCallbacks(
-    val select: (Tab) -> Unit = {},
-    val setInstruction: (String) -> Unit = {},
-    val setTone: (String) -> Unit = {},
-    val setFixText: (String) -> Unit = {},
-    val paste: () -> Unit = {},
-    val setQuestion: (String) -> Unit = {},
-    val takePicture: () -> Unit = {},
-    val submit: () -> Unit = {},
-    val copy: (String) -> Unit = {},
-    val share: (String) -> Unit = {},
-    val retry: () -> Unit = {},
-    /** The error's own "Open Settings": to the part of Settings that fixes it. */
-    val openSettings: (PanelError) -> Unit = {},
+    val setDraft: (String) -> Unit = {},
+    val send: () -> Unit = {},
+    val dropSelection: () -> Unit = {},
+    /** A button on a line of the chat. */
+    val press: (Int, ChatButton) -> Unit = { _, _ -> },
     /** The ⚙ in the header. */
     val settings: () -> Unit = {},
     val close: () -> Unit = {},
 )
 
-private val TONES = listOf("formal" to "Formal", "friendly" to "Friendly", "short" to "Short")
-private val TABS = listOf(Tab.WRITE to "Write for me", Tab.FIX to "Fix my English", Tab.CHECK to "Check screen")
+/** The examples under the greeting of an empty chat, as on the Mac. */
+const val EXAMPLES = "“boss ko mail, kal chutti chahiye” · “fix this” · “what does this mean?”"
+
+private val LABELS = mapOf(
+    ChatButton.INSERT to "Insert", ChatButton.REPLACE to "Replace", ChatButton.COPY to "Copy", ChatButton.SHARE to "Share",
+    ChatButton.UNDO to "Undo", ChatButton.RETRY to "Try again", ChatButton.SETTINGS to "Open Settings",
+)
 
 // The Mac's gear (base.css's .glyph-gear), so that both have the same Settings button.
 private val Gear = ImageVector.Builder("gear", 14.dp, 14.dp, 14f, 14f).addPath(
@@ -99,45 +102,49 @@ private val Gear = ImageVector.Builder("gear", 14.dp, 14.dp, 14f, 14f).addPath(
     fill = SolidColor(Color.Black),
 ).build()
 
-/** The words an answer gives to Copy and Share: a Check's corrected text, or its own words when it gave no verdict. */
-fun answerText(state: PanelState): String {
-    val answer = state.answer ?: return ""
-    if (state.tab != Tab.CHECK) return answer.text
-    return when (val check = answer.check) {
-        is CheckResult.Verdict -> check.corrected.orEmpty()
-        is CheckResult.Raw -> check.text
-        null -> answer.text
-    }
+// An arrow up, for the send button.
+private val SendArrow = ImageVector.Builder("send", 16.dp, 16.dp, 16f, 16f).addPath(
+    pathData = addPathNodes("M8 13.5L8 2.5M8 2.5L3.5 7M8 2.5L12.5 7"),
+    stroke = SolidColor(Color.Black),
+    strokeLineWidth = 2f,
+    strokeLineCap = StrokeCap.Round,
+    strokeLineJoin = StrokeJoin.Round,
+).build()
+
+/** The first words of a selection, for its card. */
+internal fun firstWords(selection: String, max: Int = 60): String {
+    val line = selection.replace(Regex("\\s+"), " ").trim()
+    return if (line.length <= max) line else line.take(max).trimEnd() + "…"
 }
 
+/** Whether the send button (and ↩) sends: not while the buddy answers; with words in the box, or a selection to fix. */
+internal fun canSend(state: PanelState) = !state.busy && (state.draft.isNotBlank() || state.selection.isNotBlank())
+
 /**
- * The panel: a card at the bottom of the screen with the buddy's name, the three tabs, and the answer, in the Mac
- * panel's order and words.
+ * The panel: a card at the bottom of the screen with the buddy's name and the app, the chat, the selection the panel
+ * was opened with, and the box, in the Mac panel's words. `micButton` is the voice button's place in the box.
  */
 @Composable
-fun PanelScreen(state: PanelState, buddyName: String, on: PanelCallbacks) {
+fun PanelScreen(state: PanelState, buddyName: String, on: PanelCallbacks, micButton: @Composable () -> Unit = {}) {
     Sheet(on.close) {
-        Header(buddyName, on.settings)
-        Segmented(TABS, state.tab, on.select, Role.Tab)
-        when (state.tab) {
-            Tab.WRITE -> WriteTab(state, on)
-            Tab.FIX -> FixTab(state, on)
-            Tab.CHECK -> CheckTab(state, on)
-        }
-        if (state.busy) Busy()
-        state.error?.let { ErrorLine(it, on.openSettings) }
-        if (state.answer != null) AnswerSection(state, on)
+        Header(buddyName, state.appName, on.settings, on.close)
+        Messages(state, Modifier.weight(1f, fill = false), on.press)
+        if (state.busy) Busy(buddyName)
+        if (state.selection.isNotBlank()) SelectionCard(state.selection, on.dropSelection)
+        InputRow(state, on, micButton)
+        state.boxError?.let { Text(it, color = Buddy.colors.error, style = MaterialTheme.typography.bodySmall) }
     }
 }
 
 /**
- * Buddy's card over whatever app is on screen, at the bottom, with a handle bar: the panel's, and the Fix sheet's. A
+ * Buddy's card over whatever app is on screen, at the bottom, at most most of the screen high, with a handle bar. A
  * tap outside the card closes it, as a click anywhere else hides the Mac's panel.
  */
 @Composable
 internal fun Sheet(onClose: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     val colors = Buddy.colors
-    Box(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val tallest = maxHeight * 0.85f
         Spacer(
             Modifier.fillMaxSize().clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -151,8 +158,10 @@ internal fun Sheet(onClose: () -> Unit, content: @Composable ColumnScope.() -> U
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .windowInsetsPadding(WindowInsets.safeDrawing)
+                .imePadding()
                 .padding(16.dp)
                 .widthIn(max = 420.dp)
+                .heightIn(max = tallest)
                 .fillMaxWidth(),
             shape = RoundedCornerShape(14.dp),
             color = colors.card,
@@ -161,8 +170,8 @@ internal fun Sheet(onClose: () -> Unit, content: @Composable ColumnScope.() -> U
             shadowElevation = 6.dp,
         ) {
             Column(
-                Modifier.verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Box(
                     Modifier.align(Alignment.CenterHorizontally).size(width = 36.dp, height = 4.dp)
@@ -175,11 +184,11 @@ internal fun Sheet(onClose: () -> Unit, content: @Composable ColumnScope.() -> U
 }
 
 @Composable
-private fun Header(buddyName: String, onSettings: () -> Unit) {
+private fun Header(buddyName: String, appName: String, onSettings: () -> Unit, onClose: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Buddy", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+        Text(buddyName, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium, maxLines = 1)
         Text(
-            " · $buddyName",
+            if (appName.isEmpty()) "" else " · $appName",
             Modifier.weight(1f),
             color = Buddy.colors.muted,
             style = MaterialTheme.typography.titleMedium,
@@ -188,6 +197,136 @@ private fun Header(buddyName: String, onSettings: () -> Unit) {
         )
         IconButton(onClick = onSettings) {
             Icon(Gear, contentDescription = "Settings", Modifier.size(18.dp), tint = Buddy.colors.muted)
+        }
+        IconButton(onClick = onClose) {
+            Text("✕", color = Buddy.colors.muted, fontSize = 16.sp)
+        }
+    }
+}
+
+/** The chat, newest at the bottom; an empty one greets the person and shows what they can ask. */
+@Composable
+private fun Messages(state: PanelState, modifier: Modifier, press: (Int, ChatButton) -> Unit) {
+    if (state.items.isEmpty()) {
+        Column(modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(state.greeting, style = MaterialTheme.typography.titleMedium)
+            Text(EXAMPLES, color = Buddy.colors.muted, style = MaterialTheme.typography.bodySmall)
+        }
+        return
+    }
+    val list = rememberLazyListState()
+    LaunchedEffect(state.items.size, state.items.lastOrNull()) { list.animateScrollToItem(state.items.size - 1) }
+    LazyColumn(modifier, state = list, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(state.items, key = { it.id }) { item ->
+            when (item) {
+                is YouSaid -> You(item)
+                is BuddySaid -> BuddyLine(item, press)
+                is ChatEvent -> EventLine(item, press)
+                is ChatError -> ErrorLine(item, press)
+            }
+        }
+    }
+}
+
+@Composable
+private fun You(item: YouSaid) {
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+        Text(
+            item.text,
+            Modifier.widthIn(max = 300.dp).background(Buddy.colors.accentSoft, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.bodyLarge,
+        )
+    }
+}
+
+@Composable
+private fun BuddyLine(item: BuddySaid, press: (Int, ChatButton) -> Unit) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (item.say.isNotEmpty()) Text(item.say, style = MaterialTheme.typography.bodyLarge)
+        if (item.text.isNotEmpty()) AnswerText(item.text)
+        for (note in item.notes) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("•", color = Buddy.colors.muted)
+                Text(note, color = Buddy.colors.muted, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        Buttons(item.id, item.buttons, press)
+    }
+}
+
+@Composable
+private fun EventLine(item: ChatEvent, press: (Int, ChatButton) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(item.text, Modifier.weight(1f), color = Buddy.colors.muted, style = MaterialTheme.typography.bodySmall)
+        for (button in item.buttons) {
+            TextButton({ press(item.id, button) }, shape = ROUNDED) { Text(LABELS.getValue(button)) }
+        }
+    }
+}
+
+/** What went wrong, in the error colour on its soft tint, with Try again and the way to Settings when they help. */
+@Composable
+private fun ErrorLine(item: ChatError, press: (Int, ChatButton) -> Unit) {
+    val colors = Buddy.colors
+    Column(
+        Modifier.fillMaxWidth().background(colors.errorSoft, RoundedCornerShape(7.dp)).padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(item.text, color = colors.error, style = MaterialTheme.typography.bodyMedium)
+        if (item.buttons.isNotEmpty()) Buttons(item.id, item.buttons, press)
+    }
+}
+
+/** A line's buttons: the first one filled (Insert, Replace, Undo, Copy…), the others outlined. */
+@Composable
+private fun Buttons(id: Int, buttons: List<ChatButton>, press: (Int, ChatButton) -> Unit) {
+    if (buttons.isEmpty()) return
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        buttons.forEachIndexed { i, button ->
+            val label = LABELS.getValue(button)
+            when {
+                button == ChatButton.RETRY -> TextButton({ press(id, button) }, shape = ROUNDED) { Text(label) }
+                i == 0 && button != ChatButton.SETTINGS -> Primary(label) { press(id, button) }
+                else -> Secondary(label) { press(id, button) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SelectionCard(selection: String, onDrop: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().border(1.dp, Buddy.colors.line, ROUNDED).padding(start = 12.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "Your selection: “${firstWords(selection)}”",
+            Modifier.weight(1f),
+            color = Buddy.colors.muted,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        IconButton(onClick = onDrop) { Text("✕", color = Buddy.colors.muted) }
+    }
+}
+
+@Composable
+private fun InputRow(state: PanelState, on: PanelCallbacks, micButton: @Composable () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        OutlinedTextField(
+            value = state.draft,
+            onValueChange = on.setDraft,
+            modifier = Modifier.weight(1f),
+            placeholder = { Text("Tell me what to do…", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            maxLines = 4,
+            shape = RoundedCornerShape(BuddyRadius),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(onSend = { if (canSend(state)) on.send() }),
+        )
+        micButton()
+        IconButton(onClick = on.send, enabled = canSend(state)) {
+            Icon(SendArrow, contentDescription = "Send", Modifier.size(20.dp), tint = if (canSend(state)) Buddy.colors.accent else Buddy.colors.muted)
         }
     }
 }
@@ -223,21 +362,6 @@ internal fun <T> Segmented(options: List<Pair<T, String>>, selected: T, onSelect
     }
 }
 
-@Composable
-private fun Field(value: String, onChange: (String) -> Unit, placeholder: String, lines: IntRange) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onChange,
-        modifier = Modifier.fillMaxWidth(),
-        // A one-line box keeps its hint to one line too, rather than growing a line it loses when the person types.
-        placeholder = { Text(placeholder, maxLines = if (lines.last == 1) 1 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis) },
-        minLines = lines.first,
-        maxLines = lines.last,
-        singleLine = lines.last == 1,
-        shape = RoundedCornerShape(BuddyRadius),
-    )
-}
-
 internal val ROUNDED = RoundedCornerShape(BuddyRadius)
 private val BUTTON_PADDING = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
 
@@ -259,74 +383,11 @@ internal fun Secondary(label: String, modifier: Modifier = Modifier, onClick: ()
 }
 
 @Composable
-private fun WriteTab(state: PanelState, on: PanelCallbacks) {
-    Field(state.instruction, on.setInstruction, "What should I write? e.g. boss ko mail, kal chutti chahiye", 3..6)
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Segmented(TONES, state.tone, on.setTone, Role.RadioButton, Modifier.weight(1f))
-        Primary("Write", enabled = !state.busy, onClick = on.submit)
-    }
-}
-
-@Composable
-private fun FixTab(state: PanelState, on: PanelCallbacks) {
-    Field(state.fixText, on.setFixText, "Text to fix", 3..6)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Secondary("Paste", onClick = on.paste)
-        Spacer(Modifier.weight(1f))
-        Primary("Fix", enabled = !state.busy, onClick = on.submit)
-    }
-    Text("Tip: select text in any app and tap Fix with Buddy.", color = Buddy.colors.muted, style = MaterialTheme.typography.bodySmall)
-}
-
-@Composable
-private fun CheckTab(state: PanelState, on: PanelCallbacks) {
-    state.screenshot?.let { shot ->
-        // With an answer under it, the picture shrinks, so that the answer and its buttons stay in view.
-        Image(
-            shot.asImageBitmap(),
-            contentDescription = "Picture of your screen",
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = if (state.answer != null) 56.dp else 120.dp)
-                .border(1.dp, Buddy.colors.line, RoundedCornerShape(7.dp))
-                .background(Buddy.colors.bg, RoundedCornerShape(7.dp))
-                .padding(1.dp),
-            contentScale = ContentScale.Fit,
-        )
-    }
-    Field(state.question, on.setQuestion, "Ask something (optional), e.g. is this mail okay?", 1..1)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Secondary("Take a picture of the screen", onClick = on.takePicture)
-        Spacer(Modifier.weight(1f))
-        Primary("Check", enabled = !state.busy, onClick = on.submit)
-    }
-}
-
-@Composable
-internal fun Busy() {
+internal fun Busy(buddyName: String) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = Buddy.colors.accent, trackColor = Buddy.colors.track)
-        Text("Buddy is thinking…", color = Buddy.colors.muted, style = MaterialTheme.typography.bodyMedium)
+        Text("$buddyName is thinking…", color = Buddy.colors.muted, style = MaterialTheme.typography.bodyMedium)
     }
-}
-
-/** What went wrong, in the error colour on its soft tint, with the way to Settings beside it when the fix is there. */
-@Composable
-internal fun ErrorLine(error: PanelError, onOpenSettings: (PanelError) -> Unit) {
-    val colors = Buddy.colors
-    Row(
-        Modifier.fillMaxWidth().background(colors.errorSoft, RoundedCornerShape(7.dp)).padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(error.message, Modifier.weight(1f).padding(vertical = 4.dp), color = colors.error, style = MaterialTheme.typography.bodyMedium)
-        if (error.showSettings) Secondary("Open Settings") { onOpenSettings(error) }
-    }
-}
-
-@Composable
-private fun Label(text: String) {
-    Text(text, color = Buddy.colors.muted, style = MaterialTheme.typography.labelLarge)
 }
 
 /** An answer's words, in a box like the Mac's, and selectable so that a part of it can be copied. */
@@ -338,63 +399,5 @@ internal fun AnswerText(text: String) {
             Modifier.fillMaxWidth().border(1.dp, Buddy.colors.line, ROUNDED).padding(horizontal = 12.dp, vertical = 10.dp),
             style = MaterialTheme.typography.bodyLarge,
         )
-    }
-}
-
-@Composable
-private fun AnswerSection(state: PanelState, on: PanelCallbacks) {
-    val answer = state.answer ?: return
-    val colors = Buddy.colors
-    when (state.tab) {
-        Tab.WRITE -> AnswerText(answer.text)
-        Tab.FIX -> {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Label("Before")
-                Text(state.original, color = colors.muted, style = MaterialTheme.typography.bodyMedium)
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Label("After")
-                AnswerText(answer.text)
-            }
-        }
-        Tab.CHECK -> when (val check = answer.check) {
-            is CheckResult.Verdict -> {
-                Text(
-                    if (check.good) "Looks good ✓" else "Has problems",
-                    Modifier.background(if (check.good) colors.goodSoft else colors.errorSoft, RoundedCornerShape(11.dp))
-                        .padding(horizontal = 10.dp, vertical = 3.dp),
-                    color = if (check.good) colors.good else colors.error,
-                    fontWeight = FontWeight.Medium,
-                    style = MaterialTheme.typography.labelLarge,
-                )
-                if (check.problems.isNotEmpty()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for (problem in check.problems) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("•", color = colors.error)
-                                Text(problem, style = MaterialTheme.typography.bodyMedium)
-                            }
-                        }
-                    }
-                }
-                check.corrected?.let {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Label("Corrected")
-                        AnswerText(it)
-                    }
-                }
-            }
-            is CheckResult.Raw -> AnswerText(check.text)
-            null -> AnswerText(answer.text)
-        }
-    }
-    val text = answerText(state)
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (text.isNotEmpty()) {
-            Primary("Copy") { on.copy(text) }
-            if (state.tab != Tab.CHECK) Secondary("Share") { on.share(text) }
-        }
-        Spacer(Modifier.weight(1f))
-        TextButton(on.retry, enabled = !state.busy, shape = ROUNDED) { Text("Try again") }
     }
 }

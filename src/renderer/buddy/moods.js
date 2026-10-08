@@ -417,7 +417,7 @@ export function moodPose(name, since, { level = 0 } = {}) {
     case 'wobble':
       return { ...REST, headTilt: 0.15 * Math.sin(since * 18), mouthO: 0.5 };
     case 'sad':
-    case 'sleepy': // the app sends this for "no internet": the sad pose now
+    case 'sleepy': // what the app sent for "no internet" before it sent sad: the same pose
       return sad(since);
     case 'drowsy':
       return drowsy(since);

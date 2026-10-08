@@ -766,7 +766,7 @@ test('"do it": the text goes in at the cursor, the panel stays hidden, and the b
     { id: 2, type: 'buddy', say: 'Done!', text: 'Dear Sir,', notes: [], buttons: ['undo', 'copy'] },
     { id: 3, type: 'event', text: '✅ Put it in Google Chrome', buttons: [] },
   ]);
-  assert.deepStrictEqual(moods(s.log), ['thinking', 'happy']);
+  assert.deepStrictEqual(moods(s.log), ['thinking', 'celebrate'], 'its text is in the app: it celebrates, and happy does not cut that short');
   assert.strictEqual(s.actions.state().busy, false);
 });
 
@@ -1003,7 +1003,7 @@ test('Send: Buddy finds the send key for the app and its window, steps aside and
   assert.deepStrictEqual(entries(s.log, 'helper').at(-1), ['helper', 'press', { pid: 7, key: 'return', modifiers: ['cmd'] }]);
   assert.deepStrictEqual(entries(s.log, 'bubble'), [['bubble', 'Sent ✅']]);
   assert.deepStrictEqual(chatOf(s)[1], { id: 2, type: 'event', text: '✅ Sent', buttons: [] });
-  assert.strictEqual(moods(s.log).at(-1), 'happy');
+  assert.strictEqual(moods(s.log).at(-1), 'celebrate');
 });
 
 test('once it is sent, what Buddy put in the app has no Undo any more: ⌘Z would undo something else by now', async () => {
@@ -1310,23 +1310,26 @@ test('the panel only stepped aside for Settings: opening it again shows the same
 
 // Moods
 
-test('no internet makes the buddy sleepy for a while', async () => {
+test('no internet makes the buddy sad, which ends by itself: nothing is left to turn it back to idle', async () => {
   const s = setup({ answers: [failure('network', "Couldn't reach Claude.")] });
   await s.actions.open();
   await s.actions.send('mail');
-  assert.deepStrictEqual(moods(s.log), ['thinking', 'sleepy']);
-  assert.strictEqual(s.timers[0].ms, 5000);
-  s.timers[0].fn();
-  assert.deepStrictEqual(moods(s.log).at(-1), 'idle');
+  assert.deepStrictEqual(moods(s.log), ['thinking', 'sad']);
+  assert.strictEqual(s.timers.length, 0, 'no timer');
 });
 
-test('other errors put the buddy back to idle, an answer that takes too long too: it is not "no internet"', async () => {
-  for (const err of [failure('bad_key'), failure('timeout', 'Claude took too long to answer. Try again.')]) {
+test('every error makes the buddy sad: the AI failed, the limit is reached, a key refused, an answer that takes too long', async (t) => {
+  t.mock.method(console, 'error', () => {}); // "[buddy] unexpected error", for the one that is not a BuddyError
+  for (const err of [
+    failure('upstream', 'The AI could not answer.'), failure('free_limit', "You've used today's 30 free requests."),
+    failure('rate_limited'), failure('bad_key'), failure('timeout', 'Claude took too long to answer. Try again.'),
+    new Error('a bug'),
+  ]) {
     const s = setup({ answers: [err] });
     await s.actions.open();
     await s.actions.send('mail');
-    assert.deepStrictEqual(moods(s.log), ['thinking', 'idle'], err.code);
-    assert.strictEqual(s.timers.length, 0, 'no "sleepy for a while" timer');
+    assert.deepStrictEqual(moods(s.log), ['thinking', 'sad'], err.code || err.message);
+    assert.strictEqual(s.timers.length, 0, 'no timer');
   }
 });
 
@@ -1402,14 +1405,84 @@ test('closing a chat that is not thinking leaves the mood as it is', async () =>
   assert.deepStrictEqual(moods(s.log), ['thinking', 'happy']);
 });
 
-test('a new message cancels the pending "sleepy, then idle" timer', async () => {
+test('a new message after an error: nothing left from the error turns the thinking or happy buddy back to idle', async () => {
   const s = setup({ answers: [failure('network'), reply({ text: 'ok' })] });
   await s.actions.open();
   await s.actions.send('mail');
-  assert.strictEqual(s.timers.length, 1);
-  assert.strictEqual(s.cancelled.length, 0);
   await s.actions.send('mail');
-  assert.deepStrictEqual(s.cancelled, [s.timers[0]]);
+  assert.deepStrictEqual(moods(s.log), ['thinking', 'sad', 'thinking', 'happy']);
+  assert.deepStrictEqual([s.timers, s.cancelled], [[], []]);
+});
+
+test('Insert or Replace that puts the text in the app celebrates; when it can only be copied, the mood stays', async (t) => {
+  t.mock.method(console, 'warn', () => {}); // "[buddy] paste failed, copied instead"
+  for (const [button, selected] of [['insert', ''], ['replace', 'me go']]) {
+    const s = setup({ replies: { captureSelection: { text: selected } }, answers: [reply({ kind: 'fix', text: 'I go.' })] });
+    await s.actions.open();
+    await s.actions.send('fix it');
+    await s.actions.act(2, button);
+    assert.deepStrictEqual(moods(s.log), ['thinking', 'happy', 'celebrate'], button);
+  }
+  const copied = setup({ replies: { paste: failure('not_frontmost') }, answers: [reply({ text: 'Dear Sir,' })] });
+  await copied.actions.open();
+  await copied.actions.send('write it');
+  await copied.actions.act(2, 'insert');
+  assert.deepStrictEqual(entries(copied.log, 'bubble'), [['bubble', COPIED]]);
+  assert.deepStrictEqual(moods(copied.log), ['thinking', 'happy'], 'a copy is not the text in the app');
+});
+
+test('"do it" that can only copy the text is happy, not celebrating; Copy changes no mood', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const s = setup({ replies: { paste: failure('not_frontmost') }, answers: [reply({ text: 'Dear Sir,', doIt: true })] });
+  await s.actions.open();
+  await s.actions.send('write it here');
+  assert.deepStrictEqual(entries(s.log, 'bubble'), [['bubble', COPIED]]);
+  assert.deepStrictEqual(moods(s.log), ['thinking', 'happy']);
+  await s.actions.act(2, 'copy');
+  assert.deepStrictEqual(moods(s.log), ['thinking', 'happy']);
+});
+
+test('"reply and send it": it celebrates when the reply goes in, and again when it is sent', async () => {
+  const s = setup({ replies: { windowTitle: { title: '' } }, answers: [reply({ text: 'Thanks, see you!', doIt: true, send: true })] });
+  await s.actions.open();
+  await s.actions.send('reply thanks and send it');
+  assert.deepStrictEqual(moods(s.log), ['thinking', 'celebrate']);
+  await s.actions.act(lastItem(s).id, 'send');
+  assert.deepStrictEqual(moods(s.log), ['thinking', 'celebrate', 'celebrate']);
+});
+
+test('an older text put in the app while Buddy thinks about a new message: the new answer is still happy', async () => {
+  let answer;
+  const first = [reply({ text: 'Dear Sir,' })];
+  const s = setup({
+    ask: () => (first.length
+      ? Promise.resolve({ text: '', chat: first.shift() })
+      : new Promise((resolve) => { answer = () => resolve({ text: '', chat: reply({ text: 'Yours, Akshat' }) }); })),
+  });
+  await s.actions.open();
+  await s.actions.send('write a mail');
+  const sending = s.actions.send('and a sign-off');
+  await new Promise(setImmediate);
+  await s.actions.act(2, 'insert'); // the first answer, while Buddy thinks about the second message
+  assert.deepStrictEqual(moods(s.log), ['thinking', 'happy', 'thinking', 'celebrate']);
+  answer();
+  await sending;
+  assert.deepStrictEqual(moods(s.log), ['thinking', 'happy', 'thinking', 'celebrate', 'happy']);
+});
+
+test('a text that goes in after its chat was closed (Buddy turned off meanwhile) leaves the mood alone', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const s = setup({ replies: { paste: () => gate.then(() => ({})) }, answers: [reply({ text: 'Dear Sir,', doIt: true })] });
+  await s.actions.open();
+  const sending = s.actions.send('write it here');
+  while (!entries(s.log, 'helper').some((e) => e[1] === 'paste')) await new Promise(setImmediate);
+  await s.actions.dismiss();
+  const before = moods(s.log);
+  release();
+  await sending;
+  assert.deepStrictEqual(moods(s.log), before);
+  assert.deepStrictEqual(entries(s.log, 'bubble').at(-1), ['bubble', "Done! It's in Google Chrome ✅"], 'it went in all the same, and the bubble says so');
 });
 
 // The clipboard

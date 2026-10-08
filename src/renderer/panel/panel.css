@@ -169,10 +169,11 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
 
 .compose { display: flex; flex: none; flex-direction: column; gap: 6px; padding: 8px 10px 10px; border-top: 1px solid var(--line-soft); }
 .compose .note { padding: 6px 10px; font-size: 12px; line-height: 1.4; }
-/* What did not go through, with Open Settings when the fix is there (the microphone). */
-.compose .note.error { display: flex; align-items: center; gap: 8px; }
-.compose .note.error p { margin: 0; }
-.compose .note.error:has(.btn:not([hidden])) { padding-block: 4px; padding-right: 4px; }
+/* What did not go through, with Open Settings when the fix is there (the microphone), and the notice, with Allow when
+   a permission is missing. */
+.compose .note.error, .compose .note.fix { display: flex; align-items: center; gap: 8px; }
+.compose .note.error p, .compose .note.fix p { margin: 0; }
+.compose .note.error:has(.btn:not([hidden])), .compose .note.fix:has(.btn:not([hidden])) { padding-block: 4px; padding-right: 4px; }
 
 /* The text selected in the app, which the next message is about; ✕ leaves it out. */
 .selection {

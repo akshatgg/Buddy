@@ -10,9 +10,10 @@ const NO_SLEEP = { poke() {}, hold() {} };
 
 /**
  * `sleep` is the buddy's sleep countdown: the pointer on the buddy and a press hold it, and a click is a use. These are
- * the only uses the page reports; the moods the countdown sends itself (drowsy, asleep, wake) are not uses.
+ * the only uses the page reports; the moods the countdown sends itself (drowsy, asleep, wake) are not uses. `onMove` is
+ * told each time a drag moves the buddy, and once more where it snaps to at the end (an open panel follows it).
  */
-function registerBuddyIpc({ ipcMain, buddy, characters, store, onClick, sleep = NO_SLEEP }) {
+function registerBuddyIpc({ ipcMain, buddy, characters, store, onClick, sleep = NO_SLEEP, onMove = () => {} }) {
   const fromBuddy = (event) => event.sender === buddy.window()?.webContents;
 
   ipcMain.handle('buddy:model', (event) => {
@@ -37,11 +38,14 @@ function registerBuddyIpc({ ipcMain, buddy, characters, store, onClick, sleep = 
   });
   ipcMain.on('buddy:drag-move', (event, p) => {
     const point = toPoint(p);
-    if (fromBuddy(event) && point) buddy.dragTo(point);
+    if (!fromBuddy(event) || !point) return;
+    buddy.dragTo(point);
+    onMove();
   });
   ipcMain.on('buddy:drag-end', (event) => {
     if (!fromBuddy(event)) return;
     buddy.endDrag();
+    onMove();
     sleep.hold('drag', false);
   });
   ipcMain.on('buddy:click', (event) => {

@@ -29,6 +29,7 @@ function setup({ sleep = false, buddyId = 'boy-1' } = {}) {
     characters,
     store: { get: (key) => (key === 'buddyId' ? buddyId : undefined) },
     onClick: () => calls.push(['click']),
+    onMove: () => calls.push(['moved']),
     ...(sleep && {
       sleep: {
         poke: () => told.push(['poke']),
@@ -43,7 +44,17 @@ test('drag messages with finite numbers move the window', () => {
   const { handlers, calls, fromPage } = setup();
   handlers['buddy:drag-start'](fromPage, { x: 10, y: 20 });
   handlers['buddy:drag-move'](fromPage, { x: 300.5, y: -4 });
-  assert.deepStrictEqual(calls, [['beginDrag', { x: 10, y: 20 }], ['dragTo', { x: 300.5, y: -4 }]]);
+  assert.deepStrictEqual(calls, [['beginDrag', { x: 10, y: 20 }], ['dragTo', { x: 300.5, y: -4 }], ['moved']]);
+});
+
+test('onMove hears each move of a drag and where it snapped to at the end, so an open panel follows the buddy', () => {
+  const { handlers, calls, fromPage, fromElsewhere } = setup();
+  handlers['buddy:drag-start'](fromPage, { x: 10, y: 20 });
+  handlers['buddy:drag-move'](fromPage, { x: 30, y: 20 });
+  handlers['buddy:drag-move'](fromPage, { x: 60, y: 25 });
+  handlers['buddy:drag-end'](fromPage);
+  handlers['buddy:drag-end'](fromElsewhere);
+  assert.deepStrictEqual(calls.map(([name]) => name), ['beginDrag', 'dragTo', 'moved', 'dragTo', 'moved', 'endDrag', 'moved']);
 });
 
 test('drag messages that are not two finite numbers are ignored', () => {
@@ -106,7 +117,7 @@ test('the pointer on the buddy and a press hold the sleep countdown, and a click
 
   handlers['buddy:hover'](fromPage, false);
   assert.deepStrictEqual(told, [['hold', 'drag', false], ['hold', 'hover', false]], 'the pointer left');
-  assert.deepStrictEqual(calls.map(([name]) => name), ['setHover', 'beginDrag', 'dragTo', 'endDrag', 'beginDrag', 'click', 'setHover'],
+  assert.deepStrictEqual(calls.map(([name]) => name), ['setHover', 'beginDrag', 'dragTo', 'moved', 'endDrag', 'moved', 'beginDrag', 'click', 'setHover'],
     'and the window does what it always did');
 });
 
@@ -143,5 +154,5 @@ test('without a sleep countdown every message works as before', () => {
   handlers['buddy:drag-end'](fromPage);
   handlers['buddy:click'](fromPage);
   handlers['buddy:hover'](fromPage, 0);
-  assert.deepStrictEqual(calls, [['setHover', true], ['beginDrag', { x: 1, y: 2 }], ['endDrag'], ['click'], ['setHover', false]]);
+  assert.deepStrictEqual(calls, [['setHover', true], ['beginDrag', { x: 1, y: 2 }], ['endDrag'], ['moved'], ['click'], ['setHover', false]]);
 });

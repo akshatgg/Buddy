@@ -126,14 +126,14 @@ function createActions({
   let job = null; // the Claude Code job under way, if any: { handle, project, item, chat }
 
   /**
-   * A chat: the app it is about, its items, the selection the next message uses, the notice about that selection, and
-   * whether the buddy is waiting for the AI (`busy`, which the page shows). `talking` counts its messages still being
+   * A chat: the app it is about, its items, the selection the next message uses, the notice about that selection (and
+   * `noticeFix`, the error code whose fix is a click away, when it has one), and whether the buddy is waiting for the AI (`busy`, which the page shows). `talking` counts its messages still being
    * worked on (until what each answer says is done), and `lastPut` is the buddy item Buddy last put in the app, which a
    * new version of it replaces. `live` once the panel has opened on it; `resumed` when an opening came back to it.
    */
   function newChat(app = null) {
     return {
-      app, items: [], nextId: 1, selection: '', notice: '', busy: false, talking: 0, lastPut: null, resumed: false, live: false,
+      app, items: [], nextId: 1, selection: '', notice: '', noticeFix: '', busy: false, talking: 0, lastPut: null, resumed: false, live: false,
     };
   }
 
@@ -168,6 +168,7 @@ function createActions({
       appName: c.app?.name || '',
       greeting: name ? `Hi ${name}! What should we do?` : 'Hi! What should we do?',
       notice: c.notice,
+      noticeFix: c.noticeFix,
       selection: c.selection,
       busy: c.busy,
       resumed: c.resumed,
@@ -206,6 +207,7 @@ function createActions({
     const app = helper.lastApp;
     let selection = '';
     let notice = '';
+    let noticeFix = '';
     if (app) {
       try {
         const r = await helper.call('captureSelection', { pid: app.pid, selectAll: false });
@@ -215,6 +217,7 @@ function createActions({
           notice = err.message;
         } else if (err.code === 'no_accessibility') {
           notice = 'Allow Accessibility in Settings so I can read and paste your text.';
+          noticeFix = 'no_accessibility'; // its Allow button opens macOS's Accessibility page
         } else {
           console.warn('[buddy] could not read the selection:', err.code);
           notice = UNREADABLE;
@@ -226,7 +229,7 @@ function createActions({
     const sameApp = (app?.pid ?? null) === (chat.app?.pid ?? null);
     const resumed = chat.live && sameApp && now() - ui.panelHiddenAt() < RESUME_MS;
     if (!resumed) replaceChat(newChat(app));
-    Object.assign(chat, { app, selection, notice, resumed, live: true });
+    Object.assign(chat, { app, selection, notice, noticeFix, resumed, live: true });
     await showPanel(stateOf(chat));
   }
 

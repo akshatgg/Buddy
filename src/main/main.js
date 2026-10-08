@@ -295,9 +295,14 @@ async function start(options = {}) {
   });
   cloud.onChange(() => tray.refresh());
 
-  registerBuddyIpc({ ipcMain, buddy, characters, store, onClick: onCall, sleep });
+  registerBuddyIpc({
+    // An open panel moves with the buddy as it is dragged, and to the edge it snaps to.
+    ipcMain, buddy, characters, store, onClick: onCall, sleep, onMove: () => panel.follow(buddy.panelAt()),
+  });
   registerNotchIpc({ ipcMain, notch: buddy.notchWindow(), onClick: onCall });
-  registerPanelIpc({ ipcMain, panel, actions, openSettings, microphone, ui, shell });
+  registerPanelIpc({
+    ipcMain, panel, actions, openSettings, microphone, ui, shell, askAccessibility: () => helper.call('requestAccessibility'),
+  });
   const settingsIpc = registerSettingsIpc({
     ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch,
     account, cloud, memory, microphone, canSignIn: Boolean(cloudConfig),

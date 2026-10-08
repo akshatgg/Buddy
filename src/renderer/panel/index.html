@@ -26,7 +26,10 @@
   </div>
 
   <div class="compose">
-    <p id="notice" class="note" hidden></p>
+    <div id="notice" class="note fix" hidden>
+      <p id="notice-text" class="grow"></p>
+      <button id="notice-fix" class="btn small" type="button" hidden>Allow</button>
+    </div>
     <div id="send-error" class="note error" aria-live="polite" hidden>
       <p id="send-error-text" class="grow"></p>
       <button id="send-error-settings" class="btn small" type="button" hidden>Open Settings</button>

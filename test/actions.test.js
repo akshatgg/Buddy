@@ -208,6 +208,7 @@ test('opening reads the selection first, then shows the greeting, the selection 
     appName: 'Google Chrome',
     greeting: 'Hi Akshat! What should we do?',
     notice: '',
+    noticeFix: '',
     selection: 'me go home',
     busy: false,
     resumed: false,
@@ -291,7 +292,10 @@ test('a password field and a missing permission are explained, not logged as pro
   for (const [code, message, notice] of cases) {
     const s = setup({ replies: { captureSelection: failure(code, message) } });
     await s.actions.open();
-    assert.strictEqual(entries(s.log, 'showPanel')[0][1].notice, notice);
+    const shown = entries(s.log, 'showPanel')[0][1];
+    assert.strictEqual(shown.notice, notice);
+    // Only the missing permission has a fix a click away: Allow, which opens macOS's Accessibility page.
+    assert.strictEqual(shown.noticeFix, code === 'no_accessibility' ? 'no_accessibility' : '');
   }
   assert.strictEqual(warn.mock.callCount(), 0);
 });
@@ -418,6 +422,7 @@ test('a message goes to the AI with the selection, what Buddy knows and who asks
     appName: 'Google Chrome',
     greeting: 'Hi Akshat! What should we do?',
     notice: '',
+    noticeFix: '',
     selection: '', // the selection went with this message
     busy: false,
     resumed: false,

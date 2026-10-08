@@ -233,6 +233,21 @@ test('the panel opens beside the floating buddy, or under the notch, as home say
   assert.deepStrictEqual(panel.window().bounds, panelBounds(BUDDY, AREA));
 });
 
+test('the open panel follows the buddy when it is dragged; a hidden one, or none yet, stays as it is', async () => {
+  const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession() });
+  const moved = { kind: 'beside', buddy: { ...BUDDY, x: 40, y: 300 }, area: AREA };
+  panel.follow(moved); // no window yet: nothing to move, and nothing made
+  assert.strictEqual(panel.window(), null);
+
+  await panel.show({}, BESIDE);
+  panel.follow(moved);
+  assert.deepStrictEqual(panel.window().bounds, panelBounds(moved.buddy, AREA));
+
+  panel.hide();
+  panel.follow(BESIDE);
+  assert.deepStrictEqual(panel.window().bounds, panelBounds(moved.buddy, AREA), 'hidden: it opens where home says next time');
+});
+
 test('while macOS asks about the microphone the panel stays open, and gets the keyboard back after', async () => {
   const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession() });
   await panel.show({}, BESIDE);

@@ -1,5 +1,10 @@
 package com.akshatgg.buddy.bubble
 
+import android.view.accessibility.AccessibilityEvent.TYPE_VIEW_CLICKED
+import android.view.accessibility.AccessibilityEvent.TYPE_VIEW_FOCUSED
+import android.view.accessibility.AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
+import android.view.accessibility.AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED
+import android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -68,5 +73,40 @@ class LookTest {
         ease.to(Turn(0.4f, 0f), t = 0.0)
         ease.to(Turn(0.4f, 0f), t = 0.2)
         assertFalse(ease.moving(0.25))
+    }
+
+    private fun action(
+        type: Int, editable: Boolean = true, password: Boolean = false, fromBuddy: Boolean = false, fromKeyboard: Boolean = false,
+    ) = LookFilter.action(type, fromBuddy = fromBuddy, fromKeyboard = fromKeyboard, editable = editable, password = password)
+
+    @Test fun aBoxThatGetsTheFocusOrIsTypedInIsLookedAt() {
+        assertEquals(LookAction.LOOK, action(TYPE_VIEW_FOCUSED))
+        assertEquals(LookAction.LOOK, action(TYPE_VIEW_TEXT_CHANGED))
+        assertEquals(LookAction.LOOK, action(TYPE_VIEW_TEXT_SELECTION_CHANGED))
+    }
+
+    @Test fun aPasswordBoxIsNeverLookedAt() {
+        assertEquals(LookAction.AWAY, action(TYPE_VIEW_FOCUSED, password = true))
+        assertEquals(LookAction.AWAY, action(TYPE_VIEW_TEXT_CHANGED, password = true))
+        assertEquals(LookAction.AWAY, action(TYPE_VIEW_TEXT_SELECTION_CHANGED, password = true))
+    }
+
+    @Test fun theFocusLeavingTheBoxOrAnotherWindowTurnsTheHeadBack() {
+        assertEquals(LookAction.AWAY, action(TYPE_VIEW_FOCUSED, editable = false))
+        assertEquals(LookAction.AWAY, action(TYPE_WINDOW_STATE_CHANGED, editable = false))
+    }
+
+    @Test fun textThatIsNotABoxChangesNothing() {
+        assertEquals(LookAction.NONE, action(TYPE_VIEW_TEXT_CHANGED, editable = false))
+        assertEquals(LookAction.NONE, action(TYPE_VIEW_TEXT_SELECTION_CHANGED, editable = false))
+        assertEquals(LookAction.NONE, action(TYPE_VIEW_CLICKED))
+    }
+
+    @Test fun buddysOwnBoxesAndTheKeyboardChangeNothing() {
+        assertEquals(LookAction.NONE, action(TYPE_VIEW_FOCUSED, fromBuddy = true))
+        assertEquals(LookAction.NONE, action(TYPE_WINDOW_STATE_CHANGED, fromBuddy = true))
+        // The keyboard coming up is a window too: it must not turn the head away from the box it is for.
+        assertEquals(LookAction.NONE, action(TYPE_WINDOW_STATE_CHANGED, editable = false, fromKeyboard = true))
+        assertEquals(LookAction.NONE, action(TYPE_VIEW_TEXT_CHANGED, fromKeyboard = true))
     }
 }

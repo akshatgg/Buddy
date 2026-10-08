@@ -1,5 +1,6 @@
 package com.akshatgg.buddy.bubble
 
+import android.view.accessibility.AccessibilityEvent
 import kotlin.math.max
 import kotlin.math.min
 
@@ -46,6 +47,33 @@ object Look {
     }
 
     private fun clamp(v: Float, lo: Float, hi: Float) = min(hi, max(lo, v))
+}
+
+/** What an Accessibility event asks of the head. */
+enum class LookAction { LOOK, AWAY, NONE }
+
+object LookFilter {
+    /**
+     * What to do for an event of `type` (AccessibilityEvent.TYPE_*) on a view that is `editable` (a text box) and maybe
+     * a `password` box. A box getting the focus, typed in or its cursor moved: look at it. The focus going anywhere
+     * else, or another window coming up: look back to the front. A password box is never looked at. Buddy's own
+     * windows (its panel and sheets, where the head is hidden anyway) and the keyboard's change nothing: the keyboard
+     * coming up is a window too, and must not turn the head away from the box it is for.
+     */
+    fun action(type: Int, fromBuddy: Boolean, fromKeyboard: Boolean, editable: Boolean, password: Boolean): LookAction {
+        if (fromBuddy || fromKeyboard) return LookAction.NONE
+        val box = editable && !password
+        return when (type) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> LookAction.AWAY
+            AccessibilityEvent.TYPE_VIEW_FOCUSED -> if (box) LookAction.LOOK else LookAction.AWAY
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED, AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED -> when {
+                box -> LookAction.LOOK
+                editable -> LookAction.AWAY // a password box
+                else -> LookAction.NONE // text that is not a box: a label, a counter
+            }
+            else -> LookAction.NONE
+        }
+    }
 }
 
 private const val EASE_SECONDS = 0.25

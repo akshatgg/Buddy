@@ -15,20 +15,20 @@ listens while the person talks. It works the same on the Mac and on Windows.
 | Feeling | When | What it looks like | How long |
 |---|---|---|---|
 | `drowsy` | 1 min without use | A yawn (mouth open, eyes shut, arms out a little), then half-closed eyes and a slower float | until asleep or used |
-| `asleep` | 2 min without use | Sleeping eyes ‿ ‿, head down, slow breathing, "z" letters rising, the eyes' and ears' glow at half; it stops following the pointer | until used |
+| `asleep` | 2 min without use | Sleeping eyes ‿ ‿, head down, slow breathing, "z" letters rising, the eyes' glow at half and the ear rims' at a fifth; it stops following the pointer | until used |
 | `wake` | used while drowsy or asleep | Eyes blink open, both arms stretch up, a little shake | 1.2 s |
 | `love` | the pointer rubbed back and forth over its head | Heart eyes, small hearts rising, a gentle sway | 2 s |
 | `dizzy` | shaken fast while dragged, on release | Swirl eyes, stars circling above its head, the head circling, then it shakes it off | 2 s |
 | `sad` | an error (no internet, the AI failed, the limit is reached) | Droopy eyes, head and arms down, one sigh, a small sweat drop | 2.5 s |
 | `celebrate` | Buddy put text into the app | A jump with happy eyes, arms up, sparkles | 1.6 s |
-| `listening` | the microphone is on | Head tilted as if leaning in, eyes a little up, the ear rims glowing brighter and dimmer with the voice | until the microphone stops |
+| `listening` | the microphone is on | Head tilted as if leaning in, eyes a little up, the ear rims glowing brighter and dimmer with the voice (dim in silence, a pale flash on a loud voice) | until the microphone stops |
 | bored fidgets | awake and idle | One small action every 15–25 s: look around, swing the arms, hum (happy eyes, "♪" rising), a little hop | 0.8–2 s each |
 
 - **Used** means: the panel is open (from the shortcut or a click), the pointer is on the buddy, it is pressed or
   dragged, or Buddy is doing something (any mood sent by the app). Moving the pointer elsewhere, typing in other apps or
   the pointer passing by do not count. Nothing counts down while the panel is open or the pointer is on the buddy.
 - **Petting:** while the pointer is on the buddy's head (not pressed), 3 changes of direction left/right within 1.5 s,
-  each at least 6 points of movement.
+  each at least 6 points of movement. It does not cut short `thinking` or `listening`.
 - **Shaking:** while dragging, 4 changes of direction (any direction: a stroke coming back on itself) within 1 s,
   each at least 24 points.
   It plays wobble while dragged, as today, and `dizzy` when let go.
@@ -62,9 +62,10 @@ listens while the person talks. It works the same on the Mac and on Windows.
 - They are page elements animated with CSS (so they stay smooth while the buddy draws few frames), placed from the
   head's position on screen, and removed when their feeling ends.
 - **Room for them:** the buddy window grows upward by 0.6 × the buddy's size. The buddy keeps its size and its place on
-  screen: the window's bottom centre stays where it was, also for a position saved before this change. The panel and
-  the speech bubble keep their places next to the buddy. The extra space lets clicks through, as the rest of the window
-  around the buddy does today.
+  screen: the window's bottom centre stays where it was, also for a position saved before this change. A buddy within
+  0.6 × its size of the top of the screen starts that much lower, so the taller window stays on the screen. The panel
+  and the speech bubble keep their places next to the buddy. The extra space lets clicks through, as the rest of the
+  window around the buddy does today.
 
 ## 5. Drawing and battery
 

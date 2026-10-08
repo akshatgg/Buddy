@@ -22,6 +22,7 @@ import com.akshatgg.buddy.store.KeystoreSecrets
 import com.akshatgg.buddy.store.Secrets
 import com.akshatgg.buddy.store.SharedPrefsKeyValue
 import kotlinx.coroutines.CoroutineScope
+import com.akshatgg.buddy.bubble.LookService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -49,6 +50,9 @@ class AppGraph(
     val cloud = CloudClient(http, BuildConfig.SERVER_URL, account, settings)
     val router = Router(account, cloud, settings, secrets, providers, prompts)
     val keySaver = KeySaver(settings, secrets, providers)
+
+    /** Whether Look where I type is on in Android's Accessibility settings. */
+    val lookEnabled: () -> Boolean = { LookService.isEnabled(context) }
 
     /** How the panel and the Fix sheet ask the AI: through the router, unless a test answers instead. */
     val ask: suspend (Action, AskInput) -> Answer = ask ?: router::ask

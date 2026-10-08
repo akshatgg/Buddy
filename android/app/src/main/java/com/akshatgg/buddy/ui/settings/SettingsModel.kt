@@ -36,19 +36,24 @@ data class SettingsState(
     val name: String,
     val size: BuddySize,
     val buddyOn: Boolean,
+    /** Look where I type: whether its Accessibility service is on in Android's settings. */
+    val lookOn: Boolean = false,
     val signingIn: Boolean = false,
     val lines: Map<Line, Status> = emptyMap(),
 )
 
 /**
  * Settings' state, as the Mac's settings.js: every change is saved at once and said on its card's line. A success
- * fades after a few seconds; anything else (an error, a wait) stays until the line is used again.
+ * fades after a few seconds; anything else (an error, a wait) stays until the line is used again. `lookEnabled` says
+ * whether Look where I type is on in Android's Accessibility settings, which only Android changes: it is read again
+ * each time Settings comes back.
  */
 class SettingsModel(
     private val account: Account,
     private val cloud: CloudClient,
     private val settings: AppSettings,
     private val scope: CoroutineScope,
+    private val lookEnabled: () -> Boolean = { false },
 ) {
     val user: StateFlow<User?> = account.user
     val free: StateFlow<FreeSettings?> = cloud.free
@@ -65,6 +70,7 @@ class SettingsModel(
         name = name,
         size = settings.size,
         buddyOn = settings.buddyOn,
+        lookOn = lookEnabled(),
     )
 
     fun say(line: Line, status: Status?) {
@@ -78,8 +84,8 @@ class SettingsModel(
     }
 
     /**
-     * Coming back to Settings: Buddy may have been turned off meanwhile (from its notification, or on the ✕). What is
-     * being typed in the name box stays.
+     * Coming back to Settings: Buddy may have been turned off meanwhile (from its notification, or on the ✕), and Look
+     * where I type turned on or off in Android's settings. What is being typed in the name box stays.
      */
     fun reload() = current.update { read(name = it.name).copy(signingIn = it.signingIn, lines = it.lines) }
 

@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -31,11 +32,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +70,7 @@ import com.akshatgg.buddy.ui.common.BuddyPicker
 import com.akshatgg.buddy.ui.common.Note
 import com.akshatgg.buddy.ui.common.StatusLine
 import com.akshatgg.buddy.ui.common.allowed
+import com.akshatgg.buddy.ui.common.openAccessibilitySettings
 import com.akshatgg.buddy.ui.common.openFloatSettings
 import com.akshatgg.buddy.ui.common.rememberAllowed
 import com.akshatgg.buddy.ui.panel.Primary
@@ -116,6 +122,7 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
     val context = LocalContext.current
     val scroll = rememberScrollState()
     val tops = remember { mutableStateMapOf<String, Int>() }
+    var disclosing by rememberSaveable { mutableStateOf(false) } // Look where I type's disclosure is up
 
     LaunchedEffect(Unit) { model.refreshFree() }
     LifecycleResumeEffect(Unit) {
@@ -181,6 +188,8 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
                         }, role = Role.RadioButton, modifier = Modifier.widthIn(max = 220.dp))
                     }
                     Hairline()
+                    LookRow(state.lookOn, turnOn = { disclosing = true }, turnOff = { context.openAccessibilitySettings() })
+                    Hairline()
                     Row(Modifier.rowPadding(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f)) {
                             Text("Buddy on")
@@ -220,6 +229,16 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
                     }
                     Hairline()
                     PermissionRow("Notifications", "Show that Buddy is on, with Turn off.", allowed.notifications, on.askNotifications)
+                }
+
+                if (disclosing) {
+                    LookDisclosure(
+                        proceed = {
+                            disclosing = false
+                            context.openAccessibilitySettings()
+                        },
+                        dismiss = { disclosing = false },
+                    )
                 }
 
                 Text(
@@ -316,6 +335,45 @@ private fun Avatar(user: User?) {
     ) {
         Text(initials(user.name, user.email), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
     }
+}
+
+/**
+ * Look where I type: the head turns toward the box the person types in, through an Accessibility service that only
+ * Android's settings turn on or off. Turn on shows the disclosure first; Turn off opens those settings.
+ */
+@Composable
+private fun LookRow(on: Boolean, turnOn: () -> Unit, turnOff: () -> Unit) {
+    Row(Modifier.rowPadding(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text("Look where I type")
+            Text(
+                if (on) "On. Buddy sees only where the box is, never what you type." else "The head turns toward the box you type in, in any app.",
+                color = Buddy.colors.muted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (on) Secondary("Turn off", onClick = turnOff) else Secondary("Turn on", onClick = turnOn)
+    }
+}
+
+/** Google's "prominent disclosure": what the Accessibility service is for, before Android's settings open. */
+@Composable
+private fun LookDisclosure(proceed: () -> Unit, dismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text("Look where I type") },
+        text = {
+            Text(
+                "Buddy uses Android's Accessibility only to see where the text box you are typing in is on the screen, so " +
+                    "that the head can look at it. It never reads what you type, and nothing leaves your phone.",
+            )
+        },
+        confirmButton = { TextButton(proceed, shape = ROUNDED) { Text("Continue") } },
+        dismissButton = { TextButton(dismiss, shape = ROUNDED) { Text("Not now") } },
+        containerColor = Buddy.colors.card,
+        titleContentColor = Buddy.colors.fg,
+        textContentColor = Buddy.colors.fg,
+    )
 }
 
 /** Allowed or not: "Allowed ✓" in green, else the button that asks for it. */

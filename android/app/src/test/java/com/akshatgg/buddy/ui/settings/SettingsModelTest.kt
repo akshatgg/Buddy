@@ -62,6 +62,18 @@ class SettingsModelTest {
         assertEquals("Mit", settings.buddyName)
     }
 
+    @Test fun lookWhereITypeShowsWhatAndroidSaysEachTimeSettingsComesBack() = runTest {
+        var enabled = false
+        val m = SettingsModel(account, cloud, settings, this, lookEnabled = { enabled })
+        assertFalse(m.state.value.lookOn)
+        enabled = true // turned on in Android's Accessibility settings
+        m.resumed(canFloat = true)
+        assertTrue(m.state.value.lookOn)
+        enabled = false
+        m.reload()
+        assertFalse(m.state.value.lookOn)
+    }
+
     @Test fun aChangeIsSavedAndSaysSoForAFewSeconds() = runTest {
         val m = model()
         assertFalse("the buddy already chosen", m.pick("boy-1"))

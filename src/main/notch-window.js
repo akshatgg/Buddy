@@ -60,6 +60,8 @@ function createNotchWindow({ screen, BrowserWindow = require('electron').Browser
       alwaysOnTop: true,
       skipTaskbar: true,
       show: false,
+      // macOS keeps every window below the menu bar, whatever its level, unless told the window may go past the screen.
+      enableLargerThanScreen: true,
       backgroundColor: '#00000000',
       webPreferences: {
         preload: path.join(__dirname, '..', 'preload', 'notch.js'),

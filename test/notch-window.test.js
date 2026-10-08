@@ -151,6 +151,7 @@ test('show makes a see-through panel above the menu bar that never takes focus, 
     [o.transparent, o.frame, o.hasShadow, o.resizable, o.focusable, o.alwaysOnTop, o.skipTaskbar, o.show],
     [true, false, false, false, false, true, true, false],
   );
+  assert.strictEqual(o.enableLargerThanScreen, true, 'or macOS keeps it below the menu bar');
   assert.strictEqual(o.webPreferences.preload, PRELOAD);
   assert.strictEqual(o.webPreferences.sandbox, true);
   assert.strictEqual(o.webPreferences.contextIsolation, true);

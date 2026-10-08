@@ -2,8 +2,8 @@
 
 /**
  * The Android app (android/) cannot run shared/'s JavaScript, so it reads what shared/ decides from one JSON file:
- * every system prompt as the app would build it, the limits, the refusals' words, and each AI's label, key starts and
- * fallback models. This writes that file. `npm test` fails while it is out of date (test/android-shared.test.js).
+ * every system prompt as the app would build it, the limits, the refusals' words, each AI's label, key starts and
+ * fallback models, and what Buddy may remember (memoryRules: cleanFact's limits and patterns). This writes that file. `npm test` fails while it is out of date (test/android-shared.test.js).
  *
  *   npm run sync:android
  */
@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const prompts = require('../shared/prompts');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
+const memoryRules = require('../shared/memory-rules');
 
 const ROOT = path.join(__dirname, '..');
 const TO = path.join(ROOT, 'android', 'app', 'src', 'main', 'assets', 'shared.json');
@@ -74,6 +75,14 @@ function buildShared() {
       const p = PROVIDERS[id];
       return { id, label: p.label, keyUrl: p.keyUrl, keyPrefixes: p.keyPrefixes, fallbackModels: p.fallbackModels };
     }),
+    memoryRules: {
+      maxFacts: memoryRules.MAX_FACTS,
+      maxFactChars: memoryRules.MAX_FACT_CHARS,
+      nearChars: memoryRules.NEAR_CHARS,
+      maxPhoneDigits: memoryRules.MAX_PHONE_DIGITS,
+      // JavaScript patterns: the app reads \d as 0-9 and \b by ASCII letters and digits, as JavaScript does.
+      patterns: Object.fromEntries(Object.entries(memoryRules.PATTERNS).map(([name, re]) => [name, { source: re.source, flags: re.flags }])),
+    },
   };
 }
 

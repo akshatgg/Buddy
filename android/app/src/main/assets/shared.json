@@ -113,5 +113,45 @@
         "meta-llama/llama-4-scout-17b-16e-instruct"
       ]
     }
-  ]
+  ],
+  "memoryRules": {
+    "maxFacts": 50,
+    "maxFactChars": 200,
+    "nearChars": 30,
+    "maxPhoneDigits": 15,
+    "patterns": {
+      "secretWords": {
+        "source": "\\b(?:password|passcode|otp|cvv)s?\\b|\\bpins?\\b(?!\\s*-?\\s*codes?\\b)",
+        "flags": "i"
+      },
+      "pinCode": {
+        "source": "\\bpins?\\s*-?\\s*codes?\\b",
+        "flags": "i"
+      },
+      "moneyWords": {
+        "source": "\\b(?:cards?|atms?|debit|credit|bank(?:s|ing)?|net-?banking|upi)\\b",
+        "flags": "i"
+      },
+      "number": {
+        "source": "\\d(?:[\\s.\\-‐‑‒–—]?\\d)*",
+        "flags": "g"
+      },
+      "postalCode": {
+        "source": "^[1-9]\\d{5}$",
+        "flags": ""
+      },
+      "longNumber": {
+        "source": "\\d{12,}",
+        "flags": ""
+      },
+      "numberGaps": {
+        "source": "[\\s.\\-‐‑‒–—]",
+        "flags": "g"
+      },
+      "phone": {
+        "source": "\\+\\d[\\d\\s.\\-‐‑‒–—()]*\\d",
+        "flags": "g"
+      }
+    }
+  }
 }

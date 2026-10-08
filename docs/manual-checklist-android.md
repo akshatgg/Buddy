@@ -103,6 +103,29 @@ Set these in the Mac's Admin window, against the deployed server.
 - [ ] The head's quarter-second turn toward a box is smooth (30 frames a second while it turns).
 - [ ] Battery: type for a few minutes with it on, then idle: `adb shell top -b -n 1 | grep -i buddy` stays near 0% CPU when nobody types, and Settings → Battery does not list Buddy as a heavy user.
 
+## Memory
+- [ ] Settings shows "What Buddy knows about you" after the Buddy part, with "Buddy learns these from your chats. They stay on this phone." and, on a new install, "Nothing yet. Tell Buddy about yourself in a chat, or add something here."
+- [ ] Type "My boss is Mr. Sharma." in the add box and tap Add (or Done on the keyboard): it shows in the list, the box empties, and "Saved ✓" shows for a few seconds. Add stays off while the box is empty.
+- [ ] Add "my boss is mr. sharma." again: "I already know that." Add "My ATM PIN is 1234." or a 16-digit card number: "I can't save that. Passwords, PINs, OTPs and long numbers are never saved." and the text stays in the box.
+- [ ] The box takes no more than 200 characters (paste a long text: it is cut).
+- [ ] ✕ on a fact forgets it at once. TalkBack reads it as "Forget: …".
+- [ ] Forget everything (shown only when there is something) asks "Forget all N things?" ("Forget the 1 thing?" for one). Cancel, or tapping outside, keeps them; Forget empties the list and says "Buddy forgot everything."
+- [ ] "Learn about me from chats" is on on a new install. Turn it off: "Saved ✓"; force-stop the app and open it again: still off. With it off, a fact typed in Settings is still saved.
+- [ ] With the chat panel: tell Buddy "my boss is Mr. Sharma": the chat says "📝 Remembered: …" and the fact shows in Settings (open Settings meanwhile: it appears without leaving). With learning off, nothing new is saved from a chat, and what is known is still used.
+- [ ] The facts are not on the Mac, and the Mac's are not here: memory stays on each device.
+- [ ] Force-stop the app and restart the phone: the facts are all still there, oldest first.
+
+## Voice
+- [ ] First press of 🎤 in the panel: Android asks for the microphone. Allow: 🎤 turns into ■ and Buddy records.
+- [ ] Refused (or "Don't allow" chosen earlier): "Buddy needs the microphone to hear you. Allow it in Settings." with Open Settings, which opens Buddy's page in Android's settings; allow it there, go back, and 🎤 records.
+- [ ] Without GROQ_API_KEY in Vercel (`/api/config` says `voiceOn: false`): 🎤 says "Voice isn't set up yet." and nothing records.
+- [ ] Say a Hinglish sentence ("Kal mujhe chutti chahiye, please write a mail to my boss"), press ■: a small spinner, then the words appear in the box in English letters, not sent until you send them.
+- [ ] Say nothing and press ■ at once: "I didn't catch that. Try again, or type."
+- [ ] Keep talking: at 60 s it stops by itself and the words appear as with ■.
+- [ ] Close the panel while recording: the microphone stops (the green dot goes away) and nothing appears.
+- [ ] Wi-Fi and mobile data off, then ■: "Couldn't reach Buddy's server. Check your internet."
+- [ ] No recording is left: after each of the above, `adb shell run-as com.akshatgg.buddy ls cache` shows no `voice-*.m4a`.
+
 ## Look and battery
 - [ ] Light and dark mode both look right: the chat (messages, red lines, the selection card), Settings, Welcome, bubble.
 - [ ] Idle for ten minutes with the head showing: `adb shell top -b -n 1 | grep -i buddy` stays near 0% CPU, and Settings → Battery does not list Buddy as a heavy user.

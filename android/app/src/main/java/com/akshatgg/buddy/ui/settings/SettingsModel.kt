@@ -8,6 +8,8 @@ import com.akshatgg.buddy.cloud.FreeSettings
 import com.akshatgg.buddy.core.BuddyError
 import com.akshatgg.buddy.store.AppSettings
 import com.akshatgg.buddy.store.BuddySize
+import com.akshatgg.buddy.store.Fact
+import com.akshatgg.buddy.store.Memory
 import com.akshatgg.buddy.ui.common.Status
 import com.akshatgg.buddy.ui.common.Tone
 import com.akshatgg.buddy.ui.common.failure
@@ -24,8 +26,15 @@ import kotlinx.coroutines.launch
 private const val NAME_MAX = 24
 private const val FADE_AFTER_MS = 3000L // how long a success ("Saved ✓") is shown before it goes
 
-/** Where a status line is: under the account, or under the Buddy card. */
-enum class Line { ACCOUNT, BUDDY }
+// The desktop's words (src/main/ipc/settings.js) when a fact typed into Settings → Memory is not kept.
+private const val CANT_SAVE = "I can't save that. Passwords, PINs, OTPs and long numbers are never saved."
+private const val KNOWN_ALREADY = "I already know that."
+
+/** Where a status line is: under the account, under the Buddy card, or under What Buddy knows about you. */
+enum class Line { ACCOUNT, BUDDY, MEMORY }
+
+/** Forget everything asks once more first, as the desktop does. */
+internal fun forgetAllQuestion(n: Int): String = if (n == 1) "Forget the 1 thing?" else "Forget all $n things?"
 
 /**
  * What Settings shows besides the account and free mode (which come from their own flows). `name` is the name box as
@@ -39,6 +48,12 @@ data class SettingsState(
     /** Look where I type: whether its Accessibility service is on in Android's settings. */
     val lookOn: Boolean = false,
     val signingIn: Boolean = false,
+    /** Learn about me from chats. */
+    val learning: Boolean = true,
+    /** Memory's add box, as typed. */
+    val newFact: String = "",
+    /** Forget everything is asking "Forget all N things?". */
+    val forgetAsked: Boolean = false,
     val lines: Map<Line, Status> = emptyMap(),
 )
 
@@ -52,11 +67,15 @@ class SettingsModel(
     private val account: Account,
     private val cloud: CloudClient,
     private val settings: AppSettings,
+    private val memory: Memory,
     private val scope: CoroutineScope,
     private val lookEnabled: () -> Boolean = { false },
 ) {
     val user: StateFlow<User?> = account.user
     val free: StateFlow<FreeSettings?> = cloud.free
+
+    /** What Buddy knows about the person, oldest first, as the chat learns it and Settings changes it. */
+    val facts: StateFlow<List<Fact>> = memory.changes
 
     private val current = MutableStateFlow(read(name = settings.buddyName))
     val state: StateFlow<SettingsState> = current.asStateFlow()
@@ -71,6 +90,7 @@ class SettingsModel(
         size = settings.size,
         buddyOn = settings.buddyOn,
         lookOn = lookEnabled(),
+        learning = memory.learning,
     )
 
     fun say(line: Line, status: Status?) {
@@ -85,9 +105,11 @@ class SettingsModel(
 
     /**
      * Coming back to Settings: Buddy may have been turned off meanwhile (from its notification, or on the ✕), and Look
-     * where I type turned on or off in Android's settings. What is being typed in the name box stays.
+     * where I type turned on or off in Android's settings. What is being typed in the name box and the add box stays.
      */
-    fun reload() = current.update { read(name = it.name).copy(signingIn = it.signingIn, lines = it.lines) }
+    fun reload() = current.update {
+        read(name = it.name).copy(signingIn = it.signingIn, newFact = it.newFact, forgetAsked = it.forgetAsked, lines = it.lines)
+    }
 
     /** The admin may have changed free mode since the app last asked. A failure is only logged: the last known settings show. */
     fun refreshFree() {
@@ -169,5 +191,59 @@ class SettingsModel(
         reload()
         if (!waitingToFloat || !canFloat) return false
         return setBuddyOn(true, canFloat = true)
+    }
+
+    // ---- What Buddy knows about you ----
+
+    /** The add box, cut where a fact must end (the desktop's maxlength). */
+    fun setNewFact(text: String) = current.update { it.copy(newFact = text.take(memory.rules.maxFactChars)) }
+
+    /**
+     * Add: the fact in the box is kept, even with learning off, since the person typed it; true when it was. A secret,
+     * or a fact already known, is refused in the desktop's words and stays in the box to change.
+     */
+    fun addFact(): Boolean {
+        val text = current.value.newFact.trim()
+        if (text.isEmpty()) return false
+        val refusal = when {
+            memory.rules.cleanFact(text) == null -> CANT_SAVE
+            memory.add(text, "settings") == null -> KNOWN_ALREADY
+            else -> null
+        }
+        if (refusal != null) {
+            say(Line.MEMORY, Status(refusal, Tone.ERROR))
+            return false
+        }
+        current.update { it.copy(newFact = "") }
+        say(Line.MEMORY, Status("Saved ✓", Tone.GOOD))
+        return true
+    }
+
+    /** ✕ on a fact. One gone already (the chat's Undo) changes nothing. */
+    fun forgetFact(id: String) {
+        memory.remove(id)
+        say(Line.MEMORY, null)
+    }
+
+    /** Forget everything: asks first, and only when there is something to forget. */
+    fun askForgetAll() {
+        if (memory.facts().isEmpty()) return
+        current.update { it.copy(forgetAsked = true) }
+        say(Line.MEMORY, null)
+    }
+
+    fun cancelForgetAll() = current.update { it.copy(forgetAsked = false) }
+
+    fun forgetAll() {
+        memory.clear()
+        current.update { it.copy(forgetAsked = false) }
+        say(Line.MEMORY, Status("Buddy forgot everything.", Tone.GOOD))
+    }
+
+    /** Learn about me from chats. Off, the chat saves nothing new, and Buddy still uses what it knows. */
+    fun setLearning(on: Boolean) {
+        memory.learning = on
+        current.update { it.copy(learning = on) }
+        say(Line.MEMORY, Status("Saved ✓", Tone.GOOD))
     }
 }

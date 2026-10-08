@@ -23,9 +23,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -52,8 +55,12 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,6 +71,7 @@ import com.akshatgg.buddy.BuildConfig
 import com.akshatgg.buddy.account.User
 import com.akshatgg.buddy.ai.aiSection
 import com.akshatgg.buddy.store.BuddySize
+import com.akshatgg.buddy.store.Fact
 import com.akshatgg.buddy.ui.common.AiForm
 import com.akshatgg.buddy.ui.common.AiFormModel
 import com.akshatgg.buddy.ui.common.BuddyPicker
@@ -84,7 +92,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlin.time.Duration.Companion.seconds
 
-/** A part of Settings to scroll to ("ai", "account" or "buddy"). A new one each time, so the same part can be asked again. */
+/** A part of Settings to scroll to ("ai", "account", "buddy" or "memory"). A new one each time, so the same part can be asked again. */
 class SectionRequest(val name: String)
 
 /** What Settings asks of Android. MainActivity wires them; a test leaves them be. */
@@ -110,7 +118,8 @@ internal fun initials(name: String, email: String): String {
 }
 
 /**
- * Settings: one page of cards in the Mac's order (the account, the buddy, the AI, the permissions) and the version.
+ * Settings: one page of cards in the Mac's order (the account, the buddy, what Buddy knows about you, the AI, the
+ * permissions) and the version.
  * `section` scrolls the page to one of them: the panel's and the Fix sheet's "Open Settings" ask for it.
  */
 @Composable
@@ -118,6 +127,7 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
     val state by model.state.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
     val user by model.user.collectAsStateWithLifecycle()
     val free by model.free.collectAsStateWithLifecycle()
+    val facts by model.facts.collectAsStateWithLifecycle()
     val allowed by rememberAllowed()
     val context = LocalContext.current
     val scroll = rememberScrollState()
@@ -217,6 +227,9 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
                 }
                 StatusLine(state.lines[Line.BUDDY])
 
+                Title("What Buddy knows about you", Modifier.section("memory"))
+                MemorySection(model, state, facts)
+
                 Title("AI", Modifier.section("ai"))
                 val freeMode = aiSection(free)
                 if (freeMode.note.isNotEmpty()) Note(freeMode.note)
@@ -229,6 +242,10 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
                     }
                     Hairline()
                     PermissionRow("Notifications", "Show that Buddy is on, with Turn off.", allowed.notifications, on.askNotifications)
+                }
+
+                if (state.forgetAsked && facts.isNotEmpty()) {
+                    ForgetAllDialog(facts.size, forget = model::forgetAll, cancel = model::cancelForgetAll)
                 }
 
                 if (disclosing) {
@@ -393,4 +410,86 @@ private fun PermissionRow(title: String, what: String, granted: Boolean, allow: 
         }
         if (granted) Text("Allowed ✓", color = Buddy.colors.good, fontWeight = FontWeight.Medium) else Secondary("Allow", onClick = allow)
     }
+}
+
+/**
+ * What Buddy knows about you, as the desktop's Settings → Memory: the facts, each with ✕, a box to add one, the
+ * switch "Learn about me from chats", and Forget everything, which asks first.
+ */
+@Composable
+private fun MemorySection(model: SettingsModel, state: SettingsState, facts: List<Fact>) {
+    val colors = Buddy.colors
+    Text("Buddy learns these from your chats. They stay on this phone.", color = colors.muted, style = MaterialTheme.typography.bodyMedium)
+    Group {
+        if (facts.isEmpty()) {
+            Text(
+                "Nothing yet. Tell Buddy about yourself in a chat, or add something here.",
+                Modifier.rowPadding(),
+                color = colors.muted,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        facts.forEachIndexed { i, fact ->
+            if (i > 0) Hairline()
+            Row(Modifier.rowPadding(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(fact.text, Modifier.weight(1f))
+                IconButton(
+                    onClick = { model.forgetFact(fact.id) },
+                    modifier = Modifier.semantics { contentDescription = "Forget: ${fact.text}" },
+                ) {
+                    Text("✕", Modifier.clearAndSetSemantics {}, color = colors.muted)
+                }
+            }
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        val add = { model.addFact() }
+        OutlinedTextField(
+            value = state.newFact,
+            onValueChange = model::setNewFact,
+            modifier = Modifier.weight(1f).semantics { contentDescription = "Something Buddy should know about you" },
+            placeholder = { Text("Something about you, like “My boss is Mr. Sharma.”", color = colors.muted) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { add() }),
+            shape = ROUNDED,
+        )
+        Primary("Add", enabled = state.newFact.isNotBlank(), onClick = { add() })
+    }
+    Group {
+        Row(Modifier.rowPadding(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("Learn about me from chats")
+                Text(
+                    "When it's off, Buddy saves nothing new, and still uses what it knows.",
+                    color = colors.muted,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = state.learning,
+                onCheckedChange = model::setLearning,
+                colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.accentFg),
+            )
+        }
+    }
+    if (facts.isNotEmpty()) Secondary("Forget everything", onClick = model::askForgetAll)
+    StatusLine(state.lines[Line.MEMORY])
+}
+
+/** Forget everything, once more: "Forget all N things?" with Cancel and Forget. */
+@Composable
+private fun ForgetAllDialog(count: Int, forget: () -> Unit, cancel: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = cancel,
+        title = { Text(forgetAllQuestion(count)) },
+        text = { Text("Buddy will forget everything it knows about you on this phone.") },
+        confirmButton = {
+            TextButton(forget, shape = ROUNDED, colors = ButtonDefaults.textButtonColors(contentColor = Buddy.colors.error)) { Text("Forget") }
+        },
+        dismissButton = { TextButton(cancel, shape = ROUNDED) { Text("Cancel") } },
+        containerColor = Buddy.colors.card,
+        titleContentColor = Buddy.colors.fg,
+        textContentColor = Buddy.colors.fg,
+    )
 }

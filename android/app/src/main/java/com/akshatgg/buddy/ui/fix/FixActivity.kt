@@ -20,6 +20,8 @@ import com.akshatgg.buddy.ui.panel.PanelScreen
 import com.akshatgg.buddy.ui.panel.openSettingsFor
 import com.akshatgg.buddy.ui.theme.BuddyTheme
 import kotlinx.coroutines.Dispatchers
+import androidx.compose.runtime.remember
+import com.akshatgg.buddy.voice.MicButton
 
 // Sent as it is, however long: the chat says when it is too long. Any app can send this sheet anything, and extras it
 // packed badly (a class Buddy does not have) throw when read: that is no text, not a crash.
@@ -69,7 +71,11 @@ class FixActivity : ComponentActivity(), ChatHost {
         setContent {
             BuddyTheme {
                 val state by model.state.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
-                PanelScreen(state, buddyName, on)
+                // One recorder for this screen; its words go into the box, its refusals become a line in the chat.
+                val voice = remember { AppGraph.instance.voiceFactory(applicationContext) }
+                PanelScreen(state, buddyName, on) {
+                    MicButton(voice, onWords = model::voiceWords, onError = model::voiceError)
+                }
             }
         }
     }

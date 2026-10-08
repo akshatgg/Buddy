@@ -15,6 +15,8 @@ import com.akshatgg.buddy.AppGraph
 import com.akshatgg.buddy.bubble.BubbleBus
 import com.akshatgg.buddy.ui.theme.BuddyTheme
 import kotlinx.coroutines.Dispatchers
+import androidx.compose.runtime.remember
+import com.akshatgg.buddy.voice.MicButton
 
 /**
  * The panel the buddy opens when it is tapped: the chat (PanelModel), in an activity rather than an overlay, so that
@@ -53,7 +55,11 @@ class PanelActivity : ComponentActivity(), ChatHost {
             BuddyTheme {
                 // Collected without a hop through the main queue, so that the box always shows what was just typed.
                 val state by model.state.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
-                PanelScreen(state, buddyName, on)
+                // One recorder for this screen; its words go into the box, its refusals become a line in the chat.
+                val voice = remember { AppGraph.instance.voiceFactory(applicationContext) }
+                PanelScreen(state, buddyName, on) {
+                    MicButton(voice, onWords = model::voiceWords, onError = model::voiceError)
+                }
             }
         }
     }

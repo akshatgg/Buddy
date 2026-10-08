@@ -23,18 +23,23 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.IOException
+import java.util.Base64
 import java.net.SocketTimeoutException
 
 private const val FRESH_MS = 60_000L // settings fetched (or found out of reach, with some kept) less than this long ago are not fetched again
 private const val CALL_TIMEOUT_MS = 30_000 // for calls that bring no deadline of their own
 private const val CONFIG_TIMEOUT_MS = 8_000 // for the settings, which a request waits for before it goes anywhere
+// For a recording: longer than the server waits for Groq (30 s, web/lib/transcribe.js), so that its own answer ("I
+// couldn't write down what you said") comes first. As on the Mac (cloud.js).
+private const val TRANSCRIBE_TIMEOUT_MS = 45_000
+private const val AUDIO_MAX_BYTES = 2_000_000 // about 2 MB: the most Buddy's server takes (the Mac's panel stops there too)
 private val UNREACHABLE = listOf("network", "timeout", "server") // the server cannot be used now: fall back to what is kept
 // The codes Buddy's server answers errors with: the keys of STATUS in web/lib/handlers.js, and `server` (which its
 // handle() also answers for a failure of its own). An error answer with any other code comes from something in front
 // of the server, such as the hosting platform.
 private val SERVER_CODES = listOf(
     "bad_request", "free_no_vision", "unauthenticated", "blocked", "free_off", "not_admin", "not_found",
-    "method_not_allowed", "free_limit", "upstream", "server",
+    "method_not_allowed", "free_limit", "upstream", "server", "voice_off", "voice_busy",
 )
 
 private fun serverProblem() = BuddyError("server", "Buddy's server had a problem. Try again.")
@@ -192,5 +197,22 @@ class CloudClient(
         // A Check is read here from the text, with the function the own-key route uses: what the server sends as its own
         // reading never reaches the panel. A chat is read by the router, on both routes.
         return Answer(text, model, if (action == Action.CHECK) Prompts.parseCheck(text) else null)
+    }
+
+    /** Whether the server can write down what is said (it has a Groq key): from the settings, off when they are unknown. */
+    suspend fun voiceOn(): Boolean = settings()?.voiceOn == true
+
+    /**
+     * What was said in a recording (`audio`, of kind `mime`), written down by the server: the words, "" when none were
+     * heard. An empty recording, or one larger than the server takes, is not sent.
+     */
+    suspend fun transcribe(audio: ByteArray, mime: String = "audio/mp4"): String {
+        if (audio.isEmpty() || audio.size > AUDIO_MAX_BYTES) throw BuddyError("bad_request", "That recording didn't come through. Try again.")
+        val body = buildJsonObject {
+            put("audio", Base64.getEncoder().encodeToString(audio))
+            put("mime", mime)
+        }
+        val j = call("/api/transcribe", "POST", body, timeoutMs = TRANSCRIBE_TIMEOUT_MS)
+        return j.string("text") ?: throw serverProblem()
     }
 }

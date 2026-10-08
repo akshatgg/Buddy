@@ -3,6 +3,7 @@ package com.akshatgg.buddy.core
 import android.content.Context
 import com.akshatgg.buddy.ai.providers.ProviderFacts
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -57,6 +58,8 @@ class Shared(json: String) {
         )
     }
     val chatMessages: Map<String, String> = chat.getValue("messages").jsonObject.mapValues { it.value.jsonPrimitive.content }
+    /** What Buddy may remember: cleanFact's limits and patterns, read by ai/MemoryRules.kt. */
+    val memoryRules: JsonObject = root.getValue("memoryRules").jsonObject
 
     val providers: List<ProviderFacts> = root.getValue("providers").jsonArray.map { element ->
         val p = element.jsonObject

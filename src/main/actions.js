@@ -107,6 +107,17 @@ function createActions({
   newline = platform.newline,
   system = process.platform,
 }) {
+  // Every mood goes through here, so a job's live lines can tell whether the buddy already thinks: thinking sent again
+  // would restart its animation on every line, and the buddy would jerk.
+  let lastMood = null;
+  const shown = ui;
+  ui = {
+    ...shown,
+    mood(name) {
+      lastMood = name;
+      return shown.mood(name);
+    },
+  };
   let chat = newChat();
   let opening = null; // the open() in progress, if any
   let aside = 0; // how many of Buddy's steps in the app are under way with the panel hidden on purpose for them
@@ -843,7 +854,8 @@ function createActions({
     const hidden = !ui.isPanelVisible() || c !== chat; // the panel is hidden, or shows another chat by now
     if (event.type === 'line') {
       item.lines = [...item.lines, event.text].slice(-LIVE_LINES);
-      if (c === chat) ui.mood('thinking'); // an answer meanwhile may have left the buddy happy or idle
+      // An answer meanwhile may have left the buddy happy or idle: think again, but only then.
+      if (c === chat && lastMood !== 'thinking') ui.mood('thinking');
       push(c);
       return;
     }

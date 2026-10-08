@@ -1973,10 +1973,13 @@ test('live lines: the newest six are kept, and the buddy keeps thinking', async 
   const s = setup({ projects: [APP_DIR], answers: [code()] });
   await s.actions.open();
   await s.actions.send('fix the bug');
+  const before = moods(s.log).length;
   for (let i = 1; i <= 7; i += 1) play(s, { type: 'line', text: `Reading ${i}.js` });
   assert.deepStrictEqual(jobItem(s).lines, ['Reading 2.js', 'Reading 3.js', 'Reading 4.js', 'Reading 5.js', 'Reading 6.js', 'Reading 7.js']);
   assert.deepStrictEqual(entries(s.log, 'state').at(-1)[1].chat.at(-1).lines.length, 6);
   assert.strictEqual(moods(s.log).at(-1), 'thinking');
+  // Thinking is not sent again on every line: a repeat restarts the buddy's thinking animation, and it would jerk.
+  assert.strictEqual(moods(s.log).length, before, 'the lines send no mood while the buddy already thinks');
 });
 
 test('a message sent during a job is answered as usual, and the next live line has the buddy think again', async () => {

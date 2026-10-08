@@ -65,4 +65,19 @@ function cleanFact(text) {
   return fact;
 }
 
-module.exports = { cleanFact, MAX_FACTS, MAX_FACT_CHARS };
+/**
+ * The patterns cleanFact uses, by name, for the phone app, which cannot run this file: tools/sync-android-shared.js
+ * copies them into its shared.json (as memoryRules), and its MemoryRules.kt follows cleanFact with them.
+ */
+const PATTERNS = {
+  secretWords: SECRET_WORDS,
+  pinCode: PIN_CODE,
+  moneyWords: MONEY_WORDS,
+  number: NUMBER,
+  postalCode: POSTAL_CODE,
+  longNumber: LONG_NUMBER,
+  numberGaps: NUMBER_GAPS,
+  phone: PHONE,
+};
+
+module.exports = { cleanFact, MAX_FACTS, MAX_FACT_CHARS, NEAR_CHARS, MAX_PHONE_DIGITS, PATTERNS };

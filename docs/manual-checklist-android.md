@@ -40,6 +40,7 @@ With "Buddy can type for you" on (see below).
 - [ ] WhatsApp: tap the message box, type `hi`, tap the head, `reply to him that I will come at 5, write it here` → the panel goes away, the text is in the box after `hi`, the head says "Done! It's in WhatsApp ✅" and is happy.
 - [ ] Tap the head again (within 5 minutes): the same chat, with `✅ Put it in WhatsApp`, and Undo and Copy on the text. Undo: the box says `hi` again, and the head says "Undone".
 - [ ] `make it more polite` right after: the new version takes the old one's place in the box (not added after it).
+- [ ] After Buddy puts text in, change the box yourself (send it, or type something else), then tap the head and Undo: the box is left as you made it, the chat says "That box has changed since, so I left it." and Undo goes away. A new version asked for then goes in at the cursor, without writing over what you typed.
 - [ ] Type `i am go to office tomorow` in Gmail's body, open the panel, `fix my English`: `📖 Read your text`, then the fixed text with Replace; with "fix it here" it goes in at once and replaces the whole box.
 - [ ] After more than 5 minutes, or from another app, the head opens a new chat.
 - [ ] A password box (a sign-in page): `write my password here` never fills it: the text is copied instead.
@@ -123,6 +124,8 @@ Set these in the Mac's Admin window, against the deployed server.
 - [ ] Say nothing and press ■ at once: "I didn't catch that. Try again, or type."
 - [ ] Keep talking: at 60 s it stops by itself and the words appear as with ■.
 - [ ] Close the panel while recording: the microphone stops (the green dot goes away) and nothing appears.
+- [ ] Press Home while recording (the panel is only stopped, not closed), and again with another app opened on top: the microphone stops at once (the green dot goes away), and nothing appears in the box when you come back.
+- [ ] The head's mood follows the voice: thinking while recording and while the words are written down, idle again after (words back, an error, or Home while recording). Press Home while recording: the head shows idle, not stuck thinking.
 - [ ] Wi-Fi and mobile data off, then ■: "Couldn't reach Buddy's server. Check your internet."
 - [ ] No recording is left: after each of the above, `adb shell run-as com.akshatgg.buddy ls cache` shows no `voice-*.m4a`.
 

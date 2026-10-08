@@ -68,6 +68,8 @@ As the desktop (chat panel spec §2), in Compose, in `PanelActivity`:
 - It remembers the last focused editable box (a node reference, refreshed; not its text) and the app's package, so
   the panel can read or write it after the panel opened. It never reads text unless the chat asks (`box`, or the
   current text for Undo and insert), never logs or stores text.
+- It keeps that reference to the last focused box even while the buddy is off, because "Fix with Buddy" and the chat
+  need it then too; it reads no text then.
 - Password boxes are never read or written.
 
 ## 5. Voice

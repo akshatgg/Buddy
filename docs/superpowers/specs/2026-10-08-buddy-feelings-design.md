@@ -15,7 +15,7 @@ listens while the person talks. It works the same on the Mac and on Windows.
 | Feeling | When | What it looks like | How long |
 |---|---|---|---|
 | `drowsy` | 1 min without use | A yawn (mouth open, eyes shut, arms out a little), then half-closed eyes and a slower float | until asleep or used |
-| `asleep` | 2 min without use | Sleeping eyes ‿ ‿, head down, slow breathing, "z" letters rising, the eyes' glow at half and the ear rims' at a fifth; it stops following the pointer | until used |
+| `asleep` | 2 min without use | Sleeping eyes ‿ ‿, head down, slow breathing, "z" letters rising for its first 5 minutes, the eyes' glow at half and the ear rims' at a fifth; it stops following the pointer | until used |
 | `wake` | used while drowsy or asleep | Eyes blink open, both arms stretch up, a little shake | 1.2 s |
 | `love` | the pointer rubbed back and forth over its head | Heart eyes, small hearts rising, a gentle sway | 2 s |
 | `dizzy` | shaken fast while dragged, on release | Swirl eyes, stars circling above its head, the head circling, then it shakes it off | 2 s |
@@ -73,8 +73,13 @@ listens while the person talks. It works the same on the Mac and on Windows.
   less than today's resting buddy (6 frames a second plus blinks), but the "z" letters cost more than it saves: while
   they rise (4.9 s of every 12) the window is drawn again at the screen's rate. Measured on a Mac with a 60 Hz screen,
   the whole app over a minute: about 2.2 s of CPU asleep, 1.9 s awake at rest, and 1.4 s asleep without the letters.
-  So a sleeping buddy uses a little more battery than a resting one (about a sixth more), not less. It is their frames
-  that cost, not their glow: without the glow they cost the same. Fewer or shorter bursts would cost less.
+  It is their frames that cost, not their glow: without the glow they cost about the same, within the noise of the
+  measurement. So the letters rise only for the first 5 minutes of a sleep, and then the buddy sleeps quietly (closed
+  eyes, head down, slow breathing, no letters). In its first 5 minutes a sleeping buddy uses about a sixth more than a
+  resting one (the letters); after that, about a quarter less.
+- The 5 minutes are counted by the page, from when the mood starts. A buddy shown again after being hidden goes on from
+  how long it has slept: after more than 5 minutes it shows no letters, and at 3 minutes it has them until 5. A page that
+  loads again (a new character) starts the count again.
 - `drowsy` draws at the settling rate (15), the yawn at the full rate (30). Every other feeling draws at the full rate
   while it plays, as moods do today; fidgets only during their second or two.
 
@@ -97,9 +102,17 @@ listens while the person talks. It works the same on the Mac and on Windows.
   drowsy 15), blinking only on open eyes, the fidget timing, petting and shaking (real hand-like traces, and near
   misses that must not count), the sleep countdown (use, holds, wake), the window growing upward with the bottom centre
   kept, the panel and bubble places unchanged, `voiceLevel` reaching the page, the models' morph names and order.
+  Added as the feelings were connected: the microphone state reaching the page (`micOn`, also to a page that loads
+  while it is on) and the buddy at rest listening while it is on, so that listening comes back after a timed mood; the
+  countdown held while Buddy is thinking; a page that loads while the buddy is drowsy or asleep showing it so; and the
+  "z" letters: bursts with a rest between, then none once the sleep is 5 minutes old (the last burst starts before it, a
+  play already past it shows nothing, a play at 3 minutes bursts until 5, and the other effects do not change).
 - e2e: with short countdowns, the buddy goes drowsy, then asleep, and wakes when the pointer comes onto it; petting
   makes it `love`; a shaken drag makes it `dizzy` on release; a voice level reaches the page while `listening`;
-  symbols appear and go.
+  symbols appear and go. While the microphone is on, the buddy listens again after a timed mood (happy, then
+  listening, with no idle between), also on a page that loads meanwhile. A sleeping buddy shown again after more than
+  5 minutes (the page's clock moved on) has no "z" letters and none to come, and is still asleep; just under 5 minutes
+  it has one last burst.
 - Manual: each feeling on the installed app, on the Mac and Windows; the eye shapes at all three sizes; a sleeping
   buddy's CPU use compared with today's resting buddy.
 

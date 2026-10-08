@@ -21,6 +21,12 @@ terminal), so allow that app in System Settings → Privacy & Security.
 
 ## Install on your Mac
 
+The released Buddy installs with [Homebrew](https://brew.sh) (Apple Silicon, macOS 14 or later):
+
+    brew install --cask akshatgg/tap/buddy
+
+Homebrew clears the download's quarantine flag, so it opens with no Open Anyway step. To build it yourself instead:
+
 Only an installed app can start itself at login, and it gets its own
 permissions. Build it once and put it in Applications (Apple Silicon only).
 A build needs a valid `cloud.json` first, and fails without one (see
@@ -183,7 +189,11 @@ General) and offers **Update now** in Settings, in the menu bar menu and in a di
 checked against its sha512 before anything is installed. On Windows the installer runs silently as Buddy quits; on
 the Mac the new Buddy.app is copied out of the DMG, checked, and swapped in once Buddy has quit. Because the Mac app
 is ad-hoc signed, macOS asks for Accessibility again after each update, and Settings opens on Permissions to say so.
-The website's download buttons always give the newest release. Design:
+The website's download buttons always give the newest release, and each Mac release (not a pre-release) also
+updates the Homebrew cask, `Casks/buddy.rb` in [akshatgg/homebrew-tap](https://github.com/akshatgg/homebrew-tap),
+written by `tools/homebrew-cask.js` with the DMG's sha256. Pushing to the tap needs the secret
+`HOMEBREW_TAP_DEPLOY_KEY` (the private half of a deploy key with write access to that repository); without it the
+release still goes out and the run carries `buddy.rb` to copy there by hand. Design:
 `docs/superpowers/specs/2026-10-07-buddy-releases-and-updates-design.md`.
 
 **Android** is released on its own: Actions → Release → Run workflow, **What to release** → **Android**, and a

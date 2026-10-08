@@ -411,6 +411,32 @@ func windowTitle(_ args: [String: Any]) throws -> [String: Any] {
     return ["title": ""]
 }
 
+/// The screens that have a notch (macOS 12 and later), for Buddy to live in (src/main/home.js). Each entry is the
+/// screen's frame and its notch, in Electron's points: the origin at the primary screen's top-left, y down. The notch
+/// spans from the end of the area left of the camera to the start of the area right of it, as tall as the top safe
+/// area inset. An empty list on a Mac without one. Screens are asked on the main thread, as AppKit wants.
+func notchInfo() -> [String: Any] {
+    let lookUp = { () -> [[String: Any]] in
+        var notches: [[String: Any]] = []
+        guard #available(macOS 12.0, *), let primary = NSScreen.screens.first else { return notches }
+        let top = primary.frame.maxY
+        for screen in NSScreen.screens where screen.safeAreaInsets.top > 0 {
+            let frame = screen.frame
+            // Whole points that cover the notch (its edges can fall on a half point), as a window's bounds must be.
+            let left = floor(screen.auxiliaryTopLeftArea?.maxX ?? frame.minX)
+            let right = ceil(screen.auxiliaryTopRightArea?.minX ?? frame.maxX)
+            let y = top - frame.maxY
+            notches.append([
+                "screen": ["x": frame.minX, "y": y, "width": frame.width, "height": frame.height],
+                "notch": ["x": left, "y": y, "width": right - left, "height": ceil(screen.safeAreaInsets.top)],
+            ])
+        }
+        return notches
+    }
+    let notches = Thread.isMainThread ? lookUp() : DispatchQueue.main.sync(execute: lookUp)
+    return ["notches": notches]
+}
+
 final class ResultBox: @unchecked Sendable {
     var value: Result<String, Error>?
 }
@@ -614,6 +640,8 @@ func handle(_ msg: [String: Any]) {
             result = try windowTitle(args)
         case "screenshot":
             result = try screenshot(args)
+        case "notch":
+            result = notchInfo()
         case "watchKeys":
             result = try watchKeys(args)
         default:

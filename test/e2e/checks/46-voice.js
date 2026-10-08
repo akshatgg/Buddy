@@ -149,6 +149,21 @@ module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
     await waitFor(() => changes().at(-1) === false, 'the listening to stop', 1500);
     await delay(3000); // longer than the fake voice
     assert.strictEqual(ctx.cloud.recordings.length, 3, 'nothing more was sent');
+
+    // Closed and opened again at once, the page can still be "hidden" from the close a moment after the panel is back
+    // (the system says so late): the listening this opening began goes on. (The page is made to believe it here.)
+    await ctx.actions.dismiss();
+    await waitFor(() => !ctx.panel.justClosed(), 'the panel to be ready to open again');
+    await page("window.e2eHidden = true; document.dispatchEvent(new Event('visibilitychange'))");
+    told.length = 0;
+    await ctx.actions.toggle();
+    await waitFor(() => ctx.panel.isVisible(), 'the panel to open');
+    await waitFor(listened, 'the panel to listen as it opens', 5000);
+    await delay(600); // past the page's wait after "hidden", and still hidden then
+    await page("window.e2eHidden = null; document.dispatchEvent(new Event('visibilitychange'))");
+    assert.deepStrictEqual(changes(), [true], 'still listening');
+    await page("document.getElementById('mic').click()"); // stopped here, and nothing is sent
+    await waitFor(() => changes().at(-1) === false, 'the listening to stop');
     await page('window.e2eHidden = null; delete document.hidden');
 
     // A microphone that cannot be opened (refused here): listening by itself as the panel opens, the panel says

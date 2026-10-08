@@ -537,11 +537,13 @@ $('mic').addEventListener('click', () => {
 // it is sent. The system can say so late, though: macOS may tell the page about a brief hide of Buddy's own only once
 // main has shown the panel again, with "shown" just after. So listening stops only when the page is still hidden a
 // moment later, and one that began after such a hide goes on. (Shown again, the panel always comes with a new opening,
-// which ends a listening from before it by itself.)
+// which ends a listening from before it by itself: so after one, the wait has nothing left to stop. Closed and opened
+// again at once, the page may still be hidden from the close by then, while this opening listens.)
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) return;
+  const opening = generation;
   setTimeout(() => {
-    if (document.hidden) cancelListening();
+    if (document.hidden && opening === generation) cancelListening();
   }, HIDDEN_SETTLE_MS);
 });
 // The page going away.

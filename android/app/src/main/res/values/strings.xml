@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bubble_channel">Buddy on screen</string>
+    <string name="bubble_on">Buddy is on</string>
+    <string name="bubble_on_text">Tap the buddy to write, fix or check.</string>
+    <string name="bubble_turn_off">Turn off</string>
+</resources>

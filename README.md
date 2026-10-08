@@ -51,6 +51,42 @@ Applications, or copy `release/mac-arm64/Buddy.app` there yourself.
 
 The app runs without Terminal and has no Dock icon; it lives in the menu bar.
 
+## Android
+
+Buddy also runs on Android 8.0 or later. A small 3D head floats over your apps.
+Tap it for the panel: Write, Fix and Check screen, the same as on the Mac. Select
+text in an app and choose **Fix with Buddy** to fix it in place, or use
+Share → Buddy from any app. There is no Admin on the phone; the admin works from
+the Mac. Sign-in and free mode use the same server.
+
+Build it with Android Studio's own JDK and its Android SDK, with platform
+android-37 installed (Android Studio → Settings → Languages & Frameworks →
+Android SDK). Tell the build where they are. On a Mac:
+
+    export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+    export ANDROID_HOME=~/Library/Android/sdk
+
+Instead of `ANDROID_HOME` you can put `sdk.dir=` and the SDK's full path in
+`android/local.properties` (not in git). Copy
+`android/cloud.example.properties` to `android/cloud.properties` and fill it in:
+`serverUrl` and `firebaseApiKey` are in the Mac's `cloud.json`, and
+`googleWebClientId` is the Web client that Firebase made for Google sign-in.
+
+    npm run android:build
+
+Install the app on a phone with USB debugging on, or on an emulator:
+
+    adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+
+Tests:
+
+    npm run android:test
+
+Tip: on some Macs Java needs `-Djava.net.preferIPv4Stack=true`. The npm scripts
+already pass it.
+
+`docs/manual-checklist-android.md` covers what only a real phone can check.
+
 ## Sign-in and free mode
 
 Everyone signs in with Google. The admin (akshatg9636@gmail.com) gets

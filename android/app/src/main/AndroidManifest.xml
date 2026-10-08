@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Filament draws the head with OpenGL ES 3.0: a phone without it is not offered Buddy. -->
+    <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+    <application
+        android:name=".BuddyApp"
+        android:label="Buddy"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <!-- One instance: "Open Settings" in the panel or a Fix sheet reaches the Settings already open, which scrolls to
+             the part it names. -->
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.Buddy"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!-- Its own task (no affinity), kept out of Recents: the panel is a card over another app, not a screen of Buddy's. -->
+        <activity
+            android:name=".ui.panel.PanelActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Buddy.Panel"
+            android:windowSoftInputMode="adjustResize" />
+        <!-- "Fix with Buddy" in any app's text menu, and Buddy in the share sheet. It opens in the task of the app that
+             asked, so that Replace can hand the fixed text back to it; started in a task of its own (a share sent with
+             a new task), it is apart from Buddy's screens and kept out of Recents, as the panel is. A second share finds
+             that task again: singleTop gives the sheet there the new text, where it would otherwise show the last one.
+             singleTop still lets a result go back to the app that asked. -->
+        <activity
+            android:name=".ui.fix.FixActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Buddy.Panel">
+            <intent-filter android:label="Fix with Buddy">
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter android:label="Buddy">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+        <service
+            android:name=".bubble.BubbleService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse|mediaProjection">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="A floating writing helper that stays on screen over other apps until the person turns it off." />
+        </service>
+        <receiver android:name=".bubble.BootReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

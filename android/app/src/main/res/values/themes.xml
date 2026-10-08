@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Buddy's own screens (the Welcome and Settings): the window is the Mac's grey from the start, in light and dark. -->
+    <style name="Theme.Buddy" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/buddy_bg</item>
+    </style>
+
+    <!-- The window behind the panel's card: see-through and dimmed, so that the app underneath stays in view. -->
+    <style name="Theme.Buddy.PanelBase" parent="@android:style/Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.Buddy.Panel" parent="Theme.Buddy.PanelBase">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.3</item>
+        <item name="android:windowSoftInputMode">adjustResize</item>
+    </style>
+</resources>

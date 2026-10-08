@@ -35,8 +35,9 @@ name: Release
 # Required for Android:
 #   BUDDY_ANDROID_CLOUD_PROPERTIES   the contents of android/cloud.properties
 #   BUDDY_ANDROID_KEYSTORE_BASE64    the release keystore, base64; with
-#   BUDDY_ANDROID_KEYSTORE_PASSWORD, BUDDY_ANDROID_KEY_ALIAS and
-#   BUDDY_ANDROID_KEY_PASSWORD. Only publishing needs the key: a build and
+#   BUDDY_ANDROID_KEYSTORE_PASSWORD and BUDDY_ANDROID_KEY_PASSWORD (the key's
+#   alias is "buddy", or the repository variable BUDDY_ANDROID_KEY_ALIAS; not a
+#   secret, so that "buddy" is not hidden in the logs). Only publishing needs the key: a build and
 #   check (no version) without it is signed with the debug key. The release
 #   key's SHA-1 must be in Firebase (Project settings, the Android app) for
 #   Google sign-in to work in the published app.
@@ -357,7 +358,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
@@ -386,13 +387,15 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.BUDDY_ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.BUDDY_ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.BUDDY_ANDROID_KEY_ALIAS }}
+          # Not a secret (a secret's value is hidden everywhere in the logs, and every "buddy" would be): a
+          # repository variable when the alias is not the usual one.
+          KEY_ALIAS: ${{ vars.BUDDY_ANDROID_KEY_ALIAS || 'buddy' }}
           KEY_PASSWORD: ${{ secrets.BUDDY_ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
             if [ "$PUBLISH" = true ]; then
-              echo "::error::Publishing Android needs the release key: set BUDDY_ANDROID_KEYSTORE_BASE64, BUDDY_ANDROID_KEYSTORE_PASSWORD, BUDDY_ANDROID_KEY_ALIAS and BUDDY_ANDROID_KEY_PASSWORD."
+              echo "::error::Publishing Android needs the release key: set BUDDY_ANDROID_KEYSTORE_BASE64, BUDDY_ANDROID_KEYSTORE_PASSWORD and BUDDY_ANDROID_KEY_PASSWORD."
               exit 1
             fi
             echo "::notice::No release key: this check build is signed with the debug key and is not published."

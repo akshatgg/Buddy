@@ -191,8 +191,8 @@ version. It runs the Android tests, builds `Buddy-Android.apk` signed with the r
 "Buddy for Android <version>", tagged `android-v<version>`. That release is never marked latest, so the Mac and
 Windows Update now and the website keep following the desktop release; each Android version must be higher than the
 last Android one. It needs the secrets `BUDDY_ANDROID_CLOUD_PROPERTIES` (the contents of `android/cloud.properties`)
-and, to publish, the release key: `BUDDY_ANDROID_KEYSTORE_BASE64`, `BUDDY_ANDROID_KEYSTORE_PASSWORD`,
-`BUDDY_ANDROID_KEY_ALIAS`, `BUDDY_ANDROID_KEY_PASSWORD`. The release key's SHA-1 must be added to the Android app in
+and, to publish, the release key: `BUDDY_ANDROID_KEYSTORE_BASE64`, `BUDDY_ANDROID_KEYSTORE_PASSWORD` and
+`BUDDY_ANDROID_KEY_PASSWORD` (its alias is `buddy`). The release key's SHA-1 must be added to the Android app in
 Firebase, or Google sign-in fails in the published app. Android has no Update now: people install the new APK over
 the old one.
 

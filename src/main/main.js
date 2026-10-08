@@ -303,7 +303,11 @@ async function start(options = {}) {
     buddy.reclamp();
     buddy.refresh();
   });
-  screen.on('display-metrics-changed', () => buddy.reclamp());
+  // A screen whose size, scale or work area changed: the notch may be elsewhere now, or gone (home.js).
+  screen.on('display-metrics-changed', (_event, _display, changed) => {
+    buddy.reclamp();
+    if (changed.includes('bounds') || changed.includes('scaleFactor') || changed.includes('workArea')) buddy.refresh();
+  });
 
   // This person's free-mode settings, fetched once at launch, so that Settings and the menu are up to date.
   if (account.isSignedIn()) {

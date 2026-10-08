@@ -60,7 +60,11 @@ function setup({ notches = [ENTRY], displays = [PRIMARY], home = 'notch', platfo
       return { notches };
     },
   };
-  const screen = { getAllDisplays: () => displays };
+  const inside = (b, r) => r.x >= b.x && r.y >= b.y && r.x < b.x + b.width && r.y < b.y + b.height;
+  const screen = {
+    getAllDisplays: () => displays,
+    getDisplayMatching: (rect) => displays.find((d) => inside(d.bounds, rect)) || displays[0],
+  };
   const h = createHome({ floating, notch, bubble, store, helper, screen, platform });
   return {
     home: h, calls, store, floating, notch,
@@ -112,6 +116,15 @@ test('panelAt says where the panel goes: under the notch, or beside the floating
   await s.home.refresh();
   assert.deepStrictEqual(s.home.panelAt(), { kind: 'below', notch: NOTCH, area: PRIMARY.workArea });
   assert.deepStrictEqual(PANEL, { width: 360, height: 480 }, 'the panel keeps its size (panelUnderNotch, Task C)');
+});
+
+test('panelAt under the notch takes the work area as it is now, not as it was at the last refresh', async () => {
+  const s = setup();
+  await s.home.refresh();
+  s.home.show();
+  const dockMoved = { ...PRIMARY, workArea: { x: 0, y: 32, width: 1470, height: 850 } }; // the Dock is at the bottom now
+  s.setDisplays([dockMoved]);
+  assert.deepStrictEqual(s.home.panelAt(), { kind: 'below', notch: NOTCH, area: dockMoved.workArea });
 });
 
 test('Buddy floats on Windows, on a Mac without a notch, when the person chose Floating, and when the helper fails', async (t) => {

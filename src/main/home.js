@@ -50,9 +50,12 @@ function createHome({ floating, notch, bubble, store, helper, screen, platform =
       if (where === 'notch') notch.say(text);
       else bubble.say(text, floating.bounds(), floating.display().workArea);
     },
-    /** Where the panel goes (panel-window.js show): under the notch, or beside the floating buddy. */
+    /**
+     * Where the panel goes (panel-window.js show): under the notch, or beside the floating buddy. The work area is
+     * asked for now, not kept from the last refresh: the Dock or the menu bar may have changed since.
+     */
     panelAt() {
-      if (where === 'notch') return { kind: 'below', notch: current.notch, area: current.display.workArea };
+      if (where === 'notch') return { kind: 'below', notch: current.notch, area: screen.getDisplayMatching(current.notch).workArea };
       return { kind: 'beside', buddy: floating.bounds(), area: floating.display().workArea };
     },
     where: () => where,

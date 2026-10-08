@@ -155,6 +155,20 @@ class VoiceTest {
         assertEquals(1, recorder.stops)
     }
 
+    @Test fun cancelWhileRecordingAlsoDropsTheSixtySecondStop() = runTest {
+        // The panel left the screen (Home, or it stepped aside) while recording: nothing is uploaded later either.
+        voice.start()
+        val atLimit = async { voice.stopAtLimit() }
+        runCurrent()
+        voice.cancel()
+        assertFalse(recorder.recording)
+        assertEquals(emptyList<String>(), cacheFiles())
+        advanceUntilIdle()
+        assertTrue(atLimit.isCancelled)
+        assertEquals(emptyList<ByteArray>(), sent)
+        assertEquals(VoiceState.Idle, voice.state.value)
+    }
+
     @Test fun cancelWhileSendingDropsTheWords() = runTest {
         val gate = CompletableDeferred<String>()
         answer = { gate.await() }

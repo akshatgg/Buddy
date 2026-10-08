@@ -23,6 +23,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.akshatgg.buddy.core.BuddyError
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -41,7 +43,8 @@ private fun CoroutineScope.step(onWords: (String) -> Unit, onError: (BuddyError)
 
 /**
  * 🎤 in the box: press to talk, ■ to stop (or it stops by itself at 60 s), a small spinner while the words are written
- * down; they go to `onWords`, for the box. The first press asks for the microphone. Leaving the screen stops at once.
+ * down; they go to `onWords`, for the box. The first press asks for the microphone. Leaving the screen (closed, or only
+ * stopped behind another app) stops at once and sends nothing.
  */
 @Composable
 fun MicButton(voice: Voice, onWords: (String) -> Unit, onError: (BuddyError) -> Unit, modifier: Modifier = Modifier) {
@@ -65,6 +68,9 @@ fun MicButton(voice: Voice, onWords: (String) -> Unit, onError: (BuddyError) -> 
     DisposableEffect(voice) {
         onDispose { voice.cancel() }
     }
+    // The panel only stopped (it stepped aside for the app, Home, another app on top): it is no longer on screen, so
+    // the microphone stops at once, as when it closes.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { voice.cancel() }
 
     when (state) {
         VoiceState.Idle -> IconButton(

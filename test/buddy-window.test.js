@@ -353,3 +353,65 @@ test('a page that loads while the microphone is on is told so, before the mood; 
   win().handlers['did-finish-load']();
   assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false]], 'which is what it starts with');
 });
+
+test('a page that loads while the buddy is drowsy or asleep is told so: a new page would show it awake', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  for (const moods of [['drowsy'], ['drowsy', 'asleep']]) {
+    const { buddy, win } = setup();
+    buddy.show();
+    win().load();
+    for (const name of moods) buddy.mood(name);
+    win().handlers['did-navigate'](); // a reload starts
+    const before = win().sent.length;
+    win().handlers['did-finish-load']();
+    assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false], ['buddy:mood', moods.at(-1)]], moods.join(', '));
+  }
+});
+
+test('a page that comes back after a crash while the buddy sleeps shows it asleep', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  t.mock.method(console, 'error', () => {}); // "[buddy] the page crashed"
+  const { buddy, win } = setup();
+  buddy.show();
+  win().load();
+  buddy.mood('drowsy');
+  buddy.mood('asleep');
+  win().handlers['render-process-gone']({}, { reason: 'crashed' });
+  const before = win().sent.length;
+  win().load();
+  assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false], ['buddy:mood', 'asleep']]);
+});
+
+test('once the buddy is woken, a page that loads hears nothing of its sleep', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  for (const after of [['wake'], ['wake', 'thinking'], ['wake', 'idle']]) {
+    const { buddy, win } = setup();
+    buddy.show();
+    win().load();
+    for (const name of ['drowsy', 'asleep', ...after]) buddy.mood(name);
+    win().handlers['did-navigate']();
+    const before = win().sent.length;
+    win().handlers['did-finish-load']();
+    assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false]], after.join(', '));
+  }
+});
+
+test('a mood sent while the page loads is still the one it gets, once', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const { buddy, win } = setup();
+  buddy.show();
+  win().load();
+  buddy.mood('asleep');
+  win().handlers['did-navigate']();
+  buddy.mood('wake'); // the pointer came onto it while the page loaded
+  let before = win().sent.length;
+  win().handlers['did-finish-load']();
+  assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false], ['buddy:mood', 'wake']]);
+
+  buddy.mood('asleep');
+  win().handlers['did-navigate']();
+  buddy.mood('asleep');
+  before = win().sent.length;
+  win().handlers['did-finish-load']();
+  assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false], ['buddy:mood', 'asleep']], 'not twice');
+});

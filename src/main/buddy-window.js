@@ -23,6 +23,7 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
   let win = null;
   let loaded = false; // the page has finished loading, so it can take messages
   let pendingMood = null; // the latest mood sent while the page was not loaded
+  let sleepy = null; // 'drowsy' or 'asleep' while the sleep countdown says so, which a freshly loaded page is told too
   let paused = false; // what a freshly loaded page is told
   let panelOpen = false; // whether the panel is open, which a freshly loaded page is told too
   let micOn = false; // whether the microphone is on, which it is told too
@@ -97,6 +98,8 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
     if (pendingMood !== null) {
       send('buddy:mood', pendingMood);
       pendingMood = null;
+    } else if (sleepy !== null) {
+      send('buddy:mood', sleepy); // a new page starts awake, and the countdown has nothing more to send it
     }
   }
 
@@ -201,7 +204,15 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
     isVisible: () => Boolean(win && win.isVisible()),
     bounds,
     display: () => screen.getDisplayMatching(bounds()),
-    mood: (name) => send('buddy:mood', name),
+    /**
+     * A mood for the page. Drowsy and asleep last until a use wakes the buddy, which sends a mood of its own (sleep.js),
+     * so they are kept for a page that loads meanwhile (a reload, a crash): it would show an awake buddy otherwise.
+     * Any other mood is kept only while the page loads (send).
+     */
+    mood(name) {
+      sleepy = name === 'drowsy' || name === 'asleep' ? name : null;
+      send('buddy:mood', name);
+    },
     /**
      * How loud the voice is while the buddy listens, 0 to 1; anything that is not a number is silence. Sent about 10
      * times a second while the microphone is on, so one that a loading page misses is not kept: it is old at once.

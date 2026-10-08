@@ -6,6 +6,7 @@ import com.akshatgg.buddy.account.FirebaseAuthApi
 import com.akshatgg.buddy.ai.Action
 import com.akshatgg.buddy.ai.Answer
 import com.akshatgg.buddy.ai.AskInput
+import com.akshatgg.buddy.ai.ChatTurn
 import com.akshatgg.buddy.ai.CheckResult
 import com.akshatgg.buddy.core.BuddyError
 import com.akshatgg.buddy.net.Http
@@ -229,6 +230,19 @@ class CloudClientTest {
         assertEquals(Json.parseToJsonElement("""{"action":"check","image":"IMG"}"""), Json.parseToJsonElement(req.body!!))
         assertEquals("only a Check has one", Answer("Fixed", "m"), cloud.ask(Action.FIX, AskInput(text = "x", tone = "casual")))
         assertEquals(Json.parseToJsonElement("""{"action":"fix","tone":"casual","text":"x"}"""), Json.parseToJsonElement(toServer().last().body!!))
+    }
+
+    @Test fun aChatSendsItsFieldsHistoryAsMessagesAndFactsAsAList() = runTest {
+        signIn()
+        val cloud = client()
+        serve(HttpResponse(200, """{"text":"{\"kind\":\"answer\"}","model":"m"}"""))
+        val input = AskInput(
+            message = "fix this", selection = "i am go", history = listOf(ChatTurn("you", "hi"), ChatTurn("buddy", "Hello!")),
+            facts = listOf("Your boss is Mr. Sharma."), appName = "Gmail", userName = "Akshat", step = 1,
+        )
+        assertEquals("{\"kind\":\"answer\"}", cloud.ask(Action.CHAT, input).text)
+        val body = """{"action":"chat","message":"fix this","selection":"i am go","history":[{"from":"you","text":"hi"},{"from":"buddy","text":"Hello!"}],"facts":["Your boss is Mr. Sharma."],"appName":"Gmail","userName":"Akshat","step":1}"""
+        assertEquals(Json.parseToJsonElement(body), Json.parseToJsonElement(toServer().single().body!!))
     }
 
     @Test fun aCopyWithNoServerCallsNothing() = runTest {

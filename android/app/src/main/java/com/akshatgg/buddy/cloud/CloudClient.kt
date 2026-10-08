@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.IOException
@@ -171,13 +173,24 @@ class CloudClient(
             input.tone?.let { put("tone", it) }
             input.text?.let { put("text", it) }
             input.image?.let { put("image", it) }
+            // A chat's inputs (shared/prompts.js chatPrompt), as the Mac's cloud.js sends them.
+            input.message?.let { put("message", it) }
+            input.selection?.let { put("selection", it) }
+            input.box?.let { put("box", it) }
+            input.history?.let { turns ->
+                put("history", buildJsonArray { turns.forEach { add(buildJsonObject { put("from", it.from); put("text", it.text) }) } })
+            }
+            input.facts?.let { facts -> put("facts", buildJsonArray { facts.forEach { add(it) } }) }
+            input.appName?.let { put("appName", it) }
+            input.userName?.let { put("userName", it) }
+            input.step?.let { put("step", it) }
         }
         // The Mac's panel gives a free answer the AI's own deadline (actions.js); here it is given where the call is made.
         val j = call("/api/ask", "POST", body, timeoutMs = AI_TIMEOUT_MS)
         val text = j.string("text") ?: throw serverProblem()
         val model = j.string("model") ?: ""
         // A Check is read here from the text, with the function the own-key route uses: what the server sends as its own
-        // reading never reaches the panel.
+        // reading never reaches the panel. A chat is read by the router, on both routes.
         return Answer(text, model, if (action == Action.CHECK) Prompts.parseCheck(text) else null)
     }
 }

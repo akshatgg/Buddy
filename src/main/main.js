@@ -22,6 +22,8 @@ const { createAi } = require('./ai');
 const { Helper } = require('./helper');
 const { loadCharacters } = require('./characters');
 const { createBuddyWindow } = require('./buddy-window');
+const { createSleep } = require('./sleep');
+const { createFeelings } = require('./feelings');
 const { createBubbleWindow } = require('./bubble-window');
 const { createPanelWindow } = require('./panel-window');
 const { createSettingsWindows } = require('./settings-windows');
@@ -101,10 +103,18 @@ async function start(options = {}) {
     animate: options.animate !== false,
     onGiveUp: () => tray?.refresh(), // the page crashed again and again, and the window is gone: the menu must say so
   });
+  // The buddy's sleep (sleep.js): drowsy after a minute without use, asleep after two. Its own moods go straight to the
+  // buddy, as they are not uses. The end-to-end test passes its own timer (options.sleep), to make the count quick.
+  const sleep = createSleep({ onMood: (name) => buddy.mood(name), ...options.sleep });
+  // What the app tells the buddy (feelings.js): every mood is a use; the panel and the voice hold the countdown. A
+  // listening that stops while the answer to a message is still on its way goes back to thinking.
+  const feelings = createFeelings({ buddy, sleep, busy: () => actions.state().busy });
   const bubble = createBubbleWindow();
   const panel = createPanelWindow({
     // Its page crashed or did not load, or its window was closed: a listening there is over, and the page cannot say so.
     onGone: () => ui.listening(false),
+    // While the panel is open the buddy does not fall asleep or fidget, however the panel opens and closes.
+    onVisible: (visible) => feelings.panel(visible),
   });
   const windows = createSettingsWindows({ app });
   const openSettings = (section) => windows.open('settings', section ? { section } : undefined);
@@ -150,12 +160,12 @@ async function start(options = {}) {
     panelWindowHandle: () => windowHandle(panel.window()), // for the helper on Windows (actions.js)
     openSettings,
     bubble: (text) => bubble.say(text, buddy.bounds(), buddy.display().workArea),
-    mood: (name) => buddy.mood(name),
+    mood: (name) => feelings.mood(name), // a use: it wakes a sleeping buddy, and the sleep countdown starts again
     // For the buddy's feelings, which have their own design: when the panel listens (listening(on), from its page; and
     // false when main hides the panel or its page is gone) and how loud the person speaks (voiceLevel(0..1), about 10
-    // times a second). Nothing uses them yet.
-    listening() {},
-    voiceLevel() {},
+    // times a second). The buddy listens meanwhile, and its ear rims glow with the voice (feelings.js).
+    listening: (on) => feelings.listening(on),
+    voiceLevel: (level) => feelings.voiceLevel(level),
   };
   const actions = createActions({
     helper,
@@ -203,7 +213,7 @@ async function start(options = {}) {
       if (on) {
         takeShortcut();
         buddy.show();
-        buddy.mood('wave');
+        feelings.mood('wave'); // a use, like every mood: a buddy that fell asleep while it was off wakes up to wave
       } else {
         shortcut.unregister();
         // Through actions, as closing the panel does: the chat ends, and an answer still on its way does nothing.
@@ -252,7 +262,7 @@ async function start(options = {}) {
   });
   cloud.onChange(() => tray.refresh());
 
-  registerBuddyIpc({ ipcMain, buddy, characters, store, onClick: onCall });
+  registerBuddyIpc({ ipcMain, buddy, characters, store, onClick: onCall, sleep });
   registerPanelIpc({ ipcMain, panel, actions, openSettings, microphone, ui, shell });
   const settingsIpc = registerSettingsIpc({
     ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch,
@@ -303,7 +313,7 @@ async function start(options = {}) {
     if (power.isOn()) {
       takeShortcut();
       buddy.show();
-      buddy.mood('wave');
+      feelings.mood('wave');
     }
     // Nobody can use Buddy signed out: Settings has the Sign in button.
     if (!account.isSignedIn()) openSettings();

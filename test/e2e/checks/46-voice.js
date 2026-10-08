@@ -67,6 +67,11 @@ module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
 
     await openPanel();
     await waitFor(listened, 'the panel to listen as it opens', 5000);
+    // The buddy listens with it, and its ear rims light up with the voice, well past their resting glow (1): main scales
+    // the level so that a voice shows (src/main/feelings.js).
+    const buddyPage = (script) => ctx.buddy.window().webContents.executeJavaScript(script);
+    await waitFor(async () => (await buddyPage('window.__buddyMood')) === 'listening', 'the buddy to listen with the panel');
+    await waitFor(() => buddyPage('window.__buddyPose?.ears > 2'), 'the ear rims to light up with the voice', 3000);
     await waitFor(() => ctx.cloud.recordings.length === 1, 'the recording to go to be written down', 15_000);
     const { audio, mime, signal } = ctx.cloud.recordings[0];
     assert.match(mime, /^audio\/webm/, 'WebM, as Chromium records');

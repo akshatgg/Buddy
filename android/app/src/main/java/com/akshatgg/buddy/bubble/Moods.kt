@@ -9,14 +9,16 @@ import kotlin.math.sin
 
 // How the head moves: pure functions of time, so they can be tested on the JVM and the view
 // only has to apply them. Times are in seconds; lift is a fraction of the head's height;
-// angles are radians. The phone shows only the head, so there are no arms.
+// angles are radians. The phone shows only the head, so there are no arms. pitch tips the
+// head forward (down) when positive, as the Mac's headPitch; only the look where the person
+// types (Look.kt) turns it, so no mood sets it.
 
 enum class Mood { IDLE, THINKING, HAPPY, SLEEPY, WAVE, WOBBLE }
 
 data class Pose(
     val lift: Float = 0f, val scaleX: Float = 1f, val scaleY: Float = 1f, val headTilt: Float = 0f,
     val yaw: Float = 0f, val smile: Float = 0f, val mouthO: Float = 0f, val eyesClosed: Boolean = false,
-    val eyeL: Float = 0f, val eyeR: Float = 0f, val done: Boolean = false,
+    val eyeL: Float = 0f, val eyeR: Float = 0f, val done: Boolean = false, val pitch: Float = 0f,
 )
 
 object Moods {

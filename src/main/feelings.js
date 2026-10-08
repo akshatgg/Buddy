@@ -3,9 +3,10 @@
 /**
  * What the rest of the app tells the buddy about how it is used, for its feelings
  * (docs/superpowers/specs/2026-10-08-buddy-feelings-design.md). Every mood the app sends is a use: it wakes a sleeping
- * buddy and starts its sleep countdown (sleep.js) again. While the panel is open the countdown is held, and the buddy
- * does not fidget. While the panel listens the countdown is held too, the buddy listens, and its ear rims glow with the
- * voice. The countdown's own moods (drowsy, asleep, wake) go straight to the buddy: they are not uses.
+ * buddy and starts its sleep countdown (sleep.js) again; while Buddy thinks, the countdown is held. While the panel is
+ * open the countdown is held, and the buddy does not fidget. While the panel listens the countdown is held too, the
+ * buddy listens, and its ear rims glow with the voice. The countdown's own moods (drowsy, asleep, wake) go straight to
+ * the buddy: they are not uses.
  */
 
 // How loud a normal voice is: the RMS of the microphone's samples, as the panel measures it (a voice is mostly 0.05 to
@@ -36,7 +37,9 @@ function createFeelings({ buddy, sleep, busy = () => false, later = setTimeout, 
 
   /**
    * A mood from the app. It is a use, which the countdown hears first: when that wakes the buddy, the wake comes before
-   * the mood, so the mood is what shows.
+   * the mood, so the mood is what shows. Buddy at work is a use for as long as it lasts, so thinking holds the
+   * countdown: a long answer with the panel hidden must not find the buddy dozing. Every other mood lets go, since each
+   * way a thinking ends sends one (the answer, an error, the chat closed, Buddy turned off).
    */
   function mood(name) {
     if (ending !== null) {
@@ -45,6 +48,7 @@ function createFeelings({ buddy, sleep, busy = () => false, later = setTimeout, 
     }
     last = name;
     sleep.poke();
+    sleep.hold('busy', name === 'thinking');
     buddy.mood(name);
   }
 

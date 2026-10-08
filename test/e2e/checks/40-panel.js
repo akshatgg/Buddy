@@ -1,130 +1,230 @@
 'use strict';
 
-const path = require('node:path');
-const { nativeImage } = require('electron');
 const { BuddyError } = require('../../../shared/errors');
+const { pasteKeys } = require('../../../src/main/platform');
+const { undoKey } = require('../../../src/main/send-keys');
 
+// The panel is a chat: src/main/actions.js keeps it and sends the page the whole state, which the page draws. This
+// check uses the page as the person does: it writes in the box and presses ↩ (or the send button), clicks the buttons
+// the page draws on each item, by their label, and presses Esc; and it reads the chat back from the page's own text,
+// and from actions.state(). The AI's answers are the check's own (ctx.ai.ask), in the shape of the chat request's
+// reading (shared/prompts.js parseChat), except at the end, where the real route says there is no key. The app is a
+// fake TextEdit, whose commands the fake helper answers.
 module.exports = async function panelCheck(ctx, { assert, waitFor }) {
-  await ctx.actions.toggle();
-  const panel = ctx.panel.window();
-  await waitFor(() => panel.isVisible(), 'the panel to open');
-  await waitFor(
-    () => panel.webContents.executeJavaScript(`document.querySelector('[data-tab="write"]').classList.contains('active')`),
-    'the Write tab, since no text was selected',
-  );
-
-  // The fake helper has no app to paste into, so the answer goes to the clipboard: the fake one in ctx.clipboard.
-  const r = await panel.webContents.executeJavaScript("window.buddy.insert('Hello from Buddy', 'insert')");
-  assert.deepStrictEqual(r, { ok: true, copied: true });
-  assert.strictEqual(await ctx.clipboard.readText(), 'Hello from Buddy');
-  assert.strictEqual(panel.isVisible(), false, 'the panel closes on insert');
-  await waitFor(() => ctx.bubble.window()?.isVisible(), 'the "Copied" bubble');
-
-  const ran = await panel.webContents.executeJavaScript("window.buddy.run('write', { instruction: '' })");
-  assert.deepStrictEqual(ran, { ok: false, error: { code: 'no_key', message: 'Add your API key in Settings first.' } });
-
-  // The panel shows that error with an "Open Settings" button, because the person fixes it there.
-  const page = (script) => panel.webContents.executeJavaScript(script);
-  const errorShown = () => page(`({
-    message: document.getElementById('error').hidden ? null : document.getElementById('error').textContent,
-    button: !document.getElementById('error-settings').hidden,
-  })`);
-  async function writeSomething() {
-    await page(`document.getElementById('write-text').value = 'mail to my boss'; document.getElementById('write-go').click();`);
-    await waitFor(async () => (await errorShown()).message !== null, 'the error to show');
-    return errorShown();
-  }
-  assert.deepStrictEqual(await writeSomething(), { message: 'Add your API key in Settings first.', button: true });
-
-  // The same for a key that was refused, an account out of credit, and a model that cannot be used (it is not
-  // there for this key, or it cannot read screenshots), whose messages say to pick another in Settings; not for
-  // errors Settings cannot fix.
-  const run = ctx.actions.run;
-  try {
-    for (const [code, message, button] of [
-      ['bad_key', 'Your Claude key was rejected. Check it in Settings.', true],
-      ['no_credit', 'Your Claude account is out of credit.', true],
-      ['bad_model', "This model isn't available for your key. Pick another in Settings.", true],
-      ['no_vision', "This model can't read screenshots. Pick another in Settings.", true],
-      ['rate_limited', 'Claude is busy right now. Try again in a minute.', false],
-      ['timeout', 'Claude took too long to answer. Try again.', false],
-      ['network', "Couldn't reach Claude. Check your internet.", false],
-    ]) {
-      ctx.actions.run = async () => { throw new BuddyError(code, message); };
-      assert.deepStrictEqual(await writeSomething(), { message, button }, code);
-      await page(`document.getElementById('error').hidden = true`); // so the next one is waited for
-    }
-  } finally {
-    ctx.actions.run = run;
-  }
-
-  // The button uses the same way to Settings as the gear: the panel steps aside and Settings opens.
-  ctx.actions.run = async () => { throw new BuddyError('bad_key', 'Your Claude key was rejected. Check it in Settings.'); };
-  const open = ctx.windows.open;
-  const opened = [];
-  let settingsWindow = null;
-  ctx.windows.open = (kind, options) => {
-    opened.push(kind);
-    settingsWindow = open.call(ctx.windows, kind, options);
-    return settingsWindow;
+  const FACT = 'Your boss is Mr. Sharma.';
+  const reply = (fields) => ({ kind: 'write', say: '', text: '', notes: [], doIt: false, send: false, remember: [], ...fields });
+  const answers = [];
+  const asks = [];
+  const { ask } = ctx.ai;
+  ctx.ai.ask = async (action, input) => {
+    asks.push({ action, input });
+    const next = answers.shift();
+    if (next instanceof Error) throw next;
+    return { text: JSON.stringify(next), model: 'e2e-model', chat: next };
   };
+  const chat = () => ctx.actions.state().chat;
+  let panel = null;
+  const page = (script) => panel.webContents.executeJavaScript(script);
+  const pageShows = (text, what) => waitFor(async () => (await page('document.body.innerText')).includes(text), what);
+  const boxFocused = () => page("document.activeElement === document.getElementById('box')");
+  const bubbleSays = (text) => waitFor(async () => {
+    const win = ctx.bubble.window();
+    return Boolean(win?.isVisible()) && (await win.webContents.executeJavaScript("document.getElementById('text').textContent")) === text;
+  }, `the bubble to say "${text}"`);
+  /** Open the panel as the shortcut does, once a panel that just hid may open again. */
+  async function openPanel() {
+    await waitFor(() => !ctx.panel.justClosed(), 'the panel to be ready to open again');
+    await ctx.actions.toggle();
+    panel = ctx.panel.window();
+    await waitFor(() => panel.isVisible(), 'the panel to open');
+  }
+  /** Write `message` in the box and send it as the person does: with ↩, or with the send button. */
+  async function type(message, { withButton = false } = {}) {
+    await page(`(() => {
+      const box = document.getElementById('box');
+      box.focus();
+      box.value = ${JSON.stringify(message)};
+      box.dispatchEvent(new Event('input'));
+    })()`);
+    // While the buddy is still busy with the last message, the next one cannot go (nor could the person send it).
+    await waitFor(() => page("!document.getElementById('send').disabled"), 'the send button to come on');
+    await page(withButton
+      ? "document.getElementById('send').click()"
+      : "document.getElementById('box').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))");
+    assert.strictEqual(await page("document.getElementById('box').value"), '', `"${message}" left the box`);
+  }
+  // The newest item in the page's chat that shows `text`.
+  const itemWith = (text) => `[...document.querySelectorAll('#items > li')].findLast((li) => li.innerText.includes(${JSON.stringify(text)}))`;
+  /** The labels of the buttons the page shows on the newest item with `text`; null when there is no such item. */
+  const buttonsOn = (text) => page(`(() => {
+    const item = ${itemWith(text)};
+    return item ? [...item.querySelectorAll('button')].map((b) => b.textContent) : null;
+  })()`);
+  /** Click the button `label` on the newest item with `text`, as the person does: the click gives the button the focus. */
+  async function click(text, label) {
+    const clicked = await page(`(() => {
+      const button = [...(${itemWith(text)})?.querySelectorAll('button') ?? []].find((b) => b.textContent === ${JSON.stringify(label)});
+      if (!button) return false;
+      button.focus();
+      button.click();
+      return true;
+    })()`);
+    assert.ok(clicked, `the chat shows ${label} on "${text}"`);
+  }
+  const open = ctx.windows.open;
+  let settingsWindow = null;
+
   try {
-    await writeSomething();
-    await page(`document.getElementById('error-settings').click()`);
+    // No app known yet: the greeting, by first name, and an empty chat.
+    await openPanel();
+    assert.deepStrictEqual([ctx.actions.state().greeting, chat()], ['Hi E2E! What should we do?', []]);
+    await pageShows('Hi E2E! What should we do?', 'the greeting');
+    await waitFor(boxFocused, 'the box to have the focus');
+
+    // A written answer, then Insert: with no app to paste into, the text is copied (to the fake clipboard).
+    answers.push(reply({ say: 'Here it is.', text: 'Dear Sir, I need leave tomorrow.' }));
+    await type('boss ko mail, kal chutti chahiye');
+    await waitFor(() => chat().at(-1)?.type === 'buddy', 'the answer');
+    assert.deepStrictEqual(asks.at(-1), {
+      action: 'chat',
+      input: { message: 'boss ko mail, kal chutti chahiye', history: [], facts: ctx.memory.facts(), appName: '', userName: 'E2E', step: 1 },
+    });
+    assert.deepStrictEqual(chat().at(-1).buttons, ['insert', 'copy']);
+    await pageShows('Dear Sir, I need leave tomorrow.', 'the answer');
+    assert.deepStrictEqual(await buttonsOn('Dear Sir, I need leave tomorrow.'), ['Insert', 'Copy']);
+    // A screen reader hears who each message is from, and only what is new is read out: the answer, not the person's
+    // own message or the whole chat again.
+    const name = ctx.actions.state().buddyName;
+    assert.deepStrictEqual(await page("[...document.querySelectorAll('#items .visually-hidden')].map((label) => label.textContent)"),
+      ['You: ', `${name}: `]);
+    await waitFor(
+      async () => (await page("document.getElementById('announce').textContent")) === `${name}: Here it is. Dear Sir, I need leave tomorrow.`,
+      'the answer to be read out',
+    );
+    await click('Dear Sir, I need leave tomorrow.', 'Insert');
+    await bubbleSays(`Copied — press ${pasteKeys}`);
+    assert.strictEqual(await ctx.clipboard.readText(), 'Dear Sir, I need leave tomorrow.');
+    assert.strictEqual(panel.isVisible(), false, 'the panel steps aside for Insert');
+
+    // The panel only hid: opened again, it shows the same chat, with the keyboard in the box again (the page puts it
+    // there as the panel opens: it is taken away here first).
+    await page("document.getElementById('box').blur()");
+    await openPanel();
+    assert.strictEqual(ctx.actions.state().resumed, true);
+    assert.deepStrictEqual(chat().map((item) => item.type), ['you', 'buddy', 'event']);
+    await pageShows('Dear Sir, I need leave tomorrow.', 'the same chat');
+    await waitFor(boxFocused, 'the box to have the focus as the panel opens');
+
+    // Now there is an app to work in. Closing the panel (Esc, ✕) ends the chat: the next opening is a new one, on it.
+    ctx.helper.lastApp = { pid: 4242, bundleId: 'com.apple.TextEdit', name: 'TextEdit' };
+    ctx.helper.replies = { captureSelection: { text: '' }, paste: {}, press: { via: 'e2e' }, windowTitle: { title: 'Untitled' }, screenshot: { image: 'ZTJl' } };
+    await page("document.getElementById('box').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+    await waitFor(() => !panel.isVisible(), 'Esc to close the panel');
+    await openPanel();
+    assert.deepStrictEqual([ctx.actions.state().resumed, ctx.actions.state().appName, chat()], [false, 'TextEdit', []]);
+
+    // "Do it": the text goes in the app at once, the panel stays hidden and the bubble says so. Opened again, the chat
+    // shows it with Undo, which presses the undo keys in the app.
+    answers.push(reply({ say: 'Done.', text: 'See you at 5.', doIt: true }));
+    await type('write see you at 5 here', { withButton: true });
+    await bubbleSays("Done! It's in TextEdit ✅");
+    assert.deepStrictEqual(ctx.helper.calls.filter((call) => call.cmd === 'paste').at(-1).args, { pid: 4242, text: 'See you at 5.', selectAll: false });
+    assert.strictEqual(panel.isVisible(), false, 'the panel stays hidden');
+    await openPanel();
+    await pageShows('✅ Put it in TextEdit', 'what Buddy did');
+    assert.deepStrictEqual(chat().find((item) => item.type === 'buddy').buttons, ['undo', 'copy']);
+    assert.deepStrictEqual(await buttonsOn('See you at 5.'), ['Undo', 'Copy']);
+    await click('See you at 5.', 'Undo');
+    await bubbleSays('Undone');
+    assert.deepStrictEqual(ctx.helper.calls.filter((call) => call.cmd === 'press').at(-1).args, { pid: 4242, ...undoKey(process.platform) });
+
+    // A look at the screen: Buddy takes a picture of the app and asks again with it. Copy keeps the panel open, and
+    // the keyboard goes back to the box (the list drawn again took it from the button).
+    await openPanel();
+    answers.push(reply({ kind: 'screen' }), reply({ kind: 'answer', text: 'It says: see you at 5.' }));
+    await type('what does this say?');
+    await pageShows('👀 Looked at TextEdit', 'the look at the screen');
+    await pageShows('It says: see you at 5.', 'the answer about the screen');
+    assert.deepStrictEqual(asks.slice(-2).map((a) => [a.input.step, a.input.image]), [[1, undefined], [2, 'ZTJl']]);
+    await click('It says: see you at 5.', 'Copy');
+    await waitFor(async () => (await ctx.clipboard.readText()) === 'It says: see you at 5.', 'the answer to be copied');
+    await waitFor(boxFocused, 'the box to have the focus back after Copy');
+    assert.strictEqual(panel.isVisible(), true, 'Copy keeps the panel open');
+
+    // Something about the person: remembered, shown with Undo, and listed in Settings. Undo forgets it again.
+    answers.push(reply({ kind: 'answer', say: 'Got it!', remember: [FACT] }));
+    await type('my boss is Mr. Sharma');
+    await pageShows(`📝 Remembered: ${FACT}`, 'the remembered fact');
+    assert.deepStrictEqual(await buttonsOn(`📝 Remembered: ${FACT}`), ['Undo']);
+    settingsWindow = open.call(ctx.windows, 'settings');
+    const settingsPage = (script) => settingsWindow.webContents.executeJavaScript(script);
+    await waitFor(() => settingsPage("document.querySelector('[data-section=\"memory\"]') !== null").catch(() => false), 'the Settings page to load');
+    await settingsPage("document.querySelector('[data-section=\"memory\"]').click()");
+    await waitFor(
+      async () => (await settingsPage("document.getElementById('memory-list').innerText")).includes(FACT),
+      'the fact to be listed in Settings',
+    );
+    ctx.windows.close('settings');
+    await waitFor(() => settingsWindow.isDestroyed(), 'the Settings window to close');
+    settingsWindow = null;
+    if (!panel.isVisible()) await openPanel(); // Settings took the focus, which hid the panel
+    const remembered = chat().find((item) => item.type === 'event' && item.buttons.includes('undo'));
+    await click(`📝 Remembered: ${FACT}`, 'Undo');
+    await pageShows('Okay, I forgot that.', 'the fact forgotten');
+    assert.strictEqual(ctx.memory.facts().includes(FACT), false);
+    assert.strictEqual(chat().find((item) => item.id === remembered.id).text, 'Okay, I forgot that.');
+    await waitFor(boxFocused, 'the box to have the focus back after Undo');
+
+    // Errors show in the chat with Try again, and Open Settings when the fix is there.
+    const LABELS = { retry: 'Try again', settings: 'Open Settings' };
+    for (const [code, message, buttons] of [
+      ['bad_key', 'Your Claude key was rejected. Check it in Settings.', ['retry', 'settings']],
+      ['no_credit', 'Your Claude account is out of credit.', ['retry', 'settings']],
+      ['bad_model', "This model isn't available for your key. Pick another in Settings.", ['retry', 'settings']],
+      ['rate_limited', 'Claude is busy right now. Try again in a minute.', ['retry']],
+      ['timeout', 'Claude took too long to answer. Try again.', ['retry']],
+      ['network', "Couldn't reach Claude. Check your internet.", ['retry']],
+    ]) {
+      answers.push(new BuddyError(code, message));
+      await type('mail to my boss');
+      await waitFor(() => chat().at(-1)?.code === code, `the ${code} error`);
+      const error = chat().at(-1);
+      assert.deepStrictEqual([error.type, error.text, error.buttons], ['error', message, buttons], code);
+      await pageShows(message, `the ${code} error`);
+      assert.deepStrictEqual(await buttonsOn(message), buttons.map((button) => LABELS[button]), code);
+    }
+
+    // The real route, with no key and free mode off: Open Settings goes to the AI section, as the gear does.
+    ctx.ai.ask = ask;
+    await type('mail to my boss');
+    await waitFor(() => chat().at(-1)?.code === 'no_key', 'the no_key error');
+    const noKey = chat().at(-1);
+    assert.deepStrictEqual([noKey.text, noKey.buttons], ['Add your API key in Settings first.', ['retry', 'settings']]);
+    await pageShows('Add your API key in Settings first.', 'the no_key error');
+    assert.deepStrictEqual(await buttonsOn('Add your API key in Settings first.'), ['Try again', 'Open Settings']);
+    const opened = [];
+    ctx.windows.open = (kind, options) => {
+      opened.push(kind);
+      settingsWindow = open.call(ctx.windows, kind, options);
+      return settingsWindow;
+    };
+    await click('Add your API key in Settings first.', 'Open Settings');
     await waitFor(() => opened.length > 0, 'Settings to open');
     assert.deepStrictEqual(opened, ['settings']);
     assert.strictEqual(panel.isVisible(), false, 'the panel steps aside');
     // Let its page finish loading before it is closed again, so that closing it does not cut the load short.
     await waitFor(() => settingsWindow.webContents.executeJavaScript("document.getElementById('size') !== null"), 'the Settings page to load');
-    // A key that was refused is fixed in the AI section, so Settings opens there.
     await waitFor(
       () => settingsWindow.webContents.executeJavaScript("!document.getElementById('section-ai').hidden"),
       'Settings to open on the AI section',
     );
   } finally {
+    ctx.ai.ask = ask;
     ctx.windows.open = open;
-    ctx.actions.run = run;
     ctx.windows.close('settings');
     if (settingsWindow) await waitFor(() => settingsWindow.isDestroyed(), 'the Settings window to close');
-  }
-
-  // Opening the panel again (or changing tab) clears the error and the button with it.
-  await page(`document.querySelector('[data-tab="fix"]').click()`);
-  assert.deepStrictEqual(await errorShown(), { message: null, button: false });
-
-  // The tabs say which one is chosen, and what goes wrong or is under way is read out as it appears.
-  assert.deepStrictEqual(await page("[...document.querySelectorAll('[data-tab]')].map((tab) => tab.getAttribute('aria-pressed'))"),
-    ['false', 'true', 'false']);
-  assert.deepStrictEqual(await page("['error', 'busy'].map((id) => document.getElementById(id).getAttribute('aria-live'))"), ['polite', 'polite']);
-
-  // A check of the screen, with the screenshot, a verdict, three problems and the corrected text: Replace and Copy are
-  // in view without scrolling (the screenshot is smaller while an answer is shown).
-  const picture = nativeImage.createFromPath(path.join(__dirname, '..', '..', '..', 'assets', 'buddies', 'previews', 'boy-1.png'));
-  const { screenshot } = ctx.actions;
-  ctx.actions.screenshot = async () => ({ image: picture.toJPEG(80).toString('base64') });
-  ctx.actions.run = async () => ({
-    text: '',
-    check: {
-      verdict: 'problems',
-      problems: ['"recieve" should be "receive".', 'The greeting has no name after "Dear".', 'The last line ends without a full stop'],
-      corrected: 'Dear Rahul,\n\nI am happy to receive your reply. See you on Monday.',
-    },
-  });
-  try {
-    await ctx.panel.show({ buddyName: 'Buddy', appName: 'Mail', selection: '', tab: 'check', notice: '' }, ctx.buddy.bounds(), ctx.buddy.display().workArea);
-    await waitFor(() => page("document.getElementById('shot').naturalHeight > 0 && !document.getElementById('shot').hidden"), 'the screenshot');
-    await page("document.getElementById('check-go').click()");
-    await waitFor(() => page("!document.getElementById('result').hidden"), 'the answer');
-    const view = await page(`(() => {
-      const panel = document.querySelector('.panel');
-      const box = panel.getBoundingClientRect();
-      const bottom = Math.max(...['insert', 'copy'].map((id) => document.getElementById(id).getBoundingClientRect().bottom));
-      return { scrollTop: panel.scrollTop, inView: bottom <= box.bottom - panel.clientTop, label: document.getElementById('insert').textContent };
-    })()`);
-    assert.deepStrictEqual(view, { scrollTop: 0, inView: true, label: 'Replace' }, 'Replace and Copy are in view, unscrolled');
-  } finally {
-    ctx.actions.run = run;
-    ctx.actions.screenshot = screenshot;
-    ctx.panel.hide();
+    await ctx.actions.dismiss(); // the checks that follow start on a new chat
+    ctx.helper.lastApp = null;
+    ctx.helper.replies = {};
   }
 };

@@ -17,14 +17,19 @@ const os = require('node:os');
 const path = require('node:path');
 const { BuddyError } = require('../../shared/errors');
 const { PROVIDERS, PROVIDER_IDS } = require('../../shared/providers');
+const { parseChat } = require('../../shared/prompts');
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-e2e-'));
 app.setPath('userData', userData);
 fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ onboarded: true, buddyOn: true }));
 
 const loginCalls = [];
+// The person's app is none at first (lastApp); a check gives it one, and has its commands (captureSelection, paste,
+// press, windowTitle, screenshot) answer with what it puts in `replies`: a result, or a BuddyError to fail with. Any
+// other command fails, as it does with no app to work in.
 const helper = Object.assign(new EventEmitter(), {
   lastApp: null,
+  replies: {},
   calls: [],
   accessibility: true, // what the helper says about the Accessibility permission (a check turns it off and on)
   watching: false, // whether the app has the helper listen to the modifier keys (a single-key shortcut)
@@ -37,9 +42,12 @@ const helper = Object.assign(new EventEmitter(), {
       this.watching = args.on;
       return { watching: args.on };
     }
-    const err = new Error('There is no app to paste into in the e2e test.');
-    err.code = 'not_frontmost';
-    throw err;
+    if (Object.hasOwn(this.replies, cmd)) {
+      const reply = this.replies[cmd];
+      if (reply instanceof Error) throw reply;
+      return reply;
+    }
+    throw new BuddyError('not_frontmost', 'There is no app to paste into in the e2e test.');
   },
 });
 
@@ -161,6 +169,8 @@ const cloud = {
   },
   async ask(action, input) {
     this.asks.push({ action, input });
+    // The panel's chat request comes back read, as the app's free route reads it (src/main/cloud.js).
+    if (action === 'chat') return { text: 'A free answer', model: 'free-model', chat: parseChat('A free answer') };
     return { text: 'A free answer', model: 'free-model' };
   },
   onChange(fn) {

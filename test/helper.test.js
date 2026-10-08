@@ -56,6 +56,26 @@ test('an error reply rejects with its code and message', async () => {
   await assert.rejects(pending, { code: 'secure_field', message: "I don't read password fields." });
 });
 
+test('press and windowTitle: what Send and Undo ask of the helper, and what comes back', async () => {
+  const { helper, child } = started();
+  const pressed = helper.call('press', { pid: 7, key: 'return', modifiers: ['cmd'] });
+  const title = helper.call('windowTitle', { pid: 7 });
+  const refused = helper.call('press', { pid: 7, key: 'z', modifiers: ['ctrl'] });
+  await tick();
+  assert.deepStrictEqual(child.written, [
+    { id: 1, cmd: 'press', args: { pid: 7, key: 'return', modifiers: ['cmd'] } },
+    { id: 2, cmd: 'windowTitle', args: { pid: 7 } },
+    { id: 3, cmd: 'press', args: { pid: 7, key: 'z', modifiers: ['ctrl'] } },
+  ]);
+  child.reply({ id: 1, ok: true, result: { via: 'activate' } });
+  child.reply({ id: 2, ok: true, result: { title: 'Inbox - Gmail' } });
+  child.reply({ id: 3, ok: false, error: { code: 'secure_field', message: "I don't type into password fields." } });
+  assert.deepStrictEqual(await pressed, { via: 'activate' });
+  assert.deepStrictEqual(await title, { title: 'Inbox - Gmail' });
+  await assert.rejects(refused, { code: 'secure_field', message: "I don't type into password fields." });
+  helper.stop();
+});
+
 test('frontApp events update lastApp', async () => {
   const { helper, child } = started();
   assert.strictEqual(helper.lastApp, null);
@@ -154,8 +174,8 @@ test('a helper that does not answer in time is stopped and started afresh: a hun
   helper.stop();
 });
 
-test('reading the selection and pasting wait on the person\'s app, so they get 10 seconds; other calls get 5', () => {
-  assert.deepStrictEqual(DEFAULT_TIMEOUTS, { screenshot: 10_000, captureSelection: 10_000, paste: 10_000, default: 5_000 });
+test('reading the selection, pasting and pressing keys wait on the person\'s app, so they get 10 seconds; other calls get 5', () => {
+  assert.deepStrictEqual(DEFAULT_TIMEOUTS, { screenshot: 10_000, captureSelection: 10_000, paste: 10_000, press: 10_000, default: 5_000 });
 });
 
 test('says when a helper has started: the first time, and after each restart', async () => {

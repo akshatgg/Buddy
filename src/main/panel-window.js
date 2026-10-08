@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * The panel: Write for me / Fix my English / Check screen. It opens beside the
- * buddy and hides as soon as the user clicks anywhere else.
+ * The panel: a chat with the buddy (actions.js holds it, the page draws it). It
+ * opens beside the buddy and hides as soon as the user clicks anywhere else.
  */
 
 const path = require('node:path');
@@ -64,8 +64,10 @@ function createPanelWindow() {
     win = w;
     w.setAlwaysOnTop(true, 'pop-up-menu');
     w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    // A blur that arrives after the panel was shown and focused again (Buddy hid it for a moment to work in the app)
+    // is a late one from that hide: the panel has the keyboard, so it stays.
     w.on('blur', () => {
-      if (!w.isDestroyed() && !w.webContents.isDevToolsOpened()) hide();
+      if (!w.isDestroyed() && !w.webContents.isDevToolsOpened() && !w.isFocused()) hide();
     });
     // Buddy hides the panel rather than closing it (the menu's Close Window leaves it alone). A window that
     // is closed all the same cannot be shown again: it is forgotten here, so the next open makes a new one.
@@ -100,9 +102,18 @@ function createPanelWindow() {
       w.show();
       w.focus();
     },
+    /**
+     * Send to the panel's page, if there is one ('panel:state' after each change in the chat). A page that is still
+     * loading may miss it: show() sends the whole state again when it opens.
+     */
+    send(channel, payload) {
+      if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+    },
     hide,
     isVisible: () => Boolean(win && win.isVisible()),
     justClosed: () => Date.now() - hiddenAt < REOPEN_GUARD_MS,
+    /** When the panel last hid (0: never), for the chat that comes back when it only hid a short while ago (actions.js). */
+    hiddenAt: () => hiddenAt,
   };
 }
 

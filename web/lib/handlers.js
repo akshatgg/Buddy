@@ -18,7 +18,7 @@
  */
 
 const { BuddyError } = require('../shared/errors');
-const { buildPrompt, parseCheck, MAX_TOKENS } = require('../shared/prompts');
+const { buildPrompt, parseCheck, parseChat, MAX_TOKENS } = require('../shared/prompts');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
 const { dayKey } = require('./day');
 const { withDefaults, isFreeOn, applyPatch } = require('./free-config');
@@ -27,6 +27,9 @@ const { withDefaults, isFreeOn, applyPatch } = require('./free-config');
 // "Buddy couldn't answer" and the request is given back.
 const ASK_TIMEOUT_MS = 50_000;
 const MODELS_TIMEOUT_MS = 15_000;
+// At most this many requests a day are given back to a person (an AI that failed, or a chat's first step). Each one
+// was still an AI call on the admin's key, so give-backs cannot be used to ask for free without end.
+const GIVE_BACKS_PER_DAY = 10;
 const USERS_LIMIT = 1000;
 const UID_MAX = 128;
 
@@ -121,6 +124,18 @@ async function config(req, deps) {
   });
 }
 
+/**
+ * Give a counted request back, unless GIVE_BACKS_PER_DAY were given back today already. Past that, or when giving it
+ * back fails too (only the kind of failure is logged), the request stays counted.
+ */
+async function giveBack(uid, day, deps) {
+  try {
+    await deps.db.refundRequest({ uid, day, limit: GIVE_BACKS_PER_DAY });
+  } catch (err) {
+    console.error(`[ask] could not give the request back: ${kindOf(err)}`);
+  }
+}
+
 /** POST /api/ask: one answer with the admin's key, counted against the person's day before the AI is asked. */
 async function ask(req, deps) {
   allowMethods(req, 'POST');
@@ -163,17 +178,26 @@ async function ask(req, deps) {
   } catch (err) {
     // Only the kind of failure is logged, never what the person sent.
     console.warn(`[ask] ${cfg.provider} failed: ${kindOf(err)}`);
-    try {
-      await deps.db.refundRequest({ uid: who.uid, day });
-    } catch (refundErr) {
-      console.error(`[ask] could not give the request back: ${kindOf(refundErr)}`);
-    }
+    await giveBack(who.uid, day, deps);
     throw new BuddyError('upstream', "Buddy couldn't answer. Try again.");
   }
+  let chat = body.action === 'chat' ? parseChat(out.text) : null;
+  let { text } = out;
+  // A chat whose first answer only asks for the person's text box or a screenshot is given back: the app asks again at
+  // once with it, and one question costs one free request (the chat panel design, §3). Such an answer carries nothing
+  // else: whatever text the AI put in it is dropped, so that a copy of the app that always says "step 1" gets no free
+  // answers out of it. A first step is text only (buildPrompt refuses a box or a screenshot on it), and at most
+  // GIVE_BACKS_PER_DAY are given back.
+  if (chat && body.step !== 2 && (chat.kind === 'box' || chat.kind === 'screen')) {
+    await giveBack(who.uid, day, deps);
+    chat = { kind: chat.kind, say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false };
+    text = JSON.stringify(chat);
+  }
   return answer({
-    text: out.text,
+    text,
     model: out.model,
-    ...(body.action === 'check' ? { check: parseCheck(out.text) } : {}),
+    ...(body.action === 'check' ? { check: parseCheck(text) } : {}),
+    ...(chat ? { chat } : {}),
   });
 }
 

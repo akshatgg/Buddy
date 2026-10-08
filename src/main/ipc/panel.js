@@ -1,25 +1,25 @@
 'use strict';
 
-/** IPC for the panel. Every answer is { ok: true, ... } or { ok: false, error }. */
+/**
+ * IPC for the panel. Every answer is { ok: true, ... } or { ok: false, error }. The chat lives in actions.js, which
+ * sends the page the whole state on 'panel:open' and 'panel:state': the page only sends what the person types and
+ * the buttons they press.
+ */
 
 const { guarded } = require('./result');
-
-// Errors whose fix is in the AI section of Settings: a key, a model, or free mode.
-const AI_ERRORS = ['no_key', 'bad_key', 'no_credit', 'bad_model', 'no_vision', 'need_key', 'free_off'];
-const sectionFor = (code) => (AI_ERRORS.includes(code) ? 'ai' : undefined);
+const { sectionFor } = require('../actions');
 
 function registerPanelIpc({ ipcMain, panel, actions, openSettings }) {
   const fromPanel = (webContents) => webContents === panel.window()?.webContents;
   const handle = guarded(ipcMain, fromPanel);
 
-  handle('panel:whole-box', () => actions.wholeBox());
-  handle('panel:run', async (action, input) => ({ result: await actions.run(action, input) }));
-  handle('panel:screenshot', () => actions.screenshot());
-  handle('panel:insert', (text, mode) => actions.insert(String(text || ''), mode));
-  handle('panel:copy', (text) => actions.copy(String(text || '')));
+  // Answers once the answer is in (or it failed, which then shows in the chat).
+  handle('panel:send', (message) => actions.send(typeof message === 'string' ? message : ''));
+  handle('panel:act', (id, button) => actions.act(id, button));
+  handle('panel:drop-selection', () => actions.dropSelection());
 
   ipcMain.on('panel:close', (event) => {
-    // Through actions, which on Windows also hands the keyboard back to the app the panel was opened from.
+    // Through actions, which ends the chat and on Windows also hands the keyboard back to the app it was opened from.
     if (fromPanel(event.sender)) actions.dismiss().catch((err) => console.error('[buddy] could not close the panel', err));
   });
   ipcMain.on('panel:open-settings', (event, code) => {

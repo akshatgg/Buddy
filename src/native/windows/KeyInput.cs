@@ -12,10 +12,15 @@ namespace BuddyHelper
         // Virtual-key codes. Windows maps the letters to the keyboard layout, so Ctrl+C is copy on any layout.
         public const ushort A = 0x41;
         public const ushort C = 0x43;
+        public const ushort D = 0x44;
         public const ushort V = 0x56;
+        public const ushort Z = 0x5A;
+        public const ushort Return = 0x0D;
         public const ushort Right = 0x27;
 
-        const ushort LeftControl = 0xA2;
+        public const ushort LeftShift = 0xA0;
+        public const ushort LeftControl = 0xA2;
+        public const ushort LeftAlt = 0xA4;
         // Keys that need the "extended" flag: the right Ctrl and Alt, the Windows keys and the arrows.
         static readonly HashSet<ushort> Extended = new HashSet<ushort> { 0xA3, 0xA5, 0x5B, 0x5C, 0x25, 0x26, 0x27, 0x28 };
 
@@ -25,9 +30,21 @@ namespace BuddyHelper
         /// one (the shortcut's Space) with nothing held with it, typing spaces over their text. Nothing is sent then.
         public static void PressCtrl(ushort key)
         {
+            PressWith(key, new ushort[] { LeftControl });
+        }
+
+        /// `key` with the modifier keys `modifiers` held, like Ctrl+Enter, once the person has let go of every key, as
+        /// PressCtrl says. The modifiers go down in their order and come up the other way round.
+        public static void PressWith(ushort key, ushort[] modifiers)
+        {
             if (!WaitForKeysUp(3000)) throw new HelperError("keys_held", "Let go of the keys, then try again.");
             IntPtr layout = ForegroundLayout();
-            Send(new List<Native.INPUT> { Key(LeftControl, false, layout), Key(key, false, layout), Key(key, true, layout), Key(LeftControl, true, layout) });
+            var inputs = new List<Native.INPUT>();
+            foreach (ushort modifier in modifiers) inputs.Add(Key(modifier, false, layout));
+            inputs.Add(Key(key, false, layout));
+            inputs.Add(Key(key, true, layout));
+            for (int i = modifiers.Length - 1; i >= 0; i--) inputs.Add(Key(modifiers[i], true, layout));
+            Send(inputs);
         }
 
         /// One key on its own.

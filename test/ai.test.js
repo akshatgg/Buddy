@@ -90,6 +90,45 @@ test('check answers are parsed', async () => {
   assert.deepStrictEqual(out.check, { verdict: 'good', problems: [], corrected: null });
 });
 
+test('chat: the own key answers with the chat prompt, and the answer comes back read', async () => {
+  const answer = JSON.stringify({ kind: 'fix', say: 'Ho gaya!', text: 'I am going home.', notes: ['"go" → "going"'], doIt: true, send: false, remember: [], again: false });
+  const { ai, calls } = setup({ answer });
+  const out = await ai.ask('chat', { message: 'fix this', selection: 'me go home', appName: 'Notes', step: 1 });
+  assert.deepStrictEqual([out.text, out.model], [answer, 'm-default']);
+  assert.deepStrictEqual(out.chat, { kind: 'fix', say: 'Ho gaya!', text: 'I am going home.', notes: ['"go" → "going"'], doIt: true, send: false, remember: [], again: false });
+  assert.match(calls[0].system, /"kind"/);
+  assert.match(calls[0].user, /Selected text:\n"""\nme go home\n"""/);
+  assert.match(calls[0].user, /The app they are in: Notes/);
+  assert.strictEqual(calls[0].image, null);
+});
+
+test('chat: an answer that is not JSON is read as a written answer', async () => {
+  const { ai } = setup({ answer: 'Dear Sir, I need leave tomorrow.' });
+  const out = await ai.ask('chat', { message: 'leave mail' });
+  assert.deepStrictEqual(out.chat, {
+    kind: 'write', say: '', text: 'Dear Sir, I need leave tomorrow.', notes: [], doIt: false, send: false, remember: [], again: false,
+  });
+});
+
+test('chat: a screenshot goes to the provider, and is refused before calling on a model that cannot see', async () => {
+  const seeing = setup({ answer: '{"kind":"answer","say":"It means soon."}' });
+  const out = await seeing.ai.ask('chat', { message: 'what does this mean?', image: 'IMG', step: 2 });
+  assert.strictEqual(seeing.calls[0].image, 'IMG');
+  assert.deepStrictEqual([out.chat.kind, out.chat.text], ['answer', 'It means soon.']);
+  const blind = setup({ vision: false });
+  await assert.rejects(blind.ai.ask('chat', { message: 'what does this mean?', image: 'IMG', step: 2 }), { code: 'no_vision' });
+  assert.strictEqual(blind.calls.length, 0);
+});
+
+test('only a chat gets a chat reading, and only a Check a check', async () => {
+  const { ai } = setup();
+  for (const [action, input] of [['write', { instruction: 'leave mail' }], ['fix', { text: 'me go' }]]) {
+    const out = await ai.ask(action, input);
+    assert.ok(!('chat' in out) && !('check' in out), action);
+  }
+  assert.ok(!('check' in await ai.ask('chat', { message: 'hi' })));
+});
+
 test('bad input is refused before calling', async () => {
   const { ai, calls } = setup();
   await assert.rejects(ai.ask('write', { instruction: '' }), { code: 'bad_request' });
@@ -153,7 +192,17 @@ test("free mode on: Buddy's server answers, with the deadline it is given", asyn
 test('free mode on: input that is not valid is refused here, before the server is asked', async () => {
   const { ai, cloudCalls } = setup({ free: FREE_ON });
   await assert.rejects(ai.ask('write', { instruction: '' }), { code: 'bad_request' });
+  await assert.rejects(ai.ask('chat', { message: '  ' }), { code: 'bad_request', message: 'Tell me what to do first.' });
   assert.ok(!cloudCalls.some(([name]) => name === 'cloudAsk'));
+});
+
+test("free mode on: a chat goes to Buddy's server with all it carries, and its answer comes back as the server route gives it", async () => {
+  const chat = { kind: 'write', say: 'Ye lo!', text: 'Dear Sir,', notes: [], doIt: true, send: false, remember: [] };
+  const { ai, calls, cloudCalls } = setup({ free: FREE_ON, freeAsk: () => ({ text: JSON.stringify(chat), model: 'free-model', chat }) });
+  const input = { message: 'boss ko mail', history: [{ from: 'you', text: 'hi' }], facts: ['Your boss is Mr. Sharma.'], userName: 'Rahul', step: 1 };
+  assert.deepStrictEqual(await ai.ask('chat', input), { text: JSON.stringify(chat), model: 'free-model', chat });
+  assert.deepStrictEqual(cloudCalls.at(-1), ['cloudAsk', 'chat', input, {}]);
+  assert.strictEqual(calls.length, 0, 'the own key is not used');
 });
 
 test('the server never reached: the own key when there is one, else no internet', async () => {

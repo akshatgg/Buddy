@@ -14,6 +14,7 @@
 
 import AppKit
 import ApplicationServices
+import Carbon // the keyboard layouts (Text Input Sources) and UCKeyTranslate
 import ScreenCaptureKit
 
 let ownerPid: pid_t = {
@@ -97,28 +98,97 @@ func accessibilityTrusted(prompt: Bool) -> Bool {
 
 // MARK: - keyboard and clipboard
 
+/// The keys the helper presses, by their place on an American keyboard. A letter's key is looked up in the person's
+/// own keyboard layout before it is pressed (keyCode below): these places are only what is used when that fails.
 enum Key: CGKeyCode {
     case a = 0x00
     case c = 0x08
+    case d = 0x02
     case v = 0x09
+    case z = 0x06
+    case returnKey = 0x24
     case rightArrow = 0x7C // 124
+
+    /// The letter the key types; nil for ↩ and →, which are in the same place on every keyboard.
+    var letter: String? {
+        switch self {
+        case .a: return "a"
+        case .c: return "c"
+        case .d: return "d"
+        case .v: return "v"
+        case .z: return "z"
+        case .returnKey, .rightArrow: return nil
+        }
+    }
+}
+
+/// The key that types `letter` in the keyboard layout `source`, or nil when none does. With `command` it is the key
+/// that types it while ⌘ is held, which is what a shortcut uses ("Dvorak – QWERTY ⌘" turns into QWERTY then).
+func keyCode(typing letter: String, in source: TISInputSource, command: Bool) -> CGKeyCode? {
+    guard let property = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+    let data = Unmanaged<CFData>.fromOpaque(property).takeUnretainedValue() as Data
+    let modifiers = command ? UInt32(cmdKey >> 8) & 0xFF : 0
+    let keyboard = UInt32(LMGetKbdType())
+    return data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> CGKeyCode? in
+        guard let layout = bytes.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return nil }
+        for code in 0..<128 {
+            var deadKeys: UInt32 = 0
+            var chars = [UniChar](repeating: 0, count: 4)
+            var length = 0
+            let status = UCKeyTranslate(layout, UInt16(code), UInt16(kUCKeyActionDown), modifiers, keyboard,
+                                        OptionBits(kUCKeyTranslateNoDeadKeysMask), &deadKeys, chars.count, &length, &chars)
+            if status == noErr, length > 0, String(utf16CodeUnits: chars, count: length).lowercased() == letter {
+                return CGKeyCode(code)
+            }
+        }
+        return nil
+    }
+}
+
+/// The key code to press for `key` with `flags` held. Key codes are places on the keyboard, not letters: where an
+/// American keyboard has Z a French one has W, so ⌘Z sent by the American code would close the person's window
+/// there, and ⌘A would be ⌘Q. So a letter is looked up in the keyboard layout in use, then in the one macOS uses for
+/// shortcuts while a layout without Latin letters is in use (Russian, say), and only then taken from the list above.
+func keyCode(_ key: Key, _ flags: CGEventFlags) -> CGKeyCode {
+    guard let letter = key.letter else { return key.rawValue }
+    let lookUp = { () -> CGKeyCode? in
+        let layouts: [() -> Unmanaged<TISInputSource>?] = [
+            TISCopyCurrentKeyboardLayoutInputSource, TISCopyCurrentASCIICapableKeyboardLayoutInputSource,
+        ]
+        for copy in layouts {
+            guard let source = copy()?.takeRetainedValue() else { continue }
+            if let code = keyCode(typing: letter, in: source, command: flags.contains(.maskCommand)) { return code }
+        }
+        return nil
+    }
+    // The keyboard layouts are asked on the main thread, as macOS wants: it only runs the run loop, while the commands
+    // run on `work`.
+    let found = Thread.isMainThread ? lookUp() : DispatchQueue.main.sync(execute: lookUp)
+    return found ?? key.rawValue
+}
+
+/// `key` with the modifier keys `flags` held, into the app in front.
+func pressKeys(_ key: Key, _ flags: CGEventFlags) {
+    let source = CGEventSource(stateID: .combinedSessionState)
+    let code = keyCode(key, flags)
+    let down = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true)
+    let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false)
+    down?.flags = flags
+    up?.flags = flags
+    down?.post(tap: .cghidEventTap)
+    up?.post(tap: .cghidEventTap)
 }
 
 func pressCommand(_ key: Key) {
-    let source = CGEventSource(stateID: .combinedSessionState)
-    let down = CGEvent(keyboardEventSource: source, virtualKey: key.rawValue, keyDown: true)
-    let up = CGEvent(keyboardEventSource: source, virtualKey: key.rawValue, keyDown: false)
-    down?.flags = .maskCommand
-    up?.flags = .maskCommand
-    down?.post(tap: .cghidEventTap)
-    up?.post(tap: .cghidEventTap)
+    pressKeys(key, .maskCommand)
 }
 
 /// A key on its own, with no modifiers, sent straight to the app `pid`.
 func pressKey(_ key: Key, toPid pid: pid_t) {
     let source = CGEventSource(stateID: .combinedSessionState)
-    let down = CGEvent(keyboardEventSource: source, virtualKey: key.rawValue, keyDown: true)
-    let up = CGEvent(keyboardEventSource: source, virtualKey: key.rawValue, keyDown: false)
+    let code = keyCode(key, [])
+    let down = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true)
+    let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false)
     down?.flags = []
     up?.flags = []
     down?.postToPid(pid)
@@ -189,6 +259,28 @@ func focusedIsSecure(_ pid: pid_t) -> Bool {
     }
 }
 
+/// True only when the focused element is surely not a place to type: a web page, a mail being read, plain text or a
+/// link that was clicked or selected. Then a paste would do nothing, and Buddy would say "Done!" for nothing: the text
+/// goes to the clipboard instead (src/main/actions.js). Anything Buddy cannot tell about counts as a place to type, as
+/// before, so that a paste is never refused by mistake.
+func focusedIsReadOnly(_ pid: pid_t) -> Bool {
+    let app = AXUIElementCreateApplication(pid)
+    AXUIElementSetMessagingTimeout(app, 1.0)
+    var focused: CFTypeRef?
+    let status = AXUIElementCopyAttributeValue(app, "AXFocusedUIElement" as CFString, &focused)
+    guard status == .success, let value = focused, CFGetTypeID(value) == AXUIElementGetTypeID() else { return false }
+    let element = value as! AXUIElement
+    var role: CFTypeRef?
+    AXUIElementCopyAttributeValue(element, "AXRole" as CFString, &role)
+    guard let name = role as? String, ["AXWebArea", "AXStaticText", "AXLink", "AXHeading", "AXImage"].contains(name) else { return false }
+    // Inside something editable after all (a box in a web page), or its text can be set: a place to type.
+    var ancestor: CFTypeRef?
+    if AXUIElementCopyAttributeValue(element, "AXEditableAncestor" as CFString, &ancestor) == .success, ancestor != nil { return false }
+    var settable: DarwinBoolean = false
+    if AXUIElementIsAttributeSettable(element, "AXValue" as CFString, &settable) == .success, settable.boolValue { return false }
+    return true
+}
+
 // MARK: - commands
 
 func pidArg(_ args: [String: Any]) throws -> pid_t {
@@ -246,6 +338,7 @@ func paste(_ args: [String: Any]) throws -> [String: Any] {
     // Buddy never types into a password field (and "Replace all" would wipe what is in it): the
     // answer goes to the clipboard instead, which is what a paste that fails does.
     if focusedIsSecure(pid) { throw HelperError(code: "secure_field", message: "I don't type into password fields.") }
+    if focusedIsReadOnly(pid) { throw HelperError(code: "not_editable", message: "Click in the box where it should go, then try again.") }
 
     let pb = NSPasteboard.general
     let saved = saveClipboard()
@@ -262,6 +355,60 @@ func paste(_ args: [String: Any]) throws -> [String: Any] {
     // change count), so a check for a changed count would always say yes.
     restoreClipboard(saved)
     return ["via": via]
+}
+
+// The keys `press` may send and the modifiers it may hold, by the names Buddy uses (src/main/send-keys.js): ↩ sends,
+// ⌘Z undoes, and ⌘⇧D sends in Mail. Nothing else, so that Buddy can never be made to press just any key.
+let pressableKeys: [String: Key] = ["return": .returnKey, "z": .z, "d": .d]
+let modifierFlags: [String: CGEventFlags] = ["cmd": .maskCommand, "ctrl": .maskControl, "shift": .maskShift, "alt": .maskAlternate]
+
+func modifiersArg(_ args: [String: Any]) throws -> CGEventFlags {
+    let given = args["modifiers"] ?? NSNull()
+    if given is NSNull { return [] }
+    guard let names = given as? [String] else {
+        throw HelperError(code: "bad_request", message: "modifiers must be a list")
+    }
+    var flags: CGEventFlags = []
+    for name in names {
+        guard let flag = modifierFlags[name] else {
+            throw HelperError(code: "bad_request", message: "modifiers must be cmd, ctrl, shift or alt")
+        }
+        flags.insert(flag)
+    }
+    return flags
+}
+
+/// One key with its modifiers, like ⌘↩ (Send) or ⌘Z (Undo), into the app `pid`, brought to the front first. It is
+/// refused wherever Paste is: Buddy never types into a password field.
+func press(_ args: [String: Any]) throws -> [String: Any] {
+    let pid = try pidArg(args)
+    guard let name = args["key"] as? String, let key = pressableKeys[name] else {
+        throw HelperError(code: "bad_request", message: "key must be return, z or d")
+    }
+    let flags = try modifiersArg(args)
+    try needAccessibility()
+    guard let via = ensureFront(pid) else { throw HelperError(code: "not_frontmost", message: "Could not switch back to that app.") }
+    if focusedIsSecure(pid) { throw HelperError(code: "secure_field", message: "I don't type into password fields.") }
+    pressKeys(key, flags)
+    return ["via": via]
+}
+
+/// The title of the app's front window, which in a browser names the site that is open (src/main/send-keys.js tells
+/// Gmail from WhatsApp by it). "" when it has none or it cannot be read, as without Accessibility: never an error.
+/// The title is passed on, never logged.
+func windowTitle(_ args: [String: Any]) throws -> [String: Any] {
+    let pid = try pidArg(args)
+    guard accessibilityTrusted(prompt: false) else { return ["title": ""] }
+    let app = AXUIElementCreateApplication(pid)
+    for attribute in ["AXFocusedWindow", "AXMainWindow"] {
+        var window: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, attribute as CFString, &window) == .success,
+              let value = window, CFGetTypeID(value) == AXUIElementGetTypeID() else { continue }
+        var title: CFTypeRef?
+        AXUIElementCopyAttributeValue(value as! AXUIElement, kAXTitleAttribute as CFString, &title)
+        if let text = title as? String, !text.isEmpty { return ["title": text] }
+    }
+    return ["title": ""]
 }
 
 final class ResultBox: @unchecked Sendable {
@@ -461,6 +608,10 @@ func handle(_ msg: [String: Any]) {
             result = try captureSelection(args)
         case "paste":
             result = try paste(args)
+        case "press":
+            result = try press(args)
+        case "windowTitle":
+            result = try windowTitle(args)
         case "screenshot":
             result = try screenshot(args)
         case "watchKeys":

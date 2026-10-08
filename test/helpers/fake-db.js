@@ -35,10 +35,14 @@ function fakeDb({ config = null, users = {} } = {}) {
       state.users[uid] = { ...user, email, name, usedDay: day, usedCount: used + 1, lastActive: now };
       return { ok: true, usedCount: used + 1 };
     },
-    async refundRequest({ uid, day }) {
+    async refundRequest({ uid, day, limit }) {
       state.calls.push('refundRequest');
       const user = state.users[uid];
-      if (user && user.usedDay === day && user.usedCount > 0) user.usedCount -= 1;
+      if (!user || user.usedDay !== day || !(user.usedCount > 0)) return { ok: false, reason: 'not_counted' };
+      const given = user.refundDay === day && Number.isInteger(user.refundCount) ? user.refundCount : 0;
+      if (given >= limit) return { ok: false, reason: 'limit', refundCount: given };
+      Object.assign(user, { usedCount: user.usedCount - 1, refundDay: day, refundCount: given + 1 });
+      return { ok: true, refundCount: given + 1 };
     },
     async listUsers({ limit }) {
       state.calls.push('listUsers');

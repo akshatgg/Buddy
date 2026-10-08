@@ -38,7 +38,8 @@ const tokenError = (code) => Object.assign(new Error(`Decoding Firebase ID token
  * The handlers with fakes: an in-memory database, one fake provider whatever the id, the server's keys in `keys`,
  * `adminEmail` as the server's ADMIN_EMAIL, and ID tokens by name: 'user', 'admin', 'unverified', and two more for the
  * admin gate ('adminShouting', 'adminUnverified'). Any other token is forged, and refused the way firebase-admin
- * refuses one (auth/argument-error). With `verifyFails`, checking any token throws that instead.
+ * refuses one (auth/argument-error). With `verifyFails`, checking any token throws that instead. The AI answers `reply`,
+ * or what `reply(opts)` gives when it is a function.
  * `run(handler, method, { token, body, query })`.
  */
 function setup({
@@ -53,7 +54,8 @@ function setup({
     async complete(opts) {
       completes.push(opts);
       if (fail) throw fail;
-      return { text: reply, model: opts.model, usage: { inputTokens: 1, outputTokens: 2 } };
+      const text = typeof reply === 'function' ? reply(opts) : reply;
+      return { text, model: opts.model, usage: { inputTokens: 1, outputTokens: 2 } };
     },
     async listModels(opts) {
       lists.push(opts);
@@ -316,6 +318,166 @@ test('ask: a Check answer comes back read as well', async () => {
   const s = setup({ stored: freeDaily(5), reply: '{"verdict":"good","problems":[],"corrected":null}' });
   const r = await s.run(ask, 'POST', { body: { action: 'check', image: 'IMG', instruction: 'ok?' } });
   assert.deepStrictEqual(r.body.check, { verdict: 'good', problems: [], corrected: null });
+});
+
+// ---- POST /api/ask: chat ----
+
+/** A chat answer of `kind` as parseChat reads it, and as the model writes it. */
+const chatOf = (kind, extra = {}) => ({
+  kind, say: 'Okay!', text: kind === 'write' ? 'Dear Sir,' : '', notes: [], doIt: false, send: false, remember: [], again: false,
+  ...extra,
+});
+const chatReply = (kind, extra) => JSON.stringify(chatOf(kind, extra));
+
+test('ask: a chat is counted, answered with the chat prompt, and comes back read as well', async () => {
+  const reply = chatReply('write', { doIt: true });
+  const s = setup({ stored: freeDaily(5), reply });
+  const body = {
+    action: 'chat', message: 'boss ko mail, kal chutti chahiye', history: [{ from: 'you', text: 'hi' }],
+    facts: ['Your boss is Mr. Sharma.'], appName: 'Gmail', userName: 'Rahul', step: 1,
+  };
+  assert.deepStrictEqual(await s.run(ask, 'POST', { body }),
+    { status: 200, body: { text: reply, model: 'claude-x', chat: chatOf('write', { doIt: true }) } });
+  const [call] = s.completes;
+  assert.match(call.system, /"kind"/);
+  assert.match(call.user, /Their message:\n"""\nboss ko mail, kal chutti chahiye\n"""/);
+  assert.match(call.user, /- Your boss is Mr\. Sharma\./);
+  assert.match(call.user, /The app they are in: Gmail\nTheir first name: Rahul/);
+  assert.strictEqual(call.image, null);
+  assert.strictEqual(s.db.state.users.u1.usedCount, 1);
+  assert.ok(!s.db.state.calls.includes('refundRequest'));
+});
+
+test('ask: a chat whose first answer wants the text box or the screen is given back: one question costs one request', async () => {
+  for (const kind of ['box', 'screen']) {
+    for (const step of [undefined, 1]) {
+      const s = setup({ stored: freeDaily(5), reply: chatReply(kind) });
+      const r = await s.run(ask, 'POST', { body: { action: 'chat', message: 'fix my English', step } });
+      const empty = { kind, say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false };
+      assert.deepStrictEqual(r, { status: 200, body: { text: JSON.stringify(empty), model: 'claude-x', chat: empty } });
+      assert.strictEqual(s.db.state.users.u1.usedCount, 0, `${kind}, step ${step}: given back`);
+      assert.deepStrictEqual(s.db.state.calls.filter((c) => c !== 'getConfig'), ['countRequest', 'refundRequest']);
+    }
+  }
+});
+
+test('ask: a given-back answer carries nothing the AI wrote into it, so asking "step 1" again and again gets no free text', async () => {
+  const sneaky = JSON.stringify({
+    kind: 'screen', say: 'Here you go', text: 'A whole free essay', notes: ['n'], doIt: true, send: true, remember: ['x'], again: true,
+  });
+  const s = setup({ stored: freeDaily(5), reply: sneaky });
+  const r = await s.run(ask, 'POST', { body: { action: 'chat', message: 'write an essay', step: 1 } });
+  assert.ok(!JSON.stringify(r.body).includes('essay'), 'the text is dropped');
+  assert.ok(!JSON.stringify(r.body).includes('Here you go'), 'and what it said');
+  assert.strictEqual(r.body.chat.kind, 'screen');
+});
+
+test('ask: nothing is given back on the second step, for any other kind of chat answer, or for one that is not JSON', async () => {
+  const cases = [
+    [chatReply('box'), 2], [chatReply('screen'), 2],
+    ...['write', 'fix', 'answer', 'send'].map((kind) => [chatReply(kind), 1]),
+    ['Dear Sir, I need leave tomorrow.', 1],
+  ];
+  for (const [reply, step] of cases) {
+    const s = setup({ stored: freeDaily(5), reply });
+    const r = await s.run(ask, 'POST', { body: { action: 'chat', message: 'hi', step, ...(step === 2 ? { box: 'my text' } : {}) } });
+    assert.strictEqual(r.status, 200, reply);
+    assert.strictEqual(s.db.state.users.u1.usedCount, 1, `${reply}, step ${step}: counted`);
+    assert.ok(!s.db.state.calls.includes('refundRequest'), reply);
+  }
+});
+
+test('ask: the old requests are never given back, and get no chat reading', async () => {
+  const s = setup({ stored: freeDaily(5), reply: chatReply('box') });
+  const r = await s.run(ask, 'POST', { body: { action: 'fix', text: 'me go home', step: 1 } });
+  assert.deepStrictEqual(r.body, { text: chatReply('box'), model: 'claude-x' });
+  assert.strictEqual(s.db.state.users.u1.usedCount, 1);
+});
+
+test('ask: the free limits hold for chats as today', async () => {
+  // A limit of 2: each question with a second step costs one request, so two of them fit, and the next one is refused
+  // before the AI is asked.
+  const replies = [chatReply('screen'), chatReply('answer', { say: '', text: 'It means "soon".' }), chatReply('box'), chatReply('fix')];
+  const s = setup({ stored: freeDaily(2), reply: () => replies.shift() });
+  for (const [i, step] of [1, 2, 1, 2].entries()) {
+    const extra = step === 2 ? { image: 'IMG' } : {};
+    const r = await s.run(ask, 'POST', { body: { action: 'chat', message: 'what does this mean?', step, ...extra } });
+    assert.strictEqual(r.status, 200, `request ${i + 1}`);
+  }
+  assert.strictEqual(s.db.state.users.u1.usedCount, 2);
+  assert.deepStrictEqual(await s.run(ask, 'POST', { body: { action: 'chat', message: 'and this?' } }),
+    refusal(429, 'free_limit', "You've used today's 2 free requests. They come back at midnight."));
+  assert.strictEqual(s.completes.length, 4);
+});
+
+test('ask: a chat that cannot be given back is still answered, and only the kind is logged', async (t) => {
+  const error = t.mock.method(console, 'error', () => {});
+  const s = setup({ stored: freeDaily(5), reply: chatReply('screen') });
+  s.db.refundRequest = async () => { throw Object.assign(new Error('The database said: fix my English'), { code: 'unavailable' }); };
+  const r = await s.run(ask, 'POST', { body: { action: 'chat', message: 'fix my English' } });
+  const empty = { kind: 'screen', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false };
+  assert.deepStrictEqual(r, { status: 200, body: { text: JSON.stringify(empty), model: 'claude-x', chat: empty } });
+  assert.strictEqual(s.db.state.users.u1.usedCount, 1, 'it stays counted when it cannot be given back');
+  assert.deepStrictEqual(error.mock.calls.map((c) => c.arguments.join(' ')), ['[ask] could not give the request back: unavailable']);
+});
+
+test('ask: a chat that is not valid is refused with the same words as in the app, before anything is read', async () => {
+  const s = setup({ stored: freeDaily(5) });
+  assert.deepStrictEqual(await s.run(ask, 'POST', { body: { action: 'chat', message: '  ' } }),
+    refusal(400, 'bad_request', 'Tell me what to do first.'));
+  assert.deepStrictEqual(await s.run(ask, 'POST', { body: { action: 'chat', message: 'fix', selection: 'x'.repeat(8001) } }),
+    refusal(400, 'bad_request', 'That is too long (over 8000 characters). Try a shorter one.'));
+  assert.deepStrictEqual(s.db.state.calls, [], 'not even the settings were read');
+});
+
+test('ask: a text box or a screenshot on the first step is refused before anything is read: a request that may be given back is text only', async () => {
+  const s = setup({ stored: freeDaily(5), reply: chatReply('box') });
+  for (const extra of [{ box: 'my whole mail' }, { image: 'IMG' }]) {
+    for (const step of [undefined, 1]) {
+      assert.deepStrictEqual(await s.run(ask, 'POST', { body: { action: 'chat', message: 'fix my English', step, ...extra } }),
+        refusal(400, 'bad_request', 'That can only come with the second step.'), `${Object.keys(extra)}, step ${step}`);
+    }
+  }
+  assert.deepStrictEqual(s.db.state.calls, [], 'not even the settings were read');
+  assert.strictEqual(s.completes.length, 0);
+});
+
+test('ask: at most 10 requests a day are given back; after that a first step that wants the box or the screen stays counted', async () => {
+  const s = setup({ stored: freeDaily(50), reply: chatReply('box') });
+  const empty = { kind: 'box', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false };
+  for (let i = 1; i <= 12; i += 1) {
+    const r = await s.run(ask, 'POST', { body: { action: 'chat', message: 'fix my English', step: 1 } });
+    assert.deepStrictEqual(r, { status: 200, body: { text: JSON.stringify(empty), model: 'claude-x', chat: empty } }, `request ${i}`);
+  }
+  assert.strictEqual(s.db.state.users.u1.usedCount, 2, 'the 11th and the 12th stay counted');
+  assert.deepStrictEqual([s.db.state.users.u1.refundDay, s.db.state.users.u1.refundCount], [TODAY, 10]);
+  assert.strictEqual(s.completes.length, 12);
+});
+
+test('ask: the give-backs start again from zero each day, and an AI that fails takes one of the 10 as well', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  // Ten given back yesterday: today's first is given back.
+  const fresh = setup({ stored: freeDaily(5), reply: chatReply('screen'), users: { u1: userDoc({ refundDay: '2026-10-06', refundCount: 10 }) } });
+  await fresh.run(ask, 'POST', { body: { action: 'chat', message: 'what does this mean?' } });
+  assert.deepStrictEqual([fresh.db.state.users.u1.usedCount, fresh.db.state.users.u1.refundDay, fresh.db.state.users.u1.refundCount],
+    [0, TODAY, 1]);
+  // Nine given back today: a failed answer is the tenth; with ten, it stays counted.
+  const failing = (refundCount) => setup({
+    stored: freeDaily(5), fail: new BuddyError('rate_limited', 'Claude is busy.'), users: { u1: userDoc({ refundDay: TODAY, refundCount }) },
+  });
+  const ninth = failing(9);
+  assert.deepStrictEqual(await ninth.run(ask, 'POST', { body: { action: 'fix', text: 'me go' } }), refusal(502, 'upstream', "Buddy couldn't answer. Try again."));
+  assert.deepStrictEqual([ninth.db.state.users.u1.usedCount, ninth.db.state.users.u1.refundCount], [0, 10]);
+  const tenth = failing(10);
+  assert.deepStrictEqual(await tenth.run(ask, 'POST', { body: { action: 'fix', text: 'me go' } }), refusal(502, 'upstream', "Buddy couldn't answer. Try again."));
+  assert.deepStrictEqual([tenth.db.state.users.u1.usedCount, tenth.db.state.users.u1.refundCount], [1, 10]);
+});
+
+test('ask: a chat with a screenshot, for a model that cannot see, is refused and not counted', async () => {
+  const s = setup({ stored: freeDaily(5), vision: false });
+  assert.deepStrictEqual(await s.run(ask, 'POST', { body: { action: 'chat', message: 'what is this?', image: 'IMG', step: 2 } }),
+    refusal(400, 'free_no_vision', "The free AI can't read screenshots right now."));
+  assert.deepStrictEqual(s.db.state.users, {});
 });
 
 // ---- the admin's switches ----

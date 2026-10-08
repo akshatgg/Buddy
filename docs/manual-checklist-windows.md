@@ -17,44 +17,47 @@ repository root before either (copy it from the Mac). The Mac's list is `docs/ma
 - [ ] Sign in with Google opens your default browser (Chrome or Edge); after you pick the account the browser says you can go back, and Buddy shows your name, email and photo. Windows Firewall did not ask anything.
 - [ ] Settings → Sign out, then Sign in again: it works, and quitting and starting Buddy keeps you signed in.
 - [ ] As the admin (akshatg9636@gmail.com): the tray menu has Admin…; it opens the Admin window, switches free mode and lists the users. Esc or the ✕ closes it.
-- [ ] Free mode on: the AI section says no key is needed, and Write works without a key of your own.
+- [ ] Free mode on: the AI section says no key is needed, and a chat works without a key of your own.
 - [ ] Settings → Shortcut: click the box and press Ctrl+Shift+B → it shows Ctrl Shift B and works from any app. Ctrl+C says it is used by every app; Win+B and Ctrl+Alt+B are refused, saying why; Reset to Ctrl Shift Space puts the default back.
 - [ ] Settings → General shows the version; the sidebar's sections move with ↑ and ↓ and skip Permissions.
 
-## Paste-back
-- [ ] Notepad: select `i am go to market yesterday`, click the buddy → Fix tab shows it → Fix → Replace replaces it.
-- [ ] Notepad, empty line: Ctrl+Shift+Space → Write → `boss ko mail likho kal chutti chahiye` → Write → Insert puts the email at the cursor.
-- [ ] Gmail in Chrome, nothing selected: Ctrl+Shift+Space → Fix → Use the whole box → Fix → Replace replaces the whole body.
+## The chat panel
+- [ ] Notepad: select `i am go to market yesterday`, click the buddy → the selection card shows it → ↩ in the empty box → the fix replaces it, the bubble says "Done! It's in Notepad ✅"; open the panel again → Undo puts the old text back.
+- [ ] Notepad, empty line: Ctrl+Shift+Space → `boss ko mail likho kal chutti chahiye` → the email goes in at the cursor (or Insert puts it there); then `make it shorter` → the shorter one takes its place.
+- [ ] Gmail in Chrome, nothing selected, a draft with mistakes: `fix my English` → "📖 Read your text in Google Chrome" → the whole body is replaced.
 - [ ] Gmail in Edge: the same.
-- [ ] Gmail: Fix → Use the whole box, close the panel and type a letter → the draft is not replaced, and the caret is at its end.
-- [ ] WhatsApp: select a Hinglish message, Ctrl+Shift+Space → Fix → Replace gives an English message in the box (not sent).
-- [ ] Word: Write → Insert works.
-- [ ] Chrome, text selected: press Ctrl+Shift+Space and keep the keys down for a moment → the panel opens on Fix with the text once you let go, and Chrome's inspector (Ctrl+Shift+C) did not open.
+- [ ] Gmail: `fix my English`, then click elsewhere while Buddy is thinking → nothing is typed into Gmail; the bubble says "Your answer is ready. Open me to see it."
+- [ ] Gmail, a received mail open, the cursor on the mail (not in a box): `reply to this` → the reply is copied ("Copied — press Ctrl+V"), not "Done!".
+- [ ] Outlook (classic and new) and Gmail: `reply and send it` → "Send it?" → Send → it is sent with Ctrl+Enter (classic Outlook may ask once whether Ctrl+Enter sends: say yes). WhatsApp and Teams: sent with Enter.
+- [ ] WhatsApp: select a Hinglish message, Ctrl+Shift+Space → ↩ → an English message in the box (not sent).
+- [ ] Word: a written answer goes in at the cursor.
+- [ ] Chrome, text selected: press Ctrl+Shift+Space and keep the keys down for a moment → the panel opens with the selection card once you let go, and Chrome's inspector (Ctrl+Shift+C) did not open.
 - [ ] The same, keeping the keys down for 5 seconds → no spaces typed over your text; the panel says it couldn't read the selection.
 - [ ] Open the panel 20 times in a row (the shortcut, then a click on the buddy) and type at once each time: the text always lands in the panel, never in your app.
 - [ ] The panel's header names the app (· Google Chrome, · WhatsApp, · Notepad).
 - [ ] After each paste, the clipboard still holds what it held before. With clipboard history on (Win+V), neither Buddy's answer nor a second copy of your old clipboard is in it.
 - [ ] Copy a picture (Paint, or a browser), open the panel with nothing selected and close it, then paste in Paint → the picture is still on the clipboard.
 - [ ] Copy a picture, then select text in Notepad and open the panel (it reads the text), close it, and paste in Paint → the picture is back on the clipboard.
-- [ ] Copy cells in Excel (or a paragraph in Word), use Buddy in another app (Write → Insert), then paste back into Excel (or Word) → what you copied comes back with its formatting.
+- [ ] Copy cells in Excel (or a paragraph in Word), use Buddy in another app (a written answer put in), then paste back into Excel (or Word) → what you copied comes back with its formatting.
 - [ ] A multi-line answer pasted into Notepad keeps its lines.
 - [ ] Esc, ✕, the shortcut again, or a click on the buddy closes the panel, and you can type in your app again without clicking it.
-- [ ] In the panel's text boxes Ctrl+C, Ctrl+V, Ctrl+Z and Ctrl+A work; Ctrl+Enter presses Write / Fix / Check.
+- [ ] In the panel's box Ctrl+C, Ctrl+V, Ctrl+Z and Ctrl+A work; Enter sends, Shift+Enter is a new line.
 
-## Check screen
-- [ ] Gmail compose in Chrome with mistakes → Check screen → the thumbnail shows only the Chrome window (not the panel, no black edges) → Check gives "Has problems", a list and a corrected version.
-- [ ] With display scaling at 150 % (Settings → System → Display), the thumbnail is sharp and whole.
-- [ ] An old app that Windows stretches at 150 % (for example one that looks slightly blurry): the thumbnail shows the whole window, with no black part.
-- [ ] With a model that cannot see images (Groq `llama-3.3-70b-versatile`): Check → "This model can't read screenshots. Pick another in Settings."
+## Looking at the screen
+- [ ] Gmail with a mail open in Chrome → `what does this mail say?` → "👀 Looked at Google Chrome" → an answer about that mail (Buddy saw only the Chrome window, not the panel).
+- [ ] With display scaling at 150 % (Settings → System → Display), the same works.
+- [ ] An old app that Windows stretches at 150 % (for example one that looks slightly blurry): Buddy still reads what is in it.
+- [ ] With a model that cannot see images (Groq `llama-3.3-70b-versatile`): `what does this mean?` → "This model can't read screenshots. Pick another in Settings."
+
 
 ## Safety and errors
 - [ ] Cursor in a password field in Chrome, in Edge, and in a classic Windows app (for example 7-Zip: Add to archive → Enter password) → open the panel → "I don't read password fields." and nothing is read.
 - [ ] If KeePass (or another password manager) is installed: select an entry in its list, open the panel → nothing is read ("I don't read passwords."), and the clipboard holds what it held before.
-- [ ] With the cursor still in that password field, Write something in the panel → Insert copies the answer ("Copied — press Ctrl+V") and types nothing into the field.
-- [ ] Windows Terminal running something that lasts (`ping -t localhost`): open the panel → it opens on Write and the ping keeps running. Insert → "Copied — press Ctrl+V", and nothing is typed into the terminal.
+- [ ] With the cursor still in that password field, ask the panel to write something → it copies the answer ("Copied — press Ctrl+V") and types nothing into the field.
+- [ ] Windows Terminal running something that lasts (`ping -t localhost`): open the panel → it opens and the ping keeps running. A written answer → "Copied — press Ctrl+V", and nothing is typed into the terminal.
 - [ ] The same in VS Code's terminal (`npm start` of Buddy itself is a good one): the program keeps running.
-- [ ] Notepad run as administrator: Insert → "Copied — press Ctrl+V".
-- [ ] Wi-Fi off → Write → "Couldn't reach …"; the buddy looks sleepy, then wakes up after a few seconds.
+- [ ] Notepad run as administrator: a written answer → "Copied — press Ctrl+V".
+- [ ] Wi-Fi off → send a message → "Couldn't reach …" with Try again; the buddy looks sleepy, then wakes up after a few seconds.
 - [ ] A wrong key in Settings → "Your … key was rejected. Check it in Settings.", with an "Open Settings" button that opens Settings.
 
 ## Always on (the installed Buddy)

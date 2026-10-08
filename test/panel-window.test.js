@@ -275,6 +275,32 @@ test('a page whose load fails outright is gone too, and without onGone nothing b
   assert.strictEqual(quiet.window(), null);
 });
 
+test('main hears the panel show and hide, however it hides: Buddy hides it, a click somewhere else, or its window is gone', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const heard = [];
+  const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession(), onVisible: (visible) => heard.push(visible) });
+  await panel.show({}, BUDDY, AREA);
+  assert.deepStrictEqual(heard, [true], 'shown');
+  panel.hide();
+  assert.deepStrictEqual(heard, [true, false], 'hidden by Buddy');
+  panel.hide();
+  assert.deepStrictEqual(heard, [true, false], 'hiding a hidden panel says nothing');
+
+  await panel.show({}, BUDDY, AREA);
+  panel.window().events.blur(); // a click somewhere else
+  assert.deepStrictEqual(heard, [true, false, true, false], 'hidden by a click somewhere else');
+
+  for (const [what, end] of [
+    ['crashed', (w) => w.webContents.handlers['render-process-gone']({}, { reason: 'crashed' })],
+    ['closed', (w) => w.destroy()],
+  ]) {
+    heard.length = 0;
+    await panel.show({}, BUDDY, AREA);
+    end(panel.window());
+    assert.deepStrictEqual(heard, [true, false], `its page ${what}`);
+  }
+});
+
 test('a late blur from Buddy\'s own brief hide leaves the panel open when it has the keyboard again', async () => {
   const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession() });
   await panel.show({}, BUDDY, AREA);

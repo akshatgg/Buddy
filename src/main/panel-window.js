@@ -79,12 +79,15 @@ function permissionRules({ isPanel, page = PAGE, platform = process.platform }) 
  * session of its own, so it is in the default one, with the other windows: the permission rules go on it as soon as
  * there is a panel (main.js makes it at launch), not only once its window is made, so that no other page has the
  * microphone meanwhile. `onGone()` is called once for each window whose page is gone: it crashed or did not load, or
- * the window was closed. Such a page cannot say that it stopped listening.
+ * the window was closed. Such a page cannot say that it stopped listening. `onVisible(visible)` hears the panel show
+ * (true) and hide (false), however it hides: Buddy hides it, a click somewhere else does, or its window is gone (for the
+ * buddy, which does not fall asleep or fidget while the person uses the panel).
  */
 function createPanelWindow({
   BrowserWindow = electron.BrowserWindow,
   session = electron.session.defaultSession,
   onGone = () => {},
+  onVisible = () => {},
 } = {}) {
   let win = null;
   let ready = null;
@@ -102,6 +105,7 @@ function createPanelWindow({
     if (win && win.isVisible()) {
       win.hide();
       hiddenAt = Date.now();
+      onVisible(false);
     }
   }
 
@@ -111,6 +115,7 @@ function createPanelWindow({
       win = null;
       ready = null;
       onGone();
+      onVisible(false); // whatever it showed went with it (it may have been hidden already: saying so again is harmless)
     }
   }
 
@@ -188,6 +193,7 @@ function createPanelWindow({
       w.webContents.send('panel:open', state);
       w.show();
       w.focus();
+      onVisible(true);
     },
     /**
      * Send to the panel's page, if there is one ('panel:state' after each change in the chat). A page that is still

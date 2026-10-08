@@ -54,17 +54,22 @@ The app runs without Terminal and has no Dock icon; it lives in the menu bar.
 ## Android
 
 Buddy also runs on Android 8.0 or later. A small 3D head floats over your apps.
-Tap it for the panel: Write, Fix and Check screen, the same as on the Mac. Select
-text in an app and choose **Fix with Buddy** to fix it in place, or use
-Share → Buddy from any app. There is no Admin on the phone; the admin works from
-the Mac. Sign-in and free mode use the same server.
+Tap it for the panel: the same chat as on the Mac. Tell it what to do in your own
+words ("boss ko mail, kal chutti chahiye", "fix my English", "what does this
+mean?") and it writes, fixes or answers, and remembers what you tell it about
+yourself (on this phone only). Select text in an app and choose **Fix with Buddy**,
+or use Share → Buddy: the chat opens with your selection, and **Replace** puts the
+fix back where the app allows it. There is no Admin on the phone; the admin works
+from the Mac. Sign-in and free mode use the same server.
 
-Optional: **Look where I type** (Settings → Buddy). With it on, the head turns
-toward the text box you tap or type in, in any app, as the Mac's head follows the
-pointer. It is an Accessibility service that sees only where the box is on the
-screen, never what you type; Android's Accessibility settings turn it on and off.
-Google Play restricts Accessibility services, so it needs Play's Accessibility
-declaration before the app is published there.
+Optional: **Buddy can type for you** (Settings → Buddy). It is an Accessibility
+service. With it on, Buddy puts its text into the box you are typing in (with
+Undo), reads that box when you ask it to ("fix my English"), and the head turns
+toward the box as the Mac's head follows the pointer. It reads only the box you
+ask about, only when you ask, never a password box, and keeps nothing. Without it,
+Buddy's text is copied for you to paste, or shared. Android's Accessibility
+settings turn it on and off. Google Play restricts Accessibility services, so it
+needs Play's Accessibility declaration before the app is published there.
 
 Build it with Android Studio's own JDK and its Android SDK, with platform
 android-37 installed (Android Studio → Settings → Languages & Frameworks →

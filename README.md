@@ -186,6 +186,16 @@ is ad-hoc signed, macOS asks for Accessibility again after each update, and Sett
 The website's download buttons always give the newest release. Design:
 `docs/superpowers/specs/2026-10-07-buddy-releases-and-updates-design.md`.
 
+**Android** is released on its own: Actions → Release → Run workflow, **What to release** → **Android**, and a
+version. It runs the Android tests, builds `Buddy-Android.apk` signed with the release key, and publishes it as
+"Buddy for Android <version>", tagged `android-v<version>`. That release is never marked latest, so the Mac and
+Windows Update now and the website keep following the desktop release; each Android version must be higher than the
+last Android one. It needs the secrets `BUDDY_ANDROID_CLOUD_PROPERTIES` (the contents of `android/cloud.properties`)
+and, to publish, the release key: `BUDDY_ANDROID_KEYSTORE_BASE64`, `BUDDY_ANDROID_KEYSTORE_PASSWORD` and
+`BUDDY_ANDROID_KEY_PASSWORD` (its alias is `buddy`). The release key's SHA-1 must be added to the Android app in
+Firebase, or Google sign-in fails in the published app. Android has no Update now: people install the new APK over
+the old one.
+
 ## Website
 
 The download site, https://buddywrites.vercel.app, is plain HTML in `web/public/` (home page, privacy page,

@@ -79,6 +79,17 @@ Set these in the Mac's Admin window, against the deployed server.
 - [ ] Typing in Buddy's own panel or Fix sheet: the head is hidden, and stays hidden.
 - [ ] Battery: type for a few minutes with it on, then idle: `adb shell top -b -n 1 | grep -i buddy` stays near 0% CPU when nobody types, and Settings → Battery does not list Buddy as a heavy user.
 
+## Voice
+- [ ] First press of 🎤 in the panel: Android asks for the microphone. Allow: 🎤 turns into ■ and Buddy records.
+- [ ] Refused (or "Don't allow" chosen earlier): "Buddy needs the microphone to hear you. Allow it in Settings." with Open Settings, which opens Buddy's page in Android's settings; allow it there, go back, and 🎤 records.
+- [ ] Without GROQ_API_KEY in Vercel (`/api/config` says `voiceOn: false`): 🎤 says "Voice isn't set up yet." and nothing records.
+- [ ] Say a Hinglish sentence ("Kal mujhe chutti chahiye, please write a mail to my boss"), press ■: a small spinner, then the words appear in the box in English letters, not sent until you send them.
+- [ ] Say nothing and press ■ at once: "I didn't catch that. Try again, or type."
+- [ ] Keep talking: at 60 s it stops by itself and the words appear as with ■.
+- [ ] Close the panel while recording: the microphone stops (the green dot goes away) and nothing appears.
+- [ ] Wi-Fi and mobile data off, then ■: "Couldn't reach Buddy's server. Check your internet."
+- [ ] No recording is left: after each of the above, `adb shell run-as com.akshatgg.buddy ls cache` shows no `voice-*.m4a`.
+
 ## Look and battery
 - [ ] Light and dark mode both look right: panel, Fix sheet, Settings, Welcome, bubble.
 - [ ] Idle for ten minutes with the head showing: `adb shell top -b -n 1 | grep -i buddy` stays near 0% CPU, and Settings → Battery does not list Buddy as a heavy user.

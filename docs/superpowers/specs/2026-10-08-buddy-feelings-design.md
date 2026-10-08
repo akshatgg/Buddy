@@ -20,7 +20,7 @@ listens while the person talks. It works the same on the Mac and on Windows.
 | `love` | the pointer rubbed back and forth over its head | Heart eyes, small hearts rising, a gentle sway | 2 s |
 | `dizzy` | shaken fast while dragged, on release | Swirl eyes, stars circling above its head, the head circling, then it shakes it off | 2 s |
 | `sad` | an error (no internet, the AI failed, the limit is reached) | Droopy eyes, head and arms down, one sigh, a small sweat drop | 2.5 s |
-| `celebrate` | Buddy put text into the app | A jump with happy eyes, arms up, sparkles | 1.6 s |
+| `celebrate` | Buddy put text into the app, or sent it | A jump with happy eyes, arms up, sparkles | 1.6 s |
 | `listening` | the microphone is on | Head tilted as if leaning in, eyes a little up, the ear rims glowing brighter and dimmer with the voice (dim in silence, a pale flash on a loud voice) | until the microphone stops |
 | bored fidgets | awake and idle | One small action every 15–25 s: look around, swing the arms, hum (happy eyes, "♪" rising), a little hop | 0.8–2 s each |
 
@@ -86,9 +86,9 @@ listens while the person talks. It works the same on the Mac and on Windows.
 - **Main** (`src/main/`): `sleep.js` (new) counts down to `drowsy` and `asleep` and sends `wake` on use; it is told
   about use by the buddy's IPC (pointer on it, press, drag, click), by every mood the app sends, and by the panel
   opening and closing. `buddy-window.js` gains `voiceLevel(level)` (IPC `buddy:voice-level`, 0 to 1).
-- **The rest of the app** sends `celebrate` after Buddy puts text into the app, `sad` on an error, and `listening`
-  while the microphone is on, with the voice level about 10 times a second. These calls are made where the panel's
-  code already sends moods; the panel itself is not changed by this work.
+- **The rest of the app** sends `celebrate` after Buddy puts text into the app or sends it, `sad` on an error, and
+  `listening` while the microphone is on, with the voice level about 10 times a second. These calls are made where the
+  panel's code already sends moods; the panel itself is not changed by this work.
 
 ## 7. Testing
 

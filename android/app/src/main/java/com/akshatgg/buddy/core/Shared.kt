@@ -8,6 +8,12 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
+/** CHAT_LIMITS in shared/prompts.js: how much of the chat, of the facts and of an answer's lists is kept. */
+data class ChatLimits(
+    val history: Int, val historyChars: Int, val facts: Int, val factChars: Int, val nameChars: Int,
+    val notes: Int, val remember: Int, val rememberChars: Int,
+)
+
 /**
  * What the Mac and the phone must say the same way: prompts, limits, messages and provider facts. It is read from
  * shared.json, which tools/sync-android-shared.js makes from shared/, so the two apps cannot drift apart.
@@ -38,6 +44,19 @@ class Shared(json: String) {
     val checkQuestionPrefix: String = check.getValue("questionPrefix").jsonPrimitive.content
 
     val messages: Map<String, String> = strings("messages")
+
+    // The chat (the panel's one request): its system prompt, the kinds of answer, its limits and refusals.
+    private val chat = root.getValue("chat").jsonObject
+    val chatSystem: String = chat.getValue("system").jsonPrimitive.content
+    val chatKinds: List<String> = chat.getValue("kinds").jsonArray.map { it.jsonPrimitive.content }
+    val chatLimits: ChatLimits = chat.getValue("limits").jsonObject.let { l ->
+        fun int(name: String) = l.getValue(name).jsonPrimitive.int
+        ChatLimits(
+            history = int("history"), historyChars = int("historyChars"), facts = int("facts"), factChars = int("factChars"),
+            nameChars = int("nameChars"), notes = int("notes"), remember = int("remember"), rememberChars = int("rememberChars"),
+        )
+    }
+    val chatMessages: Map<String, String> = chat.getValue("messages").jsonObject.mapValues { it.value.jsonPrimitive.content }
 
     val providers: List<ProviderFacts> = root.getValue("providers").jsonArray.map { element ->
         val p = element.jsonObject

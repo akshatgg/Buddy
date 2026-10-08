@@ -61,7 +61,7 @@ repository root before either (copy it from the Mac). The Mac's list is `docs/ma
 - [ ] Windows Terminal running something that lasts (`ping -t localhost`): open the panel → it opens and the ping keeps running. A written answer → "Copied — press Ctrl+V", and nothing is typed into the terminal.
 - [ ] The same in VS Code's terminal (`npm start` of Buddy itself is a good one): the program keeps running.
 - [ ] Notepad run as administrator: a written answer → "Copied — press Ctrl+V".
-- [ ] Wi-Fi off → send a message → "Couldn't reach …" with Try again; the buddy looks sleepy, then wakes up after a few seconds.
+- [ ] Wi-Fi off → send a message → "Couldn't reach …" with Try again; the buddy is sad for a moment, then idle.
 - [ ] A wrong key in Settings → "Your … key was rejected. Check it in Settings.", with an "Open Settings" button that opens Settings.
 
 ## Always on (the installed Buddy)

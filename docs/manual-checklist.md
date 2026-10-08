@@ -88,7 +88,7 @@ Run with the installed Buddy.app built with a real `cloud.json`, against the dep
 - [ ] Block yourself while signed in as the admin, then Unblock: the Admin window keeps working (blocking stops free answers only).
 - [ ] Admin → Free mode off, Save. Settings shows the key form again, and a key saved earlier is still there.
 - [ ] `what does this mean?` with a mail open, free mode on → Buddy looks at the screen and answers (the free model can read screenshots); it costs one free request, not two.
-- [ ] Wi-Fi off with free mode on: Write says "Couldn't reach Buddy's server. Check your internet." and the buddy looks sad.
+- [ ] Wi-Fi off with free mode on: send a message → a red line in the chat says "Couldn't reach Buddy's server. Check your internet.", with Try again, and the buddy is sad for a moment, then idle.
 - [ ] With the server deliberately broken (for example FIREBASE_SERVICE_ACCOUNT removed and redeployed), using Buddy shows a server problem and nobody is signed out; put it back and redeploy.
 - [ ] Firestore console: users/{uid} holds only email, name, joined, lastActive, blocked, usedDay and usedCount — no text.
 

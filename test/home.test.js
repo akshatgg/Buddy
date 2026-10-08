@@ -149,6 +149,14 @@ test('Buddy floats on Windows, on a Mac without a notch, when the person chose F
   assert.strictEqual(failed.home.hasNotch(), false);
 });
 
+test('on Windows the helper is never asked about the notch: Buddy floats without a call', async () => {
+  const s = setup({ platform: 'win32' });
+  await s.home.refresh();
+  assert.deepStrictEqual(s.calls, [], 'no helper call');
+  assert.strictEqual(s.home.where(), 'floating');
+  assert.strictEqual(s.home.hasNotch(), false);
+});
+
 test('a notch screen the helper names that Electron does not have does not count', async () => {
   const s = setup({ notches: [{ screen: { x: 5000, y: 0, width: 1470, height: 956 }, notch: NOTCH }] });
   await s.home.refresh();

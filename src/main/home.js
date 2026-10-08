@@ -24,8 +24,9 @@ function createHome({ floating, notch, bubble, store, helper, screen, platform =
     else floating.show();
   }
 
-  /** The screens with a notch that Electron has too, from the helper; none when it cannot say. */
+  /** The screens with a notch that Electron has too, from the helper; none when it cannot say, and none off the Mac. */
   async function askNotches() {
+    if (platform !== 'darwin') return []; // only a Mac has one: no helper call on Windows
     try {
       const answer = await helper.call('notch');
       const displays = screen.getAllDisplays();

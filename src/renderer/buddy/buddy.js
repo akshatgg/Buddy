@@ -452,6 +452,7 @@ window.buddy.onPause((value) => {
     stopLoop();
     symbols.stop(); // the "z" letters have a timer of their own
   } else {
+    fidgeter.reset(now()); // the wait for a fidget starts again: one due while hidden is not played the moment it shows
     startLoop(); // a mood that ended while paused gives way to idle here
     startSymbols(mood.name); // and the mood showing now gets its symbols back
   }

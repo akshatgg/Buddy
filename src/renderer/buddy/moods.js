@@ -242,7 +242,7 @@ function drowsy(since) {
   };
 }
 
-// asleep: the sleeping "◡" eyes, the head down, slow breathing (a breath every 4 s), the
+// asleep: the sleeping "‿" eyes, the head down, slow breathing (a breath every 4 s), the
 // glow of the eyes at half and the ear rims dim, the head no longer following the pointer,
 // and less float. It starts as drowsy leaves off: the half-shut eyes close into the sleeping
 // ones over 0.6 s, and the rest settles over 2.5 s, slowly, because only SLEEP_FPS frames a

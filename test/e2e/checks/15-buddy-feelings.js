@@ -190,4 +190,13 @@ module.exports = async function feelingsCheck(ctx, { assert, delay, waitFor }) {
   await moveBuddyClock(page, 30000);
   await waitFor(fidgeting, 'a fidget again once the panel is closed', 2000);
   await waitFor(moodIs('idle'), 'the fidget to end', 4000);
+  // Shown again after a while hidden (paused), it does not fidget the moment it shows: the wait starts again then.
+  ctx.buddy.pause(true);
+  await delay(200);
+  await moveBuddyClock(page, 30000); // as if hidden for half a minute
+  ctx.buddy.pause(false);
+  for (let i = 0; i < 10; i += 1) {
+    assert.strictEqual(await js('window.__buddyMood'), 'idle', 'no fidget as it shows again');
+    await delay(100);
+  }
 };

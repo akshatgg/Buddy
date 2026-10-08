@@ -394,6 +394,56 @@ class PanelModelTest {
         assertEquals("Dear Sir, " to 10, typeIn.writes.last()) // back to before either
     }
 
+    @Test fun undoLeavesABoxThatChangedSinceAlone() = runTest {
+        typeIn.box = BoxText("Hi ", 3, 3)
+        answers(written("see you at 5", doIt = true))
+        val m = model()
+        m.say("reply to her")
+        advanceUntilIdle()
+        val put = m.buddy()
+        assertEquals("Hi see you at 5", typeIn.box!!.text)
+        typeIn.box = BoxText("Bob, the report is late", 23, 23) // the person wrote something else meanwhile
+        m.hidden()
+        clock += 60_000
+        m.open()
+        m.press(put.id, ChatButton.UNDO)
+        advanceUntilIdle()
+        assertEquals("Bob, the report is late", typeIn.box!!.text)
+        assertEquals(1, typeIn.writes.size) // only the put
+        assertEquals(ChatError(4, "That box has changed since, so I left it.", "box_changed", emptyList()), m.last())
+        assertEquals(listOf(ChatButton.COPY), m.buddy().buttons)
+    }
+
+    @Test fun undoOfABoxThatIsGoneSaysSoAndKeepsUndo() = runTest {
+        answers(written("Dear Sir,", doIt = true))
+        val m = model()
+        m.say("reply")
+        advanceUntilIdle()
+        typeIn.box = null
+        m.press(m.buddy().id, ChatButton.UNDO)
+        advanceUntilIdle()
+        assertEquals("I couldn't undo it: that box is gone.", m.errorLine().text)
+        assertEquals(listOf(ChatButton.UNDO, ChatButton.COPY), m.buddy().buttons)
+    }
+
+    @Test fun aNewVersionGoesInFreshWhenTheBoxChangedSince() = runTest {
+        answers(written("I need leave tomorrow.", doIt = true), written("Leave tomorrow?", doIt = true, again = true))
+        val m = model()
+        m.say("boss ko mail")
+        advanceUntilIdle()
+        assertEquals("I need leave tomorrow.", typeIn.box!!.text)
+        typeIn.box = BoxText("Hi Bob", 6, 6) // the person sent it and started another message
+        m.say("make it shorter")
+        advanceUntilIdle()
+        assertEquals("Hi BobLeave tomorrow?" to 21, typeIn.writes.last())
+        val (first, second) = m.items.filterIsInstance<BuddySaid>()
+        assertEquals(listOf(ChatButton.UNDO, ChatButton.COPY), second.buttons)
+        m.press(second.id, ChatButton.UNDO)
+        advanceUntilIdle()
+        assertEquals("Hi Bob" to 6, typeIn.writes.last())
+        assertTrue(ChatButton.UNDO in first.buttons) // its own Undo still checks the box first
+    }
+
     @Test fun anAnswerThatComesWhileThePanelIsHiddenWaitsInTheChat() = runTest {
         answers(written("Dear Sir,", doIt = true))
         val gate = CompletableDeferred<Unit>()

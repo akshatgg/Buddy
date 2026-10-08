@@ -88,6 +88,7 @@ private const val NO_PICTURE = "I need a picture of your screen for that. Ask me
 private const val LOOK_AGAIN = "Open me again and ask once more, so I can look at the screen."
 private const val NOT_FOUND = "I couldn't find it. Select the text and ask me again."
 private const val VOICE_OFF = "Voice isn't set up yet."
+private const val BOX_CHANGED = "That box has changed since, so I left it."
 
 private enum class From { NOTHING, SELECTION, BOX }
 
@@ -487,8 +488,18 @@ class PanelModel(
             return false
         }
         hands.stepAside()
+        val box = typeIn.read()
+        if (c !== chat) return false
+        if (box == null) {
+            copied(c, item.text, aside = true)
+            return false
+        }
+        // A new version goes in the last one's place only while the box still has what Buddy put there; when the
+        // person has changed it since, it goes in as a new text, and nothing of theirs is written over.
         val lastId = c.lastPut
-        val over = lastId?.takeIf { again && buddyItem(c, it)?.buttons?.contains(ChatButton.UNDO) == true }?.let { c.puts[it] }
+        val over = lastId?.takeIf { again && buddyItem(c, it)?.buttons?.contains(ChatButton.UNDO) == true }
+            ?.let { c.puts[it] }
+            ?.takeIf { it.edit.text == box.text }
         val before: String
         val beforeCursor: Int
         val edit: Edit
@@ -497,12 +508,6 @@ class PanelModel(
             beforeCursor = over.beforeCursor
             edit = TextEdit.again(over.before, over.edit, item.text)
         } else {
-            val box = typeIn.read()
-            if (c !== chat) return false
-            if (box == null) {
-                copied(c, item.text, aside = true)
-                return false
-            }
             before = box.text
             beforeCursor = box.selEnd.takeIf { it in 0..box.text.length } ?: box.text.length
             edit = TextEdit.put(box, mode, item.text, c.about[id].orEmpty())
@@ -538,11 +543,23 @@ class PanelModel(
         if (!aside) hands.stepAside()
     }
 
-    /** Undo on text Buddy put in the app: the box gets back the text it had before. */
+    /**
+     * Undo on text Buddy put in the app: the box gets back the text it had before, but only while it still has what
+     * Buddy put there. A box the person has changed since is left alone, and its Undo goes.
+     */
     private suspend fun undo(c: Chat, id: Int) {
         val record = c.puts[id] ?: return
         hands.stepAside()
-        val ok = typeIn.write(record.before, record.beforeCursor)
+        val box = typeIn.read()
+        if (c !== chat) return
+        if (box != null && box.text != record.edit.text) {
+            buddyItem(c, id)?.let { setButtons(c, id, it.buttons - ChatButton.UNDO) }
+            add(c) { ChatError(it, BOX_CHANGED, "box_changed", emptyList()) }
+            say(BOX_CHANGED)
+            publish()
+            return
+        }
+        val ok = box != null && typeIn.write(record.before, record.beforeCursor)
         if (c !== chat) return
         if (ok) {
             buddyItem(c, id)?.let { setButtons(c, id, it.buttons - ChatButton.UNDO) }

@@ -68,6 +68,28 @@ module.exports = async function feelingsCheck(ctx, { assert, delay, waitFor }) {
   ctx.buddy.pause(false);
   await waitFor(async () => (await symbols('z')) === 3, 'the "z" letters to come back when the buddy shows again');
   assert.strictEqual(await cycles(), 1, 'with the next burst due');
+  // After 5 minutes of sleep it sleeps quietly (Z_FOR in symbols.js). The page's clock is moved on (buddy-clock.js), and
+  // the page paused and shown again, which is when it works out how long it has slept. Just under 5 minutes the
+  // letters come once more and no burst is due after them; past 5 minutes none come. It stays asleep all the while.
+  await installBuddyClock(page);
+  /** Hidden and shown again; resolves once the page has shown the sleeping buddy (it draws a frame as it resumes). */
+  async function hideAndShow() {
+    ctx.buddy.pause(true);
+    await waitFor(async () => (await symbols()) === 0, 'the symbols to go while the buddy is paused', 1000);
+    const drawn = await js('window.__buddyFrames');
+    ctx.buddy.pause(false);
+    await waitFor(async () => (await js('window.__buddyFrames')) > drawn, 'the buddy to draw again when it shows');
+  }
+  await moveBuddyClock(page, 288000); // 288 s and a few more asleep: the next burst would start after 300 s
+  await hideAndShow();
+  assert.strictEqual(await symbols('z'), 3, 'a burst as it shows again, just under 5 minutes asleep');
+  assert.strictEqual(await cycles(), 0, 'and none is due after it: that was the last');
+  await moveBuddyClock(page, 13000);
+  await hideAndShow();
+  assert.strictEqual(await symbols(), 0, 'no "z" letters when it shows again after more than 5 minutes asleep');
+  assert.strictEqual(await cycles(), 0, 'and none to come');
+  assert.strictEqual(await js('window.__buddyMood'), 'asleep', 'it is still asleep');
+  assert.ok(await js('window.__buddyPose?.sleep > 0.9'), 'with its eyes shut');
   await js('window.__unwatchTimers(); true');
   // Main sends the pointer only when it moves: tell the page where it really is again.
   const pointer = screen.getCursorScreenPoint();
@@ -146,9 +168,27 @@ module.exports = async function feelingsCheck(ctx, { assert, delay, waitFor }) {
   // playing plays out first.
   ctx.buddy.micOn(true);
   await waitFor(moodIs('listening'), 'the buddy to listen when the microphone is on');
+  // Every mood the page starts from here on, in order (it says each one in window.__buddyMood, as in 16-buddy-sleep.js):
+  // listening again straight after happy would pass with an idle flash in between.
+  await js(`(() => {
+    let current = window.__buddyMood;
+    window.__buddyMoods = [];
+    Object.defineProperty(window, '__buddyMood', {
+      configurable: true,
+      enumerable: true,
+      get: () => current,
+      set: (name) => {
+        current = name;
+        window.__buddyMoods.push(name);
+      },
+    });
+    return true;
+  })()`);
   ctx.buddy.mood('happy');
   await waitFor(moodIs('happy'), 'an answer while it listens');
   await waitFor(moodIs('listening'), 'listening again once happy is over, not idle', 4000);
+  await delay(300); // a mood that came after listening would show by now
+  assert.deepStrictEqual(await js('window.__buddyMoods'), ['happy', 'listening'], 'happy, then listening, with no idle between');
   for (let i = 0; i < 5; i += 1) {
     ctx.buddy.voiceLevel(0.9);
     await delay(100);

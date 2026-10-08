@@ -13,6 +13,15 @@ val cloud = Properties().apply {
 fun cloudValue(name: String) = (cloud.getProperty(name) ?: "").trim()
 fun quoted(text: String) = "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
+// The version: the release workflow passes -PbuddyVersion=1.2.3 (.github/workflows/release.yml); a local build is 0.1.0.
+// Android wants a whole number that only goes up, made from the three parts: 1.2.3 is 10203.
+val buddyVersion = (findProperty("buddyVersion") as String?)?.trim()?.removePrefix("v")?.ifEmpty { null } ?: "0.1.0"
+val buddyVersionCode = buddyVersion.substringBefore('-').split('.').map { it.toInt() }.let { (a, b, c) -> a * 10000 + b * 100 + c }
+
+// The release key, from the environment (the release workflow writes it from GitHub's secrets). Without it a release
+// build is signed with the debug key, which is fine for checking a build and never for publishing one.
+val releaseStore = System.getenv("BUDDY_ANDROID_KEYSTORE")?.ifEmpty { null }?.let { file(it) }
+
 android {
     namespace = "com.akshatgg.buddy"
     compileSdk = 37
@@ -20,8 +29,8 @@ android {
         applicationId = "com.akshatgg.buddy"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = buddyVersionCode
+        versionName = buddyVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SERVER_URL", quoted(cloudValue("serverUrl")))
         buildConfigField("String", "FIREBASE_API_KEY", quoted(cloudValue("firebaseApiKey")))
@@ -33,6 +42,22 @@ android {
     signingConfigs {
         // One debug key in the repository, so that every build has the SHA-1 Firebase knows for Google sign-in.
         getByName("debug") { storeFile = file("debug.keystore") }
+        create("release") {
+            if (releaseStore != null) {
+                storeFile = releaseStore
+                storePassword = System.getenv("BUDDY_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("BUDDY_ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("BUDDY_ANDROID_KEY_PASSWORD")
+            } else {
+                storeFile = file("debug.keystore")
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+    buildTypes {
+        getByName("release") { signingConfig = signingConfigs.getByName("release") }
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

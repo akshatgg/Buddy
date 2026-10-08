@@ -15,6 +15,14 @@ name: Release
 #   Or on GitHub: Actions -> Release -> Run workflow, and type a version such
 #   as 1.2.0. Leave it blank to build and check without publishing.
 #
+# Android is released on its own: Run workflow, "What to release" -> Android.
+# It builds Buddy-Android.apk (the JVM tests first), signs it with the release
+# key, and publishes it as "Buddy for Android <version>", tagged
+# android-v<version>. That release is never marked latest, so the Mac and
+# Windows "Update now" and the website's download buttons, which follow the
+# latest release, never see it. Its version must be higher than the last
+# Android release. A pushed tag always releases the Mac and Windows.
+#
 # A version with a dash (1.3.0-beta.1) is published as a pre-release, which
 # installed copies and the website's buttons skip. A version must be higher
 # than the latest release (installed copies only ever move up), and after a
@@ -24,6 +32,14 @@ name: Release
 # Required secret:
 #   BUDDY_CLOUD_JSON     the contents of cloud.json (where the server is, and
 #                        Google sign-in). The build fails without it.
+# Required for Android:
+#   BUDDY_ANDROID_CLOUD_PROPERTIES   the contents of android/cloud.properties
+#   BUDDY_ANDROID_KEYSTORE_BASE64    the release keystore, base64; with
+#   BUDDY_ANDROID_KEYSTORE_PASSWORD, BUDDY_ANDROID_KEY_ALIAS and
+#   BUDDY_ANDROID_KEY_PASSWORD. Only publishing needs the key: a build and
+#   check (no version) without it is signed with the debug key. The release
+#   key's SHA-1 must be in Firebase (Project settings, the Android app) for
+#   Google sign-in to work in the published app.
 # Optional secrets:
 #   CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD,
 #   APPLE_TEAM_ID        Developer ID signing + notarization (see
@@ -42,6 +58,14 @@ on:
         description: 'Version to release, e.g. 1.2.0 — leave blank to build and check without publishing'
         required: false
         type: string
+      platforms:
+        description: 'What to release'
+        required: true
+        type: choice
+        default: 'Mac and Windows'
+        options:
+          - 'Mac and Windows'
+          - 'Android'
 
 # Read-only, except for the job that publishes: the build jobs run npm's install
 # scripts, and they never need to write to the repository.
@@ -60,6 +84,7 @@ jobs:
       tag: ${{ steps.decide.outputs.tag }}
       publish: ${{ steps.decide.outputs.publish }}
       prerelease: ${{ steps.decide.outputs.prerelease }}
+      target: ${{ steps.decide.outputs.target }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,9 +94,13 @@ jobs:
         name: Decide the version
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PLATFORMS: ${{ inputs.platforms }}
         run: |
           set -euo pipefail
           pkg="$(node -p "require('./package.json').version")"
+          # desktop: the Mac and Windows; android: the Android app alone. A pushed tag is always desktop.
+          target=desktop
+          if [ "${GITHUB_EVENT_NAME}" != "push" ] && [ "${INPUT_PLATFORMS:-}" = "Android" ]; then target=android; fi
 
           if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
             raw="$GITHUB_REF_NAME"              # the tag that was pushed is the version
@@ -102,6 +131,7 @@ jobs:
           # The release is always tagged v<version>: installed copies read the
           # version from it, so a pushed 1.00 or v1.2 is published as v1.0.0 or v1.2.0.
           tag="v$version"
+          [ "$target" = android ] && tag="android-v$version"
           case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
 
           if [ "$version" != "$pkg" ]; then
@@ -112,8 +142,9 @@ jobs:
             echo "tag=$tag"
             echo "publish=$publish"
             echo "prerelease=$prerelease"
+            echo "target=$target"
           } >> "$GITHUB_OUTPUT"
-          echo "version $version, tag $tag, publish $publish, prerelease $prerelease"
+          echo "target $target, version $version, tag $tag, publish $publish, prerelease $prerelease"
 
       # Re-running the run of a pushed v1.2.0 may publish v1.2.0 again. Anything
       # else must be new, and higher than the latest release: installed copies
@@ -124,6 +155,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.decide.outputs.tag }}
           VERSION: ${{ steps.decide.outputs.version }}
+          TARGET: ${{ steps.decide.outputs.target }}
         run: |
           set -euo pipefail
           rerun=false
@@ -132,7 +164,14 @@ jobs:
             echo "::error::$TAG already exists. Choose a higher version."
             exit 1
           fi
-          latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)"
+          if [ "$TARGET" = android ]; then
+            # The newest Android release (they are never "latest", so it is looked up by its tag).
+            latest="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '[.[] | select(.tagName | startswith("android-v"))][0].tagName // ""' 2>/dev/null || true)"
+            latest="${latest#android-}"
+            [ "$latest" = "${TAG#android-}" ] && latest=""
+          else
+            latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)"
+          fi
           if [ -n "$latest" ] && [ "$latest" != "$TAG" ]; then
             if ! node -e "const { compareVersions } = require('./src/main/updates'); process.exit(compareVersions(process.argv[1], process.argv[2]) > 0 ? 0 : 1)" "$VERSION" "$latest"; then
               echo "::error::$VERSION is not higher than the latest release, $latest. Choose a higher version."
@@ -142,6 +181,7 @@ jobs:
 
   macos:
     needs: [prepare]
+    if: needs.prepare.outputs.target == 'desktop'
     runs-on: macos-15
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -224,6 +264,7 @@ jobs:
 
   windows:
     needs: [prepare]
+    if: needs.prepare.outputs.target == 'desktop'
     runs-on: windows-2022
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -305,9 +346,134 @@ jobs:
             release/latest.yml
           if-no-files-found: error
 
+  android:
+    needs: [prepare]
+    if: needs.prepare.outputs.target == 'android'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      PUBLISH: ${{ needs.prepare.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # shared.json must match shared/ (the prompts and rules the app reads): the same check npm test makes.
+      - run: npm ci
+      - name: Check shared.json is up to date
+        run: node --test test/android-shared.test.js
+
+      - name: Write cloud.properties
+        env:
+          BUDDY_ANDROID_CLOUD_PROPERTIES: ${{ secrets.BUDDY_ANDROID_CLOUD_PROPERTIES }}
+        run: |
+          if [ -z "$BUDDY_ANDROID_CLOUD_PROPERTIES" ]; then
+            echo "::error::The BUDDY_ANDROID_CLOUD_PROPERTIES secret is not set. Add the contents of android/cloud.properties in Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          printf '%s\n' "$BUDDY_ANDROID_CLOUD_PROPERTIES" > android/cloud.properties
+
+      # Publishing needs the release key; a build and check without it is signed with the debug key.
+      - name: Write the release key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.BUDDY_ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.BUDDY_ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.BUDDY_ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.BUDDY_ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            if [ "$PUBLISH" = true ]; then
+              echo "::error::Publishing Android needs the release key: set BUDDY_ANDROID_KEYSTORE_BASE64, BUDDY_ANDROID_KEYSTORE_PASSWORD, BUDDY_ANDROID_KEY_ALIAS and BUDDY_ANDROID_KEY_PASSWORD."
+              exit 1
+            fi
+            echo "::notice::No release key: this check build is signed with the debug key and is not published."
+            exit 0
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          {
+            echo "BUDDY_ANDROID_KEYSTORE=$RUNNER_TEMP/release.keystore"
+            echo "BUDDY_ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+            echo "BUDDY_ANDROID_KEY_ALIAS=$KEY_ALIAS"
+            echo "BUDDY_ANDROID_KEY_PASSWORD=$KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
+      - name: Test and build the app
+        working-directory: android
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleRelease -PbuddyVersion="$VERSION"
+
+      - name: Verify the app
+        run: |
+          set -euo pipefail
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          test -f "$apk" || { echo "::error::$apk was not produced"; exit 1; }
+          tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          "$tools/apksigner" verify --print-certs "$apk" | head -3
+          badging="$("$tools/aapt2" dump badging "$apk" | head -1)"
+          echo "$badging"
+          echo "$badging" | grep -q "versionName='$VERSION'" || { echo "::error::the app is not version $VERSION"; exit 1; }
+          if [ "$PUBLISH" = true ] && "$tools/apksigner" verify --print-certs "$apk" | grep -q "CN=Android Debug"; then
+            echo "::error::the app is signed with the debug key"; exit 1
+          fi
+          mkdir -p release && cp "$apk" release/Buddy-Android.apk && ls -lh release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: release/Buddy-Android.apk
+          if-no-files-found: error
+
+  release-android:
+    needs: [prepare, android]
+    if: needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.target == 'android'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: android, path: artifacts }
+
+      # A draft first, published once the file is there; never "latest", so the Mac and Windows updates and the
+      # website keep following the desktop release.
+      - name: Upload the release as a draft
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Buddy for Android ${{ needs.prepare.outputs.version }}
+          draft: true
+          prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
+          make_latest: false
+          files: artifacts/Buddy-Android.apk
+          fail_on_unmatched_files: true
+          body: |
+            ## Install
+
+            **Android 8.0 or newer** — on the phone, download **Buddy-Android.apk** and open it. Android asks to
+            allow installing from your browser or Files app the first time: allow it, then tap **Install**. If
+            Play Protect warns about an unknown app, tap **More details → Install anyway**.
+
+            Already have Buddy for Android? Install this one over it: your sign-in and settings stay.
+
+            Website: https://buddywrites.vercel.app
+
+      - name: Publish it
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
+
   release:
     needs: [prepare, macos, windows]
-    if: needs.prepare.outputs.publish == 'true'
+    if: needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.target == 'desktop'
     runs-on: ubuntu-latest
     permissions:
       contents: write

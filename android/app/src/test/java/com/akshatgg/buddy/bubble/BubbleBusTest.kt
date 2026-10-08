@@ -48,4 +48,12 @@ class BubbleBusTest {
         BubbleBus.lookAt(120f, 1800f)
         assertTrue(BubbleBus.sheetOpen.value)
     }
+
+    @Test fun saysWhetherABuddyIsListening() = runTest {
+        assertFalse(BubbleBus.listening)
+        val buddy = launch(UnconfinedTestDispatcher(testScheduler)) { BubbleBus.events.collect {} }
+        assertTrue(BubbleBus.listening)
+        buddy.cancel()
+        assertFalse(BubbleBus.listening)
+    }
 }

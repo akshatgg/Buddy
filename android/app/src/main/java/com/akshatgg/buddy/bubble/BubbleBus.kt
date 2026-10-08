@@ -31,6 +31,9 @@ object BubbleBus {
 
     val events: SharedFlow<BubbleEvent> = flow.asSharedFlow()
 
+    /** True while a buddy is on screen to take events: LookService does no work for a buddy that is not there. */
+    val listening: Boolean get() = flow.subscriptionCount.value > 0
+
     private val sheets = mutableSetOf<Any>()
     private val anySheet = MutableStateFlow(false)
 

@@ -134,4 +134,22 @@ class LookTest {
         assertEquals(null, hold.target())
         assertEquals(0L, hold.msLeft())
     }
+
+    private val pkg = "com.akshatgg.buddy"
+    private val cls = "com.akshatgg.buddy.bubble.LookService"
+
+    @Test fun theServiceIsOnWhenAndroidListsIt() {
+        assertTrue(LookSetting.enabled("com.akshatgg.buddy/com.akshatgg.buddy.bubble.LookService", pkg, cls))
+        assertTrue(LookSetting.enabled("com.akshatgg.buddy/.bubble.LookService", pkg, cls))
+        assertTrue(LookSetting.enabled("com.other/.Reader:com.akshatgg.buddy/.bubble.LookService:com.x/com.x.Y", pkg, cls))
+        assertTrue(LookSetting.enabled("COM.AKSHATGG.BUDDY/com.akshatgg.buddy.bubble.lookservice", pkg, cls))
+    }
+
+    @Test fun theServiceIsOffWhenAndroidDoesNotListIt() {
+        assertFalse(LookSetting.enabled(null, pkg, cls))
+        assertFalse(LookSetting.enabled("", pkg, cls))
+        assertFalse(LookSetting.enabled("com.other/.Reader", pkg, cls))
+        assertFalse(LookSetting.enabled("com.akshatgg.buddy/.bubble.LookServiceOld", pkg, cls))
+        assertFalse(LookSetting.enabled("com.akshatgg.buddy.debug/.bubble.LookService", pkg, cls))
+    }
 }

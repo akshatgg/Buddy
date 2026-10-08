@@ -69,6 +69,18 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="A floating writing helper that stays on screen over other apps until the person turns it off." />
         </service>
+        <!-- Look where I type: optional, turned on by the person in Android's Accessibility settings. Only Android can
+             bind it (BIND_ACCESSIBILITY_SERVICE). -->
+        <service
+            android:name=".bubble.LookService"
+            android:exported="true"
+            android:label="@string/look_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/look_service" />
+        </service>
         <receiver android:name=".bubble.BootReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

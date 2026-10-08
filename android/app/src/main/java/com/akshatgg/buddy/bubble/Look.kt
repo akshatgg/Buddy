@@ -76,6 +76,20 @@ object LookFilter {
     }
 }
 
+object LookSetting {
+    /**
+     * Whether Android lists the service `className` of `packageName` in Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+     * (`value`): component names joined by ':', in full ("pkg/pkg.Cls") or short ("pkg/.Cls"), compared as Android
+     * does, ignoring case.
+     */
+    fun enabled(value: String?, packageName: String, className: String): Boolean {
+        if (value.isNullOrEmpty()) return false
+        val full = "$packageName/$className"
+        val short = if (className.startsWith("$packageName.")) "$packageName/${className.removePrefix(packageName)}" else full
+        return value.split(':').any { it.equals(full, ignoreCase = true) || it.equals(short, ignoreCase = true) }
+    }
+}
+
 private const val HOLD_MS = 3000L
 
 /**

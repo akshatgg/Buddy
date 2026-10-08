@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Look where I type (bubble/LookService.kt): the text box events of every app, and the right to ask where a box is on
+     the screen. Nothing is spoken or shown by Android for it. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeViewFocused|typeViewTextChanged|typeViewTextSelectionChanged|typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/look_service_description"
+    android:isAccessibilityTool="false"
+    android:notificationTimeout="100" />

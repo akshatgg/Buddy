@@ -4,4 +4,6 @@
     <string name="bubble_on">Buddy is on</string>
     <string name="bubble_on_text">Tap the buddy to write, fix or check.</string>
     <string name="bubble_turn_off">Turn off</string>
+    <string name="look_service_label">Buddy: look where I type</string>
+    <string name="look_service_description">Buddy uses Android\'s Accessibility only to see where the text box you are typing in is on the screen, so that the head can look at it. It never reads what you type, and nothing leaves your phone.</string>
 </resources>

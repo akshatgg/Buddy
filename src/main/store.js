@@ -27,6 +27,7 @@ const DEFAULTS = Object.freeze({
   lastRunVersion: null, // the version that ran last, so the first launch after an update is known
   memory: [], // what Buddy knows about the person, as [{ id, text, at }] oldest first (src/main/memory.js)
   learnFromChats: true, // Settings → Memory's "Learn about me from chats": off, a chat saves nothing new
+  listenOnOpen: true, // Settings → General's "Listen when the panel opens": off, the panel listens only after 🎤
 });
 
 function writeAtomic(file, text, mode) {

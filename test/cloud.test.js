@@ -2,11 +2,13 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { createCloud, readSettings, FRESH_MS, CONFIG_TIMEOUT_MS, SERVER_CODES } = require('../src/main/cloud');
+const { createCloud, readSettings, FRESH_MS, CONFIG_TIMEOUT_MS, TRANSCRIBE_TIMEOUT_MS, SERVER_CODES } = require('../src/main/cloud');
 const { STATUS } = require('../web/lib/handlers');
 
 const CONFIG = { serverUrl: 'https://buddy.example', firebaseApiKey: 'k', googleClientId: 'c', googleClientSecret: 's' };
-const SETTINGS = { freeOn: true, limitMode: 'daily', limit: 30, usedToday: 2, allowOwnKey: false, blocked: false, isAdmin: false };
+const SETTINGS = {
+  freeOn: true, limitMode: 'daily', limit: 30, usedToday: 2, allowOwnKey: false, blocked: false, isAdmin: false, voiceOn: true,
+};
 const ok = (body) => ({ status: 200, body });
 const SERVER_PROBLEM = { code: 'server', message: "Buddy's server had a problem. Try again." };
 // What the hosting platform answers for a path it does not know, in JSON of its own.
@@ -63,9 +65,10 @@ test('settings: fetched with the ID token, kept in the store in a tidy shape, an
 });
 
 test('readSettings: anything missing or odd reads as off', () => {
-  const off = { freeOn: false, limitMode: 'daily', limit: null, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false };
+  const off = { freeOn: false, limitMode: 'daily', limit: null, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false, voiceOn: false };
   assert.deepStrictEqual(readSettings(null), off);
-  assert.deepStrictEqual(readSettings({ freeOn: 'yes', limitMode: 'unlimited', isAdmin: 1 }), { ...off, limitMode: 'unlimited' });
+  assert.deepStrictEqual(readSettings({ freeOn: 'yes', limitMode: 'unlimited', isAdmin: 1, voiceOn: 'true' }), { ...off, limitMode: 'unlimited' });
+  assert.strictEqual(readSettings({ voiceOn: true }).voiceOn, true);
 });
 
 test('settings: fetched at most once a minute, unless forced', async () => {
@@ -250,6 +253,53 @@ test("ask: a chat answer is read here, from its text, as on the own-key route: t
   });
 });
 
+test('transcribe: posts the recording and its kind, and answers the words', async () => {
+  const s = setup({ answers: [ok({ text: 'Kal mujhe chutti chahiye.' }), ok({ text: '' })] });
+  const signal = AbortSignal.timeout(60_000);
+  assert.strictEqual(await s.cloud.transcribe({ audio: 'QUJD', mime: 'audio/webm;codecs=opus', extra: 'not sent' }, { signal }),
+    'Kal mujhe chutti chahiye.');
+  const [req] = s.requests;
+  assert.deepStrictEqual([req.url, req.method, req.body], ['https://buddy.example/api/transcribe', 'POST', { audio: 'QUJD', mime: 'audio/webm;codecs=opus' }]);
+  assert.deepStrictEqual(req.headers, { authorization: 'Bearer token', 'content-type': 'application/json' });
+  assert.strictEqual(req.signal, signal, 'under the deadline it is given');
+  assert.strictEqual(await s.cloud.transcribe({ audio: 'QUJD', mime: 'audio/webm' }), '', 'no words is an empty text');
+});
+
+test("transcribe: with no deadline of its own, it waits longer than the server waits for Groq, so that the server's answer comes first", async (t) => {
+  const timeout = t.mock.method(AbortSignal, 'timeout');
+  const s = setup({ answers: [ok({ text: 'hi' })] });
+  await s.cloud.transcribe({ audio: 'QUJD', mime: 'audio/webm' });
+  assert.deepStrictEqual(timeout.mock.calls.map((c) => c.arguments[0]), [TRANSCRIBE_TIMEOUT_MS]);
+  assert.strictEqual(s.requests[0].signal, timeout.mock.calls[0].result);
+  assert.strictEqual(TRANSCRIBE_TIMEOUT_MS, 45_000);
+});
+
+test("transcribe: the server's refusals come through in its own words; an answer with no text is a server problem", async () => {
+  const s = setup({ answers: [
+    { status: 503, body: { error: { code: 'voice_off', message: "Voice isn't set up yet." } } },
+    { status: 429, body: { error: { code: 'voice_busy', message: 'Voice is busy right now. Type, or try again in a minute.' } } },
+    { status: 502, body: { error: { code: 'upstream', message: "I couldn't write down what you said. Try again." } } },
+    { status: 400, body: { error: { code: 'bad_request', message: "That recording didn't come through. Try again." } } },
+    { status: 403, body: { error: { code: 'blocked', message: 'Your free access is paused.' } } },
+    ok({ words: 'hi' }),
+  ] });
+  const send = () => s.cloud.transcribe({ audio: 'QUJD', mime: 'audio/webm' });
+  await assert.rejects(send(), { code: 'voice_off', message: "Voice isn't set up yet." });
+  await assert.rejects(send(), { code: 'voice_busy', message: 'Voice is busy right now. Type, or try again in a minute.' });
+  await assert.rejects(send(), { code: 'upstream', message: "I couldn't write down what you said. Try again." });
+  await assert.rejects(send(), { code: 'bad_request', message: "That recording didn't come through. Try again." });
+  await assert.rejects(send(), { code: 'blocked', message: 'Your free access is paused.' });
+  await assert.rejects(send(), SERVER_PROBLEM);
+});
+
+test('transcribe: a token the server turns down is renewed once, and a cancelled recording stays cancelled', async () => {
+  const s = setup({ answers: [{ status: 401, body: {} }, ok({ text: 'hi' })] });
+  assert.strictEqual(await s.cloud.transcribe({ audio: 'QUJD', mime: 'audio/webm' }), 'hi');
+  assert.deepStrictEqual(s.tokens, [false, true]);
+  const abort = Object.assign(new Error('aborted'), { name: 'AbortError' });
+  await assert.rejects(setup({ answers: [abort] }).cloud.transcribe({ audio: 'QUJD', mime: 'audio/webm' }), { name: 'AbortError' });
+});
+
 test('no internet, a server that takes too long, and a cancelled request', async () => {
   await assert.rejects(setup().cloud.ask('fix', { text: 'x' }), { code: 'network', message: "Couldn't reach Buddy's server. Check your internet." });
   const slow = Object.assign(new Error('timed out'), { name: 'TimeoutError' });
@@ -322,6 +372,7 @@ test("the admin's calls", async () => {
 test('a copy of Buddy with no cloud.json calls nothing', async () => {
   const s = setup({ config: null, kept: SETTINGS });
   await assert.rejects(s.cloud.ask('fix', { text: 'x' }), { code: 'not_set_up' });
+  await assert.rejects(s.cloud.transcribe({ audio: 'QUJD', mime: 'audio/webm' }), { code: 'not_set_up' });
   await assert.rejects(s.cloud.settings(), { code: 'not_set_up' }, 'not a reason to fall back to the kept settings');
   assert.deepStrictEqual([s.requests, s.tokens], [[], []]);
 });

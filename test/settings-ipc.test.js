@@ -51,11 +51,13 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
  * with t.mock.method(PROVIDERS.anthropic, 'listModels', ...). `signedIn` is whether someone is signed in; `free` is
  * the server's free-mode settings as the app last got them; `signInFails` and `cloudFails` make signing in or
  * fetching those settings fail; `cloudSignsOut` makes that fetch sign the person out first, as the real one does
- * when the server turns their sign-in down twice.
+ * when the server turns their sign-in down twice. `mic` is how the microphone stands, and `micAnswer` how it stands
+ * once macOS has asked the person.
  */
 function setup({
   stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut, realKeyWatch,
   signedIn = true, free = null, signInFails = null, cloudFails = null, cloudSignsOut = false, platform,
+  mic = 'not-determined', micAnswer = 'granted',
 } = {}) {
   const data = { ...structuredClone(DEFAULTS), ...stored };
   const store = {
@@ -160,6 +162,15 @@ function setup({
       },
     },
     keyWatch: realKeyWatch || keyWatch,
+    // The microphone as macOS sees it (ipc/panel.js createMicrophone): asking it changes nothing once it has asked.
+    microphone: {
+      status: () => mic,
+      async ask() {
+        calls.push(['askMicrophone']);
+        if (mic === 'not-determined') mic = micAnswer;
+        return mic;
+      },
+    },
     shell: { openExternal: async (url) => { opened.push(url); } },
     onFinishOnboarding: () => calls.push(['finished']),
     account,
@@ -512,7 +523,7 @@ test('open-url opens the providers key pages and nothing else', async () => {
 
 test('permissions: the two real names ask the helper and open their System Settings page', async () => {
   const s = setup();
-  assert.deepStrictEqual(await s.call('permissions:get'), { ok: true, accessibility: true, screenRecording: false });
+  assert.deepStrictEqual(await s.call('permissions:get'), { ok: true, accessibility: true, screenRecording: false, microphone: 'not-determined' });
   await s.call('permissions:request', 'accessibility');
   await s.call('permissions:request', 'screenRecording');
   assert.deepStrictEqual(s.calls, [['helper', 'permissions'], ['helper', 'requestAccessibility'], ['helper', 'requestScreenRecording']]);
@@ -534,6 +545,20 @@ test('permissions: any other name is refused by request and by open, and reaches
   }
   assert.deepStrictEqual(s.calls, []);
   assert.deepStrictEqual(s.opened, []);
+});
+
+test('permissions: the microphone is asked of macOS itself, and its System Settings page is Privacy_Microphone', async () => {
+  const s = setup({ mic: 'not-determined', micAnswer: 'granted' });
+  assert.deepStrictEqual(await s.call('permissions:request', 'microphone'), { ok: true, microphone: 'granted' });
+  assert.deepStrictEqual(await s.call('permissions:get'), { ok: true, accessibility: true, screenRecording: false, microphone: 'granted' });
+  await s.call('permissions:open', 'microphone');
+  assert.deepStrictEqual(s.opened, ['x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone']);
+  assert.deepStrictEqual(s.calls, [['askMicrophone'], ['helper', 'permissions']], 'the helper is not asked about the microphone');
+});
+
+test('permissions: a microphone refused stays refused when asked again: macOS asks only once', async () => {
+  const s = setup({ mic: 'denied' });
+  assert.deepStrictEqual(await s.call('permissions:request', 'microphone'), { ok: true, microphone: 'denied' });
 });
 
 test('buddy-on turns the buddy on or off and answers how it now stands', async () => {
@@ -632,6 +657,21 @@ test('set: only the settings a page may change are taken from a patch, and __pro
   assert.strictEqual(s.store.get('lastDisplayId'), null);
   assert.strictEqual(s.store.get('size'), 'medium');
   assert.strictEqual(({}).size, undefined, 'Object.prototype was not touched');
+});
+
+test('set: "Listen when the panel opens" is on unless turned off, and takes nothing but true or false', async () => {
+  const s = setup();
+  assert.strictEqual((await s.call('settings:get')).settings.listenOnOpen, true);
+  assert.strictEqual((await s.call('settings:set', { listenOnOpen: false })).settings.listenOnOpen, false);
+  assert.strictEqual(s.store.get('listenOnOpen'), false);
+  for (const listenOnOpen of ['true', 1, 0, null, undefined, {}, ['on']]) {
+    assert.deepStrictEqual(await s.call('settings:set', { listenOnOpen, size: 'large' }),
+      refused('bad_request', 'Listen when the panel opens must be on or off.'), JSON.stringify(listenOnOpen));
+  }
+  assert.strictEqual(s.store.get('listenOnOpen'), false, 'nothing changed');
+  assert.strictEqual(s.store.get('size'), 'medium');
+  assert.strictEqual((await s.call('settings:set', { listenOnOpen: true })).settings.listenOnOpen, true);
+  assert.deepStrictEqual(s.calls, []);
 });
 
 test('set: a shortcut that cannot be registered changes nothing at all', async () => {
@@ -803,7 +843,9 @@ test('the Welcome window can use the other channels, as the Settings window can'
   const s = setup();
   assert.strictEqual((await s.callFromWelcome('settings:get')).ok, true);
   assert.strictEqual((await s.callFromWelcome('settings:set', { size: 'large' })).ok, true);
-  assert.deepStrictEqual(await s.callFromWelcome('permissions:get'), { ok: true, accessibility: true, screenRecording: false });
+  assert.deepStrictEqual(await s.callFromWelcome('permissions:get'), {
+    ok: true, accessibility: true, screenRecording: false, microphone: 'not-determined',
+  });
 });
 
 // ---- signing in and free mode (Phase 2) ----

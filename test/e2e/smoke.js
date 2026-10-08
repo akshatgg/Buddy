@@ -3,8 +3,9 @@
 // End-to-end smoke test: starts the real app (src/main/main.js) with a fresh
 // settings folder and fakes for the parts that touch the system (the native
 // helper, the clipboard, the global shortcut, the login item, the Google
-// account and Buddy's server), then runs every check in test/e2e/checks in
-// order. It runs on the Mac and on Windows.
+// account, Buddy's server, macOS's microphone permission and the microphone
+// itself), then runs every check in test/e2e/checks in order. It runs on the
+// Mac and on Windows.
 //
 //   npm run test:e2e
 
@@ -22,6 +23,53 @@ const { parseChat } = require('../../shared/prompts');
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-e2e-'));
 app.setPath('userData', userData);
 fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ onboarded: true, buddyOn: true }));
+
+/**
+ * A recording for Chromium's fake microphone, as 16-bit WAV: a little silence, then 1.5 s of something like a voice (a
+ * buzz at a speaking pitch with its overtones, its pitch and loudness moving as a voice's do), then silence.
+ */
+function voiceRecording() {
+  const rate = 48000;
+  const samples = Math.round(rate * 2.2);
+  const data = Buffer.alloc(samples * 2);
+  let phase = 0;
+  for (let i = 0; i < samples; i += 1) {
+    const t = i / rate;
+    let sample = 0;
+    if (t >= 0.2 && t < 1.7) {
+      phase += (2 * Math.PI * (140 + 30 * Math.sin(2 * Math.PI * 2.5 * t))) / rate;
+      for (let k = 1; k <= 8; k += 1) sample += Math.sin(k * phase) / k;
+      sample *= 0.5 * (0.75 + 0.25 * Math.sin(2 * Math.PI * 3 * t));
+    }
+    data.writeInt16LE(Math.round(Math.max(-1, Math.min(1, sample)) * 32767), i * 2);
+  }
+  const head = Buffer.alloc(44);
+  head.write('RIFF', 0);
+  head.writeUInt32LE(36 + data.length, 4);
+  head.write('WAVE', 8);
+  head.write('fmt ', 12);
+  head.writeUInt32LE(16, 16); // the size of this part
+  head.writeUInt16LE(1, 20); // plain PCM
+  head.writeUInt16LE(1, 22); // one channel
+  head.writeUInt32LE(rate, 24);
+  head.writeUInt32LE(rate * 2, 28); // bytes a second
+  head.writeUInt16LE(2, 32); // bytes a sample
+  head.writeUInt16LE(16, 34); // bits a sample
+  head.write('data', 36);
+  head.writeUInt32LE(data.length, 40);
+  return Buffer.concat([head, data]);
+}
+
+// Nor may it use the person's microphone: Chromium's fake one stands in for it (this must be said before the app is
+// ready). Each recording plays the voice above once from its start, then silence (%noloop). Chromium's audio service
+// reads that file, which its sandbox would not let it do: only that sandbox is lifted, for this test. Chromium's own
+// permission question is not faked away: the panel's page asks Buddy's permission rules (src/main/panel-window.js),
+// as it does in the real app.
+const voiceFile = path.join(userData, 'voice.wav');
+fs.writeFileSync(voiceFile, voiceRecording());
+app.commandLine.appendSwitch('use-fake-device-for-media-stream');
+app.commandLine.appendSwitch('use-file-for-fake-audio-capture', `${voiceFile}%noloop`);
+app.commandLine.appendSwitch('disable-features', 'AudioServiceSandbox');
 
 const loginCalls = [];
 // The person's app is none at first (lastApp); a check gives it one, and has its commands (captureSelection, paste,
@@ -77,6 +125,23 @@ const globalShortcut = {
   },
   unregisterAll() {
     this.registered.clear();
+  },
+};
+
+// Nor may it ask this Mac about the microphone: the app gets this in place of Electron's systemPreferences. A check sets
+// what macOS (or Windows' privacy switch) says (`microphone`), and what macOS says once it has asked the person
+// (`answer`). Windows is never asked.
+const systemPreferences = {
+  microphone: 'granted',
+  answer: 'granted',
+  asked: 0,
+  getMediaAccessStatus(type) {
+    return type === 'microphone' ? this.microphone : 'unknown';
+  },
+  async askForMediaAccess() {
+    this.asked += 1;
+    this.microphone = this.answer;
+    return this.answer === 'granted';
   },
 };
 
@@ -167,6 +232,12 @@ const cloud = {
     this.forgets += 1;
     for (const fn of this.listeners) fn();
   },
+  heard: '', // what the server writes down from the next recording
+  recordings: [], // { audio, mime, signal } of each recording the app sent to be written down
+  async transcribe({ audio, mime }, { signal } = {}) {
+    this.recordings.push({ audio, mime, signal });
+    return this.heard;
+  },
   async ask(action, input) {
     this.asks.push({ action, input });
     // The panel's chat request comes back read, as the app's free route reads it (src/main/cloud.js).
@@ -237,9 +308,10 @@ async function waitFor(fn, what, ms = 8000) {
       account,
       cloud,
       cloudConfig,
+      systemPreferences,
       loginItems: { get: () => false, set: (on) => loginCalls.push(on) },
     });
-    Object.assign(ctx, { helper, clipboard, globalShortcut, loginCalls });
+    Object.assign(ctx, { helper, clipboard, globalShortcut, loginCalls, systemPreferences });
     const dir = path.join(__dirname, 'checks');
     for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js')).sort()) {
       await require(path.join(dir, file))(ctx, { assert, delay, waitFor });

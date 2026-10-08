@@ -49,6 +49,10 @@ repository root before either (copy it from the Mac). The Mac's list is `docs/ma
 - [ ] An old app that Windows stretches at 150 % (for example one that looks slightly blurry): Buddy still reads what is in it.
 - [ ] With a model that cannot see images (Groq `llama-3.3-70b-versatile`): `what does this mean?` → "This model can't read screenshots. Pick another in Settings."
 
+## Voice
+- [ ] 🎤 → speak (`boss ko mail likho, kal chutti chahiye`) → the words appear and are sent. Also in English and Hindi.
+- [ ] Settings → Privacy & security → Microphone off for desktop apps → 🎤 → "Turn on the microphone in Windows Settings → Privacy & security → Microphone." → Open Settings opens that page.
+- [ ] Settings → General → "Listen when the panel opens" off → the panel listens only after 🎤.
 
 ## Safety and errors
 - [ ] Cursor in a password field in Chrome, in Edge, and in a classic Windows app (for example 7-Zip: Add to archive → Enter password) → open the panel → "I don't read password fields." and nothing is read.

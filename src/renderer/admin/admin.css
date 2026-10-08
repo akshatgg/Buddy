@@ -7,6 +7,8 @@ body.admin main { padding: 24px 32px 32px; }
 
 /* What went wrong (base.css's error note), with room under it. */
 .note.error { margin-bottom: 16px; }
+/* Whether voice is on: a plain line, or a note when the server needs a Groq key. Room under it either way. */
+#voice-status { margin: 0 0 16px; }
 
 /* ---- Free AI ---- */
 

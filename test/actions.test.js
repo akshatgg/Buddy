@@ -16,7 +16,9 @@ const reply = (fields = {}) => ({ kind: 'write', say: '', text: '', notes: [], d
 /**
  * createActions with fakes. `answers` are what the AI gives back, one per request, in order: a reply, an error it
  * fails with, or a function of the input. `facts` are what the memory already holds, and `refuse` what it will not
- * save. `sendKey` is what the send-key table says for the app (null: it does not know the app).
+ * save. `sendKey` is what the send-key table says for the app (null: it does not know the app). `voice` is the voice
+ * source (main.js's), `signedIn` whether someone is signed in, and `heard` what Buddy's server writes down from a
+ * recording: the words, or an error it fails with.
  */
 function setup({
   lastApp = APP,
@@ -29,6 +31,9 @@ function setup({
   facts = [],
   refuse = [],
   sendKey = { key: 'return', modifiers: ['cmd'] },
+  voice,
+  signedIn = true,
+  heard = 'kal chutti chahiye',
 } = {}) {
   const log = [];
   const helper = {
@@ -100,6 +105,18 @@ function setup({
       return { text: JSON.stringify(chat), model: 'test-model', chat };
     }),
   };
+  // Buddy's server, for what was said in a recording (cloud.transcribe), and this person's settings fetched again.
+  const cloud = {
+    async transcribe(recording, options) {
+      log.push(['transcribe', recording, options]);
+      if (heard instanceof Error) throw heard;
+      return heard;
+    },
+    async settings(options) {
+      log.push(['settings', options]);
+      return {};
+    },
+  };
   const timers = [];
   const cancelled = [];
   const actions = createActions({
@@ -108,6 +125,9 @@ function setup({
     ui,
     store: { get: (key) => ({ buddyName: 'Aarav' })[key] },
     ai,
+    cloud,
+    signedIn: () => signedIn,
+    ...(voice ? { voice } : {}),
     memory,
     sendKeyFor: (app, platform) => {
       log.push(['sendKeyFor', app, platform]);
@@ -130,6 +150,7 @@ function setup({
     actions,
     helper,
     log,
+    cloud,
     clipboard,
     memory,
     timers,
@@ -169,6 +190,7 @@ test('opening reads the selection first, then shows the greeting, the selection 
     busy: false,
     resumed: false,
     chat: [],
+    voice: { on: false, auto: false, mic: 'unknown', system: 'darwin' },
   });
 });
 
@@ -380,6 +402,7 @@ test('a message goes to the AI with the selection, what Buddy knows and who asks
       { id: 1, type: 'you', text: 'fix this please' },
       { id: 2, type: 'buddy', say: 'Fixed it!', text: 'I am going home.', notes: ['"me go" should be "I am going".'], buttons: ['replace', 'copy'] },
     ],
+    voice: { on: false, auto: false, mic: 'unknown', system: 'darwin' },
   });
   assert.deepStrictEqual(s.actions.state(), states.at(-1));
   assert.deepStrictEqual(moods(s.log), ['thinking', 'happy']);
@@ -1542,4 +1565,143 @@ test('on the Mac the panel takes and gives back the keyboard by itself: no activ
   await s.actions.dismiss();
   // The selection at each opening, and the box once.
   assert.deepStrictEqual(entries(s.log, 'helper').map((e) => e[1]), ['captureSelection', 'captureSelection', 'captureSelection']);
+});
+
+// Voice
+
+test("every state says whether the panel may listen: voice on, listening as it opens, the microphone, and the system", async () => {
+  let mic = 'not-determined';
+  const s = setup({ voice: () => ({ on: true, auto: true, mic }) });
+  await s.actions.open();
+  assert.deepStrictEqual(entries(s.log, 'showPanel')[0][1].voice, { on: true, auto: true, mic: 'not-determined', system: 'darwin' });
+  // Asked again for each state: the microphone allowed meanwhile shows in the next one.
+  mic = 'granted';
+  await s.actions.send('mail');
+  for (const [, state] of entries(s.log, 'state')) assert.deepStrictEqual(state.voice, { on: true, auto: true, mic: 'granted', system: 'darwin' });
+  assert.deepStrictEqual(s.actions.state().voice, { on: true, auto: true, mic: 'granted', system: 'darwin' });
+});
+
+test('on Windows the state says so: the page then records without asking for the microphone', async () => {
+  const s = setup({ windows: true, voice: () => ({ on: true, auto: false, mic: 'unknown' }) });
+  await s.actions.open();
+  assert.deepStrictEqual(entries(s.log, 'showPanel')[0][1].voice, { on: true, auto: false, mic: 'unknown', system: 'win32' });
+});
+
+test('when Buddy brings the panel back itself (its box read, "Send it?", an Undo or a Send that failed), it does not listen by itself', async () => {
+  const voice = () => ({ on: true, auto: true, mic: 'granted' });
+  const quiet = { on: true, auto: false, mic: 'granted', system: 'darwin' };
+  /** The voice of the one state the panel comes back with while `work` runs. */
+  async function cameBackWith(s, work) {
+    const from = s.log.length;
+    await work();
+    const shown = entries(s.log.slice(from), 'showPanel');
+    assert.strictEqual(shown.length, 1, 'the panel came back once');
+    return shown[0][1].voice;
+  }
+
+  let s = setup({ voice, replies: { captureSelection: (args) => ({ text: args.selectAll ? 'me go' : '' }) }, answers: [reply({ kind: 'box' }), reply({ text: 'I go.' })] });
+  await s.actions.open();
+  assert.deepStrictEqual(await cameBackWith(s, () => s.actions.send('fix my english')), quiet, 'its box read');
+
+  s = setup({ voice, answers: [reply({ text: 'Thanks!', doIt: true, send: true })] });
+  await s.actions.open();
+  assert.deepStrictEqual(await cameBackWith(s, () => s.actions.send('reply thanks and send it')), quiet, '"Send it?"');
+
+  s = setup({ voice, replies: { press: failure('not_frontmost', 'Could not switch back to that app.') }, answers: [reply({ text: 'Dear Sir,', doIt: true })] });
+  await s.actions.open();
+  await s.actions.send('write it here');
+  assert.deepStrictEqual(await cameBackWith(s, () => s.actions.act(2, 'undo')), quiet, 'an Undo that failed');
+
+  s = await askedToSend({ voice, replies: { windowTitle: { title: '' }, press: failure('secure_field', "I don't type into password fields.") } });
+  assert.deepStrictEqual(await cameBackWith(s, () => s.actions.act(2, 'send')), quiet, 'a Send that failed');
+});
+
+test('the person opening the panel has it listen by itself, on a resumed chat too', async () => {
+  const s = setup({ voice: () => ({ on: true, auto: true, mic: 'granted' }) });
+  await s.actions.open();
+  await s.actions.send('mail');
+  s.blur();
+  await s.actions.open();
+  const [first, again] = entries(s.log, 'showPanel').map((e) => e[1]);
+  assert.strictEqual(again.resumed, true);
+  for (const shown of [first, again]) assert.deepStrictEqual(shown.voice, { on: true, auto: true, mic: 'granted', system: 'darwin' });
+});
+
+test('what the voice source says is read strictly: anything but true is off, and an odd microphone is unknown', async () => {
+  for (const [given, voice] of [
+    [{}, { on: false, auto: false, mic: 'unknown', system: 'darwin' }],
+    [{ on: 'yes', auto: 1, mic: 'sure' }, { on: false, auto: false, mic: 'unknown', system: 'darwin' }],
+    [{ on: true, auto: true, mic: 'denied' }, { on: true, auto: true, mic: 'denied', system: 'darwin' }],
+    [{ on: false, auto: true, mic: 'restricted' }, { on: false, auto: true, mic: 'restricted', system: 'darwin' }],
+  ]) {
+    const s = setup({ voice: () => given });
+    assert.deepStrictEqual(s.actions.state().voice, voice, JSON.stringify(given));
+  }
+});
+
+test("what was said goes to Buddy's server and comes back as { text }, with a deadline longer than the server's wait for Groq", async (t) => {
+  const timeout = t.mock.method(AbortSignal, 'timeout', () => 'the 45 s signal');
+  const s = setup();
+  assert.deepStrictEqual(await s.actions.transcribe('QUJD', 'audio/webm;codecs=opus'), { text: 'kal chutti chahiye' });
+  assert.deepStrictEqual(timeout.mock.calls.map((c) => c.arguments), [[45_000]]);
+  assert.deepStrictEqual(entries(s.log, 'transcribe'), [['transcribe', { audio: 'QUJD', mime: 'audio/webm;codecs=opus' }, { signal: 'the 45 s signal' }]]);
+});
+
+test('no words heard is an empty text, which the page answers itself', async () => {
+  const s = setup({ heard: '' });
+  assert.deepStrictEqual(await s.actions.transcribe('QUJD', 'audio/webm'), { text: '' });
+});
+
+test('writing down what was said leaves the chat, the panel and the buddy alone: the page sends the words itself', async () => {
+  const s = setup();
+  await s.actions.open();
+  const before = s.log.length;
+  await s.actions.transcribe('QUJD', 'audio/webm');
+  assert.deepStrictEqual(s.log.slice(before).map((e) => e[0]), ['transcribe']);
+  assert.deepStrictEqual(chatOf(s), []);
+});
+
+test('signed out, a recording is refused as every request is, and never reaches the server', async () => {
+  const s = setup({ signedIn: false });
+  await assert.rejects(s.actions.transcribe('QUJD', 'audio/webm'), { code: 'signed_out', message: 'Sign in to use Buddy.' });
+  assert.deepStrictEqual(entries(s.log, 'transcribe'), []);
+});
+
+test("the server's refusals come through in its own words", async () => {
+  const busy = failure('voice_busy', 'Voice is busy right now. Type, or try again in a minute.');
+  const s = setup({ heard: busy });
+  await assert.rejects(s.actions.transcribe('QUJD', 'audio/webm'), busy);
+});
+
+test('voice off on the server, or a blocked person: their settings are fetched again, so that the next state turns voice off', async () => {
+  for (const err of [failure('voice_off', "Voice isn't set up yet."), failure('blocked', 'Your free access is paused.')]) {
+    const s = setup({ heard: err });
+    await assert.rejects(s.actions.transcribe('QUJD', 'audio/webm'), err);
+    assert.deepStrictEqual(entries(s.log, 'settings'), [['settings', { force: true }]], err.code);
+    assert.deepStrictEqual(s.log.map((e) => e[0]), ['transcribe', 'settings'], 'fetched before the page hears why');
+  }
+  // Any other refusal leaves them alone.
+  for (const err of [failure('voice_busy', 'Voice is busy right now.'), failure('upstream', "I couldn't write down what you said."), failure('network', 'No internet.')]) {
+    const s = setup({ heard: err });
+    await assert.rejects(s.actions.transcribe('QUJD', 'audio/webm'), err);
+    assert.deepStrictEqual(entries(s.log, 'settings'), [], err.code);
+  }
+});
+
+test('settings that cannot be fetched then are logged by their kind, and the page still hears why voice is off', async (t) => {
+  const warned = t.mock.method(console, 'warn', () => {});
+  const off = failure('voice_off', "Voice isn't set up yet.");
+  const s = setup({ heard: off });
+  s.cloud.settings = async () => { throw failure('network', "Couldn't reach Buddy's server. Check your internet."); };
+  await assert.rejects(s.actions.transcribe('QUJD', 'audio/webm'), off);
+  assert.deepStrictEqual(warned.mock.calls.map((c) => c.arguments), [['[buddy] could not fetch the free settings:', 'network']]);
+});
+
+test('a recording that is not text, or has no kind, is refused before it goes anywhere', async () => {
+  const s = setup();
+  for (const [audio, mime] of [['', 'audio/webm'], [null, 'audio/webm'], [42, 'audio/webm'], [['QUJD'], 'audio/webm'], ['QUJD', undefined], ['QUJD', 7]]) {
+    await assert.rejects(s.actions.transcribe(audio, mime), { code: 'bad_request', message: "That recording didn't come through. Try again." },
+      JSON.stringify([audio, mime]));
+  }
+  assert.deepStrictEqual(entries(s.log, 'transcribe'), []);
 });

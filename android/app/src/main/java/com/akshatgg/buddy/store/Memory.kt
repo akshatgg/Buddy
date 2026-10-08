@@ -44,7 +44,8 @@ interface Facts {
  */
 class Memory(
     private val kv: KeyValue,
-    private val rules: MemoryRules,
+    /** The rules every fact goes through; Settings' add box holds no more than rules.maxFactChars. */
+    val rules: MemoryRules,
     private val now: () -> Long = System::currentTimeMillis,
     private val newId: () -> String = { java.util.UUID.randomUUID().toString() },
 ) : Facts {

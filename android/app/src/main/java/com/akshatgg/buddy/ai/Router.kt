@@ -9,8 +9,8 @@ import com.akshatgg.buddy.core.BuddyError
 import com.akshatgg.buddy.store.AppSettings
 import com.akshatgg.buddy.store.Secrets
 
-/** One answer to a panel action, by either route; `check` is set for a Check only. */
-data class Answer(val text: String, val model: String, val check: CheckResult? = null)
+/** One answer to a panel action, by either route; `check` is set for a Check only, and `chat` for a chat only. */
+data class Answer(val text: String, val model: String, val check: CheckResult? = null, val chat: ChatReply? = null)
 
 // What the server says when it will not answer for free; the settings are fetched again after each.
 private val FREE_REFUSALS = listOf("free_limit", "free_off", "blocked")
@@ -79,7 +79,13 @@ class Router(
         throw err
     }
 
+    /** One answer by whichever route; a chat answer is read here with parseChat, whichever route it came by. */
     suspend fun ask(action: Action, input: AskInput): Answer {
+        val answer = route(action, input)
+        return if (action == Action.CHAT) answer.copy(chat = prompts.parseChat(answer.text)) else answer
+    }
+
+    private suspend fun route(action: Action, input: AskInput): Answer {
         if (!account.isSignedIn()) throw signedOut()
         val free = cloud.settings()
         // Signed out while the settings were being fetched: signing out forgets them, so the fetch comes back with none,

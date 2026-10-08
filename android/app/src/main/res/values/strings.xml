@@ -4,4 +4,6 @@
     <string name="bubble_on">Buddy is on</string>
     <string name="bubble_on_text">Tap the buddy to write, fix or check.</string>
     <string name="bubble_turn_off">Turn off</string>
+    <string name="look_service_label">Buddy can type for you</string>
+    <string name="look_service_description">Buddy uses Android\'s Accessibility to see where the box you are typing in is, so that the head can look at it, to read the text in that box only when you ask Buddy to fix it, and to put Buddy\'s text into it when you ask; it reads nothing else, and nothing is kept or sent anywhere except with your question to the AI.</string>
 </resources>

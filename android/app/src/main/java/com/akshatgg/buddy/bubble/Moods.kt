@@ -9,14 +9,16 @@ import kotlin.math.sin
 
 // How the head moves: pure functions of time, so they can be tested on the JVM and the view
 // only has to apply them. Times are in seconds; lift is a fraction of the head's height;
-// angles are radians. The phone shows only the head, so there are no arms.
+// angles are radians. The phone shows only the head, so there are no arms. pitch tips the
+// head forward (down) when positive, as the Mac's headPitch; only the look where the person
+// types (Look.kt) turns it, so no mood sets it.
 
 enum class Mood { IDLE, THINKING, HAPPY, SLEEPY, WAVE, WOBBLE }
 
 data class Pose(
     val lift: Float = 0f, val scaleX: Float = 1f, val scaleY: Float = 1f, val headTilt: Float = 0f,
     val yaw: Float = 0f, val smile: Float = 0f, val mouthO: Float = 0f, val eyesClosed: Boolean = false,
-    val eyeL: Float = 0f, val eyeR: Float = 0f, val done: Boolean = false,
+    val eyeL: Float = 0f, val eyeR: Float = 0f, val done: Boolean = false, val pitch: Float = 0f,
 )
 
 object Moods {
@@ -47,6 +49,17 @@ object Moods {
     fun fpsFor(mood: Mood, pressing: Boolean, blinkSoon: Boolean, sinceActive: Double): Int {
         if (blinkSoon || mood != Mood.IDLE || pressing) return FPS
         return if (sinceActive < SETTLE_SECONDS) IDLE_FPS else REST_FPS
+    }
+
+    /**
+     * The rate to draw at while the head turns: `fps` from fpsFor, raised to FPS while it eases toward where the person
+     * types (a 0.25 s turn, which the settling rate would draw in four steps), and to IDLE_FPS while a picker head turns
+     * slowly. Neither lowers it.
+     */
+    fun drawFps(fps: Int, picker: Boolean, looking: Boolean): Int = when {
+        looking -> max(fps, FPS)
+        picker -> max(fps, IDLE_FPS)
+        else -> fps
     }
 
     /** The slow up-and-down float. */

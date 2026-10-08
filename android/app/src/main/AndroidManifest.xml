@@ -7,8 +7,18 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Voice: asked on the first press of 🎤 in the panel; the recording is written down by Buddy's server and not kept. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Filament draws the head with OpenGL ES 3.0: a phone without it is not offered Buddy. -->
     <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+    <!-- The chat names the app the person is in ("Done! It's in WhatsApp ✅"): Android 11 and later show Buddy the
+         label of an app only when Buddy says which apps it looks for. The ones on the home screen are where people type. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
     <application
         android:name=".BuddyApp"
         android:label="Buddy"
@@ -68,6 +78,18 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="A floating writing helper that stays on screen over other apps until the person turns it off." />
+        </service>
+        <!-- Buddy can type for you (and look where I type): optional, turned on by the person in Android's Accessibility
+             settings. Only Android can bind it (BIND_ACCESSIBILITY_SERVICE). -->
+        <service
+            android:name=".bubble.LookService"
+            android:exported="true"
+            android:label="@string/look_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/look_service" />
         </service>
         <receiver android:name=".bubble.BootReceiver" android:exported="false">
             <intent-filter>

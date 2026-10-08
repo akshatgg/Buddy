@@ -76,6 +76,10 @@ class BubbleService : LifecycleService() {
     private var heldWords: String? = null // said while the head was out of a sheet's way: said when the last one goes
     private var heldAt = 0L // when they were said (elapsedRealtime)
 
+    // Look where I type (LookService): where the head looks, and the timer that turns it back to the front 3 s after.
+    private val lookHold = LookHold { SystemClock.elapsedRealtime() }
+    private var lookTimer: Job? = null
+
     // The head draws only while it is visible, and an overlay stays "visible" with the screen off or locked, so it is
     // hidden then: the Mac's buddy:pause on lock-screen.
     private var screenOff = false
@@ -116,6 +120,8 @@ class BubbleService : LifecycleService() {
                     is BubbleEvent.SetMood -> mood(event.mood)
                     is BubbleEvent.Say -> say(event.text)
                     is BubbleEvent.HideFor -> hideFor(event.ms)
+                    is BubbleEvent.LookAt -> lookAt(LookPoint(event.x, event.y))
+                    BubbleEvent.LookAway -> lookAway()
                 }
             }
         }
@@ -407,6 +413,31 @@ class BubbleService : LifecycleService() {
                 view.mood = Mood.IDLE
             }
         }
+    }
+
+    /**
+     * Turn the head toward where the person types, from the middle of its window, and back to the front 3 s after the
+     * last time. Only the turn changes: a head hidden for a sheet or a picture of the screen stays hidden.
+     */
+    private fun lookAt(point: LookPoint) {
+        val view = head ?: return
+        lookHold.lookAt(point)
+        val centreX = headPlace.x + headPlace.width / 2f
+        val centreY = headPlace.y + headPlace.height / 2f
+        view.look(Look.turn(point, centreX, centreY, resources.displayMetrics.density))
+        lookTimer?.cancel()
+        lookTimer = lifecycleScope.launch {
+            while (lookHold.msLeft() > 0) delay(lookHold.msLeft())
+            lookTimer = null
+            head?.look(Turn.FRONT)
+        }
+    }
+
+    private fun lookAway() {
+        lookHold.away()
+        lookTimer?.cancel()
+        lookTimer = null
+        head?.look(Turn.FRONT)
     }
 
     private fun say(text: String) {

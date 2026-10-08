@@ -64,6 +64,24 @@ class MoodsTest {
         for (t in listOf(0.3, 2.0, 5.5, 13.7)) assertEquals(0f, Moods.turn(Moods.turnEnd(t)), 1e-5f)
     }
 
+    @Test fun noMoodTipsTheHeadUpOrDown() {
+        assertEquals(0f, Pose().pitch)
+        for (mood in Mood.values()) for (t in listOf(0.0, 0.5, 1.0, 3.0)) assertEquals(0f, Moods.pose(mood, t).pitch)
+    }
+
+    @Test fun aLookEasesAtTheFullRateAndThePickersTurnAtTheSettlingRate() {
+        val atRest = Moods.fpsFor(Mood.IDLE, pressing = false, blinkSoon = false, sinceActive = 60.0)
+        assertEquals(Moods.REST_FPS, atRest)
+        // The 0.25 s turn toward where the person types: 30 frames a second, so that it is smooth.
+        assertEquals(Moods.FPS, Moods.drawFps(atRest, picker = false, looking = true))
+        assertEquals(Moods.FPS, Moods.drawFps(Moods.IDLE_FPS, picker = true, looking = true))
+        // The picker's slow turn: the settling rate is enough.
+        assertEquals(Moods.IDLE_FPS, Moods.drawFps(atRest, picker = true, looking = false))
+        // At rest, and while a mood plays, the rates stay as they are.
+        assertEquals(atRest, Moods.drawFps(atRest, picker = false, looking = false))
+        assertEquals(Moods.FPS, Moods.drawFps(Moods.FPS, picker = true, looking = false))
+    }
+
     @Test fun theWaveTurnsTheHeadAndSmiles() {
         val p = Moods.pose(Mood.WAVE, 0.5)
         assertEquals(0.8f, p.smile)

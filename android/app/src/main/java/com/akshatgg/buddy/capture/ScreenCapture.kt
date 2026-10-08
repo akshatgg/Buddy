@@ -42,7 +42,7 @@ private const val RETRY_MS = 100L
 private const val FRAME_MS = 3000L
 
 /**
- * One picture of the whole screen, for Check screen, with MediaProjection. The person has just agreed to it in
+ * One picture of the whole screen, for the chat's screen step, with MediaProjection. The person has just agreed to it in
  * Android's own dialog; Android 14 then lets the app capture only from a foreground service of the screen-capture
  * kind, so the buddy's service is asked to become one first (BubbleService.ACTION_CAPTURE), and to stop being one
  * when the picture is taken. The context is the panel's, so that the screen's size is the one it is shown on.
@@ -181,7 +181,7 @@ class ScreenCapture(private val context: Context) {
     }
 
     companion object {
-        fun buddyOff() = BuddyError("buddy_off", "Check screen needs Buddy to be on. Turn it on in Settings.")
+        fun buddyOff() = BuddyError("buddy_off", "I need Buddy on to look at your screen. Turn it on in Settings.")
 
         // The Mac helper's words when a screenshot fails.
         fun couldNotCapture() = BuddyError("capture_failed", "Could not take the screenshot. Try again.")

@@ -9,9 +9,41 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-enum class Action(val id: String) { WRITE("write"), FIX("fix"), CHECK("check") }
+enum class Action(val id: String) { WRITE("write"), FIX("fix"), CHECK("check"), CHAT("chat") }
 
-data class AskInput(val instruction: String? = null, val tone: String? = null, val text: String? = null, val image: String? = null)
+/** One message of the chat so far: `from` is "you" or "buddy". */
+data class ChatTurn(val from: String, val text: String)
+
+/**
+ * What an action is asked with. write, fix and check use the first four; a chat (shared/prompts.js chatPrompt) uses
+ * `message` and the rest, and `image` on its second step. Android never sends the desktop's `projects`.
+ */
+data class AskInput(
+    val instruction: String? = null,
+    val tone: String? = null,
+    val text: String? = null,
+    val image: String? = null,
+    val message: String? = null,
+    val selection: String? = null,
+    val box: String? = null,
+    val history: List<ChatTurn>? = null,
+    val facts: List<String>? = null,
+    val appName: String? = null,
+    val userName: String? = null,
+    val step: Int? = null,
+)
+
+/** A chat answer as parseChat reads it (shared/prompts.js): never null, whatever the AI wrote. */
+data class ChatReply(
+    val kind: String,
+    val say: String,
+    val text: String,
+    val notes: List<String>,
+    val doIt: Boolean,
+    val send: Boolean,
+    val remember: List<String>,
+    val again: Boolean,
+)
 
 data class Prompt(val system: String, val user: String, val image: String?)
 
@@ -44,6 +76,7 @@ class Prompts(private val shared: Shared) {
                 Prompt(shared.writeSystem.getValue(tone), instruction, null)
             }
             Action.FIX -> Prompt(shared.fixSystem, requireText(input.text, shared.limitText, m.getValue("fixEmpty"), m.getValue("tooLongText")), null)
+            Action.CHAT -> chatPrompt(shared, input)
             Action.CHECK -> {
                 val image = input.image.orEmpty()
                 if (image.isEmpty()) throw BuddyError("bad_request", m.getValue("checkEmpty"))
@@ -53,6 +86,9 @@ class Prompts(private val shared: Shared) {
             }
         }
     }
+
+    /** Read a chat answer as shared/prompts.js parseChat does. */
+    fun parseChat(text: String?): ChatReply = readChat(shared, text)
 
     companion object {
         private val FENCE_START = Regex("^```(?:json)?\\s*", RegexOption.IGNORE_CASE)

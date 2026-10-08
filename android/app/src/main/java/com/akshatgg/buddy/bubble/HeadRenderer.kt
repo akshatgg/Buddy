@@ -245,7 +245,7 @@ class HeadRenderer(context: Context, textureView: TextureView, characterId: Stri
         morphIndex[name]?.let { weights[it] = value }
     }
 
-    /** Apply a pose: the face's morphs, and the head's lift, tilt, turn and squash. `float` is Moods.floatOffset(t). */
+    /** Apply a pose: the face's morphs, and the head's lift, tip, tilt, turn and squash. `float` is Moods.floatOffset(t). */
     fun setPose(pose: Pose, blink: Float, float: Float) {
         if (face != 0 && weights.isNotEmpty()) {
             setMorph("blink", Moods.blinkWeight(pose, blink))
@@ -258,6 +258,8 @@ class HeadRenderer(context: Context, textureView: TextureView, characterId: Stri
         }
         headRest.copyInto(headTransform)
         Matrix.translateM(headTransform, 0, pivot[0], pivot[1] + (float + pose.lift) * headHeight, pivot[2])
+        // The tip up or down last, so that a head turned to the side still tips toward the camera's up and down.
+        Matrix.rotateM(headTransform, 0, Math.toDegrees(pose.pitch.toDouble()).toFloat(), 1f, 0f, 0f)
         Matrix.rotateM(headTransform, 0, Math.toDegrees(pose.headTilt.toDouble()).toFloat(), 0f, 0f, 1f)
         Matrix.rotateM(headTransform, 0, Math.toDegrees(pose.yaw.toDouble()).toFloat(), 0f, 1f, 0f)
         Matrix.scaleM(headTransform, 0, pose.scaleX, pose.scaleY, pose.scaleX)

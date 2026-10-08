@@ -15,7 +15,11 @@ small, and the buddy must not cover much of it.
 ### Chosen by the owner
 
 - **How Buddy reaches other apps:** a floating head over every app, plus "Fix with Buddy" in the text-selection
-  menu of any app. No Accessibility service (Google Play has restricted it since 2026-01-28), no keyboard.
+  menu of any app. No Accessibility service (Google Play has restricted it since 2026-01-28), no keyboard. Since
+  2026-10-08 one optional exception, chosen by the owner knowing the risk: "Look where I type"
+  (`2026-10-08-buddy-android-look-where-i-type-design.md`), an Accessibility service that reads only where the text
+  box is, so that the head can turn toward it. It is off until the person turns it on, and the rest of Buddy works
+  without it.
 - **The face:** the real 3D head, from the same `.glb` files as the Mac (`assets/buddies/`), drawn with Filament.
 
 ### Out of scope
@@ -52,24 +56,24 @@ history of answers.
 
 ### The panel
 
-Opens over the current app when the head is tapped: a card with three tabs, like the Mac.
+Changed on 2026-10-08: the panel is the desktop's chat (`2026-10-08-buddy-android-chat-design.md`). One box, the
+`chat` request, answers by kind (**Insert** or **Replace**, **Copy**, **Share**), the box and screen steps, doing it in
+the app through the optional Accessibility service "Buddy can type for you" (with **Undo**), what Buddy remembers about
+the person (on this phone), and voice. The three tabs, the tone buttons and the Fix sheet's own screen are gone.
 
-- **Write for me** — "What should I write?" and Formal / Friendly / Short. Answer: **Copy**, **Share**,
-  **Try again**.
-- **Fix my English** — a box with a **Paste** button (Android only lets an app read the clipboard when the person
-  asks). Answer: the original and the fixed version, **Copy**, **Share**, **Try again**.
-- **Check screen** — takes a picture of the screen behind the panel (Android asks "Start recording or casting?"
-  each time; that is Android's rule), shows a thumbnail and an optional question. Answer: Looks good / Has
-  problems, up to 5 problems, the corrected text, **Copy**.
-
-After **Copy** the panel closes and the head says "Copied — long-press the box and tap Paste".
+Opens over the current app when the head is tapped: a card at the bottom with the buddy's name and the app, the chat
+and the box. ✕, Back or a tap outside closes it and ends the chat; when Buddy puts text in the app the panel goes
+behind it, and a tap on the head within five minutes brings back the same chat. Built in
+`ui/panel/PanelModel.kt` (the chat, plain Kotlin, JVM-tested), `PanelScreen.kt`, `PanelActivity.kt` and
+`ChatHost.kt`; the text-setting arithmetic and the box Buddy types into are in `typing/`.
 
 ### Fix with Buddy (the text menu)
 
 In any app that shows Android's text-selection menu (Gmail, WhatsApp, Chrome, Messages…): select text →
-**Fix with Buddy**. A small sheet shows the fixed text with **Replace**, **Copy** and **Try again**. *Replace* puts
-the fixed text in place of the selection; when the app does not allow replacing (read-only text), the sheet shows
-**Copy** only. Text shared to Buddy (Share → Buddy) opens the same sheet with **Copy** only.
+**Fix with Buddy**. The same chat opens over the app (`FixActivity`), with the card `Your selection: “…”`; ↩ in an
+empty box fixes it. *Replace* hands the fixed text back to the app in place of the selection (`PROCESS_TEXT`'s
+result) when the app waits for it and the text is not read-only; otherwise the text goes in through "Buddy can type
+for you", or is copied. Text shared to Buddy (Share → Buddy) opens the same chat with it as the selection.
 
 ### Settings (the app's main screen after Welcome)
 

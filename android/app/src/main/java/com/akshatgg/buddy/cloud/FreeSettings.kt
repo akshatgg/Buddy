@@ -20,6 +20,7 @@ data class FreeSettings(
     val allowOwnKey: Boolean,
     val blocked: Boolean,
     val isAdmin: Boolean,
+    val voiceOn: Boolean = false, // the server can write down what is said (it has a Groq key)
 ) {
     fun toJson(): String = buildJsonObject {
         put("freeOn", freeOn)
@@ -29,6 +30,7 @@ data class FreeSettings(
         put("allowOwnKey", allowOwnKey)
         put("blocked", blocked)
         put("isAdmin", isAdmin)
+        put("voiceOn", voiceOn)
     }.toString()
 
     companion object {
@@ -41,6 +43,7 @@ data class FreeSettings(
             allowOwnKey = flag(j, "allowOwnKey"),
             blocked = flag(j, "blocked"),
             isAdmin = flag(j, "isAdmin"),
+            voiceOn = flag(j, "voiceOn"),
         )
 
         /** The copy kept in the app's settings; null when there is none or it cannot be read. */

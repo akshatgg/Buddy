@@ -300,4 +300,4 @@ function parseChat(text) {
   return out;
 }
 
-module.exports = { ACTIONS, TONES, LIMITS, MAX_TOKENS, buildPrompt, parseCheck, parseChat };
+module.exports = { ACTIONS, TONES, LIMITS, MAX_TOKENS, KINDS, CHAT_LIMITS, buildPrompt, parseCheck, parseChat };

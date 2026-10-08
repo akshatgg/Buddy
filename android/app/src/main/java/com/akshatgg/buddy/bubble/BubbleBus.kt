@@ -13,6 +13,12 @@ sealed interface BubbleEvent {
     data class SetMood(val mood: Mood) : BubbleEvent
     data class Say(val text: String) : BubbleEvent
     data class HideFor(val ms: Long) : BubbleEvent
+
+    /** Look at this place on the screen (pixels): where the person types, from LookService. */
+    data class LookAt(val x: Float, val y: Float) : BubbleEvent
+
+    /** Look back to the front: the box lost the focus, or another window came up. */
+    data object LookAway : BubbleEvent
 }
 
 /**
@@ -24,6 +30,9 @@ object BubbleBus {
     private val flow = MutableSharedFlow<BubbleEvent>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     val events: SharedFlow<BubbleEvent> = flow.asSharedFlow()
+
+    /** True while a buddy is on screen to take events: LookService does no work for a buddy that is not there. */
+    val listening: Boolean get() = flow.subscriptionCount.value > 0
 
     private val sheets = mutableSetOf<Any>()
     private val anySheet = MutableStateFlow(false)
@@ -56,6 +65,14 @@ object BubbleBus {
 
     /** Hide the head for `ms`, so that it is not in a picture of the screen. */
     fun hideFor(ms: Long) = send(BubbleEvent.HideFor(ms))
+
+    /**
+     * Look where the person types, at (x, y) on the screen in pixels. It only turns the head: a head hidden for a
+     * sheet stays hidden.
+     */
+    fun lookAt(x: Float, y: Float) = send(BubbleEvent.LookAt(x, y))
+
+    fun lookAway() = send(BubbleEvent.LookAway)
 
     /** Never waits: a buddy that is slow to take an event must not hold up whoever sent it. */
     fun send(event: BubbleEvent) {

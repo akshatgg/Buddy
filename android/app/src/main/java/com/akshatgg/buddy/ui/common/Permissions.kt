@@ -51,6 +51,12 @@ private fun Context.open(intent: Intent) {
 /** Android's "Display over other apps" screen, for Buddy. */
 fun Context.openFloatSettings() = open(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:$packageName".toUri()))
 
+/**
+ * Android's Accessibility settings, where Buddy can type for you is turned on or off: Android lets no app turn its own
+ * service on or off, nor open its page there directly.
+ */
+fun Context.openAccessibilitySettings() = open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+
 private fun Context.openNotificationSettings() =
     open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
 

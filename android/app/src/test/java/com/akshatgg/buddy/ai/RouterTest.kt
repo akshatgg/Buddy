@@ -157,6 +157,20 @@ class RouterTest {
         assertTrue(body.contains("\"model\":\"claude-haiku-4-5-20251001\"") && body.contains("\"max_tokens\":1024"))
     }
 
+    @Test fun aChatAnswerIsReadOnBothRoutes() = runTest {
+        signIn()
+        askAnswer = HttpResponse(200, """{"text":"{\"kind\":\"answer\",\"say\":\"Kal means tomorrow.\"}","model":"m"}""")
+        val chat = AskInput(message = "kal ka matlab?")
+        val free = router.ask(Action.CHAT, chat).chat
+        assertEquals(ChatReply("answer", "", "Kal means tomorrow.", emptyList(), false, false, emptyList(), false), free)
+        config = config.replace("\"freeOn\":true", "\"freeOn\":false")
+        cloud.settings(force = true)
+        secrets.set("anthropic", "sk-ant-k")
+        val own = router.ask(Action.CHAT, chat)
+        assertEquals("not JSON: a written answer", ChatReply("write", "", "own answer", emptyList(), false, false, emptyList(), false), own.chat)
+        assertEquals(null, router.ask(Action.WRITE, write).chat)
+    }
+
     @Test fun theModelIsThePersonsPickElseTheFirstFallbackAndTheListIsTheFallbackWithoutAKey() = runTest {
         assertEquals("gemini-flash-latest", router.modelFor("gemini"))
         settings.setModel("gemini", "gemini-pro-latest")

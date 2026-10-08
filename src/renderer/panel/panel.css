@@ -131,6 +131,24 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
 .event .actions { display: flex; }
 .event .btn.small { min-height: 20px; padding: 0 6px; }
 
+/* A Claude Code job: its newest lines, small and grey, the last one with the spinner while it runs; then the summary. */
+.job .bubble { max-width: 94%; }
+.job .lines { margin: 6px 0 0; padding: 0; list-style: none; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.job .lines li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job .lines.live li:last-child { display: flex; align-items: center; gap: 6px; color: var(--fg); }
+.job .lines.live li:last-child::after {
+  content: "";
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--track);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.job .say + .text,
+.job .lines + .text { margin-top: 6px; padding: 7px 10px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--card); }
+
 /* Working on it: a small spinner (still, for someone who asked for less motion). */
 .thinking { display: flex; flex: none; align-items: center; gap: 8px; margin: 10px 0 0; color: var(--muted); font-size: 12px; }
 .thinking::before {

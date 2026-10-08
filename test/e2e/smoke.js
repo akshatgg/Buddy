@@ -316,6 +316,7 @@ async function waitFor(fn, what, ms = 8000) {
       systemPreferences,
       loginItems: { get: () => false, set: (on) => loginCalls.push(on) },
       sleep: { later: (fn, ms) => setTimeout(fn, ms / sleepClock.speed) },
+      claudeSettingsFile: path.join(userData, 'claude-home', 'settings.json'), // Claude Code's hooks go here, never into ~/.claude
     });
     Object.assign(ctx, { helper, clipboard, globalShortcut, loginCalls, systemPreferences });
     ctx.home ??= ctx.buddy; // where Buddy lives (the notch or the floating buddy), as main returns it

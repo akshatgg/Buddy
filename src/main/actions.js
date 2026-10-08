@@ -22,6 +22,7 @@ const { LIMITS } = require('../../shared/prompts');
 const { AI_TIMEOUT_MS } = require('./ai');
 const { TRANSCRIBE_TIMEOUT_MS } = require('./cloud');
 const platform = require('./platform');
+const { ERRORS: CLAUDE_ERRORS } = require('./claude/job');
 
 const COPIED = `Copied — press ${platform.pasteKeys}`;
 const READY = 'Your answer is ready. Open me to see it.';
@@ -46,12 +47,20 @@ const VOICE_TURNED_OFF = ['voice_off', 'blocked'];
 // free requests used up with own keys allowed but none saved, and free mode turned off (all in the AI section); signed
 // out and a copy of Buddy that cannot sign in (Settings' start); and a permission the Mac has not given Buddy.
 const AI_ERRORS = ['no_key', 'bad_key', 'no_credit', 'bad_model', 'no_vision', 'need_key', 'free_off'];
+AI_ERRORS.push('no_claude', 'claude_signed_out', 'claude_limit'); // Claude Code as the brain (claude/run.js): fixed in Settings → AI too
 const ACCOUNT_ERRORS = ['signed_out', 'not_set_up'];
 const PERMISSION_ERRORS = ['no_accessibility', 'no_screen_recording'];
+// A Claude Code job (src/main/claude/job.js) in the chat: how many of its live lines are kept, and the lines the chat
+// shows for a question it answered itself, a question that is over, and no project folder yet.
+const LIVE_LINES = 6;
+const NO_ANSWER = 'No answer for 10 minutes, so I said no.';
+const QUESTION_OVER = 'Not needed any more.';
+const NO_PROJECT = 'Add a project folder in Settings → Claude Code first.';
 
 /** The Settings section where the fix for an error is, or undefined for Settings' start. */
 function sectionFor(code) {
   if (AI_ERRORS.includes(code)) return 'ai';
+  if (code === 'no_project') return 'claude';
   if (PERMISSION_ERRORS.includes(code)) return 'permissions';
   return undefined;
 }
@@ -65,6 +74,7 @@ const SHOWN = {
   event: ['text', 'buttons'],
   error: ['text', 'code', 'buttons'],
   question: ['text', 'buttons'],
+  job: ['project', 'lines', 'done', 'text', 'buttons'],
 };
 
 /**
@@ -76,6 +86,7 @@ const SHOWN = {
  * handle, for the helper to bring it forward. `cloud` is Buddy's server (cloud.js), which writes down what was said
  * and has this person's settings, and `signedIn()` whether someone is. `voice()` gives { on, auto, mic }: voice is on for this person, the panel
  * listens as it opens, and how the microphone stands.
+ * `jobs` runs Claude Code in the person's project folders (claude/job.js createJobs); none means no jobs.
  */
 function createActions({
   helper,
@@ -89,6 +100,7 @@ function createActions({
   cloud,
   signedIn = () => false,
   voice = () => ({}),
+  jobs = null,
   userName = () => '',
   now = Date.now,
   helperMovesFocus = platform.helperMovesFocus,
@@ -100,6 +112,7 @@ function createActions({
   let aside = 0; // how many of Buddy's steps in the app are under way with the panel hidden on purpose for them
   let lane = Promise.resolve(); // Buddy's work in the app, one step after the other (inApp)
   let working = 0; // how many steps in the app are under way or waiting their turn
+  let job = null; // the Claude Code job under way, if any: { handle, project, item, chat }
 
   /**
    * A chat: the app it is about, its items, the selection the next message uses, the notice about that selection, and
@@ -153,6 +166,7 @@ function createActions({
         return shown;
       }),
       voice: voiceState(),
+      exampleProject: exampleProject(),
     };
   }
 
@@ -351,6 +365,7 @@ function createActions({
    */
   async function answer(c, you) {
     const asked = { message: you.text, history: historyBefore(c, you), facts: memory.facts(), appName: c.app?.name || '', userName: firstName() };
+    if (jobs?.projects().length) asked.projects = jobs.projects().map((p) => p.name); // only when there are any
     const sent = c.selection;
     const selection = sent ? { selection: sent } : {};
     let from = sent ? 'selection' : null; // where the text the answer works on came from
@@ -427,6 +442,7 @@ function createActions({
 
   /** The final answer: what it shows, and what Buddy does in the app. */
   async function finish(c, reply, from) {
+    if (reply.kind === 'code') return startCode(c, reply);
     if (reply.kind === 'send') {
       add(c, { type: 'question', text: 'Send it?', buttons: ['send', 'not-now'] });
       return true;
@@ -474,9 +490,11 @@ function createActions({
     c.talking += 1;
     push(c);
     try {
+      const jobBefore = job; // a "code" answer may start a Claude Code job
       const answered = await answer(c, you);
       const celebrated = (c.lastPut?.id ?? 0) >= firstNew; // a text of this answer's is in the app
       if (c === chat && !celebrated) ui.mood(answered ? 'happy' : 'idle');
+      if (c === chat && job && job !== jobBefore) ui.mood('thinking'); // the job it started: thinking until it ends
     } catch (err) {
       if (c !== chat) {
         // Closed meanwhile: the buddy stopped thinking about it then (replaceChat).
@@ -648,6 +666,41 @@ function createActions({
       await inApp(() => undo(c, item));
     } else if (button === 'send') {
       await inApp(() => sendIt(c, item));
+    } else if (button === 'stop') {
+      // The job's item has Stop, and so has "Stop it first" for that job. The process is told; the item ends when it
+      // has gone (the `stopped` event).
+      item.buttons = [];
+      if (job && (job.item === item || item.stopsJob === job.item)) job.handle.stop();
+      push(c);
+    } else if (button === 'allow' || button === 'deny') {
+      const taken = Boolean(job && job.handle.answer(item.requestId, button === 'allow'));
+      const said = button === 'allow' ? `✅ Allowed: ${item.what}` : `🚫 Said no to: ${item.what}`;
+      swap(c, item, { type: 'event', text: taken ? said : QUESTION_OVER, buttons: [] });
+      push(c);
+    } else if (button === 'open-folder') {
+      await ui.openFolder(item.path);
+    } else if (button.startsWith('project:')) {
+      // The pick on "Which project?": the folder must still be there, and no other job under way.
+      if (job) throw new BuddyError('bad_request', `I'm still working in ${job.project.name}. Stop it first.`);
+      const project = jobs.projects().find((p) => `project:${p.path}` === button);
+      if (!project) {
+        swap(c, item, { type: 'error', text: "That folder isn't there any more.", code: 'no_project', buttons: ['settings'] });
+      } else {
+        swap(c, item, { type: 'event', text: `📁 ${project.name}`, buttons: [] });
+        runJob(c, project, item.task);
+      }
+      push(c);
+    } else if (button === 'not-now' && item.task !== undefined) {
+      swap(c, item, { type: 'event', text: 'Okay, not now.', buttons: [] });
+      push(c);
+    } else if (button === 'retry' && item.task !== undefined) {
+      // The same job again, in place of the red line, in the same folder if it is still there.
+      if (job) throw new BuddyError('bad_request', `I'm still working in ${job.project.name}. Stop it first.`);
+      const project = jobs.projects().find((p) => p.path === item.path);
+      c.items.splice(c.items.indexOf(item), 1);
+      if (project) runJob(c, project, item.task);
+      else add(c, { type: 'error', text: "That folder isn't there any more.", code: 'no_project', buttons: ['settings'] });
+      push(c);
     } else if (button === 'not-now') {
       swap(c, item, { type: 'event', text: 'Okay, not sent.', buttons: [] });
       push(c);
@@ -690,6 +743,147 @@ function createActions({
       }
       throw err;
     }
+  }
+
+  // ---- Claude Code jobs ----
+
+  /** The name for the empty chat's example line: the last project, else the first, else none. */
+  function exampleProject() {
+    if (!jobs) return '';
+    const project = jobs.lastProject() || jobs.projects()[0];
+    return project ? project.name : '';
+  }
+
+  /** The person's last message in the chat, for the project named in it. */
+  const lastYou = (c) => c.items.findLast((i) => i.type === 'you')?.text || '';
+
+  /** The chat says why the job cannot start, in a red line whose fix is in Settings. */
+  function inSettings(c, code, text) {
+    add(c, { type: 'error', text, code, buttons: ['settings'] });
+    return false;
+  }
+
+  /**
+   * Which project a job goes to: the only one; the one named in the message (any case, the longest name when two
+   * match); the last pick; or null, and then the chat asks.
+   */
+  function pickProject(projects, c) {
+    if (projects.length === 1) return projects[0];
+    const message = lastYou(c).toLowerCase();
+    const named = projects.filter((p) => message.includes(p.name.toLowerCase())).sort((a, b) => b.name.length - a.name.length);
+    return named[0] || jobs.lastProject();
+  }
+
+  /**
+   * A "code" answer: the job goes to Claude Code in one of the person's project folders, once it is clear which. Claude
+   * Code must be there and signed in, whichever brain answered the chat: it is the one with the tools. One job at a time.
+   */
+  async function startCode(c, reply) {
+    if (job) {
+      // With Stop, which stops that job: its own item may be in a chat closed by now. `stopsJob` (that job's item, not
+      // its id: ids start again in each chat) stays on this side.
+      add(c, { type: 'buddy', say: `I'm still working in ${job.project.name}. Stop it first.`, text: '', notes: [], buttons: ['stop'], stopsJob: job.item });
+      return true;
+    }
+    if (reply.say) add(c, { type: 'buddy', say: reply.say, text: '', notes: [], buttons: [] });
+    if (!jobs) return inSettings(c, 'no_project', NO_PROJECT);
+    const status = await jobs.status();
+    if (c !== chat) return false;
+    if (!status.installed) return inSettings(c, 'no_claude', CLAUDE_ERRORS.no_claude);
+    if (!status.loggedIn) return inSettings(c, 'claude_signed_out', CLAUDE_ERRORS.claude_signed_out);
+    const projects = jobs.projects();
+    if (!projects.length) return inSettings(c, 'no_project', NO_PROJECT);
+    const task = reply.text || lastYou(c);
+    const project = pickProject(projects, c);
+    if (!project) {
+      add(c, { type: 'question', text: 'Which project?', buttons: [...projects.map((p) => `project:${p.path}`), 'not-now'], task });
+      return true;
+    }
+    runJob(c, project, task);
+    return true;
+  }
+
+  /** A job that failed: the buddy is sad, which ends by itself. */
+  function sadForAWhile() {
+    ui.mood('sad');
+  }
+
+  /**
+   * Start the job in `project`: "Started", the job's item (with Stop), the buddy thinking until it ends. The item keeps
+   * the task and the folder, so that Try again on a failure can run the same job again.
+   */
+  function runJob(c, project, task) {
+    jobs.setLastProject(project.path);
+    add(c, { type: 'event', text: `🔧 Started in ${project.name}`, buttons: [] });
+    const item = add(c, { type: 'job', project: project.name, lines: [], done: false, text: '', buttons: ['stop'], task, path: project.path });
+    let handle;
+    try {
+      handle = jobs.start({
+        project, task, person: firstName(), model: store.get('models')?.['claude-code'],
+        onEvent: (event) => onJobEvent(c, item, project, task, event),
+      });
+    } catch (err) {
+      c.items.splice(c.items.indexOf(item), 1);
+      failed(c, err);
+      push(c);
+      return;
+    }
+    job = { handle, project, item, chat: c };
+    c.talking += 1;
+    ui.mood('thinking');
+    push(c);
+  }
+
+  /**
+   * What the job reports (claude/job.js, J4) becomes the chat: live lines on its item, questions as question items,
+   * and the end as the summary with Open folder and Copy, "Stopped", or a red line. The job goes on when the panel
+   * hides or the chat is closed: its end then shows in the bubble, and a closed chat's end leaves the mood alone.
+   */
+  function onJobEvent(c, item, project, task, event) {
+    const hidden = !ui.isPanelVisible() || c !== chat; // the panel is hidden, or shows another chat by now
+    if (event.type === 'line') {
+      item.lines = [...item.lines, event.text].slice(-LIVE_LINES);
+      if (c === chat) ui.mood('thinking'); // an answer meanwhile may have left the buddy happy or idle
+      push(c);
+      return;
+    }
+    if (event.type === 'ask') {
+      add(c, { type: 'question', text: event.text, buttons: ['allow', 'deny'], requestId: event.requestId, what: event.what });
+      if (hidden && c === chat) ui.bubble(`${event.text} Open me to answer.`); // a closed chat cannot be opened again
+      push(c);
+      return;
+    }
+    if (event.type === 'expired') {
+      const question = c.items.find((i) => i.type === 'question' && i.requestId === event.requestId);
+      if (question) swap(c, question, { type: 'event', text: NO_ANSWER, buttons: [] });
+      push(c);
+      return;
+    }
+    // The end: done, failed or stopped. A question still open is over with it.
+    job = null;
+    c.talking -= 1;
+    item.done = true;
+    for (const i of c.items) if (i.type === 'question' && i.requestId) swap(c, i, { type: 'event', text: QUESTION_OVER, buttons: [] });
+    if (event.type === 'done') {
+      item.text = event.text;
+      item.buttons = ['open-folder', 'copy'];
+      add(c, { type: 'event', text: `✅ Done in ${project.name}`, buttons: [] });
+      if (hidden) ui.bubble(`Done in ${project.name} ✅`);
+      if (c === chat) ui.mood('celebrate');
+    } else if (event.type === 'stopped') {
+      item.text = 'Stopped.';
+      item.buttons = [];
+      add(c, { type: 'event', text: '⏹ Stopped', buttons: [] });
+      if (c === chat) ui.mood('idle');
+    } else {
+      item.buttons = [];
+      // Try again for a run that just failed; Settings for the limit and signed out; nothing for "too long".
+      const buttons = event.code === 'claude_failed' ? ['retry'] : event.code === 'too_long' ? [] : ['settings'];
+      add(c, { type: 'error', text: event.message, code: event.code, buttons, task, path: project.path });
+      if (hidden) ui.bubble(event.message);
+      if (c === chat) sadForAWhile();
+    }
+    push(c);
   }
 
   return { open, toggle, dismiss, send, act, dropSelection, transcribe, state: () => stateOf(chat) };

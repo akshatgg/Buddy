@@ -1,12 +1,36 @@
 'use strict';
+/* global module */
 /* exported mountAiForm */
 
 /**
- * The AI form (which AI, API key, model), used by Settings and the Welcome
- * window. All four AIs are shown at once as choices, so nobody has to open a
- * list to find out which ones Buddy works with. The key box never shows a
- * saved key; it only takes a new one.
+ * The AI form (which AI, API key, model), used by Settings and the Welcome window. All four AIs are shown at once as
+ * choices, so nobody has to open a list to find out which ones Buddy works with; the fifth choice is Claude Code on
+ * this computer, which has no key: its status line (installed and signed in, or what to do about it) stands where the
+ * key box is, with Check again. The key box never shows a saved key; it only takes a new one.
  */
+
+// The model Claude Code answers with when none of its own is saved (claude/find.js DEFAULT_MODEL, which ai.js uses).
+const CLAUDE_DEFAULT_MODEL = 'sonnet';
+
+/**
+ * What the form shows for the chosen AI `p` (one of the settings snapshot's providers): whether the key box is there
+ * (else Claude Code's line, with its link when Claude Code is missing), and the model choices with their names.
+ * `models` is the list to show (the live one, or the built-in one), `chosen` the saved model. For Claude Code with
+ * none of its models saved, Sonnet is shown chosen, as that is the one it answers with.
+ */
+function aiChoiceView(p, { models = p.fallbackModels, chosen } = {}) {
+  const needsKey = p.needsKey !== false;
+  const line = needsKey ? null : p.line;
+  const selected = needsKey || models.includes(chosen) ? chosen : CLAUDE_DEFAULT_MODEL;
+  return {
+    needsKey,
+    lineText: line ? line.text : '',
+    lineKind: line && p.hasKey ? 'good' : 'muted',
+    link: line ? line.link : null,
+    options: models.map((m) => ({ value: m, label: p.modelLabels?.[m] ?? m, selected: m === selected })),
+  };
+}
+
 async function mountAiForm(root) {
   const el = (tag, props = {}, children = []) => {
     const node = Object.assign(document.createElement(tag), props);
@@ -22,13 +46,24 @@ async function mountAiForm(root) {
   status.setAttribute('aria-live', 'polite'); // what a check of the key found is read out as it changes
   const model = el('select', { id: 'ai-model' });
   const refresh = el('button', { type: 'button', textContent: 'Refresh' });
+  // Claude Code's line, link and Check again, shown in place of the key box when it is the chosen AI.
+  const claudeLine = el('span', { id: 'ai-claude-line', className: 'muted' });
+  claudeLine.setAttribute('aria-live', 'polite');
+  const claudeGet = el('a', { id: 'ai-claude-get', href: '#', textContent: 'Get Claude Code', hidden: true });
+  const claudeCheck = el('button', { id: 'ai-claude-check', type: 'button', textContent: 'Check again' });
+
+  const keyLabel = el('label', { htmlFor: 'ai-key', textContent: 'API key' });
+  const keyRow = el('div', { className: 'row' }, [key, saveKey]);
+  const keyStatusRow = el('p', { className: 'row' }, [status, el('span', { className: 'spacer' }), getKey]);
+  const claudeRow = el('p', { className: 'row', hidden: true }, [claudeLine, el('span', { className: 'spacer' }), claudeGet, claudeCheck]);
 
   root.classList.add('ai-form'); // base.css spaces the form by this class
   root.replaceChildren(
-    el('fieldset', {}, [el('legend', { textContent: 'Which AI do you have a key for?' }), choices]),
-    el('label', { htmlFor: 'ai-key', textContent: 'API key' }),
-    el('div', { className: 'row' }, [key, saveKey]),
-    el('p', { className: 'row' }, [status, el('span', { className: 'spacer' }), getKey]),
+    el('fieldset', {}, [el('legend', { textContent: 'Which AI should Buddy use?' }), choices]),
+    keyLabel,
+    keyRow,
+    keyStatusRow,
+    claudeRow,
     el('label', { htmlFor: 'ai-model', textContent: 'Model' }),
     el('div', { className: 'row' }, [model, refresh]),
   );
@@ -39,13 +74,16 @@ async function mountAiForm(root) {
     return;
   }
   const current = () => snap.providers.find((p) => p.id === snap.settings.provider);
+  const view = (options) => aiChoiceView(current(), { chosen: snap.settings.models[snap.settings.provider], ...options });
 
   // The choices are made once, and render() only moves the check: making them again would drop the keyboard
-  // focus that is on one of them, and the arrow keys would stop after the first press.
+  // focus that is on one of them, and the arrow keys would stop after the first press. Claude Code's choice takes
+  // a whole row of its own, under the four keys.
   const radios = snap.providers.map((p) => {
     const radio = el('input', { type: 'radio', name: 'ai-provider', value: p.id });
     radio.addEventListener('change', () => pick(p.id));
-    choices.append(el('label', { className: 'ai-choice' }, [radio, el('span', { textContent: p.label })]));
+    const className = p.needsKey === false ? 'ai-choice wide' : 'ai-choice';
+    choices.append(el('label', { className }, [radio, el('span', { textContent: p.label })]));
     return radio;
   });
 
@@ -60,15 +98,22 @@ async function mountAiForm(root) {
     setStatus(p.hasKey ? 'Key saved ✓' : 'No key yet.', p.hasKey ? 'good' : 'muted');
   }
 
+  /** Claude Code's line: signed in (green), or what to do, with Get Claude Code when it is not installed. */
+  function showClaudeLine({ lineText, lineKind, link }) {
+    claudeLine.textContent = lineText;
+    claudeLine.className = lineKind;
+    claudeGet.hidden = !link;
+    if (link) claudeGet.textContent = link.label;
+  }
+
   function fillModels(models) {
-    const chosen = snap.settings.models[snap.settings.provider];
-    model.replaceChildren(...models.map((m) => el('option', { value: m, textContent: m, selected: m === chosen })));
+    model.replaceChildren(...view({ models }).options.map((o) => el('option', { value: o.value, textContent: o.label, selected: o.selected })));
   }
 
   async function loadModels() {
     const p = current();
     fillModels(p.fallbackModels);
-    if (!p.hasKey) return;
+    if (!p.hasKey || p.needsKey === false) return; // Claude Code's names are its own: there is no list to fetch
     const r = await window.buddy.models(p.id);
     if (p.id !== snap.settings.provider) return; // another AI was chosen while this one was loading
     if (r.ok) {
@@ -81,10 +126,16 @@ async function mountAiForm(root) {
 
   function render() {
     const p = current();
+    const v = view();
     for (const radio of radios) radio.checked = radio.value === p.id;
     key.value = '';
     key.placeholder = `Paste your ${p.label} key`;
-    showKeyStatus();
+    // The key box and its line, or Claude Code's line: one or the other. Refresh is for a key's live list only.
+    keyLabel.hidden = keyRow.hidden = keyStatusRow.hidden = !v.needsKey;
+    claudeRow.hidden = v.needsKey;
+    refresh.hidden = !v.needsKey;
+    if (v.needsKey) showKeyStatus();
+    else showClaudeLine(v);
   }
 
   async function pick(id) {
@@ -139,6 +190,34 @@ async function mountAiForm(root) {
     if (!r.ok) setStatus(r.error.message, 'error');
   });
 
+  // Check again asks Claude Code itself (not the cached answer), and the line follows; the snapshot's entry is
+  // brought up to date too, so choosing another AI and coming back shows the same.
+  claudeCheck.addEventListener('click', async () => {
+    claudeLine.textContent = 'Checking…';
+    claudeLine.className = 'muted';
+    const r = await window.buddy.claudeStatus(true);
+    const p = current();
+    if (p.needsKey !== false) return; // another AI was chosen meanwhile
+    if (!r.ok) {
+      claudeLine.textContent = r.error.message;
+      claudeLine.className = 'error';
+      return;
+    }
+    Object.assign(p, { status: r.status, line: r.line, hasKey: r.status.loggedIn === true });
+    showClaudeLine(view());
+  });
+  claudeGet.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const r = await window.buddy.claudeGet();
+    if (!r.ok) {
+      claudeLine.textContent = r.error.message;
+      claudeLine.className = 'error';
+    }
+  });
+
   render();
   await loadModels();
 }
+
+// For the tests: the page gets the functions as plain script globals (update-view.js does the same).
+if (typeof module !== 'undefined') module.exports = { aiChoiceView, CLAUDE_DEFAULT_MODEL };

@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { buttonLabel, selectionPreview, thinkingLine, canSend, itemParts, speaker, spokenLine } = require('../src/renderer/panel/chat-view.js');
+const { buttonLabel, selectionPreview, thinkingLine, canSend, itemParts, speaker, spokenLine, exampleLine, jobHeading } = require('../src/renderer/panel/chat-view.js');
 
 test('every button has its label', () => {
   assert.deepStrictEqual(
@@ -138,4 +138,61 @@ test('a new item is read out as who it is from, then all its words', () => {
   assert.strictEqual(spokenLine(itemParts({ id: 5, type: 'event', text: '✅ Sent' }), 'Aarav'), '✅ Sent');
   // An answer that is only its line has no empty text after it.
   assert.strictEqual(spokenLine(itemParts({ id: 6, type: 'buddy', say: 'Got it!', text: '' }), 'Aarav'), 'Aarav: Got it!');
+});
+
+test('the job buttons have their labels, and a project button is named after its folder', () => {
+  assert.deepStrictEqual(['stop', 'open-folder', 'allow', 'deny'].map(buttonLabel), ['Stop', 'Open folder', 'Allow', 'No']);
+  assert.strictEqual(buttonLabel('project:/Users/me/code/my-app'), 'my-app');
+  assert.strictEqual(buttonLabel('project:C:\\Users\\me\\code\\site\\'), 'site');
+  assert.strictEqual(buttonLabel('project:'), '');
+});
+
+test("a job is drawn with its project, its live lines, whether it is done, its summary and its buttons", () => {
+  const running = itemParts({ id: 5, type: 'job', project: 'my-app', lines: ['Reading src/login.js', 'Running: npm test'], done: false, text: '', buttons: ['stop'] });
+  assert.deepStrictEqual(running, {
+    id: 5, kind: 'job', say: '', text: '', notes: [], project: 'my-app', lines: ['Reading src/login.js', 'Running: npm test'], done: false,
+    buttons: [{ button: 'stop', label: 'Stop', primary: false }],
+  });
+  const done = itemParts({ id: 5, type: 'job', project: 'my-app', lines: [], done: true, text: 'I fixed it.', buttons: ['open-folder', 'copy'] });
+  assert.deepStrictEqual(done.buttons, [{ button: 'open-folder', label: 'Open folder', primary: true }, { button: 'copy', label: 'Copy', primary: false }]);
+  assert.deepStrictEqual([done.done, done.text, done.lines], [true, 'I fixed it.', []]);
+  // A job with nothing yet is still drawn: its project is its heading.
+  assert.deepStrictEqual(itemParts({ id: 6, type: 'job', project: 'site', lines: [], done: false, text: '', buttons: [] }).project, 'site');
+  // Odd fields read as nothing.
+  const odd = itemParts({ id: 7, type: 'job', project: 7, lines: ['ok', 3, ''], done: 'yes', text: null, buttons: ['stop', 'nope'] });
+  assert.deepStrictEqual([odd.project, odd.lines, odd.done, odd.text, odd.buttons.map((b) => b.button)], ['', ['ok'], false, '', ['stop']]);
+});
+
+test('the questions a job asks are drawn as questions, with Allow as the main button', () => {
+  const parts = itemParts({ id: 8, type: 'question', text: 'Run npm test?', buttons: ['allow', 'deny'] });
+  assert.deepStrictEqual(parts.buttons, [{ button: 'allow', label: 'Allow', primary: true }, { button: 'deny', label: 'No', primary: false }]);
+  const which = itemParts({ id: 9, type: 'question', text: 'Which project?', buttons: ['project:/a/my-app', 'project:/b/site', 'not-now'] });
+  assert.deepStrictEqual(which.buttons.map((b) => b.label), ['my-app', 'site', 'Not now']);
+});
+
+test('a screen reader hears a job as the buddy: what it is doing now, or what it did', () => {
+  assert.strictEqual(speaker('job', 'Aarav'), 'Aarav:');
+  const running = itemParts({ id: 5, type: 'job', project: 'my-app', lines: ['Reading a.js', 'Editing a.js'], done: false, text: '', buttons: ['stop'] });
+  assert.strictEqual(spokenLine(running, 'Aarav'), 'Aarav: Working in my-app. Editing a.js');
+  const started = itemParts({ id: 5, type: 'job', project: 'my-app', lines: [], done: false, text: '', buttons: ['stop'] });
+  assert.strictEqual(spokenLine(started, 'Aarav'), 'Aarav: Working in my-app.');
+  const done = itemParts({ id: 5, type: 'job', project: 'my-app', lines: ['Editing a.js'], done: true, text: 'I fixed it.', buttons: ['copy'] });
+  assert.strictEqual(spokenLine(done, 'Aarav'), 'Aarav: Done in my-app. I fixed it.');
+  const stopped = itemParts({ id: 5, type: 'job', project: 'my-app', lines: [], done: true, text: 'Stopped.', buttons: [] });
+  assert.strictEqual(spokenLine(stopped, 'Aarav'), 'Aarav: Stopped.');
+});
+
+test('the example line for the empty chat names the project when there is one', () => {
+  assert.strictEqual(exampleLine('my-app'), '“fix the login bug in my-app”');
+  assert.strictEqual(exampleLine(''), '');
+  assert.strictEqual(exampleLine(undefined), '');
+});
+
+test("a job's heading says where it works, and how it ended: done, stopped, or not finished (the red line after it says why)", () => {
+  const job = (fields) => itemParts({ id: 5, type: 'job', project: 'my-app', lines: [], done: false, text: '', buttons: [], ...fields });
+  assert.strictEqual(jobHeading(job({})), '🔧 Working in my-app');
+  assert.strictEqual(jobHeading(job({ done: true, text: 'I fixed it.' })), '✅ Done in my-app');
+  assert.strictEqual(jobHeading(job({ done: true, text: 'Stopped.' })), '⏹ Stopped in my-app');
+  assert.strictEqual(jobHeading(job({ done: true, text: '' })), '🔧 Was working in my-app');
+  assert.strictEqual(spokenLine(job({ done: true, text: '' }), 'Aarav'), 'Aarav: Was working in my-app.');
 });

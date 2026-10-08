@@ -2,7 +2,7 @@
 /* global mountAiForm, renderBuddyGrid, ShortcutKeys, updateView */
 
 const $ = (id) => document.getElementById(id);
-const SECTIONS = ['buddy', 'shortcut', 'ai', 'memory', 'permissions', 'general'];
+const SECTIONS = ['buddy', 'shortcut', 'ai', 'claude', 'memory', 'permissions', 'general'];
 // Windows asks for no permissions, and writes its shortcuts with Ctrl, Alt and Shift (shortcut-keys.js).
 const onWindows = () => snap?.platform === 'win32';
 const shortcutKeys = () => ShortcutKeys.forPlatform(snap?.platform);
@@ -76,6 +76,126 @@ function showLoadError(message) {
 }
 
 // ---- sections ----
+
+/** Settings → Claude Code's status line: installed and signed in, or what to do about it (src/main/claude/find.js). */
+async function renderClaude({ force = false } = {}) {
+  if (force) $('claude-status').textContent = 'Checking…';
+  const r = await window.buddy.claudeStatus(force);
+  const link = r.ok ? r.line.link : null;
+  $('claude-get').hidden = !link;
+  if (link) $('claude-get').textContent = link.label;
+  $('claude-status').textContent = r.ok ? r.line.text : r.error.message;
+  $('claude-status').className = r.ok ? (r.status.loggedIn ? 'good' : 'muted') : 'error';
+}
+$('claude-check').addEventListener('click', () => renderClaude({ force: true }));
+$('claude-get').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const r = await window.buddy.claudeGet();
+  if (!r.ok) {
+    $('claude-status').textContent = r.error.message;
+    $('claude-status').className = 'error';
+  }
+});
+
+// ---- Claude Code's projects ----
+
+/** Settings → Claude Code → My projects: each folder a row with its name, its path and ✕; "(not found)" when it is gone. */
+function renderProjects(projects) {
+  const focused = document.activeElement?.closest('#project-list li')?.dataset.path;
+  $('project-list').replaceChildren(...projects.map(projectRow));
+  if (focused) [...$('project-list').children].find((li) => li.dataset.path === focused)?.querySelector('button').focus();
+  $('project-list').hidden = !projects.length;
+  $('project-empty').hidden = projects.length > 0;
+}
+
+function projectRow(project) {
+  const words = Object.assign(document.createElement('div'), { className: 'fact grow' });
+  const name = Object.assign(document.createElement('p'), { className: 'row-title', textContent: project.name });
+  if (!project.found) name.append(Object.assign(document.createElement('span'), { className: 'muted', textContent: ' (not found)' }));
+  const where = Object.assign(document.createElement('p'), { className: 'muted small path', textContent: project.path, title: project.path });
+  words.append(name, where);
+  const remove = Object.assign(document.createElement('button'), {
+    type: 'button', className: 'btn quiet small forget', textContent: '✕', title: 'Remove this folder',
+  });
+  remove.setAttribute('aria-label', `Remove ${project.name}`);
+  remove.addEventListener('click', () => removeProject(project.path));
+  const row = Object.assign(document.createElement('li'), { className: 'group-row' });
+  row.dataset.path = project.path;
+  row.append(words, remove);
+  return row;
+}
+
+async function loadProjects() {
+  const r = await window.buddy.claudeProjects();
+  if (r.ok) renderProjects(r.projects);
+  else showStatus('project-status', r.error.message, 'error');
+}
+
+async function removeProject(folder) {
+  const rows = [...$('project-list').children];
+  const at = rows.findIndex((li) => li.dataset.path === folder);
+  const r = await window.buddy.removeProject(folder);
+  if (!r.ok) {
+    showStatus('project-status', r.error.message, 'error');
+    return;
+  }
+  showStatus('project-status', '');
+  renderProjects(r.projects);
+  // The ✕ that was clicked is gone: the keyboard focus moves to the ✕ now in its place, or to Add a folder.
+  const left = $('project-list').querySelectorAll('.forget');
+  (left[Math.min(at, left.length - 1)] || $('project-add')).focus();
+}
+
+$('project-add').addEventListener('click', async () => {
+  $('project-add').disabled = true; // one picker at a time
+  let r;
+  try {
+    r = await window.buddy.addProject();
+  } finally {
+    $('project-add').disabled = false;
+  }
+  if (!r.ok) {
+    showStatus('project-status', r.error.message, 'error');
+    return;
+  }
+  renderProjects(r.projects);
+  showStatus('project-status', r.added ? `Added ${r.added.name} ✓` : '', 'good');
+});
+
+/**
+ * Settings → Claude Code's "Show me what Claude Code is doing" (src/main/claude/watch.js): the switch, the line under
+ * it, and dimmed with a word of advice while Claude Code is not installed. The status is the cached one (a minute),
+ * unless `force` asks Claude Code again (Check again).
+ */
+async function renderClaudeWatch({ force = false } = {}) {
+  const [status, watch] = await Promise.all([window.buddy.claudeStatus(force), window.buddy.claudeWatch()]);
+  const installed = status.ok && status.status.installed === true;
+  $('claude-watch-switch').disabled = !installed;
+  if (!watch.ok) {
+    showStatus('claude-watch-status', watch.error.message, 'error');
+    return;
+  }
+  $('claude-watch-switch').checked = watch.on;
+  $('claude-watch-line').textContent = installed || watch.on ? watch.line : 'Install Claude Code first.';
+}
+$('claude-watch-switch').addEventListener('change', async () => {
+  const want = $('claude-watch-switch').checked;
+  $('claude-watch-switch').disabled = true; // not flipped again while this one is on its way
+  const r = await window.buddy.setClaudeWatch(want);
+  $('claude-watch-switch').disabled = false;
+  if (r.ok) {
+    $('claude-watch-switch').checked = r.on;
+    $('claude-watch-line').textContent = r.line;
+    showStatus('claude-watch-status', 'Saved ✓', 'good');
+  } else {
+    $('claude-watch-switch').checked = !want; // the switch shows what is saved, and the line says why
+    $('claude-watch-line').textContent = r.error.message;
+    showStatus('claude-watch-status', '');
+  }
+});
+// Check again: the switch follows Claude Code's fresh answer (a cached one could still say "not installed").
+$('claude-check').addEventListener('click', () => renderClaudeWatch({ force: true }));
+
 
 function showSection(name) {
   if (loadFailed) return; // there is no section to show
@@ -604,6 +724,9 @@ window.addEventListener('focus', async () => {
   if (update.ok) renderUpdates(update);
   await renderPermissions();
   await mountAiForm($('ai'));
+  await renderClaude();
+  await loadProjects();
+  await renderClaudeWatch();
   // The admin may have changed free mode since the app last asked; what is typed meanwhile stays.
   const fresh = await window.buddy.refresh();
   if (fresh.ok) {

@@ -42,6 +42,12 @@ const { registerPanelIpc, createMicrophone } = require('./ipc/panel');
 const { registerSettingsIpc } = require('./ipc/settings');
 const { registerAdminIpc } = require('./ipc/admin');
 const { registerUpdatesIpc } = require('./ipc/updates');
+const { registerClaudeIpc } = require('./ipc/claude');
+const { createFind } = require('./claude/find');
+const { createProjects } = require('./claude/projects');
+const { createJobs } = require('./claude/job');
+const { createHooks } = require('./claude/hooks');
+const { createWatch } = require('./claude/watch');
 const { createUpdater, installTarget, firstLaunchOfNewVersion } = require('./updates');
 const { helperFile, windows: onWindows } = require('./platform');
 
@@ -89,7 +95,14 @@ async function start(options = {}) {
     openBrowser: (url) => shell.openExternal(url),
   });
   const cloud = options.cloud || createCloud({ config: cloudConfig, account, store });
-  const ai = createAi({ store, secrets, cloud, account });
+  const find = createFind(); // Claude Code on this computer, for Settings → Claude Code and the Claude Code pieces
+  // The folders Claude Code may work in (Settings → Claude Code), and the jobs the chat runs in them (claude/job.js).
+  const projects = createProjects({ store });
+  const jobs = createJobs({ find, projects });
+  // Buddy watches Claude Code (claude/watch.js) through hooks in Claude Code's settings file (claude/hooks.js). The
+  // end-to-end test passes its own file, so that it never touches the person's real ~/.claude/settings.json.
+  const hooks = createHooks({ find, home: app.getPath('home'), file: options.claudeSettingsFile });
+  const ai = createAi({ store, secrets, cloud, account, find, dataDir: userData });
   const helper = options.helper || new Helper({ binPath: helperPath() });
   helper.start();
   // Whether macOS lets Buddy use the microphone, for the panel's voice ('unknown' on Windows, which does not ask per
@@ -172,6 +185,8 @@ async function start(options = {}) {
     // times a second). The buddy listens meanwhile, and its ear rims glow with the voice (feelings.js).
     listening: (on) => feelings.listening(on),
     voiceLevel: (level) => feelings.voiceLevel(level),
+    // Open folder on a finished job: the folder in the Finder (the Explorer on Windows).
+    openFolder: (folder) => shell.openPath(folder),
   };
   const actions = createActions({
     helper,
@@ -195,7 +210,17 @@ async function start(options = {}) {
     // The panel greets the person by their first name, and the AI knows it.
     userName: () => (account.user()?.name || '').trim().split(/\s+/)[0],
     ui,
+    jobs, // Claude Code jobs in the person's projects
   });
+  // The chat's own moods win over Claude Code's: chatBusy says a chat answer is in flight. While Buddy is off the
+  // switch is only saved (active), and power's onChange starts the watcher when Buddy is turned on.
+  const watch = createWatch({
+    store, find, hooks, ui, chatBusy: () => actions.state().busy === true, active: () => power.isOn(),
+  });
+  const startWatch = () => {
+    if (store.get('watchClaudeCode') !== true) return;
+    watch.start().catch((err) => console.warn('[buddy] could not watch Claude Code:', err.message));
+  };
   const onCall = () => {
     // The shortcut is let go while Buddy is off. This is the second guard, for a press that was already on its way.
     if (!power.isOn()) return;
@@ -220,10 +245,12 @@ async function start(options = {}) {
         takeShortcut();
         buddy.show();
         feelings.mood('wave'); // a use, like every mood: a buddy that fell asleep while it was off wakes up to wave
+        startWatch();
       } else {
         shortcut.unregister();
         // Through actions, as closing the panel does: the chat ends, and an answer still on its way does nothing.
         actions.dismiss().catch((err) => console.error('[buddy] could not close the panel', err));
+        watch.stop(); // the buddy goes idle if Claude Code had moved it
         buddy.hide();
       }
       tray.refresh();
@@ -275,6 +302,7 @@ async function start(options = {}) {
     ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch,
     account, cloud, memory, microphone, canSignIn: Boolean(cloudConfig),
     home: buddy, // Settings → Buddy → Where Buddy lives: whether there is a notch, and moving Buddy when it changes
+    find, // Claude Code on this computer: the fifth AI choice, with no key
     version: VERSION,
     justUpdated,
     onFinishOnboarding() {
@@ -288,6 +316,10 @@ async function start(options = {}) {
     if (kind === 'settings') settingsIpc.resumeShortcut();
   });
   registerAdminIpc({ ipcMain, windows, cloud });
+  registerClaudeIpc({
+    ipcMain, allowed: (webContents) => windows.owns(webContents, 'settings') || windows.owns(webContents, 'onboarding'),
+    find, watch, projects, dialog, openExternal: (url) => shell.openExternal(url),
+  });
   updatesIpc = registerUpdatesIpc({
     ipcMain,
     electron: { app, shell, dialog },
@@ -302,6 +334,7 @@ async function start(options = {}) {
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
     helper.stop();
+    jobs.stopAll();
   });
 
   powerMonitor.on('lock-screen', () => buddy.pause(true));
@@ -332,6 +365,7 @@ async function start(options = {}) {
       takeShortcut();
       buddy.show();
       feelings.mood('wave');
+      startWatch();
     }
     // Nobody can use Buddy signed out: Settings has the Sign in button.
     if (!account.isSignedIn()) openSettings();
@@ -352,6 +386,7 @@ async function start(options = {}) {
   return {
     store, secrets, memory, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, trayState, shortcut, updater,
     home: buddy, // the same object as buddy, by the name the e2e checks for the notch use
+    projects, jobs, find, // Claude Code (src/main/claude)
   };
 }
 

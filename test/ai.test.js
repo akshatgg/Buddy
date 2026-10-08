@@ -18,9 +18,14 @@ const FREE_ON = { ...FREE_OFF, freeOn: true };
 function setup({
   key = 'k-1', model, vision = true, answer = 'Fixed text', live = ['m-live'], signedIn = true, free = FREE_OFF, fresh, freshFails,
   freeAsk, signOutDuring = null,
+  // The Claude Code route: `picked` 'claude-code' picks it, `claude` is what find.status() says (null: no finder at
+  // all, as before this route), `claudeAnswer` what the run answers (or the error it fails with), `alias` the saved model.
+  picked = 'openai', claude = null, claudeAnswer = 'Claude answer', alias,
 } = {}) {
   const calls = [];
   const cloudCalls = [];
+  const runs = [];
+  const statusCalls = [];
   const provider = {
     fallbackModels: ['m-default', 'm-other'],
     isVisionModel: () => vision,
@@ -45,15 +50,28 @@ function setup({
       return freeAsk ? freeAsk() : { text: 'Free answer', model: 'free-model' };
     },
   };
-  const settings = { provider: 'openai', models: model ? { openai: model } : {} };
+  const models = {};
+  if (model) models.openai = model;
+  if (alias !== undefined) models['claude-code'] = alias;
+  const settings = { provider: picked, models };
+  const find = claude && { status: async (options = {}) => { statusCalls.push(options); return claude; } };
+  const run = {
+    async runPrompt(opts) {
+      runs.push(opts);
+      if (claudeAnswer instanceof Error) throw claudeAnswer;
+      return { text: claudeAnswer, model: opts.model, usage: { inputTokens: 500, outputTokens: 20 } };
+    },
+  };
   const ai = createAi({
     store: { get: (k) => settings[k] },
     secrets: { get: (p) => (p === 'openai' ? key : null), has: (p) => p === 'openai' && key !== null },
     providers: { getProvider: () => provider },
     account: { isSignedIn: () => signedIn },
     cloud,
+    find,
+    run,
   });
-  return { ai, calls, cloudCalls };
+  return { ai, calls, cloudCalls, runs, statusCalls };
 }
 
 test('ask calls the chosen provider with the key, the saved model and the prompt', async () => {
@@ -301,4 +319,122 @@ test('other failures of the free route are passed on as they are, with no second
   const s = setup({ free: FREE_ON, freeAsk: () => { throw down; } });
   await assert.rejects(s.ai.ask('fix', { text: 'x' }), down);
   assert.ok(!s.cloudCalls.some(([name, options]) => name === 'settings' && options.force));
+});
+
+// ---- Claude Code on this computer (the brain spec §4) ----
+
+const CLAUDE_IN = { installed: true, loggedIn: true, email: 'a@b.com', plan: 'max', version: '2.1.289', path: '/opt/homebrew/bin/claude', configDirectory: '/Users/a/.claude' };
+const CLAUDE_OUT = { ...CLAUDE_IN, loggedIn: false, email: null, plan: null };
+const CLAUDE_NONE = { installed: false, loggedIn: false, email: null, plan: null, version: null, path: null, configDirectory: null };
+const claudeChat = JSON.stringify({ kind: 'write', say: 'Ye lo!', text: 'Dear Sir,', notes: [], doIt: false, send: false, remember: [], again: false });
+
+test('claude code picked and signed in, free mode off: one run with the prompt, the saved alias and the signal, read like a provider answer', async () => {
+  const s = setup({ picked: 'claude-code', claude: CLAUDE_IN, claudeAnswer: claudeChat, alias: 'opus' });
+  const signal = AbortSignal.timeout(AI_TIMEOUT_MS);
+  const out = await s.ai.ask('chat', { message: 'boss ko mail', appName: 'Mail', step: 1 }, { signal });
+  assert.deepStrictEqual([out.text, out.model, out.usage], [claudeChat, 'opus', { inputTokens: 500, outputTokens: 20 }]);
+  assert.strictEqual(out.chat.kind, 'write');
+  assert.strictEqual(s.runs.length, 1);
+  assert.strictEqual(s.runs[0].model, 'opus');
+  assert.strictEqual(s.runs[0].signal, signal);
+  assert.match(s.runs[0].system, /"kind"/);
+  assert.match(s.runs[0].user, /The app they are in: Mail/);
+  assert.strictEqual(s.runs[0].image, null);
+  assert.strictEqual(s.calls.length, 0, 'no provider, no key');
+  assert.ok(s.statusCalls.length >= 1 && s.statusCalls.every((o) => !o.force), 'the cached status, never forced');
+});
+
+test('claude code: sonnet without a saved alias, and in place of an alias that is not one of its own', async () => {
+  for (const [alias, expected] of [[undefined, 'sonnet'], ['haiku', 'haiku'], ['gpt-4.1', 'sonnet'], ['', 'sonnet']]) {
+    const s = setup({ picked: 'claude-code', claude: CLAUDE_IN, alias });
+    assert.strictEqual(s.ai.modelFor('claude-code'), expected, String(alias));
+    await s.ai.ask('write', { instruction: 'leave mail' });
+    assert.strictEqual(s.runs[0].model, expected, String(alias));
+  }
+});
+
+test('claude code: not installed, or not signed in, says so before anything runs', async () => {
+  const none = setup({ picked: 'claude-code', claude: CLAUDE_NONE });
+  await assert.rejects(none.ai.ask('write', { instruction: 'x' }),
+    { code: 'no_claude', message: "Claude Code isn't installed on this computer. Install it, or pick another AI in Settings." });
+  const out = setup({ picked: 'claude-code', claude: CLAUDE_OUT });
+  await assert.rejects(out.ai.ask('write', { instruction: 'x' }),
+    { code: 'claude_signed_out', message: "Claude Code isn't signed in. Open a terminal, run claude, and sign in." });
+  assert.deepStrictEqual([none.runs, out.runs], [[], []]);
+});
+
+test('claude code: a screenshot goes to the run as it is: every alias reads images', async () => {
+  const s = setup({ picked: 'claude-code', claude: CLAUDE_IN, claudeAnswer: '{"kind":"answer","say":"It means soon."}' });
+  const out = await s.ai.ask('chat', { message: 'what does this mean?', image: 'IMG', step: 2 });
+  assert.strictEqual(s.runs[0].image, 'IMG');
+  assert.deepStrictEqual([out.chat.kind, out.chat.text], ['answer', 'It means soon.']);
+  const check = setup({ picked: 'claude-code', claude: CLAUDE_IN, claudeAnswer: '{"verdict":"good","problems":[],"corrected":null}' });
+  assert.deepStrictEqual((await check.ai.ask('check', { image: 'IMG' })).check, { verdict: 'good', problems: [], corrected: null });
+});
+
+test("claude code: the run's own failures are passed on as they are", async () => {
+  const limit = new BuddyError('claude_limit', 'Your Claude Code usage limit is reached for now. Wait, or pick another AI in Settings.');
+  const s = setup({ picked: 'claude-code', claude: CLAUDE_IN, claudeAnswer: limit });
+  await assert.rejects(s.ai.ask('write', { instruction: 'x' }), limit);
+});
+
+test('claude code: bad input is refused before anything runs', async () => {
+  const s = setup({ picked: 'claude-code', claude: CLAUDE_IN });
+  await assert.rejects(s.ai.ask('write', { instruction: '' }), { code: 'bad_request' });
+  assert.strictEqual(s.runs.length, 0);
+});
+
+test('claude code signed in counts as an own key in every free-mode rule', async () => {
+  const on = (free) => setup({ picked: 'claude-code', claude: CLAUDE_IN, free });
+  // The server never reached: Claude Code answers.
+  assert.strictEqual((await setup({ picked: 'claude-code', claude: CLAUDE_IN, free: null }).ai.ask('fix', { text: 'x' })).text, 'Claude answer');
+  // Free mode off: straight to Claude Code.
+  assert.strictEqual((await on(FREE_OFF).ai.ask('fix', { text: 'x' })).text, 'Claude answer');
+  // Blocked, own keys allowed.
+  assert.strictEqual((await on({ ...FREE_ON, blocked: true, allowOwnKey: true }).ai.ask('fix', { text: 'x' })).text, 'Claude answer');
+  // Today's requests already used up by the kept settings, own keys allowed: the server is not asked.
+  const usedUp = on({ ...FREE_ON, allowOwnKey: true, usedToday: 30 });
+  assert.strictEqual((await usedUp.ai.ask('fix', { text: 'x' })).text, 'Claude answer');
+  assert.deepStrictEqual(usedUp.cloudCalls, [['settings', {}]]);
+  // The server refuses with the limit, own keys allowed: Claude Code takes over after the settings are fetched again.
+  const refused = setup({ picked: 'claude-code', claude: CLAUDE_IN, free: { ...FREE_ON, allowOwnKey: true }, freeAsk: () => { throw LIMIT; } });
+  assert.strictEqual((await refused.ai.ask('fix', { text: 'x' })).text, 'Claude answer');
+  assert.ok(refused.cloudCalls.some(([name, options]) => name === 'settings' && options.force === true));
+  // Free mode turned off meanwhile.
+  const off = new BuddyError('free_off', 'Free AI is off.');
+  assert.strictEqual((await setup({ picked: 'claude-code', claude: CLAUDE_IN, free: FREE_ON, fresh: FREE_OFF, freeAsk: () => { throw off; } }).ai.ask('fix', { text: 'x' })).text, 'Claude answer');
+  // With free requests left, the server answers first and Claude Code is not run.
+  const first = on({ ...FREE_ON, allowOwnKey: true });
+  assert.strictEqual((await first.ai.ask('fix', { text: 'x' })).text, 'Free answer');
+  assert.strictEqual(first.runs.length, 0);
+});
+
+test('claude code picked but not signed in is no own key: the free-mode rules say what they say for no key', async () => {
+  const out = (free) => setup({ picked: 'claude-code', claude: CLAUDE_OUT, free });
+  await assert.rejects(out(null).ai.ask('fix', { text: 'x' }), { code: 'network' });
+  await assert.rejects(out({ ...FREE_ON, blocked: true, allowOwnKey: true }).ai.ask('fix', { text: 'x' }), { code: 'blocked' });
+  const limited = setup({ picked: 'claude-code', claude: CLAUDE_OUT, free: { ...FREE_ON, allowOwnKey: true }, freeAsk: () => { throw LIMIT; } });
+  await assert.rejects(limited.ai.ask('fix', { text: 'x' }), { code: 'need_key' });
+  // Free mode off: the chat says what to do.
+  await assert.rejects(out(FREE_OFF).ai.ask('fix', { text: 'x' }), { code: 'claude_signed_out' });
+  // The same for not installed, where the words are "install it".
+  await assert.rejects(setup({ picked: 'claude-code', claude: CLAUDE_NONE, free: FREE_OFF }).ai.ask('fix', { text: 'x' }), { code: 'no_claude' });
+});
+
+test('claude code: listModels gives its four names without a call, and other AIs are untouched', async () => {
+  const s = setup({ picked: 'claude-code', claude: CLAUDE_IN });
+  assert.deepStrictEqual(await s.ai.listModels('claude-code'), ['fable', 'opus', 'sonnet', 'haiku']);
+  assert.deepStrictEqual(await s.ai.listModels('openai'), ['m-live']);
+});
+
+test('another AI picked: Claude Code is never asked about, and a run never happens', async () => {
+  const s = setup({ picked: 'openai', claude: CLAUDE_IN });
+  await s.ai.ask('fix', { text: 'x' });
+  assert.deepStrictEqual([s.statusCalls, s.runs], [[], []]);
+  assert.strictEqual(s.calls.length, 1);
+});
+
+test('without a finder (older callers), Claude Code picked is simply not installed', async () => {
+  const s = setup({ picked: 'claude-code', claude: null });
+  await assert.rejects(s.ai.ask('fix', { text: 'x' }), { code: 'no_claude' });
 });

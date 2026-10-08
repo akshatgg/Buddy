@@ -221,7 +221,7 @@ test('chat: the system prompt asks for the JSON and gives every rule', () => {
   assert.match(system, /You are Buddy/);
   assert.match(system, /JSON only/);
   assert.match(system, /"kind"/);
-  for (const kind of ['write', 'fix', 'answer', 'box', 'screen', 'send']) assert.match(system, new RegExp(`"${kind}"`), kind);
+  for (const kind of ['write', 'fix', 'answer', 'box', 'screen', 'send', 'code']) assert.match(system, new RegExp(`"${kind}"`), kind);
   for (const field of ['say', 'text', 'notes', 'doIt', 'send', 'remember', 'again']) assert.match(system, new RegExp(`"${field}"`), field);
   assert.match(system, /all eight fields/);
   assert.match(system, /"again": true or false/, 'the JSON shape has it');
@@ -245,7 +245,7 @@ const answerOf = (fields) => JSON.stringify({
 });
 
 test('parseChat reads each kind', () => {
-  for (const kind of ['write', 'fix', 'answer', 'box', 'screen', 'send']) {
+  for (const kind of ['write', 'fix', 'answer', 'box', 'screen', 'send', 'code']) {
     const text = kind === 'answer' ? 'It means "soon".' : 'Some text';
     assert.deepStrictEqual(parseChat(answerOf({ kind, say: 'Here you go.', text })), {
       kind, say: 'Here you go.', text, notes: [], doIt: false, send: false, remember: [], again: false,
@@ -328,4 +328,33 @@ test('parseChat never throws', () => {
     assert.doesNotThrow(() => parseChat(odd), String(odd));
     assert.ok(parseChat(odd).kind);
   }
+});
+
+test('chat: their project names reach the user prompt on one line, at most 20, each cut to 100 characters', () => {
+  const p = buildPrompt('chat', { message: 'fix the bug in my-app', projects: ['my-app', 'site', '', 42, null, `${'x'.repeat(120)}`] });
+  assert.match(p.user, new RegExp(`Their projects on this computer: my-app, site, ${'x'.repeat(100)}\\n`));
+  const many = buildPrompt('chat', { message: 'hi', projects: Array.from({ length: 25 }, (_, i) => `p${i}`) });
+  assert.ok(many.user.includes('p19') && !many.user.includes('p20'), 'the first 20');
+  assert.ok(!buildPrompt('chat', { message: 'hi' }).user.includes('Their projects'), 'nothing when there are none');
+  assert.ok(!buildPrompt('chat', { message: 'hi', projects: 'my-app' }).user.includes('Their projects'), 'not a list: skipped');
+});
+
+test('chat: the projects come after what Buddy knows and before the chat so far', () => {
+  const p = buildPrompt('chat', { message: 'go', facts: ['You work at Infosys.'], projects: ['my-app'], history: [{ from: 'you', text: 'hi' }] });
+  assert.ok(p.user.indexOf('What you know about them') < p.user.indexOf('Their projects on this computer'));
+  assert.ok(p.user.indexOf('Their projects on this computer') < p.user.indexOf('Chat so far'));
+});
+
+test('chat: the system prompt has the "code" kind and its rule', () => {
+  const { system } = buildPrompt('chat', { message: 'hi' });
+  assert.match(system, /"code"/);
+  assert.match(system, /or "send" or "code"/, 'the JSON shape has it');
+  assert.match(system, /- "code": a job in one of their own software projects on this computer/);
+  assert.match(system, /Never "code" when no projects are listed/);
+  assert.match(system, /one or two clear English sentences for a programmer/);
+});
+
+test('parseChat reads "code" with its task as the text, and never with doIt, send, notes or again', () => {
+  const r = parseChat(answerOf({ kind: 'code', say: 'On it!', text: 'Fix the login bug in src/login.js.', doIt: true, send: true, notes: ['x'], again: true }));
+  assert.deepStrictEqual(r, { kind: 'code', say: 'On it!', text: 'Fix the login bug in src/login.js.', notes: [], doIt: false, send: false, remember: [], again: false });
 });

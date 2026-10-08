@@ -11,6 +11,9 @@ const { createKeyWatch } = require('../src/main/key-watch');
 const { createShortcut } = require('../src/main/shortcut');
 const { tapKeys } = require('../src/renderer/common/shortcut-keys');
 const { chooseModel, registerSettingsIpc } = require('../src/main/ipc/settings');
+const { createFind, MODELS: CLAUDE_MODELS, MODEL_LABELS, GET_URL } = require('../src/main/claude/find');
+
+const { line: claudeLine } = createFind({ env: {}, existsSync: () => false });
 
 test('keeps the model the user picked when the key can use it', () => {
   assert.strictEqual(chooseModel(['a', 'b'], ['b'], 'a'), 'a');
@@ -43,6 +46,11 @@ const FAILED = { ok: false, error: { code: 'failed', message: 'Something went wr
 const refused = (code, message) => ({ ok: false, error: { code, message } });
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
+// What Claude Code's finder says (claude/find.js status()): signed in, installed but signed out, not installed.
+const CLAUDE_IN = { installed: true, loggedIn: true, email: 'a@b.com', plan: 'max', version: '2.1.289', path: '/opt/homebrew/bin/claude', configDirectory: '/Users/a/.claude' };
+const CLAUDE_OUT = { ...CLAUDE_IN, loggedIn: false, email: null, plan: null };
+const CLAUDE_NONE = { installed: false, loggedIn: false, email: null, plan: null, version: null, path: null, configDirectory: null };
+
 /**
  * registerSettingsIpc with fakes. `registered` is the shortcut that is
  * registered right now (null: none, as when it failed at launch, or while Buddy is
@@ -52,7 +60,8 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
  * the server's free-mode settings as the app last got them; `signInFails` and `cloudFails` make signing in or
  * fetching those settings fail; `cloudSignsOut` makes that fetch sign the person out first, as the real one does
  * when the server turns their sign-in down twice. `mic` is how the microphone stands, and `micAnswer` how it stands
- * once macOS has asked the person.
+ * once macOS has asked the person. `claude` is what Claude Code's finder says; `claudeCalls` gets the options of each
+ * find.status() call.
  */
 function setup({
   stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut, realKeyWatch,
@@ -60,7 +69,7 @@ function setup({
   mic = 'not-determined', micAnswer = 'granted',
   // Where Buddy lives (home.js): `hasNotch` is whether a notch screen is on; `withHome` false leaves home out, as an
   // older main.js would.
-  withHome = true, hasNotch = false,
+  withHome = true, hasNotch = false, claude = CLAUDE_OUT,
 } = {}) {
   const data = { ...structuredClone(DEFAULTS), ...stored };
   const store = {
@@ -83,6 +92,7 @@ function setup({
     },
   };
   const calls = [];
+  const claudeCalls = []; // the options of each find.status() call
   const opened = [];
   let current = registered;
   let on = buddyOn;
@@ -179,6 +189,7 @@ function setup({
     account,
     cloud,
     memory,
+    find: { status: async (options = {}) => { claudeCalls.push(options); return claude; }, line: claudeLine },
     canSignIn: true,
     version: '0.1.0',
     platform,
@@ -186,7 +197,7 @@ function setup({
   });
   const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
   const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
-  return { call, callFromWelcome, handlers, store, keys, calls, opened, ipc, shortcutNow: () => current, keyWatch, sent, memory };
+  return { call, callFromWelcome, handlers, store, keys, calls, claudeCalls, opened, ipc, shortcutNow: () => current, keyWatch, sent, memory };
 }
 
 test('settings:get answers the settings without positions or lastDisplayId, the buddies and the providers', async () => {
@@ -200,9 +211,10 @@ test('settings:get answers the settings without positions or lastDisplayId, the 
   assert.strictEqual(r.buddyOn, false);
   assert.deepStrictEqual(r.characters, CHARACTERS);
   assert.deepStrictEqual(r.providers.map((p) => [p.id, p.hasKey]), [
-    ['anthropic', false], ['openai', true], ['gemini', false], ['groq', false],
+    ['anthropic', false], ['openai', true], ['gemini', false], ['groq', false], ['claude-code', false],
   ]);
-  for (const p of r.providers) assert.deepStrictEqual(Object.keys(p).sort(), ['fallbackModels', 'hasKey', 'id', 'keyUrl', 'label']);
+  for (const p of r.providers.slice(0, 4)) assert.deepStrictEqual(Object.keys(p).sort(), ['fallbackModels', 'hasKey', 'id', 'keyUrl', 'label', 'needsKey']);
+  assert.ok(r.providers.slice(0, 4).every((p) => p.needsKey === true));
 });
 
 test('a page that is not the Settings or Welcome window gets nothing and changes nothing', async () => {
@@ -371,7 +383,7 @@ test('save-key: a key that belongs to another AI is checked with that AI, kept u
   assert.strictEqual(r.settings.models.gemini, 'gemini-flash-latest', "Gemini's own default, since the key can use it");
   assert.strictEqual(r.settings.models.anthropic, 'claude-opus-5-5', 'the model picked for Claude is left alone');
   assert.deepStrictEqual(r.providers.map((p) => [p.id, p.hasKey]), [
-    ['anthropic', false], ['openai', false], ['gemini', true], ['groq', false],
+    ['anthropic', false], ['openai', false], ['gemini', true], ['groq', false], ['claude-code', false],
   ]);
 });
 
@@ -615,6 +627,7 @@ test('set: a provider must be a real one', async () => {
   }
   assert.deepStrictEqual(s.store.all(), before);
   assert.strictEqual((await s.call('settings:set', { provider: 'groq' })).settings.provider, 'groq');
+  assert.strictEqual((await s.call('settings:set', { provider: 'claude-code' })).settings.provider, 'claude-code');
 });
 
 test('set: models must be { providerId: model name } for real providers', async () => {
@@ -624,13 +637,14 @@ test('set: models must be { providerId: model name } for real providers', async 
     null, [], 'anthropic', 5, { nope: 'm' }, { constructor: 'm' }, { anthropic: '' }, { anthropic: '   ' },
     { anthropic: 5 }, { anthropic: null }, { anthropic: ['m'] }, { anthropic: 'm', nope: 'x' },
     JSON.parse('{"__proto__":"m"}'), JSON.parse('{"anthropic":"m","__proto__":{"x":1}}'),
+    { 'claude-code': 'gpt-4.1' }, { 'claude-code': 'Sonnet' },
   ];
   for (const models of bad) {
     const r = await s.call('settings:set', { models });
     assert.deepStrictEqual(r, refused('bad_request', 'Those model choices are not valid.'), JSON.stringify(models));
   }
   assert.deepStrictEqual(s.store.all(), before);
-  const good = { anthropic: 'claude-sonnet-5-5', groq: 'llama-3.3-70b-versatile' };
+  const good = { anthropic: 'claude-sonnet-5-5', groq: 'llama-3.3-70b-versatile', 'claude-code': 'opus' };
   const r = await s.call('settings:set', { models: good });
   assert.deepStrictEqual(r.settings.models, good);
   assert.notStrictEqual(s.store.get('models'), good, 'what is stored is a copy');
@@ -1320,4 +1334,57 @@ test('the memory calls are for the Settings window only: the Welcome window is r
   }
   assert.deepStrictEqual(s.memory.facts(), ['Your boss is Mr. Sharma.']);
   assert.strictEqual(s.memory.learning(), true);
+});
+
+// ---- Claude Code on this computer (the brain spec §3) ----
+
+test('the snapshot lists Claude Code last, with no key to need: signed in counts as a key, and its status line comes along', async () => {
+  const signedIn = await setup({ claude: CLAUDE_IN }).call('settings:get');
+  const entry = signedIn.providers.at(-1);
+  assert.deepStrictEqual(entry, {
+    id: 'claude-code',
+    label: 'Claude Code on this computer',
+    keyUrl: GET_URL,
+    fallbackModels: CLAUDE_MODELS,
+    modelLabels: MODEL_LABELS,
+    hasKey: true,
+    needsKey: false,
+    status: CLAUDE_IN,
+    line: { text: 'Claude Code: signed in as a@b.com (Max)', link: null },
+  });
+  const out = (await setup({ claude: CLAUDE_OUT }).call('settings:get')).providers.at(-1);
+  assert.deepStrictEqual([out.hasKey, out.line.text], [false, 'Claude Code is installed but not signed in. Open a terminal, run claude, and sign in.']);
+  const none = (await setup({ claude: CLAUDE_NONE }).call('settings:get')).providers.at(-1);
+  assert.deepStrictEqual([none.hasKey, none.line], [false, { text: "Claude Code isn't installed on this computer.", link: { label: 'Get Claude Code', url: GET_URL } }]);
+});
+
+test('the snapshot asks for the cached status, never forced: opening Settings does not run claude twice', async () => {
+  const s = setup({ claude: CLAUDE_IN });
+  await s.call('settings:get');
+  await s.call('settings:set', { size: 'large' });
+  assert.deepStrictEqual(s.claudeCalls, [{}, {}]);
+});
+
+test('save-key and clear-key for Claude Code are refused: it has no key', async () => {
+  const s = setup({ claude: CLAUDE_IN });
+  for (const [channel, args] of [['settings:save-key', ['claude-code', 'sk-ant-abc']], ['settings:clear-key', ['claude-code']]]) {
+    assert.deepStrictEqual(await s.call(channel, ...args), refused('bad_request', "Claude Code doesn't use a key."), channel);
+  }
+  assert.deepStrictEqual(s.keys, {});
+});
+
+test('settings:models for Claude Code answers its four names without asking the AI', async () => {
+  const s = setup({ claude: CLAUDE_IN });
+  assert.deepStrictEqual(await s.call('settings:models', 'claude-code'), { ok: true, models: ['fable', 'opus', 'sonnet', 'haiku'] });
+  assert.deepStrictEqual(s.calls, []);
+});
+
+test("a key saved while Claude Code is picked switches to that key's AI, as it does for any other pick", async (t) => {
+  const checks = fakeKeyChecks(t, { gemini: async () => GEMINI_MODELS });
+  const s = setup({ claude: CLAUDE_IN, stored: { provider: 'claude-code' } });
+  const r = await s.call('settings:save-key', 'anthropic', GEMINI_KEY);
+  assert.deepStrictEqual(asked(checks), ['gemini']);
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.settings.provider, 'gemini');
+  assert.strictEqual(r.providers.at(-1).id, 'claude-code', 'the answer is a whole snapshot');
 });

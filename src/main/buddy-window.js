@@ -24,6 +24,7 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
   let loaded = false; // the page has finished loading, so it can take messages
   let pendingMood = null; // the latest mood sent while the page was not loaded
   let paused = false; // what a freshly loaded page is told
+  let panelOpen = false; // whether the panel is open, which a freshly loaded page is told too
   let crashes = []; // when the page crashed, within the last CRASH_WINDOW_MS
   let drag = { dx: 0, dy: 0 };
   let cursorTimer = null;
@@ -90,6 +91,7 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
     lastCursor = null; // what was sent while it loaded was dropped, so send the pointer again even if it is still
     win.setIgnoreMouseEvents(true, { forward: true }); // a fresh page starts without hover
     send('buddy:pause', paused);
+    if (panelOpen) send('buddy:panel-open', true); // a new page starts with the panel closed
     if (pendingMood !== null) {
       send('buddy:mood', pendingMood);
       pendingMood = null;
@@ -204,6 +206,14 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
      */
     voiceLevel(level) {
       send('buddy:voice-level', typeof level === 'number' ? Math.min(1, Math.max(0, level)) || 0 : 0);
+    },
+    /**
+     * Whether the panel is open: while the person uses it, the buddy does not fidget. Unlike the voice level, this is
+     * kept for a page that loads meanwhile, since it can stay so for minutes.
+     */
+    panelOpen(open) {
+      panelOpen = Boolean(open);
+      send('buddy:panel-open', panelOpen);
     },
     pause(value) {
       paused = value;

@@ -73,6 +73,7 @@ let lastLookChange = -Infinity; // when that was, in now() seconds
 let lastActive = now(); // the last time countsAsActive() was true (moods.js), in now() seconds
 let hovering = false;
 let press = null; // { x, y, moved, shaken } while the pointer is down on the buddy
+let panelOpen = false; // main says the panel is open (buddy:panel-open): the person is using Buddy
 const voice = { reading: 0, level: 0, at: now() }; // the voice level last read, the level drawn and when (listening)
 let timer = null; // the one pending frame; null while the loop is paused
 let lastTick = -Infinity; // when the last frame was drawn, in now() seconds
@@ -227,11 +228,12 @@ function changeMood(name) {
 
 /**
  * Mood changes that come with time: a mood that is over goes back to idle, and an idle buddy that nobody is using
- * fidgets now and then (moods.js). While the pointer is on the buddy or presses it, no fidget comes due.
+ * fidgets now and then (moods.js). While the pointer is on the buddy or presses it, or the panel is open, no fidget
+ * comes due.
  */
 function settle(t) {
   if (moodPose(mood.name, t - mood.since).done) setMood('idle', t);
-  if (hovering || press) {
+  if (hovering || press || panelOpen) {
     fidgeter.reset(t);
   } else if (mood.name === 'idle') {
     const fidget = fidgeter.take(t);
@@ -425,6 +427,11 @@ window.buddy.onCursor((point) => {
 // already draws at the full rate.
 window.buddy.onVoiceLevel((level) => {
   if (mood.name === 'listening') voice.reading = typeof level === 'number' ? Math.min(1, Math.max(0, level)) || 0 : 0;
+});
+// The panel opening and closing. While it is open the person is using Buddy, so the buddy does not fidget (settle); a
+// fidget already playing ends as usual. There is nothing to draw for it.
+window.buddy.onPanelOpen((open) => {
+  panelOpen = Boolean(open);
 });
 window.buddy.onPause((value) => {
   if (Boolean(value) === paused) return; // main says so again at every load and every show

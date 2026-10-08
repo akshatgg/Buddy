@@ -281,3 +281,41 @@ test('mood() and voiceLevel() do nothing without a window: the sleep countdown c
   assert.doesNotThrow(() => buddy.voiceLevel(0.5));
   assert.strictEqual(buddy.window(), null);
 });
+
+test('panelOpen tells the page whether the panel is open, as true or false', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  const { buddy, win } = setup();
+  buddy.show();
+  win().load();
+  for (const [given, sent] of [[true, true], [false, false], [1, true], [undefined, false]]) {
+    buddy.panelOpen(given);
+    assert.deepStrictEqual(win().sent.at(-1), ['buddy:panel-open', sent], String(given));
+  }
+});
+
+test('a page that loads while the panel is open is told so; one that loads while it is closed hears nothing of it', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  const { buddy, win } = setup();
+  buddy.show();
+  win().load();
+  buddy.panelOpen(true);
+  win().handlers['did-navigate'](); // a reload starts
+  let before = win().sent.length;
+  win().handlers['did-finish-load']();
+  assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false], ['buddy:panel-open', true]], 'a new page starts with the panel closed');
+
+  buddy.panelOpen(false);
+  win().handlers['did-navigate']();
+  before = win().sent.length;
+  win().handlers['did-finish-load']();
+  assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false]], 'which is what it starts with');
+});
+
+test('panelOpen does nothing without a window, and a window made later is told the panel is open', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  const { buddy, win } = setup();
+  assert.doesNotThrow(() => buddy.panelOpen(true));
+  buddy.show();
+  win().load();
+  assert.deepStrictEqual(win().sent, [['buddy:pause', false], ['buddy:panel-open', true]]);
+});

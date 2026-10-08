@@ -138,4 +138,34 @@ module.exports = async function feelingsCheck(ctx, { assert, delay, waitFor }) {
   await waitFor(() => js('window.__buddyPose?.ears < 0.4'), 'the ear rims to dim again when the voice stops');
   ctx.buddy.mood('idle');
   await waitFor(moodIs('idle'), 'the buddy to stop listening');
+
+  // 5. Fidgets: an idle buddy that nobody is using does something small now and then (every 15 to 25 s), but not while
+  // the panel is open. The page's clock is moved on, so that a fidget is due at once; it only ever moves forward, so
+  // what the page has timed so far stays in order.
+  await js(`(() => {
+    if (!window.__moveClock) {
+      const real = performance.now.bind(performance);
+      let ahead = 0;
+      performance.now = () => real() + ahead;
+      window.__moveClock = (ms) => { ahead += ms; return true; };
+    }
+    return true;
+  })()`);
+  const FIDGETS = ['look', 'swing', 'hum', 'hop'];
+  const fidgeting = async () => FIDGETS.includes(await js('window.__buddyMood'));
+  await js('window.__moveClock(30000)');
+  await waitFor(fidgeting, 'an idle buddy to fidget', 2000);
+  await waitFor(moodIs('idle'), 'the fidget to end', 4000);
+  ctx.buddy.panelOpen(true);
+  await delay(200); // the page has heard it by now
+  await js('window.__moveClock(30000)');
+  for (let i = 0; i < 10; i += 1) { // a fidget lasts 0.8 s or more: looking every 0.1 s would see one
+    assert.strictEqual(await js('window.__buddyMood'), 'idle', 'no fidget while the panel is open');
+    await delay(100);
+  }
+  ctx.buddy.panelOpen(false);
+  await delay(200);
+  await js('window.__moveClock(30000)');
+  await waitFor(fidgeting, 'a fidget again once the panel is closed', 2000);
+  await waitFor(moodIs('idle'), 'the fidget to end', 4000);
 };

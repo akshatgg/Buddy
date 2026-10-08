@@ -6,6 +6,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -270,5 +271,54 @@ class VoiceTest {
         on = true
         error { voice.start() }
         assertEquals(emptyList<Mood>(), moods)
+    }
+
+    // ---- the 🎤 button's presses ----
+
+    private val heard = mutableListOf<String>()
+    private val failed = mutableListOf<String>()
+    private fun TestScope.mic() = MicPresses(voice, this, { heard += it }, { failed += it.code })
+
+    @Test fun stopGivesTheWordsOnceAndDropsTheSixtySecondStop() = runTest {
+        val mic = mic()
+        mic.talk()
+        runCurrent()
+        assertEquals(VoiceState.Recording, voice.state.value)
+        mic.stop()
+        advanceUntilIdle()
+        assertEquals(listOf("Kal mujhe chutti chahiye."), heard)
+        assertEquals(1, sent.size)
+        assertEquals(emptyList<String>(), failed)
+    }
+
+    @Test fun aStopPressedJustAfterTheSixtySecondStopKeepsTheWords() = runTest {
+        val gate = CompletableDeferred<String>()
+        answer = { gate.await() }
+        val mic = mic()
+        mic.talk()
+        runCurrent()
+        advanceTimeBy(60_001) // the limit has fired: its words are being written down
+        runCurrent()
+        assertEquals(VoiceState.Sending, voice.state.value)
+        mic.stop() // ■, tapped as the button was turning into the spinner
+        runCurrent()
+        gate.complete("Kal mujhe chutti chahiye.")
+        advanceUntilIdle()
+        assertEquals(listOf("Kal mujhe chutti chahiye."), heard)
+        assertEquals("sent once", 1, sent.size)
+        assertEquals(VoiceState.Idle, voice.state.value)
+    }
+
+    @Test fun leavingTheScreenWhileRecordingSendsNothingEver() = runTest {
+        val mic = mic()
+        mic.talk()
+        runCurrent()
+        mic.leave()
+        advanceTimeBy(120_000)
+        advanceUntilIdle()
+        assertFalse(recorder.recording)
+        assertEquals(emptyList<ByteArray>(), sent)
+        assertEquals(emptyList<String>(), heard)
+        assertEquals(VoiceState.Idle, voice.state.value)
     }
 }

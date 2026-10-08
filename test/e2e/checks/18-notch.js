@@ -64,9 +64,10 @@ module.exports = async function notchCheck(ctx, { assert, waitFor }) {
     await waitFor(() => notchWindow()?.isVisible(), 'the notch window to show again');
     assert.strictEqual(floating().isVisible(), false, 'the floating buddy is hidden again');
   } finally {
+    ctx.panel.hide(); // a check that failed with the panel open must not leave it open for the next one
     delete ctx.helper.replies.notch;
     ctx.store.set({ home: homeBefore });
     await ctx.home.refresh(); // no notch any more: the floating buddy, for the checks that follow
-    await waitFor(() => floating()?.isVisible(), 'the floating buddy to be back');
+    if (ctx.home.isVisible()) await waitFor(() => floating()?.isVisible(), 'the floating buddy to be back');
   }
 };

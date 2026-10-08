@@ -199,7 +199,8 @@ release still goes out and the run carries `buddy.rb` to copy there by hand. Des
 **Android** is released on its own: Actions → Release → Run workflow, **What to release** → **Android**, and a
 version. It runs the Android tests, builds `Buddy-Android.apk` signed with the release key, and publishes it as
 "Buddy for Android <version>", tagged `android-v<version>`. That release is never marked latest, so the Mac and
-Windows Update now and the website keep following the desktop release; each Android version must be higher than the
+Windows Update now and the website's Mac and Windows buttons keep following the desktop release (the website's
+Android button finds the newest `android-v` release); each Android version must be higher than the
 last Android one. It needs the secrets `BUDDY_ANDROID_CLOUD_PROPERTIES` (the contents of `android/cloud.properties`)
 and, to publish, the release key: `BUDDY_ANDROID_KEYSTORE_BASE64`, `BUDDY_ANDROID_KEYSTORE_PASSWORD` and
 `BUDDY_ANDROID_KEY_PASSWORD` (its alias is `buddy`). The release key's SHA-1 must be added to the Android app in
@@ -211,7 +212,8 @@ the old one.
 The download site, https://buddywrites.vercel.app, is plain HTML in `web/public/` (home page, privacy page,
 `style.css`, `site.js`) and is deployed with the server (`npm run deploy:server`). Its download buttons use
 `https://github.com/akshatgg/Buddy/releases/latest/download/<file>`, so a new release needs no change to the site;
-`site.js` adds the version and size, and offers Windows once a release has `Buddy-Setup-x64.exe`.
+`site.js` adds the version and size. Android releases are never "latest", so the page links one Android release's
+`Buddy-Android.apk` and `site.js` moves that button to the newest `android-v` release.
 Design: `docs/superpowers/specs/2026-10-07-buddy-website-design.md`.
 
     tools/make-site-images.sh        # the buddies, icons and favicons, from assets/ and build/icon.png

@@ -67,6 +67,16 @@ class TypingTargetTest {
         assertEquals(listOf("the panel's own box"), released)
     }
 
+    @Test fun theShareSheetIsNotANewApp() {
+        target.onBox("com.whatsapp", "box")
+        target.onWindow("android", keyboard = false) // the share sheet (and "Open with"), from Android itself
+        target.onWindow("com.android.intentresolver", keyboard = false) // the share sheet, as its own app on newer phones
+        assertEquals("box", target.box)
+        assertEquals("com.whatsapp", target.app)
+        target.onBox("com.android.intentresolver", "the sheet's search box")
+        assertEquals("box", target.box)
+    }
+
     @Test fun anotherAppsWindowForgetsTheBoxAndTheSameAppsKeepsIt() {
         target.onBox("com.whatsapp", "box")
         target.onWindow("com.whatsapp", keyboard = false) // a dialog of its own

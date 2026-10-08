@@ -1,8 +1,9 @@
 package com.akshatgg.buddy.typing
 
 // Apps whose windows come and go over the person's app without being where they type: Android's own (the notification
-// shade, the volume panel). Buddy's own package and the keyboard's are told apart by the caller.
-private val OVERLAYS = setOf("com.android.systemui")
+// shade, the volume panel; the share sheet and "Open with", from Android itself or, on newer phones, its own app).
+// Buddy's own package and the keyboard's are told apart by the caller.
+private val OVERLAYS = setOf("com.android.systemui", "android", "com.android.intentresolver")
 
 /**
  * Which box the person was last typing in, and which app is under Buddy's panel, from the Accessibility events

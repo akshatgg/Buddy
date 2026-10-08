@@ -68,8 +68,8 @@ class HeadView(context: Context) : FrameLayout(context) {
 
     /**
      * Turn the head toward where the person types (`turn` from Look.turn), or back to the front with Turn.FRONT. It
-     * eases there over a quarter of a second (LookEase), drawing at no less than the settling rate on the way, as the
-     * picker's turn does; once there, the rates are what they would be anyway.
+     * eases there over a quarter of a second (LookEase), drawing at the full rate on the way (Moods.drawFps); once there,
+     * the rates are what they would be anyway.
      */
     @MainThread
     fun look(turn: Turn) {
@@ -154,8 +154,7 @@ class HeadView(context: Context) : FrameLayout(context) {
         lastTick = t
         if (currentMood != Mood.IDLE || pressing) lastActive = t
         val fps = Moods.fpsFor(currentMood, pressing, blinker.soon(t, BLINK_LOOKAHEAD), t - lastActive)
-        val turns = t < turnUntil || lookEase.moving(t)
-        schedule(1.0 / (if (turns) max(fps, Moods.IDLE_FPS) else fps) - (now() - t))
+        schedule(1.0 / Moods.drawFps(fps, picker = t < turnUntil, looking = lookEase.moving(t)) - (now() - t))
 
         val renderer = renderer ?: return
         val pose = Moods.pose(currentMood, t - moodSince)

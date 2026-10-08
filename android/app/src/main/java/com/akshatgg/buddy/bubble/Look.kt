@@ -143,6 +143,6 @@ class LookEase {
         return Turn(from.yaw + (target.yaw - from.yaw) * s, from.pitch + (target.pitch - from.pitch) * s)
     }
 
-    /** True while the head is still on its way: the view then draws at no less than the settling rate. */
+    /** True while the head is still on its way: the view then draws at the full rate (Moods.drawFps). */
     fun moving(t: Double): Boolean = t - since < EASE_SECONDS
 }

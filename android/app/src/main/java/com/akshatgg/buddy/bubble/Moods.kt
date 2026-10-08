@@ -51,6 +51,17 @@ object Moods {
         return if (sinceActive < SETTLE_SECONDS) IDLE_FPS else REST_FPS
     }
 
+    /**
+     * The rate to draw at while the head turns: `fps` from fpsFor, raised to FPS while it eases toward where the person
+     * types (a 0.25 s turn, which the settling rate would draw in four steps), and to IDLE_FPS while a picker head turns
+     * slowly. Neither lowers it.
+     */
+    fun drawFps(fps: Int, picker: Boolean, looking: Boolean): Int = when {
+        looking -> max(fps, FPS)
+        picker -> max(fps, IDLE_FPS)
+        else -> fps
+    }
+
     /** The slow up-and-down float. */
     fun floatOffset(t: Double, amplitude: Double = 0.035, period: Double = 3.0): Float =
         (amplitude * sin(2 * PI * t / period)).toFloat()

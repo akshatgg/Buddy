@@ -2,6 +2,7 @@ package com.akshatgg.buddy.bubble
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
@@ -13,43 +14,111 @@ import android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTE
 import android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_ARG_START_INDEX
 import android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY
 import androidx.core.os.BundleCompat
+import com.akshatgg.buddy.typing.BoxText
+import com.akshatgg.buddy.typing.TypingTarget
 
 /**
- * Look where I type: tells the floating head where the text box the person types in is, in any app, so that it turns
- * toward it (Look.kt, BubbleService). Optional: the person turns it on in Android's Accessibility settings, after
- * Settings' disclosure.
+ * Buddy can type for you: Android's Accessibility, turned on by the person in Android's settings after Settings'
+ * disclosure (optional). It does three things, and nothing else:
  *
- * It reads only where things are: whether a view is a text box and a password box, the box's place on the screen, and
- * the place of the one character before the cursor. Never the text: it does not call getText, and it keeps and logs
- * nothing. Its events go to the head in this process, and nowhere else.
+ *  - Look where I type: tells the floating head where the text box the person types in is, so that it turns toward it
+ *    (Look.kt, BubbleService). For that it reads only where things are, never the text.
+ *  - It remembers the last text box the person typed in (a reference to it, TypingTarget, not its text) and the app
+ *    they are in, so that the chat can name the app and find the box after the panel opened over it.
+ *  - When the chat asks, and only then, it reads that box's text (`read`: the chat's "box" step, and the text it has
+ *    before Buddy puts words in, for Undo) or sets it (`write`).
+ *
+ * A password box is never kept, read or written. It logs nothing and keeps no text: what it reads goes to the chat in
+ * this process, and from there only with the person's question to the AI.
  */
 class LookService : AccessibilityService() {
+    private val target by lazy { TypingTarget<AccessibilityNodeInfo>(packageName, ::recycle) }
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        running = this
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        if (!BubbleBus.listening) return // no buddy on screen: nobody to turn
         val from = event.packageName?.toString()
         val fromBuddy = from == packageName
         val fromKeyboard = from != null && from == keyboardPackage()
-        if (fromBuddy || fromKeyboard) return // LookFilter says NONE: not worth asking for the view
         val type = event.eventType
+        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) target.onWindow(from, fromKeyboard)
+        if (fromBuddy || fromKeyboard) return // LookFilter says NONE, and TypingTarget keeps nothing of theirs
         val node = if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) null else event.source
+        var kept = false
         try {
             val editable = node?.isEditable == true
             val password = node?.isPassword == true
+            if (node != null && editable && type in BOX_EVENTS) {
+                if (password) {
+                    target.onPassword(from)
+                } else {
+                    target.onBox(from, node)
+                    kept = true
+                }
+            }
+            if (!BubbleBus.listening) return // no buddy on screen: nobody to turn
             when (LookFilter.action(type, fromBuddy, fromKeyboard, editable, password)) {
                 LookAction.LOOK -> node?.let(::where)?.let { BubbleBus.lookAt(it.x, it.y) }
                 LookAction.AWAY -> BubbleBus.lookAway()
                 LookAction.NONE -> Unit
             }
         } finally {
-            node?.let(::recycle)
+            if (!kept) node?.let(::recycle)
         }
     }
 
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
+        if (running === this) running = null
         BubbleBus.lookAway()
         super.onDestroy()
+    }
+
+    /** The label of the app the person was last in, or null. */
+    fun appName(): String? {
+        val pkg = target.app ?: return null
+        return try {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString().trim().ifEmpty { null }
+        } catch (e: PackageManager.NameNotFoundException) {
+            null
+        }
+    }
+
+    /**
+     * The kept box as it is now, read because the chat asked: its text (empty when it only shows its hint) and its
+     * selection. Null when there is none, it has gone, it cannot be read, or it has become a password box.
+     */
+    fun read(): BoxText? {
+        val box = fresh() ?: return null
+        val text = if (box.isShowingHintText) "" else box.text?.toString().orEmpty()
+        return BoxText(text, box.textSelectionStart, box.textSelectionEnd)
+    }
+
+    /** Set the kept box's whole text and put the cursor at `cursor`: false when it could not be set. */
+    fun write(text: String, cursor: Int): Boolean {
+        val box = fresh() ?: return false
+        val words = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
+        if (!box.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, words)) return false
+        val at = Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, cursor)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, cursor)
+        }
+        box.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, at) // the cursor after the words: nice, not needed
+        return true
+    }
+
+    /** The kept box, brought up to date; null when it is gone or is not a box Buddy may touch. */
+    private fun fresh(): AccessibilityNodeInfo? {
+        val box = target.box ?: return null
+        return try {
+            box.takeIf { it.refresh() && it.isEditable && !it.isPassword }
+        } catch (e: IllegalStateException) {
+            null // let go of meanwhile, by a newer event
+        }
     }
 
     /** The keyboard's package, from the default input method ("pkg/.Cls"), or null. */
@@ -92,6 +161,17 @@ class LookService : AccessibilityService() {
     }
 
     companion object {
+        private val BOX_EVENTS = setOf(
+            AccessibilityEvent.TYPE_VIEW_FOCUSED,
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED,
+        )
+
+        /** The service while Android has it running; null when it is off. */
+        @Volatile
+        var running: LookService? = null
+            private set
+
         /** Whether the person has turned the service on in Android's Accessibility settings. */
         fun isEnabled(context: Context): Boolean = LookSetting.enabled(
             Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES),

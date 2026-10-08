@@ -122,7 +122,7 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
     val context = LocalContext.current
     val scroll = rememberScrollState()
     val tops = remember { mutableStateMapOf<String, Int>() }
-    var disclosing by rememberSaveable { mutableStateOf(false) } // Look where I type's disclosure is up
+    var disclosing by rememberSaveable { mutableStateOf(false) } // Buddy can type for you: its disclosure is up
 
     LaunchedEffect(Unit) { model.refreshFree() }
     LifecycleResumeEffect(Unit) {
@@ -338,16 +338,21 @@ private fun Avatar(user: User?) {
 }
 
 /**
- * Look where I type: the head turns toward the box the person types in, through an Accessibility service that only
- * Android's settings turn on or off. Turn on shows the disclosure first; Turn off opens those settings.
+ * Buddy can type for you: an Accessibility service that only Android's settings turn on or off, through which Buddy
+ * puts its text into the box the person types in, reads that box when they ask, and looks at it. Turn on shows the
+ * disclosure first; Turn off opens those settings.
  */
 @Composable
 private fun LookRow(on: Boolean, turnOn: () -> Unit, turnOff: () -> Unit) {
     Row(Modifier.rowPadding(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.weight(1f)) {
-            Text("Look where I type")
+            Text("Buddy can type for you")
             Text(
-                if (on) "On. Buddy sees only where the box is, never what you type." else "The head turns toward the box you type in, in any app.",
+                if (on) {
+                    "On. Buddy reads or writes only the box you ask it about, and only when you ask."
+                } else {
+                    "Lets Buddy put its text into the box you are typing in, read that box when you ask, and look at it."
+                },
                 color = Buddy.colors.muted,
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -361,11 +366,13 @@ private fun LookRow(on: Boolean, turnOn: () -> Unit, turnOff: () -> Unit) {
 private fun LookDisclosure(proceed: () -> Unit, dismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = dismiss,
-        title = { Text("Look where I type") },
+        title = { Text("Buddy can type for you") },
         text = {
             Text(
-                "Buddy uses Android's Accessibility only to see where the text box you are typing in is on the screen, so " +
-                    "that the head can look at it. It never reads what you type, and nothing leaves your phone.",
+                "Buddy uses Android's Accessibility to see where the box you are typing in is, so that the head can look " +
+                    "at it; to read the text in that box only when you ask Buddy to fix it; and to put Buddy's text into it " +
+                    "when you ask. It reads nothing else, and nothing is kept or sent anywhere except with your question " +
+                    "to the AI.",
             )
         },
         confirmButton = { TextButton(proceed, shape = ROUNDED) { Text("Continue") } },

@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Look where I type (bubble/LookService.kt): the text box events of every app, and the right to ask where a box is on
-     the screen. Nothing is spoken or shown by Android for it. -->
+<!-- Buddy can type for you (bubble/LookService.kt): the text box events of every app, the right to ask where a box is
+     on the screen and, when the chat asks, to read or set its text. flagRetrieveInteractiveWindows: the box is in the app
+     under Buddy's panel, which is not the active window while the panel is open. Nothing is spoken or shown by Android
+     for it. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeViewFocused|typeViewTextChanged|typeViewTextSelectionChanged|typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"
     android:description="@string/look_service_description"
     android:isAccessibilityTool="false"

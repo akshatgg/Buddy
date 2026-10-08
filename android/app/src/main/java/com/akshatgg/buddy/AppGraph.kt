@@ -51,7 +51,7 @@ class AppGraph(
     val router = Router(account, cloud, settings, secrets, providers, prompts)
     val keySaver = KeySaver(settings, secrets, providers)
 
-    /** Whether Look where I type is on in Android's Accessibility settings. */
+    /** Whether Buddy can type for you (LookService) is on in Android's Accessibility settings. */
     val lookEnabled: () -> Boolean = { LookService.isEnabled(context) }
 
     /** How the panel and the Fix sheet ask the AI: through the router, unless a test answers instead. */

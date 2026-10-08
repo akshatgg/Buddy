@@ -21,6 +21,8 @@ import com.akshatgg.buddy.store.KeyValue
 import com.akshatgg.buddy.store.KeystoreSecrets
 import com.akshatgg.buddy.store.Secrets
 import com.akshatgg.buddy.store.SharedPrefsKeyValue
+import com.akshatgg.buddy.voice.MediaRecorderRecorder
+import com.akshatgg.buddy.voice.Voice
 import kotlinx.coroutines.CoroutineScope
 import com.akshatgg.buddy.bubble.LookService
 import kotlinx.coroutines.Dispatchers
@@ -53,6 +55,9 @@ class AppGraph(
 
     /** Whether Look where I type is on in Android's Accessibility settings. */
     val lookEnabled: () -> Boolean = { LookService.isEnabled(context) }
+
+    /** A Voice for a screen with a 🎤: the microphone recorded into the app's cache, written down by Buddy's server. */
+    val voiceFactory: (Context) -> Voice = { c -> Voice(MediaRecorderRecorder(c), { cloud.transcribe(it) }, { cloud.voiceOn() }, c.cacheDir) }
 
     /** How the panel and the Fix sheet ask the AI: through the router, unless a test answers instead. */
     val ask: suspend (Action, AskInput) -> Answer = ask ?: router::ask

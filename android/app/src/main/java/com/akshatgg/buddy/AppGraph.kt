@@ -9,6 +9,7 @@ import com.akshatgg.buddy.ai.Action
 import com.akshatgg.buddy.ai.Answer
 import com.akshatgg.buddy.ai.AskInput
 import com.akshatgg.buddy.ai.KeySaver
+import com.akshatgg.buddy.ai.MemoryRules
 import com.akshatgg.buddy.ai.Prompts
 import com.akshatgg.buddy.ai.Router
 import com.akshatgg.buddy.ai.providers.Providers
@@ -19,6 +20,7 @@ import com.akshatgg.buddy.net.UrlConnectionHttp
 import com.akshatgg.buddy.store.AppSettings
 import com.akshatgg.buddy.store.KeyValue
 import com.akshatgg.buddy.store.KeystoreSecrets
+import com.akshatgg.buddy.store.Memory
 import com.akshatgg.buddy.store.Secrets
 import com.akshatgg.buddy.store.SharedPrefsKeyValue
 import kotlinx.coroutines.CoroutineScope
@@ -50,6 +52,7 @@ class AppGraph(
     val cloud = CloudClient(http, BuildConfig.SERVER_URL, account, settings)
     val router = Router(account, cloud, settings, secrets, providers, prompts)
     val keySaver = KeySaver(settings, secrets, providers)
+    val memory = Memory(kv, MemoryRules(shared))
 
     /** Whether Look where I type is on in Android's Accessibility settings. */
     val lookEnabled: () -> Boolean = { LookService.isEnabled(context) }

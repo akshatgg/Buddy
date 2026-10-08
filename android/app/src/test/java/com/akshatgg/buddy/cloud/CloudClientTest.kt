@@ -20,6 +20,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -238,5 +239,67 @@ class CloudClientTest {
             assertEquals(listOf("not_set_up", "This copy of Buddy isn't set up for sign-in."), listOf(e.code, e.message))
         }
         assertEquals(emptyList<HttpRequest>(), http.requests)
+    }
+    @Test fun voiceOnIsReadFromTheSettingsAndAnythingOddReadsAsOff() = runTest {
+        signIn()
+        val cloud = client()
+        serve(HttpResponse(200, """{"freeOn":false,"voiceOn":true}"""))
+        assertTrue(cloud.voiceOn())
+        assertTrue("kept with the settings", settings.cloud!!.voiceOn)
+        assertTrue("and read back", FreeSettings.fromJson(settings.cloud!!.toJson())!!.voiceOn)
+        for (odd in listOf("""{}""", """{"voiceOn":"true"}""", """{"voiceOn":1}""", """{"voiceOn":null}""")) {
+            assertFalse(odd, FreeSettings.read(Json.parseToJsonElement(odd) as JsonObject).voiceOn)
+        }
+        cloud.forget()
+        assertFalse("off when it was never known (no internet, nothing kept)", cloud.voiceOn())
+    }
+
+    @Test fun transcribeSendsTheRecordingAsBase64WithTheIdTokenAndGivesTheWords() = runTest {
+        signIn()
+        val cloud = client()
+        serve(HttpResponse(200, """{"text":"Kal mujhe chutti chahiye."}"""))
+        assertEquals("Kal mujhe chutti chahiye.", cloud.transcribe(byteArrayOf(0, 1, 2, -1, 127)))
+        val req = toServer().single()
+        assertEquals(
+            listOf("https://srv/api/transcribe", "POST", "application/json", "Bearer id", 45_000),
+            listOf(req.url, req.method, req.headers["content-type"], req.headers["authorization"], req.timeoutMs),
+        )
+        assertEquals(Json.parseToJsonElement("""{"audio":"AAEC/38=","mime":"audio/mp4"}"""), Json.parseToJsonElement(req.body!!))
+    }
+
+    @Test fun transcribeErrorsComeThroughInTheServersWords() = runTest {
+        signIn()
+        val cloud = client()
+        val said = listOf(
+            "voice_off" to "Voice isn't set up yet.",
+            "voice_busy" to "Voice is busy right now. Type, or try again in a minute.",
+            "upstream" to "I couldn't write down what you said. Try again.",
+            "bad_request" to "That recording didn't come through. Try again.",
+        )
+        serve(
+            HttpResponse(503, """{"error":{"code":"voice_off","message":"Voice isn't set up yet."}}"""),
+            HttpResponse(429, """{"error":{"code":"voice_busy","message":"Voice is busy right now. Type, or try again in a minute."}}"""),
+            HttpResponse(502, """{"error":{"code":"upstream","message":"I couldn't write down what you said. Try again."}}"""),
+            HttpResponse(400, """{"error":{"code":"bad_request","message":"That recording didn't come through. Try again."}}"""),
+            HttpResponse(200, """{"model":"m"}"""), // no words in it
+        )
+        for ((code, message) in said) {
+            val e = error { cloud.transcribe(byteArrayOf(1)) }
+            assertEquals(listOf(code, message), listOf(e.code, e.message))
+        }
+        val e = error { cloud.transcribe(byteArrayOf(1)) }
+        assertEquals(listOf("server", serverProblem), listOf(e.code, e.message))
+    }
+
+    @Test fun anEmptyOrTooBigRecordingIsNotSent() = runTest {
+        signIn()
+        val cloud = client()
+        for (audio in listOf(ByteArray(0), ByteArray(2_000_001))) {
+            val e = error { cloud.transcribe(audio) }
+            assertEquals(listOf("bad_request", "That recording didn't come through. Try again."), listOf(e.code, e.message))
+        }
+        assertEquals(emptyList<HttpRequest>(), toServer())
+        serve(HttpResponse(200, """{"text":"ok"}"""))
+        assertEquals("2 MB is still taken", "ok", cloud.transcribe(ByteArray(2_000_000)))
     }
 }

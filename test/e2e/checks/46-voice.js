@@ -159,8 +159,9 @@ module.exports = async function voiceCheck(ctx, { assert, delay, waitFor }) {
     await ctx.actions.toggle();
     await waitFor(() => ctx.panel.isVisible(), 'the panel to open');
     await waitFor(listened, 'the panel to listen as it opens', 5000);
-    await delay(600); // past the page's wait after "hidden", and still hidden then
+    // Shown for real from here: a "hidden" the system sends late for that close must not stop it either.
     await page("window.e2eHidden = null; document.dispatchEvent(new Event('visibilitychange'))");
+    await delay(400); // past the page's wait after "hidden"
     assert.deepStrictEqual(changes(), [true], 'still listening');
     await page("document.getElementById('mic').click()"); // stopped here, and nothing is sent
     await waitFor(() => changes().at(-1) === false, 'the listening to stop');

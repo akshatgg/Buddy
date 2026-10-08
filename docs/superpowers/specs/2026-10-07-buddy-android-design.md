@@ -15,7 +15,11 @@ small, and the buddy must not cover much of it.
 ### Chosen by the owner
 
 - **How Buddy reaches other apps:** a floating head over every app, plus "Fix with Buddy" in the text-selection
-  menu of any app. No Accessibility service (Google Play has restricted it since 2026-01-28), no keyboard.
+  menu of any app. No Accessibility service (Google Play has restricted it since 2026-01-28), no keyboard. Since
+  2026-10-08 one optional exception, chosen by the owner knowing the risk: "Look where I type"
+  (`2026-10-08-buddy-android-look-where-i-type-design.md`), an Accessibility service that reads only where the text
+  box is, so that the head can turn toward it. It is off until the person turns it on, and the rest of Buddy works
+  without it.
 - **The face:** the real 3D head, from the same `.glb` files as the Mac (`assets/buddies/`), drawn with Filament.
 
 ### Out of scope

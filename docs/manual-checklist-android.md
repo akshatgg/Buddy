@@ -68,6 +68,17 @@ Set these in the Mac's Admin window, against the deployed server.
 - [ ] A wrong key in Settings → "Your … key was rejected. Check it in Settings."
 - [ ] With no key saved and free mode off → Write shows an error with Open Settings.
 
+## Look where I type
+- [ ] Settings → Buddy shows "Look where I type" after Size, with "The head turns toward the box you type in, in any app." and Turn on.
+- [ ] Turn on shows the disclosure ("Buddy uses Android's Accessibility only to see where the text box you are typing in is…"); Not now closes it and nothing opens; Continue opens Android's Accessibility settings.
+- [ ] Android's Accessibility list names it "Buddy: look where I type", with the same sentence. Turn it on there, go back: the row says "On. Buddy sees only where the box is, never what you type." and Turn off.
+- [ ] Turn off opens Android's Accessibility settings; turn it off there, go back: the row says it is off again.
+- [ ] With the head showing, tap a text box in WhatsApp, Gmail and Chrome's address bar: the head turns toward it (toward the cursor while typing), easing, never jumping. A box on the other side of the screen turns it the other way; one near the bottom tips it down.
+- [ ] Stop typing: about 3 s later the head turns back to the front. Leave the app or open another window: it turns back at once.
+- [ ] A password box (a sign-in page): the head does not turn.
+- [ ] Typing in Buddy's own panel or Fix sheet: the head is hidden, and stays hidden.
+- [ ] Battery: type for a few minutes with it on, then idle: `adb shell top -b -n 1 | grep -i buddy` stays near 0% CPU when nobody types, and Settings → Battery does not list Buddy as a heavy user.
+
 ## Look and battery
 - [ ] Light and dark mode both look right: panel, Fix sheet, Settings, Welcome, bubble.
 - [ ] Idle for ten minutes with the head showing: `adb shell top -b -n 1 | grep -i buddy` stays near 0% CPU, and Settings → Battery does not list Buddy as a heavy user.

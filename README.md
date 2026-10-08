@@ -59,6 +59,13 @@ text in an app and choose **Fix with Buddy** to fix it in place, or use
 Share → Buddy from any app. There is no Admin on the phone; the admin works from
 the Mac. Sign-in and free mode use the same server.
 
+Optional: **Look where I type** (Settings → Buddy). With it on, the head turns
+toward the text box you tap or type in, in any app, as the Mac's head follows the
+pointer. It is an Accessibility service that sees only where the box is on the
+screen, never what you type; Android's Accessibility settings turn it on and off.
+Google Play restricts Accessibility services, so it needs Play's Accessibility
+declaration before the app is published there.
+
 Build it with Android Studio's own JDK and its Android SDK, with platform
 android-37 installed (Android Studio → Settings → Languages & Frameworks →
 Android SDK). Tell the build where they are. On a Mac:

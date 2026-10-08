@@ -13,7 +13,7 @@ const SOMEONE_ELSE = { sender: { name: 'someone else' } };
  * microphone answers once asked. `calls` has the panel hiding, Settings and the system's settings opening, and what
  * the buddy is told about listening (ui.listening, ui.voiceLevel), in order.
  */
-function setup(actions = {}, { platform = 'darwin', mic = 'granted', openFails = null } = {}) {
+function setup(actions = {}, { platform = 'darwin', mic = 'granted', openFails = null, askFails = null } = {}) {
   const handlers = {};
   const listeners = {};
   const calls = [];
@@ -38,6 +38,10 @@ function setup(actions = {}, { platform = 'darwin', mic = 'granted', openFails =
     ui: {
       listening: (on) => calls.push(['listening', on]),
       voiceLevel: (level) => calls.push(['voiceLevel', level]),
+    },
+    async askAccessibility() {
+      calls.push('askAccessibility');
+      if (askFails) throw askFails;
     },
     shell: {
       async openExternal(url) {
@@ -129,7 +133,7 @@ test('the gear shares one way to Settings with Open Settings: the panel steps as
 test('Open Settings goes to the AI section for a key, model or free-mode problem, to Permissions for a permission, and to the start otherwise', () => {
   for (const [code, section] of [
     ['no_key', 'ai'], ['bad_key', 'ai'], ['no_credit', 'ai'], ['bad_model', 'ai'], ['no_vision', 'ai'], ['need_key', 'ai'],
-    ['free_off', 'ai'], ['no_accessibility', 'permissions'], ['no_screen_recording', 'permissions'],
+    ['free_off', 'ai'], ['no_screen_recording', 'permissions'], // Accessibility opens macOS's own page (below)
     ['signed_out', undefined], ['not_set_up', undefined], [undefined, undefined], ['constructor', undefined], [7, undefined],
   ]) {
     const s = setup();
@@ -221,6 +225,32 @@ test("Windows' Settings that cannot be opened is logged, and nothing is thrown",
   const s = setup({}, { platform: 'win32', openFails: new Error('no handler for ms-settings') });
   s.listeners['panel:open-settings'](s.fromPanel, 'no_microphone');
   await new Promise((resolve) => setImmediate(resolve));
+  assert.strictEqual(logged.mock.callCount(), 1);
+});
+
+const MAC_ACCESSIBILITY = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility';
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+test("Allow for Accessibility: macOS is asked, then its Accessibility page opens, and not Buddy's Settings", async () => {
+  const s = setup({}, { platform: 'darwin' });
+  s.listeners['panel:open-settings'](s.fromPanel, 'no_accessibility');
+  await settle();
+  assert.deepStrictEqual(s.calls, ['hide', 'askAccessibility', ['openExternal', MAC_ACCESSIBILITY]]);
+});
+
+test('Allow for Accessibility opens the page even when asking macOS failed', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const s = setup({}, { platform: 'darwin', askFails: new BuddyError('helper_gone', 'gone') });
+  s.listeners['panel:open-settings'](s.fromPanel, 'no_accessibility');
+  await settle();
+  assert.deepStrictEqual(s.calls, ['hide', 'askAccessibility', ['openExternal', MAC_ACCESSIBILITY]]);
+});
+
+test('System Settings that cannot be opened is logged, and nothing is thrown', async (t) => {
+  const logged = t.mock.method(console, 'error', () => {});
+  const s = setup({}, { platform: 'darwin', openFails: new Error('no handler') });
+  s.listeners['panel:open-settings'](s.fromPanel, 'no_accessibility');
+  await settle();
   assert.strictEqual(logged.mock.callCount(), 1);
 });
 

@@ -174,6 +174,9 @@ function createPanelWindow({
     });
   }
 
+  /** The panel's bounds for where home says it goes (show() and follow()). */
+  const boundsAt = (at) => (at.kind === 'below' ? panelUnderNotch(at.notch, at.area) : panelBounds(at.buddy, at.area));
+
   return {
     window: () => win,
     /** Runs `ask()` (a question the system puts on screen) with the panel kept open, and gives it the keyboard back after. */
@@ -195,7 +198,7 @@ function createPanelWindow({
       const w = win;
       await ready;
       if (w !== win) return; // the window was closed or dropped (a crash, a failed load) while its page was loading
-      w.setBounds(at.kind === 'below' ? panelUnderNotch(at.notch, at.area) : panelBounds(at.buddy, at.area));
+      w.setBounds(boundsAt(at));
       w.webContents.send('panel:open', state);
       w.show();
       w.focus();
@@ -207,6 +210,10 @@ function createPanelWindow({
      */
     send(channel, payload) {
       if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+    },
+    /** Move the open panel to `at` (as show() takes it), when the buddy was dragged: it stays beside the buddy. */
+    follow(at) {
+      if (win && !win.isDestroyed() && win.isVisible()) win.setBounds(boundsAt(at));
     },
     hide,
     isVisible: () => Boolean(win && win.isVisible()),

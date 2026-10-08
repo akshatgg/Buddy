@@ -13,6 +13,8 @@ const { sectionFor } = require('../actions');
 
 // Where Windows turns the microphone on and off for apps (it does not ask per app, as macOS does).
 const WINDOWS_MICROPHONE = 'ms-settings:privacy-microphone';
+// Where macOS lets apps read and paste text in other apps (the same page as Settings → Permissions → Allow).
+const MAC_ACCESSIBILITY = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility';
 
 /**
  * How Windows' privacy switch for the microphone stands, as V2 has it. Windows never asks per app, so an answer that
@@ -56,10 +58,13 @@ function createMicrophone({ systemPreferences, platform = process.platform }) {
 
 /**
  * `microphone` is createMicrophone()'s; `ui` has the buddy's two voice hooks, listening(on) and voiceLevel(0..1)
- * (main.js). `shell` opens Windows' Settings; Electron's is loaded only when none is given, so that these handlers can
- * be tested in plain Node.
+ * (main.js). `askAccessibility` has the helper ask macOS, which puts Buddy in the Accessibility list. `shell` opens
+ * Windows' Settings and macOS's System Settings; Electron's is loaded only when none is given, so that these handlers
+ * can be tested in plain Node.
  */
-function registerPanelIpc({ ipcMain, panel, actions, openSettings, microphone, ui, shell, platform = process.platform }) {
+function registerPanelIpc({
+  ipcMain, panel, actions, openSettings, microphone, ui, askAccessibility, shell, platform = process.platform,
+}) {
   const fromPanel = (webContents) => webContents === panel.window()?.webContents;
   const handle = guarded(ipcMain, fromPanel);
   const openExternal = (url) => (shell || require('electron').shell).openExternal(url);
@@ -92,7 +97,15 @@ function registerPanelIpc({ ipcMain, panel, actions, openSettings, microphone, u
   ipcMain.on('panel:open-settings', (event, code) => {
     if (!fromPanel(event.sender)) return;
     panel.hide();
-    if (code !== 'no_microphone') {
+    if (code === 'no_accessibility' && platform === 'darwin') {
+      // Straight to macOS's Accessibility page, as Settings → Permissions → Allow does: macOS is asked first, so that
+      // Buddy is in the list there to switch on.
+      Promise.resolve()
+        .then(() => askAccessibility?.())
+        .catch((err) => console.warn('[buddy] could not ask for Accessibility:', err.code))
+        .then(() => openExternal(MAC_ACCESSIBILITY))
+        .catch((err) => console.error('[buddy] could not open System Settings', err));
+    } else if (code !== 'no_microphone') {
       openSettings(sectionFor(code));
     } else if (platform === 'win32') {
       // The microphone's switch on Windows is in Windows' own Settings: Buddy's has nothing to show for it.

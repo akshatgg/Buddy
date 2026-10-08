@@ -172,7 +172,8 @@ function render({ scroll = false } = {}) {
   if ($('thinking').textContent !== thinking) $('thinking').textContent = thinking;
   show($('thinking'), Boolean(s.busy));
 
-  $('notice').textContent = s.notice || '';
+  $('notice-text').textContent = s.notice || '';
+  show($('notice-fix'), Boolean(s.noticeFix));
   show($('notice'), Boolean(s.notice));
   $('selection-text').textContent = s.selection ? `“${selectionPreview(s.selection)}”` : '';
   show($('selection'), Boolean(s.selection));
@@ -257,6 +258,11 @@ $('settings').addEventListener('click', () => {
 });
 $('send-error-settings').addEventListener('click', () => {
   if (fixIn) window.buddy.openSettings(fixIn);
+});
+// Allow on the notice (Accessibility): straight to the page in System Settings where it is switched on.
+$('notice-fix').addEventListener('click', () => {
+  cancelListening();
+  if (state?.noticeFix) window.buddy.openSettings(state.noticeFix);
 });
 
 /** ✕ and Esc: the panel closes, and a listening ends with it (nothing of it is sent). */

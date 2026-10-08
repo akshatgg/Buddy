@@ -467,6 +467,16 @@ export function moodForMic(current, micOn) {
   return current === restingMood(!micOn) ? restingMood(micOn) : null;
 }
 
+/**
+ * Whether a mood sent while `current` shows is only a repeat, which changes nothing: the same mood again, when it lasts
+ * until something replaces it (idle, thinking, listening, drowsy, asleep, wobble). Starting it over would jump its pose
+ * back to its start, so a caller that sends it again and again (thinking at every step of a long job, say) would make
+ * the buddy jerk. A mood that ends by itself plays again when it is sent again.
+ */
+export function isRepeat(current, next) {
+  return next === current && !moodPose(next, Number.MAX_SAFE_INTEGER).done; // a pose that never ends lasts
+}
+
 // Bored fidgets: while the buddy is awake and idle, one small action every 15-25 s.
 export const FIDGETS = ['look', 'swing', 'hum', 'hop'];
 

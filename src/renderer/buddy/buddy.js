@@ -7,8 +7,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
-  BLINK_LOOKAHEAD, FPS, FIDGETS, fpsFor, isActive, wakeDelay, floatOffset, createBlinker, createFidgeter, blinkWeight,
-  lookAt, moodPose,
+  BLINK_LOOKAHEAD, fpsFor, countsAsActive, wakeDelay, floatOffset, createBlinker, createFidgeter, blinkWeight, lookAt,
+  moodPose,
 } from './moods.js';
 import { BLEND, blendPose, smoothLevel } from './blend.js';
 import { fitCamera, fromWindow, headMark } from './layout.js';
@@ -73,7 +73,7 @@ let cursor = { dx: 0, dy: 0 };
 let held = null; // the pointer as it was when the buddy fell asleep: a sleeping head does not follow it
 let lastLook = { yaw: 0, pitch: 0 }; // the head's turn when it last changed by more than LOOK_EPSILON
 let lastLookChange = -Infinity; // when that was, in now() seconds
-let lastActive = now(); // the last time isActive() was true for something other than a fidget, in now() seconds
+let lastActive = now(); // the last time countsAsActive() was true (moods.js), in now() seconds
 let hovering = false;
 let press = null; // { x, y, moved, shaken } while the pointer is down on the buddy
 const voice = { reading: 0, level: 0, at: now() }; // the voice level last read, the level drawn and when (listening)
@@ -294,13 +294,15 @@ function tick() {
   const t = now();
   lastTick = t;
   if (rig) settle(t);
-  const state = { mood: mood.name, since: t - mood.since, pressing: press !== null, sinceLookChange: t - lastLookChange };
-  // A fidget is drawn at the full rate while it plays, but does not count as something happening: one every 15 to
-  // 25 s would otherwise keep an idle buddy at the settling rate for good, instead of resting.
-  if (isActive(state) && !FIDGETS.includes(mood.name)) lastActive = t;
-  // A mood easing in is drawn at the full rate (only for BLEND seconds), so that it does not ease in steps.
-  const easing = blend !== null && t - blend.since < BLEND;
-  const fps = easing ? FPS : fpsFor({ ...state, blinkSoon: blinker.soon(t, BLINK_LOOKAHEAD), sinceActive: t - lastActive });
+  const state = { mood: mood.name, since: t - mood.since, pressing: press !== null };
+  if (countsAsActive(state)) lastActive = t;
+  const fps = fpsFor({
+    ...state,
+    easing: blend !== null && t - blend.since < BLEND, // a new mood still easing in from the pose before it
+    sinceLookChange: t - lastLookChange,
+    blinkSoon: blinker.soon(t, BLINK_LOOKAHEAD),
+    sinceActive: t - lastActive,
+  });
   timer = setTimeout(tick, 1000 / fps);
   if (rig) render(t);
 }

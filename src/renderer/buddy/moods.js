@@ -4,10 +4,11 @@
 
 // How often the page draws. The cost is mostly a fixed price per frame, whatever
 // is on it, so the buddy draws as seldom as it can without looking jerky:
-//   FPS        30  a mood, a press or a drag, and around each blink: what has to look smooth;
+//   FPS        30  a mood, a press or a drag, a mood easing in, and around each blink: what has
+//                  to look smooth;
 //   IDLE_FPS   15  the head following the pointer, until 10 s after it last turned, and the 10 s
-//                  after a mood or a press: slower is fine for a head that is only turning.
-//                  Also a drowsy buddy once it has yawned;
+//                  after a mood (not a fidget) or a press: slower is fine for a head that is only
+//                  turning. Also a drowsy buddy once it has yawned;
 //   REST_FPS    6  nothing has happened for 10 s: only the slow float and the occasional
 //                  blink are left;
 //   SLEEP_FPS   4  asleep: only the slow breathing is left. Sleeping eyes do not blink and a
@@ -40,13 +41,26 @@ export function isActive({ mood, since = 0, pressing }) {
 }
 
 /**
- * How many frames a second to draw. `since` is seconds since the mood started;
- * `blinkSoon` is blinker.soon(); `sinceLookChange` is seconds since the head last
- * turned; `sinceActive` is seconds since isActive() was last true. Unless pressed, asleep
- * and drowsy keep their own rates whatever the blinker says: their eyes are not the open
- * ones that blink.
+ * Does this start the settling rate's 10 s again (sinceActive in fpsFor)? As isActive() says,
+ * but a fidget does not, unless the buddy is pressed during it: a fidget is drawn at the full
+ * rate while it plays, but one every 15 to 25 s would otherwise keep an idle buddy at the
+ * settling rate for good, instead of resting.
  */
-export function fpsFor({ mood, since = 0, pressing, sinceLookChange, blinkSoon, sinceActive }) {
+export function countsAsActive({ mood, since = 0, pressing }) {
+  if (pressing) return true;
+  return !FIDGETS.includes(mood) && isActive({ mood, since, pressing });
+}
+
+/**
+ * How many frames a second to draw. `since` is seconds since the mood started; `easing`
+ * says the mood is still easing in from the pose before it (blend.js), which is drawn at the
+ * full rate whatever the mood, so that it does not ease in steps; `blinkSoon` is
+ * blinker.soon(); `sinceLookChange` is seconds since the head last turned; `sinceActive` is
+ * seconds since countsAsActive() was last true. Unless pressed, asleep and drowsy keep their
+ * own rates whatever the blinker says: their eyes are not the open ones that blink.
+ */
+export function fpsFor({ mood, since = 0, pressing, easing, sinceLookChange, blinkSoon, sinceActive }) {
+  if (easing) return FPS;
   if (!pressing && mood === 'asleep') return SLEEP_FPS;
   if (!pressing && mood === 'drowsy') return since < YAWN ? FPS : IDLE_FPS;
   if (blinkSoon || isActive({ mood, since, pressing })) return FPS;

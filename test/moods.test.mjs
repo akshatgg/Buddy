@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert';
 import {
   FPS, IDLE_FPS, REST_FPS, SLEEP_FPS, BLINK_LOOKAHEAD, SWEEP_HZ, SWEEP_LAG, FIDGETS,
-  fpsFor, isActive, wakeDelay, floatOffset, createBlinker, blinkWeight, lookAt, moodPose, createFidgeter,
+  fpsFor, isActive, countsAsActive, wakeDelay, floatOffset, createBlinker, blinkWeight, lookAt, moodPose, createFidgeter,
 } from '../src/renderer/buddy/moods.js';
 
 // A buddy with nothing going on, and nothing for a long time.
@@ -726,4 +726,47 @@ test('before the first reset() the wait runs from time 0; take() draws the fidge
   assert.strictEqual(fidgeter.take(39.9), null, 'the next is due 15 + 0.75 * 10 = 22.5 s later, at 40 s');
   assert.strictEqual(fidgeter.take(40), 'hum', 'FIDGETS[floor(0.5 * 4)]');
   assert.strictEqual(draws.length, 0);
+});
+
+// ---------------------------------------------------------------- the frame rate, as the page asks for it
+
+test('a mood easing in from the pose before it is drawn at the full rate, whatever the mood', () => {
+  assert.strictEqual(fpsFor({ ...resting, easing: true }), 30, 'idle, at rest');
+  assert.strictEqual(fpsFor({ ...resting, mood: 'asleep', since: 0.1, easing: true }), 30, 'falling asleep');
+  assert.strictEqual(fpsFor({ ...resting, mood: 'drowsy', since: 5, easing: true }), 30, 'drowsy, after its yawn');
+  assert.strictEqual(fpsFor({ ...resting, easing: false }), 6, 'once it has eased in: the rate of the mood');
+  assert.strictEqual(fpsFor({ ...resting, mood: 'asleep', since: 0.3, easing: false }), 4);
+});
+
+test('a fidget does not restart the settling rate, but a press during one does', () => {
+  for (const mood of FIDGETS) {
+    assert.strictEqual(isActive({ mood, since: 0.5, pressing: false }), true, `${mood} draws at the full rate`);
+    assert.strictEqual(countsAsActive({ mood, since: 0.5, pressing: false }), false, `${mood} does not count`);
+    assert.strictEqual(countsAsActive({ mood, since: 0.5, pressing: true }), true, `a press during ${mood} does`);
+  }
+});
+
+test('anything but a fidget counts as isActive() says', () => {
+  for (const mood of MOODS.filter((name) => !FIDGETS.includes(name))) {
+    for (const since of [0, 0.5, 1.59, 1.6, 30]) {
+      for (const pressing of [false, true]) {
+        const state = { mood, since, pressing };
+        assert.strictEqual(countsAsActive(state), isActive(state), `${mood} at ${since} s, pressing ${pressing}`);
+      }
+    }
+  }
+});
+
+test('after a fidget an idle buddy rests at once; after a press during one, it settles for 10 s', () => {
+  // What the page does each frame: sinceActive starts again when countsAsActive(), then it asks fpsFor().
+  let lastActive = -Infinity;
+  const frame = (t, state) => {
+    if (countsAsActive(state)) lastActive = t;
+    return fpsFor({ ...resting, ...state, sinceActive: t - lastActive });
+  };
+  assert.strictEqual(frame(100.5, { mood: 'look', since: 0.5, pressing: false }), 30, 'a fidget plays at the full rate');
+  assert.strictEqual(frame(102.1, { mood: 'idle', since: 0.1, pressing: false }), 6, 'and then it rests at once');
+  frame(120.5, { mood: 'hop', since: 0.5, pressing: true }); // pressed during a fidget
+  assert.strictEqual(frame(121.1, { mood: 'idle', since: 0.1, pressing: false }), 15, 'after a press it settles');
+  assert.strictEqual(frame(130.6, { mood: 'idle', since: 9.6, pressing: false }), 6, 'for 10 s');
 });

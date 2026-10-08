@@ -37,6 +37,10 @@ function star(i, n) {
 export const Z_LETTER = 2.5;
 /** From the start of one burst to the start of the next. */
 export const Z_CYCLE = 12;
+// The letters are what costs battery while the buddy sleeps (a sleeping buddy without them used about a third less
+// CPU than one with them). So after 5 minutes it sleeps quietly: closed eyes, head down, slow breathing, no letters.
+/** How long into a sleep (seconds) the "z" letters keep coming: a burst that would start at this time or later does not. */
+export const Z_FOR = 300;
 
 // Where each particle starts, from the head's top centre in head widths (+x right,
 // +y down); how many seconds after the effect starts it does (the stars repeat on
@@ -82,6 +86,8 @@ export const Z_REST = Z_CYCLE - Z_BURST;
 
 // The effects that come back after a rest: seconds from the start of one burst to the next.
 const CYCLES = new Map([['z', Z_CYCLE]]);
+// The effects that stop coming back after a while: seconds into the mood after which no burst starts.
+const QUIET_AFTER = new Map([['z', Z_FOR]]);
 
 /** The particles for an effect, fresh each call; none for an unknown one. */
 export function particlesFor(effect) {
@@ -151,7 +157,9 @@ function particleElement(doc, { kind, delay, x, y, scale }) {
  * replaces whatever is showing with an effect's particles (an unknown effect or null just
  * clears); stop() removes everything. The stars loop until replaced or stopped; the "z"
  * letters play a burst, rest with nothing on the page, and come back, until replaced or
- * stopped; the others play once and remove themselves.
+ * stopped or until the sleep is Z_FOR old; the others play once and remove themselves.
+ * play(effect, { since }) says how many seconds its mood has been showing already (0 when it
+ * is just starting): a buddy shown again after a while asleep goes on from there.
  */
 export function createSymbols(root, { color } = {}) {
   const doc = root.ownerDocument;
@@ -169,9 +177,12 @@ export function createSymbols(root, { color } = {}) {
     showing.clear();
   }
 
-  function play(effect) {
+  function play(effect, { since = 0 } = {}) {
     // This also takes away letters whose burst never ended: a hidden page runs no animations.
     stop();
+    // A sleep that is old enough sleeps quietly: nothing to show, and no timer.
+    const quietAfter = QUIET_AFTER.get(effect);
+    if (quietAfter !== undefined && since >= quietAfter) return;
     const elements = particlesFor(effect).map((p) => {
       const el = particleElement(doc, p);
       // Its own animation, not a child's (the stars pop in with one of their own).
@@ -185,9 +196,12 @@ export function createSymbols(root, { color } = {}) {
       return el;
     });
     root.append(...elements);
-    // An effect that rests between bursts is played again when its cycle is over, by one timer at a time.
+    // An effect that rests between bursts is played again when its cycle is over, by one timer at a time, but
+    // only if that burst would start before the effect goes quiet: the last burst's letters finish and that is all.
     const cycle = CYCLES.get(effect);
-    if (cycle) timer = doc.defaultView.setTimeout(() => play(effect), cycle * 1000);
+    if (cycle && (quietAfter === undefined || since + cycle < quietAfter)) {
+      timer = doc.defaultView.setTimeout(() => play(effect, { since: since + cycle }), cycle * 1000);
+    }
   }
 
   return {

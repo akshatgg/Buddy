@@ -171,11 +171,13 @@ function placeSymbols() {
 
 /**
  * Show the symbols of a mood that is starting (again, if it is the same one), or none. None while the page is paused:
- * the "z" letters would come back every 12 s for nobody. The page starts them when it resumes.
+ * the "z" letters would come back every 12 s for nobody. The page starts them when it resumes, and then says how long
+ * the mood has been showing (`since`, in seconds; 0 for a mood that is just starting): after 5 minutes of sleep the
+ * buddy sleeps quietly, so one shown again after that has no letters, and one shown at 3 minutes has them until 5.
  */
-function startSymbols(name) {
+function startSymbols(name, since = 0) {
   const { effect } = moodPose(name, 0);
-  if (effect && !paused) symbols.play(effect);
+  if (effect && !paused) symbols.play(effect, { since });
   else symbols.stop();
 }
 
@@ -454,7 +456,8 @@ window.buddy.onPause((value) => {
   } else {
     fidgeter.reset(now()); // the wait for a fidget starts again: one due while hidden is not played the moment it shows
     startLoop(); // a mood that ended while paused gives way to idle here
-    startSymbols(mood.name); // and the mood showing now gets its symbols back
+    // The mood showing now gets its symbols back, as old as it is: a sleep past 5 minutes has no more letters.
+    startSymbols(mood.name, Math.max(0, now() - mood.since));
   }
 });
 window.buddy.onReload(() => {

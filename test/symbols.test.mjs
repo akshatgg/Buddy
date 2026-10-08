@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import {
-  EFFECTS, RING, Z_LETTER, Z_CYCLE, Z_BURST, Z_REST, particlesFor, createSymbols,
+  EFFECTS, RING, Z_LETTER, Z_CYCLE, Z_BURST, Z_REST, Z_FOR, particlesFor, createSymbols,
 } from '../src/renderer/buddy/symbols.js';
 
 const KINDS = ['z', 'heart', 'star', 'sparkle', 'note', 'drop'];
@@ -207,6 +207,101 @@ test('stop() and play() leave no timer and no burst behind', () => {
   symbols.play(null);
   assert.strictEqual(page.timers.size, 0, 'so does nothing');
   assert.strictEqual(page.root.children.length, 0);
+});
+
+/** Play "z" from `since` seconds into a sleep and let every burst come: the second each burst starts at, until none is due. */
+function burstStarts(since = 0) {
+  const page = fakePage();
+  const symbols = createSymbols(page.root);
+  const starts = [];
+  symbols.play('z', { since });
+  while (true) {
+    if (page.root.children.length > 0) starts.push(since + starts.length * Z_CYCLE);
+    page.end(...page.root.children);
+    if (page.timers.size === 0) break;
+    assert.deepStrictEqual([...page.timers.values()].map((t) => t.ms), [Z_CYCLE * 1000], 'one timer, for the next burst');
+    page.elapse();
+    assert.ok(starts.length < 1000, 'the bursts stop coming');
+  }
+  return { starts, page };
+}
+
+test('the z letters stop coming back after Z_FOR (5 minutes), and the last burst starts before it', () => {
+  assert.strictEqual(Z_FOR, 300);
+  const { starts, page } = burstStarts();
+  assert.strictEqual(starts[0], 0);
+  assert.ok(starts.length > 1, 'it does come back for a while');
+  assert.ok(starts.at(-1) < Z_FOR, `the last burst starts at ${starts.at(-1)} s, before ${Z_FOR} s`);
+  assert.ok(starts.at(-1) + Z_CYCLE >= Z_FOR, 'and the next one would not have started before it');
+  assert.strictEqual(page.timers.size, 0, 'no timer is waiting after the last burst');
+  assert.strictEqual(page.root.children.length, 0, 'and nothing is on the page: it sleeps quietly');
+});
+
+test('the last burst starts before Z_FOR whether Z_FOR is a whole number of cycles or not', () => {
+  // From any point of the sleep: the bursts come every cycle from there, the last one starts before Z_FOR, and the
+  // next would have started at Z_FOR or later. (From 0, 300 s is a whole number of 12 s cycles: a burst at exactly 300
+  // would be the first of the quiet. From 5, the bursts come at 5, 17, ... and the last is at 293, not 305.)
+  for (const since of [0, 1, 5, 11.5, 100, 179, 288, 299]) {
+    const { starts } = burstStarts(since);
+    assert.strictEqual(starts[0], since, `${since}: a burst at once`);
+    assert.ok(starts.at(-1) < Z_FOR, `${since}: the last burst starts at ${starts.at(-1)} s, before ${Z_FOR} s`);
+    assert.ok(starts.at(-1) + Z_CYCLE >= Z_FOR, `${since}: and the next would not have started before it`);
+  }
+  assert.strictEqual(burstStarts(0).starts.at(-1), 288);
+  assert.strictEqual(burstStarts(5).starts.at(-1), 293);
+});
+
+test('a "z" played when the sleep is already Z_FOR old or more shows nothing, and waits for nothing', () => {
+  for (const since of [Z_FOR, Z_FOR + 1, 3600, Infinity]) {
+    const page = fakePage();
+    const symbols = createSymbols(page.root);
+    symbols.play('z', { since });
+    assert.strictEqual(page.root.children.length, 0, `no letters at ${since} s`);
+    assert.strictEqual(page.timers.size, 0, `and no timer at ${since} s`);
+  }
+  // It also takes away what was showing, as a play of no effect does.
+  const page = fakePage();
+  const symbols = createSymbols(page.root);
+  symbols.play('z');
+  assert.strictEqual(page.root.children.length, 3);
+  symbols.play('z', { since: Z_FOR + 60 });
+  assert.strictEqual(page.root.children.length, 0, 'the letters of the sleep before are gone');
+  assert.strictEqual(page.timers.size, 0, 'and so is the timer');
+});
+
+test('a "z" played 3 minutes into a sleep keeps bursting until 5 minutes, then stops', () => {
+  const { starts } = burstStarts(180);
+  assert.strictEqual(starts[0], 180, 'a burst at once');
+  assert.strictEqual(starts.length, (Z_FOR - 180) / Z_CYCLE, 'and one every cycle until 5 minutes');
+  assert.ok(starts.at(-1) < Z_FOR);
+  // Just under 5 minutes it is a last burst; the timer that would follow it is not set.
+  const page = fakePage();
+  createSymbols(page.root).play('z', { since: Z_FOR - 1 });
+  assert.strictEqual(page.root.children.length, 3, 'a burst a second before 5 minutes');
+  assert.strictEqual(page.timers.size, 0, 'and none after it');
+});
+
+test('a "z" played with no since is the start of a sleep, as before', () => {
+  const page = fakePage();
+  const symbols = createSymbols(page.root);
+  symbols.play('z');
+  assert.strictEqual(page.root.children.length, 3);
+  assert.deepStrictEqual([...page.timers.values()].map((t) => t.ms), [Z_CYCLE * 1000]);
+  symbols.play('z', {});
+  assert.strictEqual(page.root.children.length, 3);
+  assert.strictEqual(page.timers.size, 1);
+});
+
+test('the others do not care how long their mood has been showing: stars, hearts, sparkles, notes and the drop', () => {
+  for (const effect of EFFECTS.filter((e) => e !== 'z')) {
+    const fresh = fakePage();
+    createSymbols(fresh.root).play(effect);
+    const old = fakePage();
+    createSymbols(old.root).play(effect, { since: 100000 });
+    assert.strictEqual(old.root.children.length, fresh.root.children.length, `${effect} shows its particles`);
+    assert.ok(old.root.children.length > 0, effect);
+    assert.strictEqual(old.timers.size, 0, `${effect} still has no timer`);
+  }
 });
 
 test('no other effect uses a timer: the stars loop in CSS and the rest play once', () => {

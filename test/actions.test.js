@@ -117,8 +117,6 @@ function setup({
       return {};
     },
   };
-  const timers = [];
-  const cancelled = [];
   const actions = createActions({
     helper,
     clipboard,
@@ -136,12 +134,6 @@ function setup({
     undoKey: (platform) => ({ key: 'z', modifiers: [platform === 'darwin' ? 'cmd' : 'ctrl'] }),
     userName: () => name,
     now: () => time,
-    later: (fn, ms) => {
-      const timer = { fn, ms };
-      timers.push(timer);
-      return timer;
-    },
-    cancelLater: (timer) => cancelled.push(timer),
     helperMovesFocus: windows,
     newline: windows ? '\r\n' : '\n',
     system: windows ? 'win32' : 'darwin',
@@ -153,8 +145,6 @@ function setup({
     cloud,
     clipboard,
     memory,
-    timers,
-    cancelled,
     setJustClosed: (v) => { justClosed = v; },
     wait: (ms) => { time += ms; },
     /** The panel hides the way a click somewhere else hides it: by itself, not through actions. */
@@ -1315,7 +1305,6 @@ test('no internet makes the buddy sad, which ends by itself: nothing is left to 
   await s.actions.open();
   await s.actions.send('mail');
   assert.deepStrictEqual(moods(s.log), ['thinking', 'sad']);
-  assert.strictEqual(s.timers.length, 0, 'no timer');
 });
 
 test('every error makes the buddy sad: the AI failed, the limit is reached, a key refused, an answer that takes too long', async (t) => {
@@ -1329,7 +1318,6 @@ test('every error makes the buddy sad: the AI failed, the limit is reached, a ke
     await s.actions.open();
     await s.actions.send('mail');
     assert.deepStrictEqual(moods(s.log), ['thinking', 'sad'], err.code || err.message);
-    assert.strictEqual(s.timers.length, 0, 'no timer');
   }
 });
 
@@ -1351,7 +1339,6 @@ test("a closed chat's late answer leaves the buddy's mood alone: the buddy stops
     answer();
     await sending;
     assert.deepStrictEqual(moods(s.log), ['thinking', 'idle'], late.code || 'an answer');
-    assert.strictEqual(s.timers.length, 0, 'and no "sleepy for a while" timer');
   }
 });
 
@@ -1405,13 +1392,12 @@ test('closing a chat that is not thinking leaves the mood as it is', async () =>
   assert.deepStrictEqual(moods(s.log), ['thinking', 'happy']);
 });
 
-test('a new message after an error: nothing left from the error turns the thinking or happy buddy back to idle', async () => {
+test('a new message after an error: the buddy thinks and is happy as usual, with nothing from the error in between', async () => {
   const s = setup({ answers: [failure('network'), reply({ text: 'ok' })] });
   await s.actions.open();
   await s.actions.send('mail');
   await s.actions.send('mail');
   assert.deepStrictEqual(moods(s.log), ['thinking', 'sad', 'thinking', 'happy']);
-  assert.deepStrictEqual([s.timers, s.cancelled], [[], []]);
 });
 
 test('Insert or Replace that puts the text in the app celebrates; when it can only be copied, the mood stays', async (t) => {

@@ -84,18 +84,18 @@ module.exports = async function feelingsCheck(ctx, { assert, delay, waitFor }) {
   assert.strictEqual(await symbols(), 0, 'and the stars are gone with it');
   page.sendInputEvent({ type: 'mouseMove', x: 1, y: 1 }); // the pointer leaves the buddy
 
-  // 4. Listening: the voice level reaches the page, and the ear rims glow with it.
+  // 4. Listening: the voice level reaches the page, and the ear rims glow with it: well below their resting glow (1)
+  // while it is quiet, far above it with a loud voice, and down again when the voice stops (moods.js: 0.3 to 4.3).
   ctx.buddy.mood('listening');
   await waitFor(moodIs('listening'), 'the buddy to listen');
-  const quiet = await js('window.__buddyPose.ears');
+  await waitFor(() => js('window.__buddyPose?.ears < 0.4'), 'the ear rims to dim while it is quiet');
   for (let i = 0; i < 5; i += 1) {
     ctx.buddy.voiceLevel(0.9); // about 10 times a second, as while the person talks
     await delay(100);
   }
-  await waitFor(() => js('window.__buddyPose?.ears > 2'), 'a loud voice to light the ear rims');
-  assert.ok(quiet < 1.2, `they were dim while it was quiet (${quiet})`);
+  await waitFor(() => js('window.__buddyPose?.ears > 3'), 'a loud voice to light the ear rims');
   ctx.buddy.voiceLevel(0);
-  await waitFor(() => js('window.__buddyPose?.ears < 1.2'), 'the ear rims to dim again when the voice stops');
+  await waitFor(() => js('window.__buddyPose?.ears < 0.4'), 'the ear rims to dim again when the voice stops');
   ctx.buddy.mood('idle');
   await waitFor(moodIs('idle'), 'the buddy to stop listening');
 };

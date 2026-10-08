@@ -414,7 +414,7 @@ test('drowsy: a yawn, then half-shut eyes, the head a little down and a slower f
   }
 });
 
-test('asleep: sleeping eyes, the head down, slow breathing, the glow at half, the pointer ignored', () => {
+test('asleep: sleeping eyes, the head down, slow breathing, the glow down, the pointer ignored', () => {
   const fading = moodPose('asleep', 0.3).sleep;
   assert.ok(fading > 0 && fading < 1, `the sleeping eyes fade in: ${fading}`);
   assert.strictEqual(moodPose('asleep', 0.6).sleep, 1, 'over 0.6 s');
@@ -424,7 +424,9 @@ test('asleep: sleeping eyes, the head down, slow breathing, the glow at half, th
     assert.strictEqual(pose.sleep, 1, at);
     assert.ok(near(pose.headPitch, 0.22), `the head down ${at}`);
     assert.ok(near(pose.scaleY, 1 + 0.02 * Math.sin((2 * Math.PI * t) / 4)), `a breath every 4 s, ${at}`);
-    assert.ok(near(pose.glow, 0.5) && near(pose.ears, 0.5), `the glow at half ${at}`);
+    assert.ok(near(pose.glow, 0.5), `the eyes' glow at half ${at}`);
+    // The rims glow near the top of the tone curve: at half they would look almost as they do awake.
+    assert.ok(near(pose.ears, 0.2), `the ear rims' glow well down ${at}`);
     assert.ok(near(pose.look, 0), `the head does not follow the pointer ${at}`);
     assert.ok(near(pose.float, 0.5), `less float ${at}`);
     assert.strictEqual(pose.effect, 'z', at);
@@ -489,20 +491,31 @@ test('celebrate: a jump with happy eyes and the arms up', () => {
   assert.strictEqual(moodPose('celebrate', 0.5).smile, 1, 'happy eyes');
 });
 
-test('listening: the head tilted, the eyes a little up, the ear rims glowing with the voice', () => {
+test('listening: the head tilted, the eyes a little up, the ear rims dim while it is quiet and bright with the voice', () => {
   const pose = moodPose('listening', 5, { level: 0.4 });
   assert.ok(near(pose.headTilt, 0.14) && near(pose.headPitch, -0.04), 'the head tilted, as if leaning in');
   assert.ok(near(pose.eyeL, 0.15) && near(pose.eyeR, 0.15), 'the eyes a little up');
   assert.ok(near(pose.look, 0.5), 'it follows the pointer only halfway');
-  for (const level of [0, 0.25, 0.4, 1]) {
-    assert.ok(near(moodPose('listening', 5, { level }).ears, 1 + 1.5 * level), `level ${level}`);
+  for (const level of [0, 0.25, 0.4, 0.5, 1]) {
+    assert.ok(near(moodPose('listening', 5, { level }).ears, 0.3 + 4 * level), `level ${level}`);
   }
-  assert.strictEqual(moodPose('listening', 5).ears, 1, 'no level: silence');
-  assert.strictEqual(moodPose('listening', 5, {}).ears, 1);
-  assert.ok(near(moodPose('listening', 5, { level: 3 }).ears, 2.5), 'a level above 1 counts as 1');
-  assert.strictEqual(moodPose('listening', 5, { level: -1 }).ears, 1, 'one below 0, as 0');
-  assert.strictEqual(moodPose('listening', 5, { level: NaN }).ears, 1, 'and one that is not a number, as silence');
+  // At rest the rims glow at 1, near the top of the tone curve: 0.5 hardly looks dimmer, and 2 is the least that looks
+  // clearly brighter (moods.js, REST).
+  assert.ok(moodPose('listening', 5, { level: 0 }).ears < 0.5, 'silence: clearly dimmer than at rest');
+  assert.ok(moodPose('listening', 5, { level: 0.5 }).ears > 2, 'a normal voice: clearly brighter than at rest');
+  assert.ok(near(moodPose('listening', 5).ears, 0.3), 'no level: silence');
+  assert.ok(near(moodPose('listening', 5, {}).ears, 0.3));
+  assert.ok(near(moodPose('listening', 5, { level: 3 }).ears, 4.3), 'a level above 1 counts as 1');
+  assert.ok(near(moodPose('listening', 5, { level: -1 }).ears, 0.3), 'one below 0, as 0');
+  assert.ok(near(moodPose('listening', 5, { level: NaN }).ears, 0.3), 'and one that is not a number, as silence');
   assert.strictEqual(moodPose('happy', 0.5, { level: 1 }).ears, 1, 'only listening shows the voice');
+});
+
+test('listening: the ear rims start at rest and dim as it leans in, so going from idle does not jump', () => {
+  const ears = times(0, 0.4).map((t) => moodPose('listening', t).ears);
+  assert.strictEqual(ears[0], 1, 'at rest when it starts');
+  assert.ok(ears.every((value, i) => i === 0 || value <= ears[i - 1]), 'then only going down');
+  assert.ok(near(ears.at(-1), 0.3), 'to the quiet glow once it leans in');
 });
 
 test('the look fidget glances one way, then the other, and back, not following the pointer meanwhile', () => {

@@ -129,6 +129,10 @@ export const SWEEP_LAG = 0.6;
 // eyes outright (see blinkWeight). glow and ears multiply the glow of the eyes and of the
 // ear rims; look is how far the head follows the pointer, 0 to 1; float scales the idle
 // float. effect names the symbols to show over the buddy, or is null.
+//
+// At 1 the ear rims already glow near the top of the page's tone curve (buddy.js): more glow
+// mostly makes them paler, and less dims them a lot. Measured on screen: 0.5 looks almost as
+// 1 does, 0.2 is a darker amber, and from 4 up they get hardly brighter, only whiter.
 const REST = Object.freeze({
   lift: 0, scaleX: 1, scaleY: 1, headTilt: 0, headPitch: 0, headYaw: 0, armL: 0, armR: 0, smile: 0, mouthO: 0,
   eyesClosed: false, eyeL: 0, eyeR: 0, heart: 0, swirl: 0, sad: 0, half: 0, sleep: 0, glow: 1, ears: 1, look: 1,
@@ -186,7 +190,8 @@ function bodyScale(k) {
 const DROWSY_PITCH = 0.08;
 const DROWSY_FLOAT = 0.6;
 const SLEEP_PITCH = 0.22;
-const SLEEP_GLOW = 0.5; // the eyes and the ear rims, asleep
+const SLEEP_GLOW = 0.5; // the eyes, asleep
+const SLEEP_EARS = 0.2; // the ear rims, asleep: at half they would hardly look dimmer (see REST)
 const SLEEP_FLOAT = 0.5;
 
 // sad: droopy eyes, the head and the arms down, and one sigh: a small breath in, then the
@@ -221,9 +226,10 @@ function drowsy(since) {
 }
 
 // asleep: the sleeping "◡" eyes, the head down, slow breathing (a breath every 4 s), the
-// glow of the eyes and the ears at half, the head no longer following the pointer, and less
-// float. It starts as drowsy leaves off: the half-shut eyes close into the sleeping ones over
-// 0.6 s, and the rest settles over 2.5 s, slowly, because only SLEEP_FPS frames a second show it.
+// glow of the eyes at half and the ear rims dim, the head no longer following the pointer,
+// and less float. It starts as drowsy leaves off: the half-shut eyes close into the sleeping
+// ones over 0.6 s, and the rest settles over 2.5 s, slowly, because only SLEEP_FPS frames a
+// second show it.
 function asleep(since) {
   const closing = ease(since / 0.6);
   const settled = ease(since / 2.5);
@@ -232,7 +238,7 @@ function asleep(since) {
     half: 1 - closing, sleep: closing,
     headPitch: mix(DROWSY_PITCH, SLEEP_PITCH, settled),
     scaleY: 1 + 0.02 * Math.sin((2 * Math.PI * since) / 4),
-    glow: mix(1, SLEEP_GLOW, settled), ears: mix(1, SLEEP_GLOW, settled), look: 1 - settled,
+    glow: mix(1, SLEEP_GLOW, settled), ears: mix(1, SLEEP_EARS, settled), look: 1 - settled,
     float: mix(DROWSY_FLOAT, SLEEP_FLOAT, settled),
     effect: 'z',
   };
@@ -253,7 +259,7 @@ function wake(since) {
     armL: 2.4 * stretch, armR: 2.4 * stretch, scaleY: 1 + 0.06 * stretch, scaleX: 1 - 0.025 * stretch,
     headPitch: SLEEP_PITCH * (1 - ease(since / 0.5)) - 0.08 * stretch,
     headYaw: 0.12 * shake(since, 0.85, WAKE, 4),
-    glow: mix(SLEEP_GLOW, 1, ease((since - 0.15) / 0.35)), ears: mix(SLEEP_GLOW, 1, ease(since / 0.5)),
+    glow: mix(SLEEP_GLOW, 1, ease((since - 0.15) / 0.35)), ears: mix(SLEEP_EARS, 1, ease(since / 0.5)),
     look: ease((since - 0.3) / 0.8), float: mix(SLEEP_FLOAT, 1, ease(since / WAKE)),
     done: since >= WAKE,
   };
@@ -302,16 +308,20 @@ function celebrate(since) {
   };
 }
 
-// listening: the head tilted as if leaning in, the eyes a little up, and the ear rims
-// glowing brighter and dimmer with the voice (`level`, 0 to 1). The head follows the
-// pointer only halfway, so the lean stays. Until the microphone stops.
+// listening: the head tilted as if leaning in, the eyes a little up, and the ear rims dim
+// while it is quiet and bright with the voice (`level`, 0 to 1): QUIET_EARS in silence, and
+// VOICE_EARS more at a voice of 1 (see REST: higher, they only get paler). They start at
+// rest and dim as it leans in. The head follows the pointer only halfway, so the lean stays.
+// Until the microphone stops.
+const QUIET_EARS = 0.3;
+const VOICE_EARS = 4;
 function listening(since, level) {
   const leaning = ease(since / 0.4);
   const voice = clamp(level, 0, 1) || 0; // a level that is not a number counts as silence
   return {
     ...REST,
     headTilt: 0.14 * leaning, headPitch: -0.04 * leaning, eyeL: 0.15 * leaning, eyeR: 0.15 * leaning,
-    ears: 1 + 1.5 * voice, look: 1 - 0.5 * leaning,
+    ears: mix(1, QUIET_EARS + VOICE_EARS * voice, leaning), look: 1 - 0.5 * leaning,
   };
 }
 

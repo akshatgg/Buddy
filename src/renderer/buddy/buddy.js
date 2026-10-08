@@ -7,8 +7,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
-  BLINK_LOOKAHEAD, fpsFor, countsAsActive, wakeDelay, floatOffset, createBlinker, createFidgeter, blinkWeight, lookAt,
-  moodPose,
+  BLINK_LOOKAHEAD, EYE_SHAPES, fpsFor, countsAsActive, wakeDelay, floatOffset, createBlinker, createFidgeter,
+  blinkWeight, lookAt, moodPose,
 } from './moods.js';
 import { BLEND, blendPose, smoothLevel } from './blend.js';
 import { fitCamera, fromWindow, headMark } from './layout.js';
@@ -59,9 +59,6 @@ const symbols = createSymbols(symbolsRoot);
 const now = () => performance.now() / 1000;
 
 const LOOK_EPSILON = 0.01; // radians (a few pixels of pointer): a smaller turn of the head is not worth waking for
-// The eye shapes of the buddy's feelings: morph targets on the Face after the first five, all optional (a model
-// without one shows the plain open eyes instead).
-const EYE_SHAPES = ['heart', 'swirl', 'sad', 'half', 'sleep'];
 // What the app shows until it ends it: the buddy at work, or listening. Petting does not cut these short.
 const LASTING = new Set(['thinking', 'listening']);
 
@@ -276,11 +273,10 @@ function render(t) {
   rig.armL.rotation.z = base.armL + pose.armL;
   rig.armR.rotation.z = base.armR - pose.armR;
   setMorph('blink', pose.blink);
-  setMorph('smile', pose.smile);
   setMorph('mouthO', pose.mouthO);
   setMorph('eyeLUp', pose.eyeL);
   setMorph('eyeRUp', pose.eyeR);
-  for (const shape of EYE_SHAPES) setMorph(shape, pose[shape]);
+  for (const shape of EYE_SHAPES) setMorph(shape, pose[shape]); // the smile and the feelings' eyes (moods.js)
   setGlow(rig.glows, pose.glow);
   setGlow(rig.ears, pose.ears);
   renderer.render(scene, camera);

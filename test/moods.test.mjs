@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import {
-  FPS, IDLE_FPS, REST_FPS, SLEEP_FPS, BLINK_LOOKAHEAD, SWEEP_HZ, SWEEP_LAG, FIDGETS,
+  FPS, IDLE_FPS, REST_FPS, SLEEP_FPS, BLINK_LOOKAHEAD, SWEEP_HZ, SWEEP_LAG, FIDGETS, EYE_SHAPES,
   fpsFor, isActive, countsAsActive, wakeDelay, floatOffset, createBlinker, blinkWeight, lookAt, moodPose, createFidgeter,
 } from '../src/renderer/buddy/moods.js';
 
@@ -769,4 +769,8 @@ test('after a fidget an idle buddy rests at once; after a press during one, it s
   frame(120.5, { mood: 'hop', since: 0.5, pressing: true }); // pressed during a fidget
   assert.strictEqual(frame(121.1, { mood: 'idle', since: 0.1, pressing: false }), 15, 'after a press it settles');
   assert.strictEqual(frame(130.6, { mood: 'idle', since: 9.6, pressing: false }), 6, 'for 10 s');
+});
+
+test('the eye shapes a pose can ask for, which the page sets on the Face: the smile and the five of the feelings', () => {
+  assert.deepStrictEqual(EYE_SHAPES, SHAPES);
 });

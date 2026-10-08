@@ -111,8 +111,11 @@ export function createBlinker(random = Math.random) {
   };
 }
 
-// The eye shapes a pose can ask for, 0 to 1. Each reshapes both eyes, as the blink does.
-const EYE_SHAPES = ['smile', 'heart', 'swirl', 'sad', 'half', 'sleep'];
+// The eye shapes a pose can ask for, 0 to 1: morph targets on the Face, each named as the
+// pose's field. Each reshapes both eyes, as the blink does. The smile is one of the five the
+// character contract promises; the others are optional (a model without one shows the plain
+// open eyes instead).
+export const EYE_SHAPES = ['smile', 'heart', 'swirl', 'sad', 'half', 'sleep'];
 
 /**
  * How shut the eyes are, 0 (open) to 1 (shut): fully shut when the pose closes them, else

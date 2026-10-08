@@ -252,6 +252,11 @@ const cloud = {
 // cloud.json's values: the account and the server above are what use them, so they only make Buddy "set up".
 const cloudConfig = { serverUrl: 'https://e2e.invalid', firebaseApiKey: 'e2e', googleClientId: 'e2e', googleClientSecret: 'e2e' };
 
+// The buddy's sleep countdown (src/main/sleep.js) runs on real time, a minute to drowsy and two to asleep, which no
+// check waits for. A check that needs it sooner sets ctx.sleepClock.speed: a countdown that starts after that runs that
+// many times faster. Short times for the whole run would put the buddy to sleep in the middle of the other checks.
+const sleepClock = { speed: 1 };
+
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const WATCHDOG_MS = 120_000;
@@ -310,8 +315,11 @@ async function waitFor(fn, what, ms = 8000) {
       cloudConfig,
       systemPreferences,
       loginItems: { get: () => false, set: (on) => loginCalls.push(on) },
+      sleep: { later: (fn, ms) => setTimeout(fn, ms / sleepClock.speed) },
     });
     Object.assign(ctx, { helper, clipboard, globalShortcut, loginCalls, systemPreferences });
+    ctx.home ??= ctx.buddy; // where Buddy lives (the notch or the floating buddy), as main returns it
+    ctx.sleepClock = sleepClock;
     const dir = path.join(__dirname, 'checks');
     for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js')).sort()) {
       await require(path.join(dir, file))(ctx, { assert, delay, waitFor });

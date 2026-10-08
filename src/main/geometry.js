@@ -9,11 +9,31 @@ const SIZES = { small: 48, medium: 64, large: 88 };
 const MARGIN = 8;
 const PANEL = { width: 360, height: 480 };
 const BUBBLE = { width: 230, height: 54 };
+const ROOM_ABOVE = 0.6; // room above the buddy for its symbols (src/renderer/buddy/symbols.js), times its size
 
-/** The buddy window: room around the character for floating and turning. */
+/**
+ * The buddy window: the buddy's own box, 1.5 × its size wide and 1.75 × tall (room around the character for floating
+ * and turning), with room above it for the symbols that show how it feels.
+ */
 function buddyWindowSize(size) {
   const s = SIZES[size] || SIZES.medium;
-  return { width: Math.round(s * 1.5), height: Math.round(s * 1.75) };
+  return { width: Math.round(s * 1.5), height: Math.round(s * 1.75) + Math.round(s * ROOM_ABOVE) };
+}
+
+/**
+ * The buddy's own box in its window: the bottom of it, 1.75 tall for 1.5 wide. It is what the window was before it
+ * grew upward, so the panel and the bubble go beside it as they always did, and the buddy page frames the character
+ * in the same box (src/renderer/buddy/layout.js; a test checks they agree).
+ */
+function buddyBox(win) {
+  const height = Math.min(win.height, Math.round((win.width * 7) / 6));
+  return { x: win.x, y: win.y + win.height - height, width: win.width, height };
+}
+
+/** The window of `size` whose box has its top-left corner at `corner`: where a saved position puts the buddy. */
+function windowAtBox(corner, size) {
+  const box = buddyBox({ x: 0, y: 0, ...size });
+  return { x: corner.x, y: corner.y - box.y, ...size };
 }
 
 function clamp(v, lo, hi) {
@@ -64,5 +84,5 @@ function resizeAround(b, size, area) {
 
 module.exports = {
   SIZES, MARGIN, PANEL, BUBBLE,
-  buddyWindowSize, clampToArea, defaultBounds, snapToEdge, panelBounds, bubbleBounds, resizeAround,
+  buddyWindowSize, buddyBox, windowAtBox, clampToArea, defaultBounds, snapToEdge, panelBounds, bubbleBounds, resizeAround,
 };

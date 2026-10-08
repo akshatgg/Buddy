@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('buddy', {
   click: () => ipcRenderer.send('buddy:click'),
   onMood: (fn) => ipcRenderer.on('buddy:mood', (_event, name) => fn(name)),
   onCursor: (fn) => ipcRenderer.on('buddy:cursor', (_event, point) => fn(point)),
+  onVoiceLevel: (fn) => ipcRenderer.on('buddy:voice-level', (_event, level) => fn(level)),
+  onPanelOpen: (fn) => ipcRenderer.on('buddy:panel-open', (_event, open) => fn(open)),
+  onMicOn: (fn) => ipcRenderer.on('buddy:mic-on', (_event, on) => fn(on)),
   onPause: (fn) => ipcRenderer.on('buddy:pause', (_event, paused) => fn(paused)),
   onReload: (fn) => ipcRenderer.on('buddy:reload', () => fn()),
 });

@@ -25,7 +25,6 @@ const platform = require('./platform');
 
 const COPIED = `Copied — press ${platform.pasteKeys}`;
 const READY = 'Your answer is ready. Open me to see it.';
-const SLEEPY_MS = 5000;
 // A panel that only hid (a click somewhere else, or Buddy put text in the app) opens on the same chat for this long,
 // from the same app. Closing it (✕, Esc, the shortcut, a click on the buddy) ends the chat.
 const RESUME_MS = 5 * 60_000;
@@ -92,8 +91,6 @@ function createActions({
   voice = () => ({}),
   userName = () => '',
   now = Date.now,
-  later = setTimeout,
-  cancelLater = clearTimeout,
   helperMovesFocus = platform.helperMovesFocus,
   newline = platform.newline,
   system = process.platform,
@@ -103,7 +100,6 @@ function createActions({
   let aside = 0; // how many of Buddy's steps in the app are under way with the panel hidden on purpose for them
   let lane = Promise.resolve(); // Buddy's work in the app, one step after the other (inApp)
   let working = 0; // how many steps in the app are under way or waiting their turn
-  let sleepy = null; // the pending "back to idle" timer after a network error, if any
 
   /**
    * A chat: the app it is about, its items, the selection the next message uses, the notice about that selection, and
@@ -468,31 +464,24 @@ function createActions({
   /**
    * One message through to its answer, the buddy thinking meanwhile; what goes wrong becomes a line in the chat. The
    * mood after it is only for the chat on screen: a closed chat's late answer must not make the buddy of a new chat
-   * happy, idle or sleepy.
+   * happy, idle or sad. An answer whose text went into the app was celebrated as it went in (put()): happy now would cut
+   * that short.
    */
   async function talk(c, you) {
-    if (sleepy !== null) {
-      cancelLater(sleepy); // it would flip a busy or happy buddy back to idle
-      sleepy = null;
-    }
+    const firstNew = c.nextId; // what the answer to this message adds to the chat has ids from here on
     ui.mood('thinking');
     c.busy = true;
     c.talking += 1;
     push(c);
     try {
       const answered = await answer(c, you);
-      if (c === chat) ui.mood(answered ? 'happy' : 'idle');
+      const celebrated = (c.lastPut?.id ?? 0) >= firstNew; // a text of this answer's is in the app
+      if (c === chat && !celebrated) ui.mood(answered ? 'happy' : 'idle');
     } catch (err) {
       if (c !== chat) {
         // Closed meanwhile: the buddy stopped thinking about it then (replaceChat).
-      } else if (err.code === 'network') {
-        ui.mood('sleepy');
-        sleepy = later(() => {
-          sleepy = null;
-          ui.mood('idle');
-        }, SLEEPY_MS);
       } else {
-        ui.mood('idle');
+        ui.mood('sad'); // no internet, the AI failed, the limit is reached, …: sad ends by itself
       }
       failed(c, err, you);
     } finally {
@@ -558,6 +547,7 @@ function createActions({
         c.lastPut = item;
         add(c, { type: 'event', text: `✅ Put it in ${appName(c)}`, buttons: [] });
         ui.bubble(`Done! It's in ${appName(c)} ✅`);
+        if (c === chat) ui.mood('celebrate'); // not for a chat closed meanwhile (Buddy turned off), as in talk()
       } else {
         // Electron's clipboard writes are asynchronous: say "copied" only once the text is there.
         await clipboard.writeText(forClipboard(item.text));
@@ -620,7 +610,7 @@ function createActions({
     // What Buddy put in the app has gone with it: none of it can be undone any more.
     for (const i of c.items) if (i.type === 'buddy') dropUndo(i);
     ui.bubble('Sent ✅');
-    if (c === chat) ui.mood('happy'); // not for a chat closed meanwhile (Buddy turned off), as in talk()
+    if (c === chat) ui.mood('celebrate'); // not for a chat closed meanwhile (Buddy turned off), as in talk()
     push(c);
   }
 
@@ -705,4 +695,4 @@ function createActions({
   return { open, toggle, dismiss, send, act, dropSelection, transcribe, state: () => stateOf(chat) };
 }
 
-module.exports = { createActions, sectionFor, COPIED, SLEEPY_MS };
+module.exports = { createActions, sectionFor, COPIED };

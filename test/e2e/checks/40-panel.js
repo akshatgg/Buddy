@@ -31,6 +31,8 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
     const win = ctx.bubble.window();
     return Boolean(win?.isVisible()) && (await win.webContents.executeJavaScript("document.getElementById('text').textContent")) === text;
   }, `the bubble to say "${text}"`);
+  /** Whether the buddy shows `mood` now: its page says so in window.__buddyMood. */
+  const buddyFeels = (mood) => async () => (await ctx.buddy.window().webContents.executeJavaScript('window.__buddyMood')) === mood;
   /** Open the panel as the shortcut does, once a panel that just hid may open again. */
   async function openPanel() {
     await waitFor(() => !ctx.panel.justClosed(), 'the panel to be ready to open again');
@@ -128,6 +130,7 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
     answers.push(reply({ say: 'Done.', text: 'See you at 5.', doIt: true }));
     await type('write see you at 5 here', { withButton: true });
     await bubbleSays("Done! It's in TextEdit ✅");
+    await waitFor(buddyFeels('celebrate'), 'the buddy to celebrate: its text is in the app');
     assert.deepStrictEqual(ctx.helper.calls.filter((call) => call.cmd === 'paste').at(-1).args, { pid: 4242, text: 'See you at 5.', selectAll: false });
     assert.strictEqual(panel.isVisible(), false, 'the panel stays hidden');
     await openPanel();
@@ -188,6 +191,7 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
       answers.push(new BuddyError(code, message));
       await type('mail to my boss');
       await waitFor(() => chat().at(-1)?.code === code, `the ${code} error`);
+      await waitFor(buddyFeels('sad'), `the buddy to be sad at the ${code} error`);
       const error = chat().at(-1);
       assert.deepStrictEqual([error.type, error.text, error.buttons], ['error', message, buttons], code);
       await pageShows(message, `the ${code} error`);

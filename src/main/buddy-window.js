@@ -11,7 +11,7 @@
  */
 
 const path = require('node:path');
-const { buddyWindowSize, clampToArea, defaultBounds, snapToEdge, resizeAround } = require('./geometry');
+const { buddyWindowSize, buddyBox, windowAtBox, clampToArea, defaultBounds, snapToEdge, resizeAround } = require('./geometry');
 const { floatingType } = require('./platform');
 
 const CURSOR_MS = 66; // about 15 updates a second is plenty for a head turn
@@ -23,18 +23,24 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
   let win = null;
   let loaded = false; // the page has finished loading, so it can take messages
   let pendingMood = null; // the latest mood sent while the page was not loaded
+  let sleepy = null; // 'drowsy' or 'asleep' while the sleep countdown says so, which a freshly loaded page is told too
   let paused = false; // what a freshly loaded page is told
+  let panelOpen = false; // whether the panel is open, which a freshly loaded page is told too
+  let micOn = false; // whether the microphone is on, which it is told too
   let crashes = []; // when the page crashed, within the last CRASH_WINDOW_MS
   let drag = { dx: 0, dy: 0 };
   let cursorTimer = null;
   let lastCursor = null;
 
+  // The window is the buddy's own box with room above it for the symbols (geometry.js). What is saved is the box's
+  // top-left corner, which is also where a window from before the room was added had its own: so a position saved
+  // then still puts the buddy where it was.
   function startBounds() {
     const size = buddyWindowSize(store.get('size'));
     const display = screen.getAllDisplays().find((d) => d.id === store.get('lastDisplayId'))
       || screen.getPrimaryDisplay();
     const saved = store.get('positions')[String(display.id)];
-    const bounds = saved ? { x: saved.x, y: saved.y, ...size } : defaultBounds(display.workArea, size);
+    const bounds = saved ? windowAtBox(saved, size) : defaultBounds(display.workArea, size);
     return clampToArea(bounds, display.workArea);
   }
 
@@ -87,9 +93,13 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
     lastCursor = null; // what was sent while it loaded was dropped, so send the pointer again even if it is still
     win.setIgnoreMouseEvents(true, { forward: true }); // a fresh page starts without hover
     send('buddy:pause', paused);
+    if (panelOpen) send('buddy:panel-open', true); // a new page starts with the panel closed
+    if (micOn) send('buddy:mic-on', true); // and with the microphone off
     if (pendingMood !== null) {
       send('buddy:mood', pendingMood);
       pendingMood = null;
+    } else if (sleepy !== null) {
+      send('buddy:mood', sleepy); // a new page starts awake, and the countdown has nothing more to send it
     }
   }
 
@@ -157,20 +167,24 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
       const p = screen.getCursorScreenPoint();
       if (lastCursor && p.x === lastCursor.x && p.y === lastCursor.y) return;
       lastCursor = p;
-      const b = win.getBounds();
+      const b = buddyBox(win.getBounds()); // from the buddy's middle, not the middle of the window with its room above
       send('buddy:cursor', { dx: p.x - (b.x + b.width / 2), dy: p.y - (b.y + b.height / 2) });
     }, CURSOR_MS);
   }
 
+  /** Save where the window `b` puts the buddy: its box's corner (see startBounds). */
   function remember(b) {
     const display = screen.getDisplayMatching(b);
+    const box = buddyBox(b);
     store.set({
-      positions: { ...store.get('positions'), [String(display.id)]: { x: b.x, y: b.y } },
+      positions: { ...store.get('positions'), [String(display.id)]: { x: box.x, y: box.y } },
       lastDisplayId: display.id,
     });
   }
 
-  const bounds = () => (win ? win.getBounds() : startBounds());
+  // Where the buddy is: its own box, without the room above it. The panel and the bubble go beside this, and the work
+  // area is the one of the screen it is on. Dragging, snapping and keeping it on the screen move the whole window.
+  const bounds = () => buddyBox(win ? win.getBounds() : startBounds());
 
   return {
     window: () => win,
@@ -190,7 +204,38 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
     isVisible: () => Boolean(win && win.isVisible()),
     bounds,
     display: () => screen.getDisplayMatching(bounds()),
-    mood: (name) => send('buddy:mood', name),
+    /**
+     * A mood for the page. Drowsy and asleep last until a use wakes the buddy, which sends a mood of its own (sleep.js),
+     * so they are kept for a page that loads meanwhile (a reload, a crash): it would show an awake buddy otherwise.
+     * Any other mood is kept only while the page loads (send).
+     */
+    mood(name) {
+      sleepy = name === 'drowsy' || name === 'asleep' ? name : null;
+      send('buddy:mood', name);
+    },
+    /**
+     * How loud the voice is while the buddy listens, 0 to 1; anything that is not a number is silence. Sent about 10
+     * times a second while the microphone is on, so one that a loading page misses is not kept: it is old at once.
+     */
+    voiceLevel(level) {
+      send('buddy:voice-level', typeof level === 'number' ? Math.min(1, Math.max(0, level)) || 0 : 0);
+    },
+    /**
+     * Whether the panel is open: while the person uses it, the buddy does not fidget. Unlike the voice level, this is
+     * kept for a page that loads meanwhile, since it can stay so for minutes.
+     */
+    panelOpen(open) {
+      panelOpen = Boolean(open);
+      send('buddy:panel-open', panelOpen);
+    },
+    /**
+     * Whether the microphone is on: while it is, the buddy at rest listens, so a mood that ends goes back to listening
+     * and not to idle. Kept for a page that loads meanwhile, like panelOpen.
+     */
+    micOn(on) {
+      micOn = Boolean(on);
+      send('buddy:mic-on', micOn);
+    },
     pause(value) {
       paused = value;
       send('buddy:pause', value);

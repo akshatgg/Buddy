@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const http = require('node:http');
 const net = require('node:net');
 const { createWatch, MOODS, OFF_LINE, FORGET_AFTER_MS, BODY_LIMIT, PORT_MIN, PORT_MAX } = require('../src/main/claude/watch');
 const { BuddyError } = require('../shared/errors');
@@ -56,7 +57,19 @@ function setup(t, { stored = {}, ports, busy = () => false, hooksError = null, a
   return { watch, saved, ui, hooks, laters, fire, tick: (ms) => { clock += ms; } };
 }
 
-const post = (port, path, body, init = {}) => fetch(`http://127.0.0.1:${port}${path}`, { method: 'POST', body, ...init });
+/**
+ * POST like Claude Code's curl hook does: a fresh connection for each request, closed after it. fetch would keep the
+ * connection open and reuse it, and after the watcher stops (which cuts it) the next request could take that dead
+ * connection before Node has noticed, and fail with "fetch failed" on a busy machine.
+ */
+const post = (port, path, body) => new Promise((resolve, reject) => {
+  const req = http.request({ host: '127.0.0.1', port, path, method: 'POST', agent: false, headers: { connection: 'close' } }, (res) => {
+    res.resume();
+    res.on('end', () => resolve({ status: res.statusCode }));
+  });
+  req.on('error', reject);
+  req.end(body);
+});
 const event = (name, extra = {}) => JSON.stringify({ hook_event_name: name, session_id: 's1', cwd: '/x/my-app', ...extra });
 const tick = () => new Promise((r) => setImmediate(r));
 

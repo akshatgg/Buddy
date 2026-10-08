@@ -70,7 +70,11 @@ listens while the person talks. It works the same on the Mac and on Windows.
 ## 5. Drawing and battery
 
 - `asleep` draws 4 frames a second (the slow breathing needs no more), with no blinks and no head turning. That is
-  less than today's resting buddy (6 frames a second plus blinks), so a sleeping buddy uses less battery than today.
+  less than today's resting buddy (6 frames a second plus blinks), but the "z" letters cost more than it saves: while
+  they rise (4.9 s of every 12) the window is drawn again at the screen's rate. Measured on a Mac with a 60 Hz screen,
+  the whole app over a minute: about 2.2 s of CPU asleep, 1.9 s awake at rest, and 1.4 s asleep without the letters.
+  So a sleeping buddy uses a little more battery than a resting one (about a sixth more), not less. It is their frames
+  that cost, not their glow: without the glow they cost the same. Fewer or shorter bursts would cost less.
 - `drowsy` draws at the settling rate (15), the yawn at the full rate (30). Every other feeling draws at the full rate
   while it plays, as moods do today; fidgets only during their second or two.
 

@@ -58,6 +58,9 @@ function setup({
   stored = {}, registered = 'Alt+Space', taken = [], keychain = true, buddyOn = false, realShortcut, realKeyWatch,
   signedIn = true, free = null, signInFails = null, cloudFails = null, cloudSignsOut = false, platform,
   mic = 'not-determined', micAnswer = 'granted',
+  // Where Buddy lives (home.js): `hasNotch` is whether a notch screen is on; `withHome` false leaves home out, as an
+  // older main.js would.
+  withHome = true, hasNotch = false,
 } = {}) {
   const data = { ...structuredClone(DEFAULTS), ...stored };
   const store = {
@@ -179,6 +182,7 @@ function setup({
     canSignIn: true,
     version: '0.1.0',
     platform,
+    home: withHome ? { hasNotch: () => hasNotch, refresh: async () => calls.push(['homeRefresh']) } : undefined,
   });
   const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
   const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
@@ -671,6 +675,51 @@ test('set: "Listen when the panel opens" is on unless turned off, and takes noth
   assert.strictEqual(s.store.get('listenOnOpen'), false, 'nothing changed');
   assert.strictEqual(s.store.get('size'), 'medium');
   assert.strictEqual((await s.call('settings:set', { listenOnOpen: true })).settings.listenOnOpen, true);
+  assert.deepStrictEqual(s.calls, []);
+});
+
+// ---- where Buddy lives ----
+
+test('the snapshot says where Buddy lives and whether a notch screen is on, so the page knows whether to offer the choice', async () => {
+  const r = await setup({ hasNotch: true }).call('settings:get');
+  assert.strictEqual(r.home, 'notch');
+  assert.strictEqual(r.settings.home, 'notch');
+  assert.strictEqual(r.hasNotch, true);
+  assert.strictEqual((await setup({ hasNotch: false }).call('settings:get')).hasNotch, false);
+  assert.strictEqual((await setup({ stored: { home: 'floating' } }).call('settings:get')).home, 'floating');
+  const without = await setup({ withHome: false, hasNotch: true }).call('settings:get');
+  assert.strictEqual(without.hasNotch, false, 'with no home given, there is no notch to speak of');
+  assert.strictEqual(without.home, 'notch');
+});
+
+test('set: where Buddy lives is the notch or floating, and a change moves Buddy; the same again does nothing more', async () => {
+  const s = setup({ hasNotch: true });
+  const r = await s.call('settings:set', { home: 'floating' });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.home, 'floating');
+  assert.strictEqual(s.store.get('home'), 'floating');
+  assert.deepStrictEqual(s.calls, [['homeRefresh']]);
+  await s.call('settings:set', { home: 'floating' });
+  assert.deepStrictEqual(s.calls, [['homeRefresh']], 'the same home again');
+  await s.call('settings:set', { home: 'notch', size: 'large' });
+  assert.deepStrictEqual(s.calls, [['homeRefresh'], ['resize'], ['homeRefresh']]);
+  assert.strictEqual(s.store.get('home'), 'notch');
+});
+
+test('set: a home that is neither is refused, and nothing in the patch is saved', async () => {
+  const s = setup({ hasNotch: true });
+  const before = s.store.all();
+  for (const home of ['dock', 'constructor', '__proto__', '', null, undefined, 1, ['notch'], { home: 'notch' }]) {
+    assert.deepStrictEqual(await s.call('settings:set', { home, size: 'large' }), refused('bad_request', 'Unknown home.'), JSON.stringify(home));
+  }
+  assert.deepStrictEqual(s.store.all(), before);
+  assert.deepStrictEqual(s.calls, []);
+});
+
+test('set: with no home given (an older main.js), the setting is still saved and nothing breaks', async () => {
+  const s = setup({ withHome: false });
+  assert.strictEqual((await s.call('settings:set', { home: 'floating' })).ok, true);
+  assert.strictEqual(s.store.get('home'), 'floating');
   assert.deepStrictEqual(s.calls, []);
 });
 

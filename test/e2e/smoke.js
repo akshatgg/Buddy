@@ -318,6 +318,7 @@ async function waitFor(fn, what, ms = 8000) {
       sleep: { later: (fn, ms) => setTimeout(fn, ms / sleepClock.speed) },
     });
     Object.assign(ctx, { helper, clipboard, globalShortcut, loginCalls, systemPreferences });
+    ctx.home ??= ctx.buddy; // where Buddy lives (the notch or the floating buddy), as main returns it
     ctx.sleepClock = sleepClock;
     const dir = path.join(__dirname, 'checks');
     for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js')).sort()) {

@@ -58,6 +58,16 @@ test('updates are checked for unless turned off, and no version has run yet', (t
   assert.strictEqual(store.get('lastRunVersion'), null);
 });
 
+test('Buddy lives in the notch unless the person chose Floating (Settings → Buddy → Where Buddy lives)', (t) => {
+  const store = createStore({ file: tmpFile(t) });
+  assert.strictEqual(store.get('home'), 'notch');
+  // A settings file from before the notch has no such setting: the notch for that person too.
+  const file = tmpFile(t);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ onboarded: true, buddyOn: true }));
+  assert.strictEqual(createStore({ file }).get('home'), 'notch');
+});
+
 test('the panel listens as it opens unless that is turned off (Settings → General)', (t) => {
   const store = createStore({ file: tmpFile(t) });
   assert.strictEqual(store.get('listenOnOpen'), true);

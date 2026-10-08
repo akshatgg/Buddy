@@ -76,6 +76,24 @@ test('press and windowTitle: what Send and Undo ask of the helper, and what come
   helper.stop();
 });
 
+test('notch: asked with no arguments, and the screens with a notch come back as the helper lists them', async () => {
+  const { helper, child } = started();
+  const pending = helper.call('notch');
+  await tick();
+  assert.deepStrictEqual(child.written, [{ id: 1, cmd: 'notch', args: {} }]);
+  const notches = [{ screen: { x: 0, y: 0, width: 1512, height: 982 }, notch: { x: 666, y: 0, width: 180, height: 37 } }];
+  child.reply({ id: 1, ok: true, result: { notches } });
+  assert.deepStrictEqual(await pending, { notches });
+  // A Mac without one answers an empty list; a helper that cannot say fails like any other call.
+  const none = helper.call('notch');
+  child.reply({ id: 2, ok: true, result: { notches: [] } });
+  assert.deepStrictEqual(await none, { notches: [] });
+  const failing = helper.call('notch');
+  child.reply({ id: 3, ok: false, error: { code: 'failed', message: 'Something went wrong. Try again.' } });
+  await assert.rejects(failing, { code: 'failed' });
+  helper.stop();
+});
+
 test('frontApp events update lastApp', async () => {
   const { helper, child } = started();
   assert.strictEqual(helper.lastApp, null);

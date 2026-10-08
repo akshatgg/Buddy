@@ -11,7 +11,8 @@ const { aiSection } = require('../free-state');
 const { isTap, tapKeys } = require('../../renderer/common/shortcut-keys');
 const { cleanFact } = require('../../../shared/memory-rules');
 
-const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models', 'listenOnOpen'];
+const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models', 'listenOnOpen', 'home'];
+const HOMES = ['notch', 'floating']; // where Buddy lives (src/main/home.js)
 const NAME_MAX = 24;
 const PERMISSION_PANES = {
   accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
@@ -63,6 +64,8 @@ function registerSettingsIpc({
   // asks again.
   justUpdated = false,
   platform = process.platform,
+  // Where Buddy lives (home.js), for Settings → Buddy's "Where Buddy lives": without it, no notch is offered.
+  home,
 }) {
   // The Settings and Welcome windows only: the Admin window has calls of its own (ipc/admin.js).
   const handle = guarded(ipcMain, (webContents) => windows.owns(webContents, 'settings') || windows.owns(webContents, 'onboarding'));
@@ -118,16 +121,20 @@ function registerSettingsIpc({
       version,
       justUpdated,
       ai: aiSection(user ? cloud.last() : null), // free-mode settings apply only to someone signed in
+      // Where Buddy lives, and whether a notch screen is on now: the choice is offered only then.
+      home: settings.home,
+      hasNotch: Boolean(home?.hasNotch()),
     };
   }
 
   handle('settings:get', () => snapshot());
 
-  handle('settings:set', (patch = {}) => {
+  handle('settings:set', async (patch = {}) => {
     if (!isPlainObject(patch)) throw new BuddyError('bad_request', 'Those settings are not valid.');
     const changes = {};
     for (const key of SETTABLE) if (Object.hasOwn(patch, key)) changes[key] = patch[key];
     if (Object.hasOwn(changes, 'size') && !isOwnName(SIZES, changes.size)) throw new BuddyError('bad_request', 'Unknown size.');
+    if (Object.hasOwn(changes, 'home') && !HOMES.includes(changes.home)) throw new BuddyError('bad_request', 'Unknown home.');
     if (Object.hasOwn(changes, 'buddyId') && !characters.list.some((c) => c.id === changes.buddyId)) {
       throw new BuddyError('bad_request', 'Unknown buddy.');
     }
@@ -152,6 +159,7 @@ function registerSettingsIpc({
     store.set(changes);
     if (changes.size && changes.size !== before.size) buddy.resize();
     if (changes.buddyId && changes.buddyId !== before.buddyId) buddy.reloadModel();
+    if (changes.home && changes.home !== before.home && home) await home.refresh(); // Buddy moves house
     return snapshot();
   });
 

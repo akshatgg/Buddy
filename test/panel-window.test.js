@@ -5,6 +5,8 @@ const assert = require('node:assert');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { createPanelWindow, permissionRules, PAGE } = require('../src/main/panel-window');
+const { panelBounds } = require('../src/main/geometry');
+const { panelUnderNotch } = require('../src/main/notch-geometry');
 
 const PAGE_URL = pathToFileURL(PAGE).href;
 const SETTINGS_URL = pathToFileURL(path.join(__dirname, '..', 'src', 'renderer', 'settings', 'index.html')).href;
@@ -132,7 +134,9 @@ class FakeWindow {
     return Promise.resolve();
   }
 
-  setBounds() {}
+  setBounds(bounds) {
+    this.bounds = bounds;
+  }
 
   show() {
     this.visible = true;
@@ -182,6 +186,10 @@ function fakeSession() {
 
 const BUDDY = { x: 1000, y: 700, width: 120, height: 120 };
 const AREA = { x: 0, y: 0, width: 1440, height: 900 };
+const NOTCH = { x: 630, y: 0, width: 180, height: 32 };
+// Where the panel opens, as home.panelAt() says it: beside the floating buddy, or under the notch.
+const BESIDE = { kind: 'beside', buddy: BUDDY, area: AREA };
+const BELOW = { kind: 'below', notch: NOTCH, area: AREA };
 
 test("the rules are set on the panel's session as soon as there is a panel, before its window is made", () => {
   const session = fakeSession();
@@ -196,7 +204,7 @@ test("the rules are set on the panel's session as soon as there is a panel, befo
 test("the panel's window, once made, may have the microphone; a window of the panel's that is gone may not", async () => {
   const session = fakeSession();
   const panel = createPanelWindow({ BrowserWindow: FakeWindow, session });
-  await panel.show({}, BUDDY, AREA);
+  await panel.show({}, BESIDE);
   const first = panel.window();
   assert.strictEqual(first.loaded, PAGE);
   assert.strictEqual(session.request(first.webContents, 'media', microphone()), true);
@@ -205,14 +213,29 @@ test("the panel's window, once made, may have the microphone; a window of the pa
 
   first.destroy(); // its page crashed, say: the next opening makes a new window
   assert.strictEqual(session.request(first.webContents, 'media', microphone()), false);
-  await panel.show({}, BUDDY, AREA);
+  await panel.show({}, BESIDE);
   assert.notStrictEqual(panel.window(), first);
   assert.strictEqual(session.request(panel.window().webContents, 'media', microphone()), true);
 });
 
+test('the panel opens beside the floating buddy, or under the notch, as home says', async () => {
+  const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession() });
+  await panel.show({}, BESIDE);
+  assert.deepStrictEqual(panel.window().bounds, panelBounds(BUDDY, AREA));
+  await panel.show({}, BELOW);
+  const under = panel.window().bounds;
+  assert.deepStrictEqual(under, panelUnderNotch(NOTCH, AREA));
+  assert.strictEqual(under.x + under.width / 2, NOTCH.x + NOTCH.width / 2, 'centred on the notch');
+  assert.ok(under.y >= AREA.y && under.y <= AREA.y + 8, 'its top at the top of the work area');
+  assert.deepStrictEqual([under.width, under.height], [panelBounds(BUDDY, AREA).width, panelBounds(BUDDY, AREA).height], 'the same size as beside the buddy');
+  // The same panel, told again where to be, moves there.
+  await panel.show({}, BESIDE);
+  assert.deepStrictEqual(panel.window().bounds, panelBounds(BUDDY, AREA));
+});
+
 test('while macOS asks about the microphone the panel stays open, and gets the keyboard back after', async () => {
   const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession() });
-  await panel.show({}, BUDDY, AREA);
+  await panel.show({}, BESIDE);
   const w = panel.window();
   let focused = 0;
   w.focus = () => { focused += 1; };
@@ -236,7 +259,7 @@ test('a page that crashed, a page that did not load, or a window that was closed
   ]) {
     let gone = 0;
     const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession(), onGone: () => { gone += 1; } });
-    await panel.show({}, BUDDY, AREA);
+    await panel.show({}, BESIDE);
     const w = panel.window();
     end(w);
     assert.strictEqual(gone, 1, what);
@@ -250,7 +273,7 @@ test('a load that was cancelled, or a failure in a frame inside the page, is not
   t.mock.method(console, 'error', () => {});
   let gone = 0;
   const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession(), onGone: () => { gone += 1; } });
-  await panel.show({}, BUDDY, AREA);
+  await panel.show({}, BESIDE);
   const w = panel.window();
   w.webContents.handlers['did-fail-load']({}, -3, 'ERR_ABORTED', PAGE_URL, true);
   w.webContents.handlers['did-fail-load']({}, -6, 'ERR_FILE_NOT_FOUND', 'file:///x.html', false);
@@ -267,10 +290,10 @@ test('a page whose load fails outright is gone too, and without onGone nothing b
   }
   let gone = 0;
   const panel = createPanelWindow({ BrowserWindow: Unloadable, session: fakeSession(), onGone: () => { gone += 1; } });
-  await panel.show({}, BUDDY, AREA);
+  await panel.show({}, BESIDE);
   assert.strictEqual(gone, 1);
   const quiet = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession() });
-  await quiet.show({}, BUDDY, AREA);
+  await quiet.show({}, BESIDE);
   quiet.window().destroy();
   assert.strictEqual(quiet.window(), null);
 });
@@ -279,14 +302,14 @@ test('main hears the panel show and hide, however it hides: Buddy hides it, a cl
   t.mock.method(console, 'error', () => {});
   const heard = [];
   const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession(), onVisible: (visible) => heard.push(visible) });
-  await panel.show({}, BUDDY, AREA);
+  await panel.show({}, BESIDE);
   assert.deepStrictEqual(heard, [true], 'shown');
   panel.hide();
   assert.deepStrictEqual(heard, [true, false], 'hidden by Buddy');
   panel.hide();
   assert.deepStrictEqual(heard, [true, false], 'hiding a hidden panel says nothing');
 
-  await panel.show({}, BUDDY, AREA);
+  await panel.show({}, BESIDE);
   panel.window().events.blur(); // a click somewhere else
   assert.deepStrictEqual(heard, [true, false, true, false], 'hidden by a click somewhere else');
 
@@ -295,7 +318,7 @@ test('main hears the panel show and hide, however it hides: Buddy hides it, a cl
     ['closed', (w) => w.destroy()],
   ]) {
     heard.length = 0;
-    await panel.show({}, BUDDY, AREA);
+    await panel.show({}, BESIDE);
     end(panel.window());
     assert.deepStrictEqual(heard, [true, false], `its page ${what}`);
   }
@@ -303,7 +326,7 @@ test('main hears the panel show and hide, however it hides: Buddy hides it, a cl
 
 test('a late blur from Buddy\'s own brief hide leaves the panel open when it has the keyboard again', async () => {
   const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession() });
-  await panel.show({}, BUDDY, AREA);
+  await panel.show({}, BESIDE);
   const w = panel.window();
   w.focused = true; // shown again and focused, then the blur of the earlier hide arrives
   w.events.blur();

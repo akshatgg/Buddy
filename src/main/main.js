@@ -25,6 +25,8 @@ const { createBuddyWindow } = require('./buddy-window');
 const { createSleep } = require('./sleep');
 const { createFeelings } = require('./feelings');
 const { createBubbleWindow } = require('./bubble-window');
+const { createNotchWindow } = require('./notch-window');
+const { createHome } = require('./home');
 const { createPanelWindow } = require('./panel-window');
 const { createSettingsWindows } = require('./settings-windows');
 const { installAppMenu } = require('./app-menu');
@@ -35,6 +37,7 @@ const { createPower, loginItemsFor } = require('./power');
 const { createShortcut } = require('./shortcut');
 const { createKeyWatch } = require('./key-watch');
 const { registerBuddyIpc } = require('./ipc/buddy');
+const { registerNotchIpc } = require('./ipc/notch');
 const { registerPanelIpc, createMicrophone } = require('./ipc/panel');
 const { registerSettingsIpc } = require('./ipc/settings');
 const { registerAdminIpc } = require('./ipc/admin');
@@ -97,19 +100,22 @@ async function start(options = {}) {
 
   const characters = loadCharacters();
   let tray = null;
-  const buddy = createBuddyWindow({
+  const floating = createBuddyWindow({
     store,
     screen,
     animate: options.animate !== false,
     onGiveUp: () => tray?.refresh(), // the page crashed again and again, and the window is gone: the menu must say so
   });
+  const bubble = createBubbleWindow();
+  // Buddy as the rest of main sees it: in the notch (on a Mac with one) or the floating buddy, whichever is in use.
+  const buddy = createHome({ floating, notch: createNotchWindow({ screen }), bubble, store, helper, screen });
+  helper.on('started', () => buddy.refresh()); // a helper that was down or slow at launch: ask again
   // The buddy's sleep (sleep.js): drowsy after a minute without use, asleep after two. Its own moods go straight to the
   // buddy, as they are not uses. The end-to-end test passes its own timer (options.sleep), to make the count quick.
   const sleep = createSleep({ onMood: (name) => buddy.mood(name), ...options.sleep });
   // What the app tells the buddy (feelings.js): every mood is a use; the panel and the voice hold the countdown. A
   // listening that stops while the answer to a message is still on its way goes back to thinking.
   const feelings = createFeelings({ buddy, sleep, busy: () => actions.state().busy });
-  const bubble = createBubbleWindow();
   const panel = createPanelWindow({
     // Its page crashed or did not load, or its window was closed: a listening there is over, and the page cannot say so.
     onGone: () => ui.listening(false),
@@ -148,7 +154,7 @@ async function start(options = {}) {
 
   // What actions.js (and, for voice, ipc/panel.js) does with the panel, the bubble and the buddy.
   const ui = {
-    showPanel: (state) => panel.show(state, buddy.bounds(), buddy.display().workArea),
+    showPanel: (state) => panel.show(state, buddy.panelAt()),
     panelState: (state) => panel.send('panel:state', state),
     hidePanel() {
       panel.hide();
@@ -159,7 +165,7 @@ async function start(options = {}) {
     panelHiddenAt: () => panel.hiddenAt(),
     panelWindowHandle: () => windowHandle(panel.window()), // for the helper on Windows (actions.js)
     openSettings,
-    bubble: (text) => bubble.say(text, buddy.bounds(), buddy.display().workArea),
+    bubble: (text) => buddy.say(text),
     mood: (name) => feelings.mood(name), // a use: it wakes a sleeping buddy, and the sleep countdown starts again
     // For the buddy's feelings, which have their own design: when the panel listens (listening(on), from its page; and
     // false when main hides the panel or its page is gone) and how loud the person speaks (voiceLevel(0..1), about 10
@@ -263,10 +269,12 @@ async function start(options = {}) {
   cloud.onChange(() => tray.refresh());
 
   registerBuddyIpc({ ipcMain, buddy, characters, store, onClick: onCall, sleep });
+  registerNotchIpc({ ipcMain, notch: buddy.notchWindow(), onClick: onCall });
   registerPanelIpc({ ipcMain, panel, actions, openSettings, microphone, ui, shell });
   const settingsIpc = registerSettingsIpc({
     ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch,
     account, cloud, memory, microphone, canSignIn: Boolean(cloudConfig),
+    home: buddy, // Settings → Buddy → Where Buddy lives: whether there is a notch, and moving Buddy when it changes
     version: VERSION,
     justUpdated,
     onFinishOnboarding() {
@@ -300,14 +308,24 @@ async function start(options = {}) {
   powerMonitor.on('unlock-screen', () => {
     if (buddy.isVisible()) buddy.pause(false);
   });
-  screen.on('display-removed', () => buddy.reclamp());
-  screen.on('display-metrics-changed', () => buddy.reclamp());
+  // A screen that came or went: the notch may have gone with the lid, or come back (home.js).
+  screen.on('display-added', () => buddy.refresh());
+  screen.on('display-removed', () => {
+    buddy.reclamp();
+    buddy.refresh();
+  });
+  // A screen whose size, scale or work area changed: the notch may be elsewhere now, or gone (home.js).
+  screen.on('display-metrics-changed', (_event, _display, changed) => {
+    buddy.reclamp();
+    if (changed.includes('bounds') || changed.includes('scaleFactor') || changed.includes('workArea')) buddy.refresh();
+  });
 
   // This person's free-mode settings, fetched once at launch, so that Settings and the menu are up to date.
   if (account.isSignedIn()) {
     cloud.settings({ force: true }).catch((err) => console.warn('[buddy] could not fetch the free settings:', err.code || err.name));
   }
 
+  await buddy.refresh(); // where Buddy lives, before it is first shown
   if (store.get('onboarded')) {
     power.syncAtLaunch();
     if (power.isOn()) {
@@ -331,7 +349,10 @@ async function start(options = {}) {
   }
   if (target.platform !== 'development') updatesIpc.launchCheck();
 
-  return { store, secrets, memory, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, trayState, shortcut, updater };
+  return {
+    store, secrets, memory, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, trayState, shortcut, updater,
+    home: buddy, // the same object as buddy, by the name the e2e checks for the notch use
+  };
 }
 
 module.exports = { start };

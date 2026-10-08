@@ -2,7 +2,8 @@
 
 /**
  * The panel: a chat with the buddy (actions.js holds it, the page draws it). It
- * opens beside the buddy and hides as soon as the user clicks anywhere else.
+ * opens beside the floating buddy, or under the notch when Buddy lives there, and
+ * hides as soon as the user clicks anywhere else.
  * Its page is the only one in Buddy that may use the microphone (permissionRules).
  */
 
@@ -10,6 +11,7 @@ const path = require('node:path');
 const { fileURLToPath } = require('node:url');
 const electron = require('electron');
 const { PANEL, panelBounds } = require('./geometry');
+const { panelUnderNotch } = require('./notch-geometry');
 const { floatingType } = require('./platform');
 
 // The panel's page.
@@ -184,12 +186,16 @@ function createPanelWindow({
         if (held === 0 && win && !win.isDestroyed() && win.isVisible()) win.focus();
       }
     },
-    async show(state, buddyBounds, area) {
+    /**
+     * Open the panel where home says (its panelAt()): `at` is `{ kind: 'beside', buddy, area }` for the floating
+     * buddy's bounds and work area, or `{ kind: 'below', notch, area }` for the notch's rectangle and work area.
+     */
+    async show(state, at) {
       if (!win) create();
       const w = win;
       await ready;
       if (w !== win) return; // the window was closed or dropped (a crash, a failed load) while its page was loading
-      w.setBounds(panelBounds(buddyBounds, area));
+      w.setBounds(at.kind === 'below' ? panelUnderNotch(at.notch, at.area) : panelBounds(at.buddy, at.area));
       w.webContents.send('panel:open', state);
       w.show();
       w.focus();

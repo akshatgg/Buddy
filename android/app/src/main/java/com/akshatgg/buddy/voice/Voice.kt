@@ -1,5 +1,6 @@
 package com.akshatgg.buddy.voice
 
+import com.akshatgg.buddy.bubble.Mood
 import com.akshatgg.buddy.core.BuddyError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -20,7 +21,9 @@ private fun notCaught() = BuddyError("no_words", "I didn't catch that. Try again
 /**
  * Talking to Buddy, as on the desktop (the panel's 🎤): the microphone is recorded into the app's cache, the recording
  * is written down by Buddy's server, and the words come back for the box. No recording is kept: the file is deleted
- * however it ends. At most `maxMs` is recorded (stopAtLimit()). Used from one thread, the main one.
+ * however it ends. At most `maxMs` is recorded (stopAtLimit()). The head thinks while it listens and while the words
+ * are written down (`mood`: Android's head has no "listening" face), and is idle again when it ends, however it ends.
+ * Used from one thread, the main one.
  */
 class Voice(
     private val recorder: Recorder,
@@ -29,6 +32,7 @@ class Voice(
     private val cacheDir: File,
     private val now: () -> Long = System::currentTimeMillis,
     private val maxMs: Long = 60_000,
+    private val mood: (Mood) -> Unit = {},
 ) {
     private val current = MutableStateFlow<VoiceState>(VoiceState.Idle)
     val state: StateFlow<VoiceState> = current
@@ -62,6 +66,7 @@ class Voice(
             file = f
             startedAt = now()
             current.value = VoiceState.Recording
+            mood(Mood.THINKING)
         } finally {
             starting = false
         }
@@ -96,7 +101,10 @@ class Voice(
             if (words.isEmpty()) throw notCaught()
             return words
         } finally {
-            if (mine == turn) current.value = VoiceState.Idle
+            if (mine == turn) {
+                current.value = VoiceState.Idle
+                mood(Mood.IDLE)
+            }
         }
     }
 
@@ -115,6 +123,7 @@ class Voice(
     /** Stops at once and sends nothing: what is being written down is dropped. */
     fun cancel() {
         turn++
+        val listening = current.value != VoiceState.Idle
         if (current.value == VoiceState.Recording) {
             try {
                 recorder.stop()
@@ -125,5 +134,6 @@ class Voice(
         file?.delete()
         file = null
         current.value = VoiceState.Idle
+        if (listening) mood(Mood.IDLE) // else the head's mood is not the voice's: leave it
     }
 }

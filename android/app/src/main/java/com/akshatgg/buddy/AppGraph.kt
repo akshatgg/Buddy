@@ -13,6 +13,7 @@ import com.akshatgg.buddy.ai.MemoryRules
 import com.akshatgg.buddy.ai.Prompts
 import com.akshatgg.buddy.ai.Router
 import com.akshatgg.buddy.ai.providers.Providers
+import com.akshatgg.buddy.bubble.BubbleBus
 import com.akshatgg.buddy.cloud.CloudClient
 import com.akshatgg.buddy.core.Shared
 import com.akshatgg.buddy.net.Http
@@ -64,7 +65,9 @@ class AppGraph(
     val lookEnabled: () -> Boolean = { LookService.isEnabled(context) }
 
     /** A Voice for a screen with a 🎤: the microphone recorded into the app's cache, written down by Buddy's server. */
-    val voiceFactory: (Context) -> Voice = { c -> Voice(MediaRecorderRecorder(c), { cloud.transcribe(it) }, { cloud.voiceOn() }, c.cacheDir) }
+    val voiceFactory: (Context) -> Voice = { c ->
+        Voice(MediaRecorderRecorder(c), { cloud.transcribe(it) }, { cloud.voiceOn() }, c.cacheDir, mood = BubbleBus::mood)
+    }
 
     /** How the panel and the Fix sheet ask the AI: through the router, unless a test answers instead. */
     val ask: suspend (Action, AskInput) -> Answer = ask ?: router::ask

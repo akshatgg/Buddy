@@ -1,5 +1,6 @@
 package com.akshatgg.buddy.voice
 
+import com.akshatgg.buddy.bubble.Mood
 import com.akshatgg.buddy.core.BuddyError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -55,9 +56,10 @@ class VoiceTest {
     private val sent = mutableListOf<ByteArray>()
     private var answer: suspend (ByteArray) -> String = { "Kal mujhe chutti chahiye." }
     private val recorder = FakeRecorder()
+    private val moods = mutableListOf<Mood>()
     private val cache by lazy { tmp.newFolder("cache") }
     private val voice by lazy {
-        Voice(recorder, { sent += it; answer(it) }, { on }, cache, now = { clock })
+        Voice(recorder, { sent += it; answer(it) }, { on }, cache, now = { clock }, mood = { moods += it })
     }
     private fun cacheFiles() = cache.listFiles()!!.map { it.name }
     private suspend fun error(block: suspend () -> Unit): BuddyError = try { block(); throw AssertionError("no error") } catch (e: BuddyError) { e }
@@ -232,5 +234,41 @@ class VoiceTest {
         val e = try { voice.stop(); null } catch (e: CancellationException) { e }
         assertTrue(e != null)
         assertEquals(VoiceState.Idle, voice.state.value)
+    }
+
+    // ---- the head while it listens (Android has no "listening" face: it thinks) ----
+
+    @Test fun theHeadThinksWhileRecordingAndIsIdleWhenTheWordsAreBack() = runTest {
+        val gate = CompletableDeferred<String>()
+        answer = { gate.await() }
+        voice.start()
+        assertEquals(listOf(Mood.THINKING), moods)
+        val words = async { voice.stop() }
+        runCurrent()
+        assertEquals("still thinking while the words are written down", listOf(Mood.THINKING), moods)
+        gate.complete("hello")
+        words.await()
+        assertEquals(listOf(Mood.THINKING, Mood.IDLE), moods)
+    }
+
+    @Test fun theHeadIsIdleAgainWhenListeningIsCancelledOrFails() = runTest {
+        voice.start()
+        voice.cancel()
+        assertEquals(listOf(Mood.THINKING, Mood.IDLE), moods)
+        moods.clear()
+        answer = { throw BuddyError("voice_busy", "Voice is busy right now. Type, or try again in a minute.") }
+        voice.start()
+        error { voice.stop() }
+        assertEquals(listOf(Mood.THINKING, Mood.IDLE), moods)
+    }
+
+    @Test fun nothingToListenToChangesNoMood() = runTest {
+        voice.cancel() // the panel stepping aside, with the microphone off: the head's mood is someone else's
+        on = false
+        error { voice.start() }
+        recorder.failStart = IOException("busy")
+        on = true
+        error { voice.start() }
+        assertEquals(emptyList<Mood>(), moods)
     }
 }

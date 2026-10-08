@@ -75,6 +75,7 @@ function createHome({ floating, notch, bubble, store, helper, screen, platform =
       if (choice === where && sameNotch(current?.notch, next?.notch)) return;
       const shown = inUse().isVisible();
       if (shown) inUse().hide();
+      if (choice !== 'notch') notch.destroy(); // a hidden notch window would keep its paused page alive
       where = choice;
       current = next;
       if (shown) show();

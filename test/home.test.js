@@ -173,7 +173,7 @@ test('refresh while shown: the lid closed with an external screen puts Buddy afl
   s.setNotches([]); // the lid is closed: the built-in screen is off
   s.setDisplays([EXTERNAL]);
   await s.home.refresh();
-  assert.deepStrictEqual(s.calls, [['helper', 'notch'], ['notch.hide'], ['floating.show']]);
+  assert.deepStrictEqual(s.calls, [['helper', 'notch'], ['notch.hide'], ['notch.destroy'], ['floating.show']]);
   assert.strictEqual(s.home.where(), 'floating');
   assert.strictEqual(s.home.isVisible(), true);
   s.calls.length = 0;
@@ -194,10 +194,34 @@ test('refresh while hidden keeps Buddy hidden, whichever home it moves to', asyn
   s.calls.length = 0;
   s.store.set({ home: 'floating' });
   await s.home.refresh();
-  assert.deepStrictEqual(s.calls, [['helper', 'notch']], 'nothing is on screen, so nothing is hidden or shown');
+  assert.deepStrictEqual(s.calls, [['helper', 'notch'], ['notch.destroy']], 'nothing is on screen, so nothing is hidden or shown; the notch window is still thrown away');
   assert.strictEqual(s.home.isVisible(), false);
   s.home.show();
   assert.deepStrictEqual(s.calls.at(-1), ['floating.show']);
+});
+
+test('leaving the notch throws its window away once hidden, shown or not: no paused page stays alive', async () => {
+  const shown = setup();
+  await shown.home.refresh();
+  shown.home.show();
+  shown.calls.length = 0;
+  shown.store.set({ home: 'floating' });
+  await shown.home.refresh();
+  assert.deepStrictEqual(shown.calls, [['helper', 'notch'], ['notch.hide'], ['notch.destroy'], ['floating.show']], 'hidden, then thrown away, then the floating buddy');
+
+  const hidden = setup();
+  await hidden.home.refresh();
+  hidden.calls.length = 0;
+  hidden.setNotches([]); // the notch screen went while Buddy was hidden
+  await hidden.home.refresh();
+  assert.deepStrictEqual(hidden.calls, [['helper', 'notch'], ['notch.destroy']], 'nothing to hide, still thrown away');
+
+  const floats = setup({ home: 'floating' });
+  await floats.home.refresh();
+  floats.home.show();
+  floats.calls.length = 0;
+  await floats.home.refresh();
+  assert.deepStrictEqual(floats.calls, [['helper', 'notch']], 'already floating: nothing to throw away');
 });
 
 test('refresh with nothing changed does nothing to the windows', async () => {
@@ -229,7 +253,7 @@ test('the Settings switch: Floating hides the notch and shows the floating buddy
   s.calls.length = 0;
   s.store.set({ home: 'floating' });
   await s.home.refresh();
-  assert.deepStrictEqual(s.calls, [['helper', 'notch'], ['notch.hide'], ['floating.show']]);
+  assert.deepStrictEqual(s.calls, [['helper', 'notch'], ['notch.hide'], ['notch.destroy'], ['floating.show']]);
   s.calls.length = 0;
   s.store.set({ home: 'notch' });
   await s.home.refresh();

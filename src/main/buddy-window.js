@@ -25,6 +25,7 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
   let pendingMood = null; // the latest mood sent while the page was not loaded
   let paused = false; // what a freshly loaded page is told
   let panelOpen = false; // whether the panel is open, which a freshly loaded page is told too
+  let micOn = false; // whether the microphone is on, which it is told too
   let crashes = []; // when the page crashed, within the last CRASH_WINDOW_MS
   let drag = { dx: 0, dy: 0 };
   let cursorTimer = null;
@@ -92,6 +93,7 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
     win.setIgnoreMouseEvents(true, { forward: true }); // a fresh page starts without hover
     send('buddy:pause', paused);
     if (panelOpen) send('buddy:panel-open', true); // a new page starts with the panel closed
+    if (micOn) send('buddy:mic-on', true); // and with the microphone off
     if (pendingMood !== null) {
       send('buddy:mood', pendingMood);
       pendingMood = null;
@@ -214,6 +216,14 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
     panelOpen(open) {
       panelOpen = Boolean(open);
       send('buddy:panel-open', panelOpen);
+    },
+    /**
+     * Whether the microphone is on: while it is, the buddy at rest listens, so a mood that ends goes back to listening
+     * and not to idle. Kept for a page that loads meanwhile, like panelOpen.
+     */
+    micOn(on) {
+      micOn = Boolean(on);
+      send('buddy:mic-on', micOn);
     },
     pause(value) {
       paused = value;

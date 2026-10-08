@@ -47,6 +47,7 @@ function setup({ busy = false } = {}) {
   const buddy = {
     mood: (name) => log.push(['mood', name]),
     panelOpen: (open) => log.push(['panelOpen', open]),
+    micOn: (on) => log.push(['micOn', on]),
     voiceLevel: (level) => log.push(['voiceLevel', level]),
   };
   const sleep = {
@@ -65,13 +66,15 @@ function setup({ busy = false } = {}) {
 function withSleep({ busy = false } = {}) {
   const clock = fakeClock();
   const moods = [];
-  const buddy = { mood: (name) => moods.push(name), panelOpen() {}, voiceLevel() {} };
+  const buddy = { mood: (name) => moods.push(name), panelOpen() {}, micOn() {}, voiceLevel() {} };
   const sleep = createSleep({ onMood: (name) => buddy.mood(name), later: clock.later, cancelLater: clock.cancelLater });
   const feelings = createFeelings({ buddy, sleep, busy: () => busy, later: clock.later, cancelLater: clock.cancelLater });
   return { feelings, sleep, clock, moods };
 }
 
 const moodsIn = (log) => log.filter((e) => e[0] === 'mood').map((e) => e[1]);
+/** The moods the buddy was sent and what it was told about the microphone, in order: 'listening', 'mic on', … */
+const shown = (log) => log.filter((e) => e[0] === 'mood' || e[0] === 'micOn').map((e) => (e[0] === 'mood' ? e[1] : `mic ${e[1] ? 'on' : 'off'}`));
 
 // Moods from the app
 
@@ -175,17 +178,17 @@ test('nothing counts down while the panel is open; it wakes a sleeping buddy, an
 
 // The microphone
 
-test('while the panel listens the buddy listens and nothing counts down; when it stops, the buddy is idle a moment later', () => {
+test('while the panel listens the buddy listens, knows the microphone is on, and nothing counts down', () => {
   const s = setup();
   s.feelings.listening(true);
-  assert.deepStrictEqual(s.log, [['hold', 'voice', true], ['poke'], ['hold', 'busy', false], ['mood', 'listening']]);
+  assert.deepStrictEqual(s.log, [['hold', 'voice', true], ['poke'], ['hold', 'busy', false], ['mood', 'listening'], ['micOn', true]]);
   s.log.length = 0;
   s.feelings.listening(false);
-  assert.deepStrictEqual(s.log, [['hold', 'voice', false]], 'not idle at once');
+  assert.deepStrictEqual(s.log, [['hold', 'voice', false]], 'still listening for a moment');
   s.clock.advance(LISTEN_END_MS - 1);
   assert.deepStrictEqual(s.log, [['hold', 'voice', false]]);
   s.clock.advance(1);
-  assert.deepStrictEqual(s.log, [['hold', 'voice', false], ['poke'], ['hold', 'busy', false], ['mood', 'idle']]);
+  assert.deepStrictEqual(s.log, [['hold', 'voice', false], ['micOn', false]], 'then it hears the microphone is off, and is idle');
 });
 
 test('↩ while listening stops it and sends the message: the buddy goes from listening straight to thinking', () => {
@@ -194,27 +197,39 @@ test('↩ while listening stops it and sends the message: the buddy goes from li
   s.feelings.listening(false);
   s.feelings.mood('thinking');
   s.clock.advance(10 * LISTEN_END_MS);
-  assert.deepStrictEqual(moodsIn(s.log), ['listening', 'thinking'], 'never idle in between');
+  assert.deepStrictEqual(shown(s.log), ['listening', 'mic on', 'thinking', 'mic off'], 'thinking before the microphone is off: never idle in between');
 });
 
 test('a listening that stops while Buddy is still waiting for an answer goes back to thinking at once', () => {
   const s = setup({ busy: true });
   s.feelings.listening(true);
   s.feelings.listening(false);
-  assert.deepStrictEqual(moodsIn(s.log), ['listening', 'thinking']);
+  assert.deepStrictEqual(shown(s.log), ['listening', 'mic on', 'thinking', 'mic off']);
   s.clock.advance(10 * LISTEN_END_MS);
-  assert.deepStrictEqual(moodsIn(s.log), ['listening', 'thinking']);
+  assert.deepStrictEqual(shown(s.log), ['listening', 'mic on', 'thinking', 'mic off']);
 });
 
-test('a mood the app sent while the panel listened (an answer, an error, a new message) plays out when it stops', () => {
+test('a mood the app sends while the panel listens plays, and the microphone stays on until the panel stops', () => {
   for (const name of ['happy', 'sad', 'celebrate', 'thinking']) {
     const s = setup();
     s.feelings.listening(true);
-    s.feelings.mood(name);
-    s.feelings.listening(false);
+    s.feelings.mood(name); // an earlier message's answer, an error, a text put in the app, a message tried again
     s.clock.advance(10 * LISTEN_END_MS);
-    assert.deepStrictEqual(moodsIn(s.log), ['listening', name], name);
+    assert.deepStrictEqual(shown(s.log), ['listening', 'mic on', name], `${name}: the buddy goes back to listening after it`);
+    s.feelings.listening(false);
+    s.clock.advance(LISTEN_END_MS);
+    assert.deepStrictEqual(shown(s.log), ['listening', 'mic on', name, 'mic off'], `${name}: no idle from here, it plays out`);
   }
+});
+
+test('a mood in the moment after the panel stops listening comes first, and then the microphone is off', () => {
+  const s = setup();
+  s.feelings.listening(true);
+  s.feelings.listening(false);
+  s.clock.advance(LISTEN_END_MS - 1);
+  s.feelings.mood('happy');
+  s.clock.advance(10 * LISTEN_END_MS);
+  assert.deepStrictEqual(shown(s.log), ['listening', 'mic on', 'happy', 'mic off'], 'and only once');
 });
 
 test('main says the listening stopped whenever it hides the panel: only a change counts', () => {
@@ -230,13 +245,13 @@ test('main says the listening stopped whenever it hides the panel: only a change
   assert.deepStrictEqual(s.log.filter((e) => e[0] === 'hold' && e[1] === 'voice'), [['hold', 'voice', true]]);
 });
 
-test('listening again before the buddy went back to idle keeps it listening', () => {
+test('listening again before the buddy heard that it stopped keeps it listening, the microphone on', () => {
   const s = setup();
   s.feelings.listening(true);
   s.feelings.listening(false);
   s.feelings.listening(true);
   s.clock.advance(10 * LISTEN_END_MS);
-  assert.deepStrictEqual(moodsIn(s.log), ['listening', 'listening']);
+  assert.deepStrictEqual(shown(s.log), ['listening', 'mic on', 'listening', 'mic on']);
 });
 
 test('the panel and the voice hold the countdown each for itself: it starts again once both have let go', () => {
@@ -247,10 +262,10 @@ test('the panel and the voice hold the countdown each for itself: it starts agai
   s.clock.advance(10 * ASLEEP_MS);
   assert.deepStrictEqual(s.moods, ['listening'], 'still listening: not drowsy');
   s.feelings.listening(false);
-  s.clock.advance(LISTEN_END_MS);
-  assert.deepStrictEqual(s.moods, ['listening', 'idle']);
-  s.clock.advance(DROWSY_MS);
-  assert.deepStrictEqual(s.moods, ['listening', 'idle', 'drowsy']);
+  s.clock.advance(DROWSY_MS - 1);
+  assert.deepStrictEqual(s.moods, ['listening'], 'the buddy is idle again (the page does that: it hears the microphone is off)');
+  s.clock.advance(1);
+  assert.deepStrictEqual(s.moods, ['listening', 'drowsy'], 'a minute after the panel stopped listening');
 });
 
 // The voice level

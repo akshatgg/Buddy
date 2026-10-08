@@ -450,6 +450,23 @@ export function moodPose(name, since, { level = 0 } = {}) {
   }
 }
 
+/**
+ * The mood of a buddy at rest: while the microphone is on it listens (its ear rims follow the voice), else it is idle.
+ * So a mood that ends while the microphone is on goes back to listening, not to idle.
+ */
+export function restingMood(micOn) {
+  return micOn ? 'listening' : 'idle';
+}
+
+/**
+ * The microphone came on (true) or stopped: the mood a buddy at rest changes to, or null. Idle starts to listen, and a
+ * listening buddy is idle again; anything else it is doing (a mood the app sent, a fidget) plays out, and ends in the
+ * new rest.
+ */
+export function moodForMic(current, micOn) {
+  return current === restingMood(!micOn) ? restingMood(micOn) : null;
+}
+
 // Bored fidgets: while the buddy is awake and idle, one small action every 15-25 s.
 export const FIDGETS = ['look', 'swing', 'hum', 'hop'];
 

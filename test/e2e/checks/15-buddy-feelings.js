@@ -3,7 +3,7 @@
 const { screen } = require('electron');
 
 // The buddy's feelings in the real page (docs/superpowers/specs/2026-10-08-buddy-feelings-design.md): asleep, petting,
-// shaking and listening, and their symbols. The page says what it is doing in window.__buddyMood (the mood),
+// shaking, listening (until the microphone stops) and fidgets, and their symbols. The page says what it is doing in window.__buddyMood (the mood),
 // window.__buddyPose (the pose it drew last) and window.__buddyFrames (how many frames it has drawn). Pointer events go
 // to the page itself, as in 14-buddy-click.js: the real pointer does not move.
 module.exports = async function feelingsCheck(ctx, { assert, delay, waitFor }) {
@@ -138,6 +138,36 @@ module.exports = async function feelingsCheck(ctx, { assert, delay, waitFor }) {
   await waitFor(() => js('window.__buddyPose?.ears < 0.4'), 'the ear rims to dim again when the voice stops');
   ctx.buddy.mood('idle');
   await waitFor(moodIs('idle'), 'the buddy to stop listening');
+
+  // 4b. The microphone on, as main says while the panel listens (feelings.js): the idle buddy listens. A mood that
+  // comes meanwhile (an earlier message's answer) plays, then the buddy listens again, its ear rims following the voice;
+  // and a page that loads meanwhile listens too. When the microphone stops, a listening buddy is idle, and a mood still
+  // playing plays out first.
+  ctx.buddy.micOn(true);
+  await waitFor(moodIs('listening'), 'the buddy to listen when the microphone is on');
+  ctx.buddy.mood('happy');
+  await waitFor(moodIs('happy'), 'an answer while it listens');
+  await waitFor(moodIs('listening'), 'listening again once happy is over, not idle', 4000);
+  for (let i = 0; i < 5; i += 1) {
+    ctx.buddy.voiceLevel(0.9);
+    await delay(100);
+  }
+  await waitFor(() => js('window.__buddyPose?.ears > 3'), 'the ear rims to follow the voice again');
+  ctx.buddy.voiceLevel(0);
+  await js('window.__reloading = true'); // the page that loads has no such mark
+  page.reload();
+  await waitFor(() => js('window.__reloading !== true && window.__buddyReady === true').catch(() => false), 'the buddy page to load again');
+  await waitFor(moodIs('listening'), 'a page that loads while the microphone is on to listen');
+  ctx.buddy.mood('sad');
+  await waitFor(moodIs('sad'), 'sad while it listens');
+  ctx.buddy.micOn(false);
+  await delay(300);
+  assert.strictEqual(await js('window.__buddyMood'), 'sad', 'a mood still playing when the microphone stops plays out');
+  await waitFor(moodIs('idle'), 'and then the buddy is idle, not listening', 4000);
+  ctx.buddy.micOn(true);
+  await waitFor(moodIs('listening'), 'the buddy to listen again');
+  ctx.buddy.micOn(false);
+  await waitFor(moodIs('idle'), 'a listening buddy to be idle when the microphone stops');
 
   // 5. Fidgets: an idle buddy that nobody is using does something small now and then (every 15 to 25 s), but not while
   // the panel is open. The page's clock is moved on, so that a fidget is due at once; it only ever moves forward, so

@@ -5,15 +5,17 @@
  * (docs/superpowers/specs/2026-10-08-buddy-feelings-design.md). Every mood the app sends is a use: it wakes a sleeping
  * buddy and starts its sleep countdown (sleep.js) again; while Buddy thinks, the countdown is held. While the panel is
  * open the countdown is held, and the buddy does not fidget. While the panel listens the countdown is held too, the
- * buddy listens, and its ear rims glow with the voice. The countdown's own moods (drowsy, asleep, wake) go straight to
- * the buddy: they are not uses.
+ * buddy listens, and its ear rims glow with the voice: until the microphone stops, a mood the app sends meanwhile plays
+ * and goes back to listening. The countdown's own moods (drowsy, asleep, wake) go straight to the buddy: they are not
+ * uses.
  */
 
 // How loud a normal voice is: the RMS of the microphone's samples, as the panel measures it (a voice is mostly 0.05 to
 // 0.4). The buddy's ear glow is made for a normal voice at 0.5 (moods.js), so this is where the level is 0.5.
 const NORMAL_VOICE = 0.1;
-// How long a buddy still listening waits, once the panel has stopped, before it goes back to idle. ↩ while listening
-// stops the listening and sends the message at once: thinking comes well within this, and the buddy goes straight to it.
+// How long the buddy goes on listening, once the panel has stopped, before it hears that the microphone is off (and a
+// listening buddy goes back to idle). ↩ while listening stops the listening and sends the message at once: thinking
+// comes well within this, and the buddy goes straight to it.
 const LISTEN_END_MS = 150;
 
 /**
@@ -33,7 +35,7 @@ function buddyLevel(rms) {
 function createFeelings({ buddy, sleep, busy = () => false, later = setTimeout, cancelLater = clearTimeout }) {
   let listening = false;
   let last = null; // the mood sent last
-  let ending = null; // the timer that takes a buddy still listening back to idle, while it waits
+  let ending = null; // the timer that tells the buddy the microphone is off, while it waits (LISTEN_END_MS)
 
   /**
    * A mood from the app. It is a use, which the countdown hears first: when that wakes the buddy, the wake comes before
@@ -42,14 +44,16 @@ function createFeelings({ buddy, sleep, busy = () => false, later = setTimeout, 
    * way a thinking ends sends one (the answer, an error, the chat closed, Buddy turned off).
    */
   function mood(name) {
-    if (ending !== null) {
-      cancelLater(ending); // what the app shows now takes the place of that idle
+    const stopped = ending !== null;
+    if (stopped) {
+      cancelLater(ending); // what the app shows now takes the place of the idle that would have come
       ending = null;
     }
     last = name;
     sleep.poke();
     sleep.hold('busy', name === 'thinking');
     buddy.mood(name);
+    if (stopped) buddy.micOn(false); // after the mood: a buddy still listening goes straight to it, not through idle
   }
 
   return {
@@ -61,25 +65,31 @@ function createFeelings({ buddy, sleep, busy = () => false, later = setTimeout, 
     },
     /**
      * The panel listens (true) or has stopped. Main also says it stopped whenever it hides the panel, listening or not,
-     * so only a change counts: the panel stepping aside while Buddy thinks does not cut the thinking short. When it
-     * stops, a buddy still listening goes back to thinking if Buddy is waiting for an answer, or to idle a moment later;
-     * a mood the app sent meanwhile (an answer, an error) plays out.
+     * so only a change counts: the panel stepping aside while Buddy thinks does not cut the thinking short. While it
+     * listens the buddy knows the microphone is on (buddy.micOn), so a mood the app sends meanwhile (an earlier
+     * message's answer, an error) plays and goes back to listening. When it stops, a buddy still listening goes back to
+     * thinking if Buddy is waiting for an answer; else the buddy hears a moment later that the microphone is off, and a
+     * listening buddy is idle again. A mood still playing then plays out.
      */
     listening(on) {
       if (Boolean(on) === listening) return;
       listening = Boolean(on);
       sleep.hold('voice', listening);
       if (listening) {
-        mood('listening');
-      } else if (last === 'listening') {
-        if (busy()) {
-          mood('thinking');
-        } else {
-          ending = later(() => {
-            ending = null;
-            mood('idle');
-          }, LISTEN_END_MS);
+        if (ending !== null) {
+          cancelLater(ending); // listening again before the buddy heard that it stopped
+          ending = null;
         }
+        mood('listening');
+        buddy.micOn(true);
+      } else if (last === 'listening' && busy()) {
+        mood('thinking');
+        buddy.micOn(false);
+      } else {
+        ending = later(() => {
+          ending = null;
+          buddy.micOn(false);
+        }, LISTEN_END_MS);
       }
     },
     /** How loud the person speaks (RMS, from the panel), about 10 times a second while it listens. */

@@ -8,7 +8,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
   BLINK_LOOKAHEAD, EYE_SHAPES, fpsFor, countsAsActive, wakeDelay, floatOffset, createBlinker, createFidgeter,
-  blinkWeight, lookAt, moodPose,
+  blinkWeight, lookAt, moodPose, restingMood, moodForMic,
 } from './moods.js';
 import { BLEND, blendPose, smoothLevel } from './blend.js';
 import { fitCamera, fromWindow, headMark } from './layout.js';
@@ -74,6 +74,7 @@ let lastActive = now(); // the last time countsAsActive() was true (moods.js), i
 let hovering = false;
 let press = null; // { x, y, moved, shaken } while the pointer is down on the buddy
 let panelOpen = false; // main says the panel is open (buddy:panel-open): the person is using Buddy
+let micOn = false; // main says the microphone is on (buddy:mic-on): the buddy at rest listens
 const voice = { reading: 0, level: 0, at: now() }; // the voice level last read, the level drawn and when (listening)
 let timer = null; // the one pending frame; null while the loop is paused
 let lastTick = -Infinity; // when the last frame was drawn, in now() seconds
@@ -207,17 +208,20 @@ async function load() {
 
 /**
  * Start a mood at `t` (now() seconds). It eases in from the pose drawn last, whatever was showing, so nothing jumps;
- * its symbols start with it; and the wait for the next fidget starts again.
+ * its symbols start with it; and the wait for the next fidget starts again. Idle is the buddy at rest, which listens
+ * while the microphone is on (moods.js restingMood): a mood that ends, a drag let go and an idle from the app all go
+ * back to listening then.
  */
 function setMood(name, t) {
+  const next = name === 'idle' ? restingMood(micOn) : name;
   blend = shown ? { from: shown, since: t } : null;
-  if (name === 'asleep') held ??= cursor;
+  if (next === 'asleep') held ??= cursor;
   else held = null;
-  if (name !== mood.name) voice.reading = 0; // a new listening starts from silence
-  mood = { name, since: t };
-  window.__buddyMood = name;
+  if (next !== mood.name) voice.reading = 0; // a new listening starts from silence
+  mood = { name: next, since: t };
+  window.__buddyMood = next;
   fidgeter.reset(t);
-  startSymbols(name);
+  startSymbols(next);
 }
 
 /** A mood from outside the frame loop (main, the pointer): start it and draw it at once. */
@@ -227,9 +231,9 @@ function changeMood(name) {
 }
 
 /**
- * Mood changes that come with time: a mood that is over goes back to idle, and an idle buddy that nobody is using
- * fidgets now and then (moods.js). While the pointer is on the buddy or presses it, or the panel is open, no fidget
- * comes due.
+ * Mood changes that come with time: a mood that is over goes back to rest (idle, or listening while the microphone is
+ * on: setMood), and an idle buddy that nobody is using fidgets now and then (moods.js). While the pointer is on the
+ * buddy or presses it, or the panel is open, no fidget comes due.
  */
 function settle(t) {
   if (moodPose(mood.name, t - mood.since).done) setMood('idle', t);
@@ -432,6 +436,14 @@ window.buddy.onVoiceLevel((level) => {
 // fidget already playing ends as usual. There is nothing to draw for it.
 window.buddy.onPanelOpen((open) => {
   panelOpen = Boolean(open);
+});
+// The microphone coming on and going off. Main says so with the moods it sends, and again to a page that loads while
+// it is on. An idle buddy starts to listen, and a listening one is idle again; a mood still playing plays out, and
+// ends in the new rest (setMood).
+window.buddy.onMicOn((on) => {
+  micOn = Boolean(on);
+  const next = moodForMic(mood.name, micOn);
+  if (next) changeMood(next);
 });
 window.buddy.onPause((value) => {
   if (Boolean(value) === paused) return; // main says so again at every load and every show

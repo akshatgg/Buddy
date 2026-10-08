@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import {
   FPS, IDLE_FPS, REST_FPS, SLEEP_FPS, BLINK_LOOKAHEAD, SWEEP_HZ, SWEEP_LAG, FIDGETS, EYE_SHAPES,
   fpsFor, isActive, countsAsActive, wakeDelay, floatOffset, createBlinker, blinkWeight, lookAt, moodPose, createFidgeter,
+  restingMood, moodForMic,
 } from '../src/renderer/buddy/moods.js';
 
 // A buddy with nothing going on, and nothing for a long time.
@@ -726,6 +727,28 @@ test('before the first reset() the wait runs from time 0; take() draws the fidge
   assert.strictEqual(fidgeter.take(39.9), null, 'the next is due 15 + 0.75 * 10 = 22.5 s later, at 40 s');
   assert.strictEqual(fidgeter.take(40), 'hum', 'FIDGETS[floor(0.5 * 4)]');
   assert.strictEqual(draws.length, 0);
+});
+
+// ---------------------------------------------------------------- the microphone
+
+test('at rest the buddy is idle, and listens while the microphone is on', () => {
+  assert.strictEqual(restingMood(false), 'idle');
+  assert.strictEqual(restingMood(true), 'listening');
+  assert.strictEqual(moodPose(restingMood(true), 60).done, false, 'it listens until the microphone stops');
+});
+
+test('the microphone coming on makes an idle buddy listen; stopping, it makes a listening one idle', () => {
+  assert.strictEqual(moodForMic('idle', true), 'listening');
+  assert.strictEqual(moodForMic('listening', false), 'idle');
+  assert.strictEqual(moodForMic('listening', true), null, 'already listening');
+  assert.strictEqual(moodForMic('idle', false), null, 'already idle');
+});
+
+test('anything else the buddy is doing when the microphone comes on or stops plays out', () => {
+  for (const name of MOODS.filter((m) => m !== 'idle' && m !== 'listening')) {
+    assert.strictEqual(moodForMic(name, true), null, `${name}, the microphone on`);
+    assert.strictEqual(moodForMic(name, false), null, `${name}, the microphone off`);
+  }
 });
 
 // ---------------------------------------------------------------- the frame rate, as the page asks for it

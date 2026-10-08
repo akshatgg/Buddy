@@ -319,3 +319,37 @@ test('panelOpen does nothing without a window, and a window made later is told t
   win().load();
   assert.deepStrictEqual(win().sent, [['buddy:pause', false], ['buddy:panel-open', true]]);
 });
+
+test('micOn tells the page whether the microphone is on, as true or false', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  const { buddy, win } = setup();
+  buddy.show();
+  win().load();
+  for (const [given, sent] of [[true, true], [false, false], [1, true], [undefined, false]]) {
+    buddy.micOn(given);
+    assert.deepStrictEqual(win().sent.at(-1), ['buddy:mic-on', sent], String(given));
+  }
+});
+
+test('a page that loads while the microphone is on is told so, before the mood; one that loads after hears nothing of it', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  const { buddy, win } = setup();
+  buddy.show();
+  win().load();
+  buddy.panelOpen(true);
+  buddy.micOn(true);
+  win().handlers['did-navigate'](); // a reload starts
+  buddy.mood('happy'); // an answer while it loads
+  let before = win().sent.length;
+  win().handlers['did-finish-load']();
+  assert.deepStrictEqual(win().sent.slice(before), [
+    ['buddy:pause', false], ['buddy:panel-open', true], ['buddy:mic-on', true], ['buddy:mood', 'happy'],
+  ], 'a new page starts with the microphone off: it listens once happy is over');
+
+  buddy.panelOpen(false);
+  buddy.micOn(false);
+  win().handlers['did-navigate']();
+  before = win().sent.length;
+  win().handlers['did-finish-load']();
+  assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false]], 'which is what it starts with');
+});

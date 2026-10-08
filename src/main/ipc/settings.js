@@ -10,6 +10,7 @@ const { guarded } = require('./result');
 const { aiSection } = require('../free-state');
 const { isTap, tapKeys } = require('../../renderer/common/shortcut-keys');
 const { cleanFact } = require('../../../shared/memory-rules');
+const { PROVIDER_ID: CLAUDE_ID, MODELS: CLAUDE_MODELS, MODEL_LABELS, GET_URL } = require('../claude/find');
 
 const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models', 'listenOnOpen', 'home'];
 const HOMES = ['notch', 'floating']; // where Buddy lives (src/main/home.js)
@@ -25,6 +26,9 @@ const PERMISSION_PANES = {
 const KEY_SHAPE = /^[\x21-\x7e]+$/;
 // Settings → Memory refuses a fact in the same words, whether it is empty, too long or a secret (memory-rules.js).
 const CANT_SAVE = "I can't save that. Passwords, PINs, OTPs and long numbers are never saved.";
+// Claude Code on this computer is the fifth AI choice (the brain spec §3): it has no key, so a key is never saved or
+// cleared for it, and its models are its own four names.
+const NO_KEY_NEEDED = "Claude Code doesn't use a key.";
 
 /** True when `name` is one of the object's own names. "constructor" and "__proto__" are not. */
 const isOwnName = (object, name) => typeof name === 'string' && Object.hasOwn(object, name);
@@ -38,11 +42,13 @@ function chooseModel(available, fallbackModels, current) {
   return available.includes(fallbackModels[0]) ? fallbackModels[0] : available[0];
 }
 
-/** The { providerId: model name } a page asks to save, copied, if it is well formed. */
+/** The { providerId: model name } a page asks to save, copied, if it is well formed. Claude Code's must be one of its aliases. */
 function checkModels(models) {
-  const wellFormed = isPlainObject(models) && Object.entries(models).every(
-    ([id, model]) => PROVIDER_IDS.includes(id) && typeof model === 'string' && model.trim() !== '',
-  );
+  const wellFormed = isPlainObject(models) && Object.entries(models).every(([id, model]) => (
+    id === CLAUDE_ID
+      ? CLAUDE_MODELS.includes(model)
+      : PROVIDER_IDS.includes(id) && typeof model === 'string' && model.trim() !== ''
+  ));
   if (!wellFormed) throw new BuddyError('bad_request', 'Those model choices are not valid.');
   return { ...models };
 }
@@ -60,6 +66,8 @@ function registerSettingsIpc({
   memory,
   // The microphone as macOS sees it (ipc/panel.js createMicrophone), for Settings → Permissions.
   microphone,
+  // Claude Code on this computer (claude/find.js): its status is the fifth AI choice's "key".
+  find,
   // True on the first launch after an update (updates.js firstLaunchOfNewVersion): the Permissions page says why macOS
   // asks again.
   justUpdated = false,
@@ -94,7 +102,22 @@ function registerSettingsIpc({
     return true;
   }
 
-  function snapshot() {
+  /** The fifth AI choice: Claude Code on this computer, which has no key; signed in counts as one. */
+  function claudeChoice(status) {
+    return {
+      id: CLAUDE_ID,
+      label: 'Claude Code on this computer',
+      keyUrl: GET_URL,
+      fallbackModels: CLAUDE_MODELS,
+      modelLabels: MODEL_LABELS,
+      hasKey: status.loggedIn === true,
+      needsKey: false,
+      status,
+      line: find.line(status),
+    };
+  }
+
+  async function snapshot() {
     const settings = store.all();
     delete settings.positions;
     delete settings.lastDisplayId;
@@ -103,6 +126,7 @@ function registerSettingsIpc({
     delete settings.memory;
     delete settings.learnFromChats;
     const user = account.user();
+    const claude = await find.status(); // kept for a minute (find.js): a page waits on claude once, not on every call
     return {
       settings,
       // 'darwin' or 'win32': the pages leave out what the system does not have (Windows asks for no permissions).
@@ -115,7 +139,8 @@ function registerSettingsIpc({
         keyUrl: PROVIDERS[id].keyUrl,
         fallbackModels: PROVIDERS[id].fallbackModels,
         hasKey: secrets.has(id),
-      })),
+        needsKey: true,
+      })).concat(claudeChoice(claude)),
       account: user ? { signedIn: true, email: user.email, name: user.name, photo: user.photo || '' } : { signedIn: false },
       canSignIn,
       version,
@@ -138,7 +163,7 @@ function registerSettingsIpc({
     if (Object.hasOwn(changes, 'buddyId') && !characters.list.some((c) => c.id === changes.buddyId)) {
       throw new BuddyError('bad_request', 'Unknown buddy.');
     }
-    if (Object.hasOwn(changes, 'provider')) getProvider(changes.provider);
+    if (Object.hasOwn(changes, 'provider') && changes.provider !== CLAUDE_ID) getProvider(changes.provider);
     if (Object.hasOwn(changes, 'models')) changes.models = checkModels(changes.models);
     if (Object.hasOwn(changes, 'listenOnOpen') && typeof changes.listenOnOpen !== 'boolean') {
       throw new BuddyError('bad_request', 'Listen when the panel opens must be on or off.');
@@ -164,6 +189,7 @@ function registerSettingsIpc({
   });
 
   handle('settings:save-key', async (providerId, key) => {
+    if (providerId === CLAUDE_ID) throw new BuddyError('bad_request', NO_KEY_NEEDED);
     getProvider(providerId); // an unknown name is refused before anything else is looked at
     const apiKey = typeof key === 'string' ? key.trim() : '';
     if (!apiKey) throw new BuddyError('bad_request', 'Paste your key first.');
@@ -193,18 +219,20 @@ function registerSettingsIpc({
     if (switched) changes.provider = ownerId;
     store.set(changes);
     // verified: the provider answered, so the key is known to work (false: saved but not checked).
-    const answer = { ...snapshot(), models, verified: live !== null };
+    const answer = { ...(await snapshot()), models, verified: live !== null };
     if (switched) answer.switchedFrom = providerId;
     return answer;
   });
 
   handle('settings:clear-key', (providerId) => {
+    if (providerId === CLAUDE_ID) throw new BuddyError('bad_request', NO_KEY_NEEDED);
     getProvider(providerId);
     secrets.clear(providerId);
     return snapshot();
   });
 
   handle('settings:models', async (providerId) => {
+    if (providerId === CLAUDE_ID) return { models: CLAUDE_MODELS };
     getProvider(providerId);
     return { models: await ai.listModels(providerId, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) }) };
   });

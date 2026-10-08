@@ -77,3 +77,16 @@ test('the panel listens as it opens unless that is turned off (Settings → Gene
   fs.writeFileSync(file, JSON.stringify({ onboarded: true, buddyOn: true }));
   assert.strictEqual(createStore({ file }).get('listenOnOpen'), true);
 });
+
+test('no projects for Claude Code yet, and no last pick', (t) => {
+  const store = createStore({ file: tmpFile(t) });
+  assert.deepStrictEqual(store.get('projects'), []);
+  assert.strictEqual(store.get('lastProject'), null);
+});
+
+test('Claude Code is not watched until the person asks; the port and the token come with the first watch', (t) => {
+  const store = createStore({ file: tmpFile(t) });
+  assert.strictEqual(store.get('watchClaudeCode'), false);
+  assert.strictEqual(store.get('claudeHookPort'), null);
+  assert.strictEqual(store.get('claudeHookToken'), null);
+});

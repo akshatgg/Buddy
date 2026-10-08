@@ -24,6 +24,7 @@
       <button type="button" class="nav-item" data-section="buddy">Buddy</button>
       <button type="button" class="nav-item" data-section="shortcut">Shortcut</button>
       <button type="button" class="nav-item" data-section="ai">AI</button>
+      <button type="button" class="nav-item" data-section="claude">Claude Code</button>
       <button type="button" class="nav-item" data-section="memory">Memory</button>
       <button type="button" class="nav-item" data-section="permissions">Permissions</button>
       <button type="button" class="nav-item glyph-gear" data-section="general">General</button>
@@ -82,6 +83,31 @@
       <h1>AI</h1>
       <p id="ai-note" class="note" hidden></p>
       <div id="ai"></div>
+    </section>
+    <section id="section-claude" class="section" hidden>
+      <h1>Claude Code</h1>
+      <p class="lead">Buddy can use the Claude Code on this computer: as its brain, to work on your code, and to show you what it is doing.</p>
+      <p class="row"><span id="claude-status" class="muted" aria-live="polite">Looking for Claude Code…</span><span class="spacer"></span><a id="claude-get" href="#" hidden>Get Claude Code</a><button id="claude-check" type="button">Check again</button></p>
+      <div id="claude-projects">
+        <p class="row-title">My projects</p>
+        <p class="muted small">Buddy only runs Claude Code inside these folders.</p>
+        <ul id="project-list" class="group facts projects" aria-label="My projects" hidden></ul>
+        <p id="project-empty" class="group facts-empty muted" hidden>No folders yet. Add the folder of a project you work on.</p>
+        <div class="row">
+          <button id="project-add" class="btn" type="button">Add a folder</button>
+        </div>
+        <p id="project-status" class="status small" aria-live="polite"></p>
+      </div>
+      <div id="claude-watch" class="group">
+        <div class="group-row">
+          <div class="grow">
+            <p class="row-title">Show me what Claude Code is doing</p>
+            <p id="claude-watch-line" class="muted small" aria-live="polite"></p>
+          </div>
+          <input id="claude-watch-switch" class="switch" type="checkbox" role="switch" aria-label="Show me what Claude Code is doing">
+        </div>
+      </div>
+      <p id="claude-watch-status" class="status small" aria-live="polite"></p>
     </section>
     <section id="section-memory" class="section" hidden>
       <h1>What Buddy knows about you</h1>

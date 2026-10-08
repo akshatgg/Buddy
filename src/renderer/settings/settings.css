@@ -177,6 +177,10 @@ body.settings { overflow: hidden; }
 .facts .forget { flex: none; margin-right: -6px; color: var(--muted); font-size: 13px; }
 .facts .forget:hover { color: var(--fg); }
 .facts-empty { padding: 12px 14px; }
+
+/* Claude Code → My projects: the name, then the path small and cut short, with ✕ as in Memory. */
+.projects .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.projects .row-title { margin: 0; }
 #section-memory > .group + .row { margin-top: 12px; }
 #memory-confirm { gap: 6px; }
 #memory-confirm-text { margin-right: 4px; }

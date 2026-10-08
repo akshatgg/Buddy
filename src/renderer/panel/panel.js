@@ -15,6 +15,7 @@
 
 const $ = (id) => document.getElementById(id);
 const { canSend, itemParts, selectionPreview, speaker, spokenLine, thinkingLine } = ChatView;
+const { exampleLine, jobHeading } = ChatView; // a Claude Code job in the chat
 const { createVoiceTiming, levelOf, recordingMime, listensOnOpen } = VoiceTiming;
 
 let state = null; // the chat as the main process sent it last
@@ -75,6 +76,7 @@ function drawItem(parts, buddyName) {
     if (parts.buttons.length) li.append(drawButtons(parts));
     return li;
   }
+  if (parts.kind === 'job') return drawJob(li, parts, buddyName);
   const bubble = make('div', 'bubble');
   bubble.append(make('span', 'visually-hidden', `${speaker(parts.kind, buddyName)} `));
   if (parts.say) bubble.append(make('p', 'say', parts.say));
@@ -84,6 +86,25 @@ function drawItem(parts, buddyName) {
     notes.append(...parts.notes.map((note) => make('li', '', note)));
     bubble.append(notes);
   }
+  if (parts.buttons.length) bubble.append(drawButtons(parts));
+  li.append(bubble);
+  return li;
+}
+
+/**
+ * A Claude Code job: a bubble on the buddy's side with where it works, its newest lines while it runs (a small spinner
+ * beside the last one), and its summary once it is done.
+ */
+function drawJob(li, parts, buddyName) {
+  const bubble = make('div', 'bubble');
+  bubble.append(make('span', 'visually-hidden', `${speaker(parts.kind, buddyName)} `));
+  bubble.append(make('p', 'say', jobHeading(parts)));
+  if (parts.lines.length) {
+    const lines = make('ul', `lines${parts.done ? '' : ' live'}`);
+    lines.append(...parts.lines.map((line) => make('li', '', line)));
+    bubble.append(lines);
+  }
+  if (parts.done && parts.text) bubble.append(make('p', 'text', parts.text));
   if (parts.buttons.length) bubble.append(drawButtons(parts));
   li.append(bubble);
   return li;
@@ -135,6 +156,10 @@ function render({ scroll = false } = {}) {
   $('who').textContent = s.buddyName || 'Buddy';
   $('where').textContent = s.appName ? `· ${s.appName}` : '';
   $('greeting').textContent = s.greeting || 'Hi! What should we do?';
+  const example = exampleLine(s.exampleProject); // a job in their project, when they have one (Claude Code)
+  $('example-code').textContent = example;
+  show($('example-code'), Boolean(example));
+  show($('example-sep'), Boolean(example));
 
   const parts = (Array.isArray(s.chat) ? s.chat : []).map(itemParts).filter(Boolean);
   const focusInList = $('items').contains(document.activeElement);

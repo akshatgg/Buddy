@@ -46,6 +46,17 @@ terminal.
 - [ ] Microphone refused in System Settings → 🎤 → "Allow the microphone in Settings." with Open Settings → Settings → Permissions shows the Microphone row.
 - [ ] Without GROQ_API_KEY on the server → 🎤 → "Voice isn't set up yet."; the Admin window says "Voice needs GROQ_API_KEY in Vercel."
 
+## Claude Code does the job
+Run with the real Claude Code signed in (Max), on a small throwaway project with git and `npm test`.
+- [ ] Settings → Claude Code → Add a folder → the folder is listed with its name and path; ✕ removes it; a folder renamed on disk shows "(not found)".
+- [ ] With one project: `fix the typo in README.md` → "On it!", "🔧 Started in <name>", live lines (Reading…, Editing…), then "✅ Done in <name>" with a short summary, Open folder (opens the Finder) and Copy. The file is changed on disk.
+- [ ] With two projects and none named: "Which project?" with a button per project and Not now; the pick runs there, and the next job without a name goes to the same one.
+- [ ] `run the tests in <name>` → "Run npm test?" with Allow and No → Allow runs them; No → Claude Code's summary says it could not run them. (Read-only commands such as `ls` or `git status` run without a question: Claude Code allows those itself.)
+- [ ] Stop during a long job → "⏹ Stopped" within 3 seconds, the files as they were at that moment.
+- [ ] Close the panel during a job and open it again within 5 minutes → the same chat with the job; let it finish with the panel hidden → the bubble says "Done in <name> ✅". A question while the panel is hidden → the bubble says "Run …? Open me to answer."
+- [ ] A message during a job (`what does chutti mean?`) is answered as usual; a second code job meanwhile gets "I'm still working in <name>. Stop it first."
+- [ ] Claude Code signed out (`claude /logout` in a terminal) → a code job shows "Claude Code isn't signed in…" with Open Settings and nothing starts.
+
 ## Safety and errors
 - [ ] Cursor in a password field in Safari, in Chrome and in one native app (Notes → Lock Note asks for a password),
   open the panel → "I don't read password fields." and nothing is read.
@@ -171,3 +182,41 @@ elsewhere, and no answer is on its way.
 - [ ] Show buddy / Hide buddy and Turn off buddy in the menu bar menu act on the notch Buddy; with it hidden, the notch shows nothing.
 - [ ] A Mac without a notch (or an external screen only): no "Where Buddy lives" row and the floating Buddy as before.
 - [ ] Buddy's processes stay at a few % CPU while the notch Buddy idles (Activity Monitor).
+
+## Claude Code is the brain
+
+Run with the real Claude Code (2.1.289 or newer) signed in to a Max plan, and free mode off for this account.
+
+- [ ] Settings → AI shows a fifth choice under the four keys, "Claude Code on this computer", on a row of its own. Pick it → the key box, "Get a key" and Refresh go; in their place "Claude Code: signed in as you@mail.com (Max)" in green, with Check again; the model list says Fable, Opus, Sonnet, Haiku, with Sonnet chosen.
+- [ ] Settings → Claude Code says the same line; Check again there and in the AI form both ask again (the line flickers to "Checking…").
+- [ ] The Welcome window (delete `onboarded` from settings.json, or a fresh user data folder with `BUDDY_USER_DATA`) → Connect an AI shows the fifth choice, and Check again works there too.
+- [ ] Panel: "boss ko mail, kal chutti chahiye" → an answer in about 2–5 s with Insert and Copy, from Claude Code (Activity Monitor shows a `claude` process while it thinks, and none after).
+- [ ] TextEdit: select `i am go to market yesterday`, open the panel, ↩ in the empty box → the fix replaces the selection; the panel stays hidden; "Done! It's in TextEdit ✅".
+- [ ] "what does this say?" on a window with text → "👀 Looked at …", then an answer about what is on screen; `~/Library/Application Support/Buddy/claude-tmp` is empty afterwards (no screenshot and no system prompt file left), and gone after a relaunch.
+- [ ] Pick Opus in the model list → the next answer comes from Opus (`ps -ax | grep claude` shows `--model opus` while it thinks); pick Sonnet again.
+- [ ] Settings → AI, pick Claude (Anthropic) → the key box is back; pick Claude Code again → its line is back and nothing was saved as a key.
+- [ ] In a terminal, `claude auth logout`. Check again → "Claude Code is installed but not signed in. Open a terminal, run claude, and sign in." Panel, any message → the same words in red, with Try again and Open Settings → Settings opens on AI. `claude auth login`, Check again → signed in again; Try again answers.
+- [ ] Move the command away (`mv "$(which claude)" /tmp/claude.off`), Check again → "Claude Code isn't installed on this computer." with Get Claude Code → opens claude.com/claude-code. Panel → "Claude Code isn't installed on this computer. Install it, or pick another AI in Settings." with Open Settings. Move it back (`mv /tmp/claude.off <the path it came from>`), Check again → signed in.
+- [ ] When the plan's limit is reached (Claude Code says so in a terminal too): the chat says "Your Claude Code usage limit is reached for now. Wait, or pick another AI in Settings." with Open Settings.
+- [ ] Free mode on with own keys allowed (Admin → daily limit 1): the first message is the server's; the second comes from Claude Code (a `claude` process appears), with no "used up" error. Own keys not allowed → the "used up" error as before, and Claude Code is not run.
+- [ ] Quit Buddy while an answer is on its way → no `claude` process is left behind.
+- [ ] Windows: the owner tests the pick, a write, a screenshot step and the signed-out line with Claude Code installed there, once as the native `claude.exe` and once as the npm `claude.cmd` (`%APPDATA%\npm`). Quit Buddy while an answer is on its way, and Cancel a message while it thinks: no `claude` (or `node`) process is left in Task Manager.
+
+## Buddy watches Claude Code
+
+Run with the installed Buddy.app and the real Claude Code, signed in. Keep a copy of `~/.claude/settings.json` first.
+- [ ] Settings → Claude Code: the switch "Show me what Claude Code is doing" is live, with "Buddy adds a few small hooks to Claude Code's settings so it hears when Claude Code starts, finishes or needs you." under it. On → "Watching. Hooks are in ~/.claude/settings.json." and the file has one entry on each of UserPromptSubmit, PreToolUse, PostToolUse, Stop, StopFailure, SessionEnd, PermissionRequest and Notification, whose command holds the port and the token, after your own cc-status hooks; `~/.claude/settings.json.before-buddy` is the file as it was.
+- [ ] Send a prompt, then press Esc while Claude Code works → about 5 minutes later the buddy stops thinking (Esc sends no hook).
+- [ ] A terminal, `claude` in a project, ask for something that reads a few files → the buddy thinks as soon as you send, and does not jump again on every tool.
+- [ ] Ask for something that needs a permission (a Bash command) → the buddy waves and the bubble says "Claude Code needs you in <folder>"; allow it → thinking again; when Claude Code finishes → happy and "Claude Code is done in <folder>".
+- [ ] Ask again and say no to the permission → thinking, then happy and "done", with no second wave for the same need.
+- [ ] Two terminals, both working → the bubble "2 sessions working"; one finishes → "Claude Code is done in <folder> (1 still working)" and the buddy keeps thinking; the other finishes → happy.
+- [ ] A run that fails (turn the network off) → sleepy and "Claude Code hit a problem in <folder>"; at your usage limit → "Claude Code's limit is reached".
+- [ ] Close a terminal with Claude Code waiting for you (/exit, or close the tab) → the buddy goes idle.
+- [ ] Settings → General → Always on off → the buddy goes idle and the port closes; on again → Claude Code is watched again without visiting Settings → Claude Code.
+- [ ] Quit and reopen Buddy with the switch on → the same port and token, the hooks unchanged; remove Buddy's entries from the file by hand, reopen Buddy → they are back.
+- [ ] Switch off → your own hooks stay as they were, Buddy's are gone, and no empty `hooks` is left behind in a file that had none.
+- [ ] Put a trailing comma in `~/.claude/settings.json` and flip the switch on → "I couldn't read Claude Code's settings file, so I didn't change it.", the switch stays off, the file is untouched; fix the file and it works.
+- [ ] On a Mac without Claude Code: the switch is dimmed with "Install Claude Code first.".
+- [ ] Windows (the owner, as for the Windows port): the same bash command as on the Mac, run by Claude Code in Git Bash. On a Windows machine without Git Bash (Claude Code uses PowerShell there) the hook fails harmlessly, without blocking Claude Code, and watching does not work there: check both.
+- [ ] Once Claude Code is Buddy's brain (piece 1 merged): a chat answer through it never moves the buddy through the hooks.

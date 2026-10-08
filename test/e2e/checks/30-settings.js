@@ -14,12 +14,12 @@ async function aiFormCheck(ctx, win, { assert, waitFor }) {
   // The form is in the AI section, which has to be on screen for its layout to be measured.
   await page(`document.querySelector('.nav-item[data-section="ai"]').click()`);
   assert.strictEqual(await page("document.getElementById('section-ai').hidden"), false, 'the AI section is shown');
-  await waitFor(() => page("document.querySelectorAll('#ai input[type=radio]').length === 4"), 'the four AI choices');
-  assert.strictEqual(await page("document.querySelector('#ai fieldset legend').textContent"), 'Which AI do you have a key for?');
+  await waitFor(() => page("document.querySelectorAll('#ai input[type=radio]').length === 5"), 'the five AI choices');
+  assert.strictEqual(await page("document.querySelector('#ai fieldset legend').textContent"), 'Which AI should Buddy use?');
   assert.deepStrictEqual(
     await page(`${labels}.map((label) => label.textContent.trim())`),
-    ['Claude (Anthropic)', 'OpenAI', 'Google Gemini', 'Groq'],
-    'all four AIs are there, in order',
+    ['Claude (Anthropic)', 'OpenAI', 'Google Gemini', 'Groq', 'Claude Code on this computer'],
+    'all four AIs and Claude Code are there, in order',
   );
   assert.strictEqual(await page("document.querySelectorAll('#ai select').length"), 1, 'the only list left is the models');
 
@@ -31,6 +31,8 @@ async function aiFormCheck(ctx, win, { assert, waitFor }) {
   const same = (a, b) => Math.abs(a - b) < 1;
   assert.ok(same(boxes[0].top, boxes[1].top) && same(boxes[2].top, boxes[3].top) && boxes[2].top > boxes[0].top + 1, 'two rows of two');
   assert.ok(same(boxes[0].left, boxes[2].left) && same(boxes[1].left, boxes[3].left) && boxes[1].left > boxes[0].right, 'two columns');
+  const wide = await page(`${labels}[4].getBoundingClientRect().width`);
+  assert.ok(wide > boxes[1].right - boxes[0].left - 1, 'Claude Code takes a row of its own, as wide as the two columns');
   const windowWidth = await page('document.documentElement.clientWidth');
   assert.ok(Math.max(...boxes.map((box) => box.right)) <= windowWidth, 'the choices end inside the window');
   assert.strictEqual(

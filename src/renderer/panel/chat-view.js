@@ -10,6 +10,7 @@
  *
  * An item's parts: { id, kind: 'you' | 'buddy' | 'event' | 'error' | 'question', say, text, notes,
  * buttons: [{ button, label, primary }] }. `say` and `notes` are only ever filled in for the buddy's answers.
+ * A Claude Code job (kind 'job') has `project`, `lines` (what it is doing, newest last) and `done` as well.
  */
 const ChatView = (() => {
   const LABELS = {
@@ -21,15 +22,24 @@ const ChatView = (() => {
     settings: 'Open Settings',
     send: 'Send',
     'not-now': 'Not now',
+    stop: 'Stop',
+    'open-folder': 'Open folder',
+    allow: 'Allow',
+    deny: 'No',
   };
   // The button that does what the answer is for: put the text in the app, or send it.
-  const PRIMARY = ['insert', 'replace', 'send'];
-  const KINDS = ['you', 'buddy', 'event', 'error', 'question'];
+  const PRIMARY = ['insert', 'replace', 'send', 'allow', 'open-folder'];
+  const KINDS = ['you', 'buddy', 'event', 'error', 'question', 'job'];
+  const PROJECT_BUTTON = 'project:'; // "Which project?": one button per folder, `project:<path>`
   const PREVIEW_CHARS = 40;
 
   const text = (value) => (typeof value === 'string' ? value : '');
 
   function buttonLabel(button) {
+    // The pick on "Which project?" is named after its folder: the last part of the path, Mac or Windows.
+    if (typeof button === 'string' && button.startsWith(PROJECT_BUTTON)) {
+      return button.slice(PROJECT_BUTTON.length).split(/[\\/]/).filter(Boolean).pop() || '';
+    }
     return Object.hasOwn(LABELS, button) ? LABELS[button] : '';
   }
 
@@ -71,6 +81,15 @@ const ChatView = (() => {
       notes: answer && Array.isArray(item.notes) ? item.notes.filter((n) => text(n) !== '') : [],
       buttons,
     };
+    if (item.type === 'job') {
+      // A Claude Code job: where it works, what it is doing now (the newest lines), and once done, what it did.
+      Object.assign(parts, {
+        project: text(item.project),
+        lines: Array.isArray(item.lines) ? item.lines.filter((line) => text(line) !== '') : [],
+        done: item.done === true,
+      });
+      return parts;
+    }
     if (!parts.say && !parts.text && !parts.notes.length && !parts.buttons.length) return null;
     return parts;
   }
@@ -81,18 +100,37 @@ const ChatView = (() => {
    */
   function speaker(kind, buddyName) {
     if (kind === 'you') return 'You:';
-    if (kind === 'buddy' || kind === 'error' || kind === 'question') return `${text(buddyName) || 'Buddy'}:`;
+    if (kind === 'buddy' || kind === 'error' || kind === 'question' || kind === 'job') return `${text(buddyName) || 'Buddy'}:`;
     return '';
   }
 
   /** What a screen reader reads out for an item that is new in the chat: who it is from, then all its words. */
   function spokenLine(parts, buddyName) {
-    const words = [parts.say, parts.text, ...parts.notes].filter(Boolean).join(' ');
+    const words = parts.kind === 'job' ? jobWords(parts) : [parts.say, parts.text, ...parts.notes].filter(Boolean).join(' ');
     const who = speaker(parts.kind, buddyName);
     return who ? `${who} ${words}` : words;
   }
 
-  return { buttonLabel, selectionPreview, thinkingLine, canSend, itemParts, speaker, spokenLine };
+  /** A job for a screen reader: where it works and its newest line, or that it is done (or stopped) and its summary. */
+  function jobWords(parts) {
+    if (!parts.done) return [`Working in ${parts.project}.`, parts.lines.at(-1)].filter(Boolean).join(' ');
+    if (!parts.text) return `Was working in ${parts.project}.`; // it did not finish: the red line after it says why
+    return parts.text === 'Stopped.' ? 'Stopped.' : [`Done in ${parts.project}.`, parts.text].filter(Boolean).join(' ');
+  }
+
+  /** A job's heading: where it works and whether it is done, stopped, or ended without finishing. */
+  function jobHeading(parts) {
+    if (!parts.done) return `🔧 Working in ${parts.project}`;
+    if (!parts.text) return `🔧 Was working in ${parts.project}`;
+    return parts.text === 'Stopped.' ? `⏹ Stopped in ${parts.project}` : `✅ Done in ${parts.project}`;
+  }
+
+  /** The empty chat's example for a job, when the person has a project; '' when they have none. */
+  function exampleLine(project) {
+    return text(project) ? `“fix the login bug in ${project}”` : '';
+  }
+
+  return { buttonLabel, selectionPreview, thinkingLine, canSend, itemParts, speaker, spokenLine, exampleLine, jobHeading };
 })();
 
 if (typeof module !== 'undefined') module.exports = ChatView;

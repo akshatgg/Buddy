@@ -34,6 +34,10 @@ function setup({
   voice,
   signedIn = true,
   heard = 'kal chutti chahiye',
+  projects = [],
+  lastProject = null,
+  claude = { installed: true, loggedIn: true },
+  startFails = null,
 } = {}) {
   const log = [];
   const helper = {
@@ -67,6 +71,7 @@ function setup({
     bubble: (text) => log.push(['bubble', text]),
     mood: (mood) => log.push(['mood', mood]),
     openSettings: (section) => log.push(['openSettings', section]),
+    openFolder: (p) => log.push(['openFolder', p]),
   };
   const clipboard = givenClipboard || {
     text: null,
@@ -117,6 +122,31 @@ function setup({
       return {};
     },
   };
+  // Claude Code jobs (src/main/claude/job.js): `projects` are the folders found, `claude` how Claude Code stands, and
+  // each job started is kept in `started` with its onEvent, so that a test can play what the job reports.
+  let last = lastProject;
+  const started = [];
+  const jobs = {
+    projects: () => projects,
+    lastProject: () => projects.find((p) => p.path === last) || null,
+    setLastProject(p) {
+      last = p;
+      log.push(['lastProject', p]);
+    },
+    status: async () => claude,
+    start(options) {
+      log.push(['startJob', { project: options.project, task: options.task, person: options.person, model: options.model }]);
+      if (startFails) throw startFails;
+      const handle = {
+        stops: 0,
+        answers: [],
+        stop() { this.stops += 1; },
+        answer(id, allow) { this.answers.push([id, allow]); return true; },
+      };
+      started.push({ ...options, handle });
+      return handle;
+    },
+  };
   const actions = createActions({
     helper,
     clipboard,
@@ -126,6 +156,7 @@ function setup({
     cloud,
     signedIn: () => signedIn,
     ...(voice ? { voice } : {}),
+    jobs,
     memory,
     sendKeyFor: (app, platform) => {
       log.push(['sendKeyFor', app, platform]);
@@ -145,6 +176,7 @@ function setup({
     cloud,
     clipboard,
     memory,
+    started,
     setJustClosed: (v) => { justClosed = v; },
     wait: (ms) => { time += ms; },
     /** The panel hides the way a click somewhere else hides it: by itself, not through actions. */
@@ -181,6 +213,7 @@ test('opening reads the selection first, then shows the greeting, the selection 
     resumed: false,
     chat: [],
     voice: { on: false, auto: false, mic: 'unknown', system: 'darwin' },
+    exampleProject: '',
   });
 });
 
@@ -393,6 +426,7 @@ test('a message goes to the AI with the selection, what Buddy knows and who asks
       { id: 2, type: 'buddy', say: 'Fixed it!', text: 'I am going home.', notes: ['"me go" should be "I am going".'], buttons: ['replace', 'copy'] },
     ],
     voice: { on: false, auto: false, mic: 'unknown', system: 'darwin' },
+    exampleProject: '',
   });
   assert.deepStrictEqual(s.actions.state(), states.at(-1));
   assert.deepStrictEqual(moods(s.log), ['thinking', 'happy']);
@@ -1289,6 +1323,25 @@ test('Open Settings goes to the AI section for a key, model or free-mode problem
   }
 });
 
+test("Claude Code's errors that are fixed in Settings get Open Settings, which opens on the AI section; a plain failure gets Try again only", async () => {
+  for (const [code, message] of [
+    ['no_claude', "Claude Code isn't installed on this computer. Install it, or pick another AI in Settings."],
+    ['claude_signed_out', "Claude Code isn't signed in. Open a terminal, run claude, and sign in."],
+    ['claude_limit', 'Your Claude Code usage limit is reached for now. Wait, or pick another AI in Settings.'],
+  ]) {
+    const s = setup({ answers: [failure(code, message)] });
+    await s.actions.open();
+    await s.actions.send('mail');
+    assert.deepStrictEqual(lastItem(s), { id: 2, type: 'error', text: message, code, buttons: ['retry', 'settings'] }, code);
+    await s.actions.act(2, 'settings');
+    assert.deepStrictEqual(s.log.slice(-2), [['hidePanel'], ['openSettings', 'ai']], code);
+  }
+  const s = setup({ answers: [failure('claude_failed', "Claude Code couldn't answer. Try again.")] });
+  await s.actions.open();
+  await s.actions.send('mail');
+  assert.deepStrictEqual(lastItem(s).buttons, ['retry']);
+});
+
 test('the panel only stepped aside for Settings: opening it again shows the same chat', async () => {
   const s = setup({ answers: [failure('no_key', 'Add your API key in Settings first.')] });
   await s.actions.open();
@@ -1763,4 +1816,336 @@ test('a recording that is not text, or has no kind, is refused before it goes an
       JSON.stringify([audio, mime]));
   }
   assert.deepStrictEqual(entries(s.log, 'transcribe'), []);
+});
+
+// Claude Code jobs
+
+const APP_DIR = { path: '/Users/me/code/my-app', name: 'my-app', found: true };
+const SITE_DIR = { path: '/Users/me/code/site', name: 'site', found: true };
+const code = (fields = {}) => reply({ kind: 'code', say: 'On it!', text: 'Fix the login bug in src/login.js.', ...fields });
+/** The job's item in the chat, as the page gets it. */
+const jobItem = (s) => chatOf(s).find((i) => i.type === 'job');
+const play = (s, event) => s.started.at(-1).onEvent(event);
+
+test('the request carries the names of their projects, only when there are any', async () => {
+  const s = setup({ projects: [APP_DIR, SITE_DIR] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  assert.deepStrictEqual(asked(s.log), [input({ message: 'fix the bug', projects: ['my-app', 'site'] })]);
+  const none = setup();
+  await none.actions.open();
+  await none.actions.send('fix the bug');
+  assert.deepStrictEqual(asked(none.log), [input({ message: 'fix the bug' })]);
+});
+
+test('the empty chat can give an example with the last project, else the first', async () => {
+  const s = setup({ projects: [APP_DIR, SITE_DIR], lastProject: SITE_DIR.path });
+  await s.actions.open();
+  assert.strictEqual(entries(s.log, 'showPanel')[0][1].exampleProject, 'site');
+  const first = setup({ projects: [APP_DIR, SITE_DIR] });
+  await first.actions.open();
+  assert.strictEqual(entries(first.log, 'showPanel')[0][1].exampleProject, 'my-app');
+});
+
+test('a "code" answer with one project starts the job there: the friendly line, "Started", the job item, and the buddy thinks', async () => {
+  const s = setup({ projects: [APP_DIR], answers: [code()] });
+  await s.actions.open();
+  await s.actions.send('fix the login bug');
+  assert.deepStrictEqual(chatOf(s), [
+    { id: 1, type: 'you', text: 'fix the login bug' },
+    { id: 2, type: 'buddy', say: 'On it!', text: '', notes: [], buttons: [] },
+    { id: 3, type: 'event', text: '🔧 Started in my-app', buttons: [] },
+    { id: 4, type: 'job', project: 'my-app', lines: [], done: false, text: '', buttons: ['stop'] },
+  ]);
+  assert.deepStrictEqual(entries(s.log, 'startJob')[0][1], { project: APP_DIR, task: 'Fix the login bug in src/login.js.', person: 'Akshat', model: undefined });
+  assert.deepStrictEqual(entries(s.log, 'lastProject'), [['lastProject', APP_DIR.path]]);
+  assert.deepStrictEqual(moods(s.log).at(-1), 'thinking');
+  assert.strictEqual(s.actions.state().busy, false, 'the box can still be used');
+});
+
+test('which project: the one named in the message (any case), else the last one, else the chat asks', async () => {
+  const named = setup({ projects: [APP_DIR, SITE_DIR], answers: [code()] });
+  await named.actions.open();
+  await named.actions.send('fix the bug in MY-APP');
+  assert.deepStrictEqual(entries(named.log, 'startJob')[0][1].project, APP_DIR);
+
+  const last = setup({ projects: [APP_DIR, SITE_DIR], lastProject: SITE_DIR.path, answers: [code()] });
+  await last.actions.open();
+  await last.actions.send('fix the bug');
+  assert.deepStrictEqual(entries(last.log, 'startJob')[0][1].project, SITE_DIR);
+
+  const ask = setup({ projects: [APP_DIR, SITE_DIR], answers: [code()] });
+  await ask.actions.open();
+  await ask.actions.send('fix the bug');
+  assert.deepStrictEqual(lastItem(ask), { id: 3, type: 'question', text: 'Which project?', buttons: [`project:${APP_DIR.path}`, `project:${SITE_DIR.path}`, 'not-now'] });
+  assert.strictEqual(entries(ask.log, 'startJob').length, 0);
+  await ask.actions.act(3, `project:${SITE_DIR.path}`);
+  assert.deepStrictEqual(chatOf(ask).slice(2), [
+    { id: 3, type: 'event', text: '📁 site', buttons: [] },
+    { id: 4, type: 'event', text: '🔧 Started in site', buttons: [] },
+    { id: 5, type: 'job', project: 'site', lines: [], done: false, text: '', buttons: ['stop'] },
+  ]);
+  assert.deepStrictEqual(entries(ask.log, 'startJob')[0][1].task, 'Fix the login bug in src/login.js.');
+  assert.deepStrictEqual(entries(ask.log, 'lastProject'), [['lastProject', SITE_DIR.path]]);
+});
+
+test('Not now on "Which project?" starts nothing', async () => {
+  const s = setup({ projects: [APP_DIR, SITE_DIR], answers: [code()] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  await s.actions.act(3, 'not-now');
+  assert.deepStrictEqual(lastItem(s), { id: 3, type: 'event', text: 'Okay, not now.', buttons: [] });
+  assert.strictEqual(entries(s.log, 'startJob').length, 0);
+});
+
+test('Claude Code missing, or not signed in, shows the error with Open Settings, and nothing starts', async () => {
+  for (const [claude, codeWord, text] of [
+    [{ installed: false, loggedIn: false }, 'no_claude', "Claude Code isn't installed on this computer. Install it, or pick another AI in Settings."],
+    [{ installed: true, loggedIn: false }, 'claude_signed_out', "Claude Code isn't signed in. Open a terminal, run claude, and sign in."],
+  ]) {
+    const s = setup({ projects: [APP_DIR], claude, answers: [code()] });
+    await s.actions.open();
+    await s.actions.send('fix the bug');
+    assert.deepStrictEqual(lastItem(s), { id: 3, type: 'error', text, code: codeWord, buttons: ['settings'] }, codeWord);
+    assert.strictEqual(entries(s.log, 'startJob').length, 0);
+    assert.deepStrictEqual(moods(s.log), ['thinking', 'idle']);
+  }
+});
+
+test('a "code" answer with no project folder says to add one in Settings', async () => {
+  const s = setup({ answers: [code()] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  assert.deepStrictEqual(lastItem(s), { id: 3, type: 'error', text: 'Add a project folder in Settings → Claude Code first.', code: 'no_project', buttons: ['settings'] });
+  await s.actions.act(3, 'settings');
+  assert.deepStrictEqual(s.log.slice(-2), [['hidePanel'], ['openSettings', 'claude']]);
+});
+
+test('a job that cannot start shows why', async () => {
+  const s = setup({ projects: [APP_DIR], answers: [code()], startFails: failure('no_claude', 'Claude Code isn\'t installed on this computer. Install it, or pick another AI in Settings.') });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  assert.deepStrictEqual(lastItem(s).type, 'error');
+  assert.strictEqual(jobItem(s), undefined, 'no job item is left behind');
+});
+
+test('one job at a time: a second "code" answer is told to stop the first', async () => {
+  const s = setup({ projects: [APP_DIR], answers: [code(), code({ say: 'Sure.' })] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  await s.actions.send('add dark mode');
+  assert.deepStrictEqual(lastItem(s), { id: 6, type: 'buddy', say: "I'm still working in my-app. Stop it first.", text: '', notes: [], buttons: ['stop'] });
+  assert.strictEqual(entries(s.log, 'startJob').length, 1);
+});
+
+test('the chat closed during a job: in a new chat, "Stop it first" has Stop, and it stops the job', async () => {
+  const s = setup({ projects: [APP_DIR], answers: [code(), code({ say: 'Sure.' }), code()] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  await s.actions.dismiss();
+  await s.actions.open();
+  await s.actions.send('add dark mode');
+  const line = lastItem(s);
+  assert.deepStrictEqual(line, { id: line.id, type: 'buddy', say: "I'm still working in my-app. Stop it first.", text: '', notes: [], buttons: ['stop'] });
+  await s.actions.act(line.id, 'stop');
+  assert.strictEqual(s.started[0].handle.stops, 1);
+  assert.deepStrictEqual(lastItem(s).buttons, [], 'pressed once');
+  play(s, { type: 'stopped' });
+  s.log.length = 0;
+  await s.actions.send('add dark mode');
+  assert.strictEqual(entries(s.log, 'startJob').length, 1, 'the next "code" answer starts a job again');
+});
+
+test('a "Stop it first" line left from a job that ended stops nothing later', async () => {
+  const s = setup({ projects: [APP_DIR], answers: [code(), code(), code()] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  await s.actions.send('add dark mode');
+  const line = lastItem(s);
+  play(s, { type: 'done', text: 'Done.' });
+  await s.actions.send('and the footer');
+  assert.strictEqual(s.started.length, 2);
+  await s.actions.act(line.id, 'stop');
+  assert.strictEqual(s.started[1].handle.stops ?? 0, 0, 'the new job goes on');
+});
+
+test('live lines: the newest six are kept, and the buddy keeps thinking', async () => {
+  const s = setup({ projects: [APP_DIR], answers: [code()] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  const before = moods(s.log).length;
+  for (let i = 1; i <= 7; i += 1) play(s, { type: 'line', text: `Reading ${i}.js` });
+  assert.deepStrictEqual(jobItem(s).lines, ['Reading 2.js', 'Reading 3.js', 'Reading 4.js', 'Reading 5.js', 'Reading 6.js', 'Reading 7.js']);
+  assert.deepStrictEqual(entries(s.log, 'state').at(-1)[1].chat.at(-1).lines.length, 6);
+  assert.strictEqual(moods(s.log).at(-1), 'thinking');
+  // Thinking is not sent again on every line: a repeat restarts the buddy's thinking animation, and it would jerk.
+  assert.strictEqual(moods(s.log).length, before, 'the lines send no mood while the buddy already thinks');
+});
+
+test('a message sent during a job is answered as usual, and the next live line has the buddy think again', async () => {
+  const s = setup({ projects: [APP_DIR], answers: [code(), reply({ kind: 'answer', text: 'It means leave.' })] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  await s.actions.send('what does chutti mean?');
+  assert.deepStrictEqual(lastItem(s), { id: 6, type: 'buddy', say: '', text: 'It means leave.', notes: [], buttons: ['copy'] });
+  assert.strictEqual(moods(s.log).at(-1), 'happy');
+  play(s, { type: 'line', text: 'Editing src/login.js' });
+  assert.strictEqual(moods(s.log).at(-1), 'thinking');
+});
+
+test('a permission question: Allow and No go to the job, and the chat says what was answered', async () => {
+  const s = setup({ projects: [APP_DIR], answers: [code()] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  play(s, { type: 'ask', requestId: 'r1', text: 'Run npm test?', what: 'npm test' });
+  play(s, { type: 'ask', requestId: 'r2', text: 'Use WebFetch?', what: 'WebFetch' });
+  assert.deepStrictEqual(chatOf(s).slice(-2), [
+    { id: 5, type: 'question', text: 'Run npm test?', buttons: ['allow', 'deny'] },
+    { id: 6, type: 'question', text: 'Use WebFetch?', buttons: ['allow', 'deny'] },
+  ]);
+  await s.actions.act(5, 'allow');
+  await s.actions.act(6, 'deny');
+  assert.deepStrictEqual(s.started[0].handle.answers, [['r1', true], ['r2', false]]);
+  assert.deepStrictEqual(chatOf(s).slice(-2), [
+    { id: 5, type: 'event', text: '✅ Allowed: npm test', buttons: [] },
+    { id: 6, type: 'event', text: '🚫 Said no to: WebFetch', buttons: [] },
+  ]);
+  await assert.rejects(s.actions.act(5, 'allow'), { code: 'bad_request' });
+});
+
+test('a question with the panel hidden shows in the bubble; one left open for 10 minutes says the job said no', async () => {
+  const s = setup({ projects: [APP_DIR], answers: [code()] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  s.blur();
+  play(s, { type: 'ask', requestId: 'r1', text: 'Run npm test?', what: 'npm test' });
+  assert.deepStrictEqual(entries(s.log, 'bubble').at(-1), ['bubble', 'Run npm test? Open me to answer.']);
+  play(s, { type: 'expired', requestId: 'r1' });
+  assert.deepStrictEqual(lastItem(s), { id: 5, type: 'event', text: 'No answer for 10 minutes, so I said no.', buttons: [] });
+});
+
+test('done: the summary with Open folder and Copy, "Done in my-app", the buddy celebrates, and the bubble when the panel is hidden', async () => {
+  const s = setup({ projects: [APP_DIR], answers: [code()] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  play(s, { type: 'line', text: 'Editing src/login.js' });
+  play(s, { type: 'done', text: 'I fixed the null check in login.js. The tests pass.' });
+  assert.deepStrictEqual(chatOf(s).slice(3), [
+    { id: 4, type: 'job', project: 'my-app', lines: ['Editing src/login.js'], done: true, text: 'I fixed the null check in login.js. The tests pass.', buttons: ['open-folder', 'copy'] },
+    { id: 5, type: 'event', text: '✅ Done in my-app', buttons: [] },
+  ]);
+  assert.strictEqual(moods(s.log).at(-1), 'celebrate');
+  assert.strictEqual(entries(s.log, 'bubble').length, 0, 'the panel is open: no bubble');
+  await s.actions.act(4, 'copy');
+  assert.strictEqual(s.clipboard.text, 'I fixed the null check in login.js. The tests pass.');
+  await s.actions.act(4, 'open-folder');
+  assert.deepStrictEqual(entries(s.log, 'openFolder'), [['openFolder', APP_DIR.path]]);
+
+  const hidden = setup({ projects: [APP_DIR], answers: [code()] });
+  await hidden.actions.open();
+  await hidden.actions.send('fix the bug');
+  hidden.blur();
+  play(hidden, { type: 'done', text: 'Done.' });
+  assert.deepStrictEqual(entries(hidden.log, 'bubble').at(-1), ['bubble', 'Done in my-app ✅']);
+});
+
+test('Stop: the job gets stop(), and when the process has gone the item says so', async () => {
+  const s = setup({ projects: [APP_DIR], answers: [code(), code()] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  play(s, { type: 'ask', requestId: 'r1', text: 'Run npm test?', what: 'npm test' });
+  await s.actions.act(4, 'stop');
+  assert.strictEqual(s.started[0].handle.stops, 1);
+  assert.deepStrictEqual(jobItem(s).buttons, []);
+  play(s, { type: 'stopped' });
+  assert.deepStrictEqual(chatOf(s).slice(3), [
+    { id: 4, type: 'job', project: 'my-app', lines: [], done: true, text: 'Stopped.', buttons: [] },
+    { id: 5, type: 'event', text: 'Not needed any more.', buttons: [] },
+    { id: 6, type: 'event', text: '⏹ Stopped', buttons: [] },
+  ]);
+  assert.strictEqual(moods(s.log).at(-1), 'idle');
+  // The next "code" answer may start a job again.
+  s.log.length = 0;
+  await s.actions.send('try again');
+  assert.strictEqual(entries(s.log, 'startJob').length, 1);
+});
+
+test('a job that fails: the red line with Try again, which runs the same task again; the buddy is sad for a while', async () => {
+  const s = setup({ projects: [APP_DIR], answers: [code()] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  play(s, { type: 'failed', code: 'claude_failed', message: "Claude Code couldn't finish in my-app." });
+  assert.deepStrictEqual(chatOf(s).slice(3), [
+    { id: 4, type: 'job', project: 'my-app', lines: [], done: true, text: '', buttons: [] },
+    { id: 5, type: 'error', text: "Claude Code couldn't finish in my-app.", code: 'claude_failed', buttons: ['retry'] },
+  ]);
+  assert.deepStrictEqual(moods(s.log).slice(-1), ['sad'], 'sad ends by itself: no timer back to idle');
+  await s.actions.act(5, 'retry');
+  assert.deepStrictEqual(chatOf(s).slice(4), [
+    { id: 6, type: 'event', text: '🔧 Started in my-app', buttons: [] },
+    { id: 7, type: 'job', project: 'my-app', lines: [], done: false, text: '', buttons: ['stop'] },
+  ]);
+  assert.deepStrictEqual(entries(s.log, 'startJob').map((e) => e[1].task), ['Fix the login bug in src/login.js.', 'Fix the login bug in src/login.js.']);
+});
+
+test('the limit, signed out and "too long" lines: Open Settings for the first two, nothing to press for the last', async () => {
+  for (const [codeWord, message, buttons] of [
+    ['claude_limit', 'Your Claude Code usage limit is reached for now. Wait, or pick another AI in Settings.', ['settings']],
+    ['claude_signed_out', "Claude Code isn't signed in. Open a terminal, run claude, and sign in.", ['settings']],
+    ['too_long', 'That took too long, so I stopped it.', []],
+  ]) {
+    const s = setup({ projects: [APP_DIR], answers: [code()] });
+    await s.actions.open();
+    await s.actions.send('fix the bug');
+    s.blur();
+    play(s, { type: 'failed', code: codeWord, message });
+    assert.deepStrictEqual(lastItem(s), { id: 5, type: 'error', text: message, code: codeWord, buttons }, codeWord);
+    assert.deepStrictEqual(entries(s.log, 'bubble').at(-1), ['bubble', message], codeWord);
+  }
+});
+
+test('the job goes on when the chat is closed: its end only shows in the bubble, and leaves the new chat alone', async () => {
+  const s = setup({ projects: [APP_DIR], answers: [code()] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  await s.actions.dismiss();
+  assert.strictEqual(moods(s.log).at(-1), 'idle');
+  await s.actions.open();
+  s.log.length = 0;
+  play(s, { type: 'line', text: 'Editing x' });
+  play(s, { type: 'done', text: 'Done.' });
+  assert.deepStrictEqual(entries(s.log, 'bubble'), [['bubble', 'Done in my-app ✅']]);
+  assert.deepStrictEqual(moods(s.log), []);
+  assert.deepStrictEqual(chatOf(s), []);
+});
+
+test('the panel only hid: opened again within 5 minutes, the same chat shows the job', async () => {
+  const s = setup({ projects: [APP_DIR], answers: [code()] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  s.blur();
+  play(s, { type: 'line', text: 'Reading a.js' });
+  await s.actions.open();
+  assert.strictEqual(s.actions.state().resumed, true);
+  assert.deepStrictEqual(jobItem(s).lines, ['Reading a.js']);
+});
+
+test('one job at a time on "Which project?" too: a pick while a job runs is told to stop it first', async () => {
+  const s = setup({ projects: [APP_DIR, SITE_DIR], answers: [code(), code()] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  await s.actions.send('add dark mode');
+  const [first, second] = chatOf(s).filter((i) => i.text === 'Which project?');
+  await s.actions.act(first.id, `project:${APP_DIR.path}`);
+  await assert.rejects(s.actions.act(second.id, `project:${SITE_DIR.path}`), { code: 'bad_request', message: "I'm still working in my-app. Stop it first." });
+  assert.strictEqual(entries(s.log, 'startJob').length, 1);
+});
+
+test('a question from a job whose chat was closed does not ask to be opened: that chat is gone', async () => {
+  const s = setup({ projects: [APP_DIR], answers: [code()] });
+  await s.actions.open();
+  await s.actions.send('fix the bug');
+  await s.actions.dismiss();
+  play(s, { type: 'ask', requestId: 'r1', text: 'Run npm test?', what: 'npm test' });
+  assert.deepStrictEqual(entries(s.log, 'bubble'), []);
 });

@@ -34,6 +34,8 @@ class ClaudeModelTest {
     private var held: CompletableDeferred<Unit>? = null // a send waits for this, when there is one
     private val calls = mutableListOf<String>() // what the model asked the server, in turn
 
+    private var clock = 0L // the model's clock, for how long something sent waits
+
     private fun TestScope.model(scope: CoroutineScope = backgroundScope) = ClaudeModel(
         look = { id ->
             calls += "look ${id ?: "-"}"
@@ -51,6 +53,7 @@ class ClaudeModelTest {
         },
         stop = { calls += "stop" },
         scope = scope,
+        now = { clock },
     )
 
     private val ClaudeModel.s get() = state.value
@@ -383,5 +386,53 @@ class ClaudeModelTest {
         m.enter()
         runCurrent()
         assertTrue(m.s.on)
+    }
+
+    // ---- Claude at work, as the terminal shows it ----
+
+    @Test fun afterSendingClaudeIsAtWorkUntilItsAnswerStartsToCome() = runTest {
+        sessions = listOf(buddy.copy(status = "idle"))
+        items = listOf(RemoteItem(1, "claude", "Hello."))
+        val m = opened()
+        assertFalse("idle: nothing at work", m.s.working)
+        m.setDraft("hi")
+        m.send()
+        runCurrent()
+        assertEquals(1, m.s.pendingAfter)
+        assertTrue("sent: at work at once, before the computer says so", m.s.working)
+        items = listOf(RemoteItem(1, "claude", "Hello."), RemoteItem(2, "you", "hi"))
+        advanceTimeBy(CLAUDE_POLL_MS + 1)
+        assertTrue("its own words came back: still waiting for the answer", m.s.working)
+        items = items!! + RemoteItem(3, "claude", "Hi! What should we do?")
+        advanceTimeBy(CLAUDE_POLL_MS + 1)
+        assertNull(m.s.pendingAfter)
+        assertFalse("the answer came, and the computer says idle", m.s.working)
+    }
+
+    @Test fun aSendThatFailedWaitsForNothing_andAWaitEndsWhenClaudeAsksOrAfterThreeMinutes() = runTest {
+        sessions = listOf(buddy.copy(status = "idle"))
+        items = listOf(RemoteItem(1, "claude", "Hello."))
+        val m = opened()
+        sendFails = BuddyError("offline", "No internet.")
+        m.setDraft("hi")
+        m.send()
+        runCurrent()
+        assertNull(m.s.pendingAfter)
+        sendFails = null
+        m.setDraft("again")
+        m.send()
+        runCurrent()
+        assertEquals(1, m.s.pendingAfter)
+        sessions = listOf(buddy.copy(status = "waiting"))
+        advanceTimeBy(CLAUDE_POLL_MS + 1)
+        assertNull("Claude stopped to ask: no more waiting", m.s.pendingAfter)
+        sessions = listOf(buddy.copy(status = "idle"))
+        m.setDraft("third")
+        m.send()
+        runCurrent()
+        assertEquals(1, m.s.pendingAfter)
+        clock += CLAUDE_PENDING_MS + 1
+        advanceTimeBy(CLAUDE_POLL_MS + 1)
+        assertNull("nothing came for three minutes", m.s.pendingAfter)
     }
 }

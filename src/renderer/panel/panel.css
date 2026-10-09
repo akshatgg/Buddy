@@ -392,6 +392,13 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
 .claude-items .cl-text p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .claude-items .cl-text p.blank { height: 0.75em; }
 .claude-items .cl-text code { color: var(--cli-blue); font: inherit; }
+.claude-items .cl-heading { margin: 0; font-weight: 700; }
+.claude-items .cl-bullet { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.claude-items .cl-marker { color: var(--cli-dim); }
+/* Code and tables keep their lines: a table drawn with box lines, as the terminal draws it, scrolls sideways if it must. */
+.claude-items .cl-code, .claude-items .cl-table { margin: 2px 0; overflow-x: auto; font: inherit; white-space: pre; }
+.claude-items .cl-code { color: var(--cli-blue); }
+.cl-probe { position: absolute; visibility: hidden; white-space: pre; }
 .claude-items .cl-text strong { font-weight: 700; }
 
 /* ❯ what the person typed, on a grey bar across the whole width. */

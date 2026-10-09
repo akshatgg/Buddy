@@ -73,3 +73,33 @@ test('the working line keeps one verb for a turn', () => {
   assert.ok(VERBS.map((v) => `${v}…`).includes(workingVerb(12345)));
   assert.strictEqual(workingVerb(undefined), `${VERBS[0]}…`);
 });
+
+test("Claude's markdown as the terminal shows it: headings, lists, code, and tables", () => {
+  const { blocks } = require('../src/renderer/panel/claude-cli.js');
+  assert.deepStrictEqual(blocks('## Plan\n- the `cart`\n  - and tax\n1. first\n\n```\nnpm test\n```\n| A | B |\n|---|:---:|\n| **x** | `y` |\nafter'), [
+    { type: 'heading', text: 'Plan' },
+    { type: 'bullet', depth: 0, marker: '•', text: 'the `cart`' },
+    { type: 'bullet', depth: 1, marker: '•', text: 'and tax' },
+    { type: 'bullet', depth: 0, marker: '1.', text: 'first' },
+    { type: 'blank' },
+    { type: 'code', lines: ['npm test'] },
+    { type: 'table', header: ['A', 'B'], rows: [['x', 'y']] },
+    { type: 'line', text: 'after' },
+  ]);
+  assert.deepStrictEqual(blocks('| not | a table |\nno rule under it').map((b) => b.type), ['line', 'line']);
+});
+
+test('a table is drawn with box lines, a line between rows, its widest columns wrapping to fit', () => {
+  const { tableLines, wrap } = require('../src/renderer/panel/claude-cli.js');
+  assert.deepStrictEqual(tableLines(['Idea', 'How'], [['Reply', 'Gives three ready replies to pick']], 30), [
+    '┌───────┬────────────────────┐',
+    '│ Idea  │ How                │',
+    '├───────┼────────────────────┤',
+    '│ Reply │ Gives three ready  │',
+    '│       │ replies to pick    │',
+    '└───────┴────────────────────┘',
+  ]);
+  assert.strictEqual(tableLines(['A'], [['x'.repeat(50)]], 200)[0].length, 54, 'room enough: nothing wraps');
+  assert.deepStrictEqual(tableLines([], [], 40), []);
+  assert.deepStrictEqual(wrap('abcdefg', 5), ['abcde', 'fg']);
+});

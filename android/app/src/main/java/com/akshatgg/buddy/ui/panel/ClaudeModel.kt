@@ -1,5 +1,6 @@
 package com.akshatgg.buddy.ui.panel
 
+import com.akshatgg.buddy.cloud.RemoteFeed
 import com.akshatgg.buddy.cloud.RemoteItem
 import com.akshatgg.buddy.cloud.RemoteLook
 import com.akshatgg.buddy.cloud.RemoteSession
@@ -16,6 +17,9 @@ import kotlinx.coroutines.launch
 /** How often the phone looks at the session it shows: the computer reports every few seconds. */
 const val CLAUDE_POLL_MS = 1_500L
 
+/** How long the phone shows Claude at work after the person sent something, at most, if nothing comes back. */
+const val CLAUDE_PENDING_MS = 3 * 60_000L
+
 /** A session's status, in the Mac panel's words (panel.js CLAUDE_STATUS); one the phone does not know shows as it is. */
 val CLAUDE_STATUS = mapOf("working" to "working…", "waiting" to "waiting for you", "done" to "done", "failed" to "hit a problem", "idle" to "idle")
 
@@ -28,7 +32,8 @@ private const val FAILED = "Something went wrong. Try again."
  * What Claude mode shows. `on`: in Claude mode (its screen is open, and the person signed in). While `session` is null
  * the sessions are listed: `looking` while they are asked for, `online` whether the computer shares them (null: not
  * known, as when the asking failed with `listError`). With a `session`, its `items` (null until the computer has sent
- * them) and `problem`, why the last look at it failed. `draft` and `boxError` are the box's.
+ * them) and `problem`, why the last look at it failed. `draft` and `boxError` are the box's. `pendingAfter`: the person
+ * sent something and Claude's answer has not come yet, the newest item's id when they sent it (null when nothing waits).
  */
 data class ClaudeState(
     val on: Boolean = false,
@@ -42,7 +47,15 @@ data class ClaudeState(
     val draft: String = "",
     val sending: Boolean = false,
     val boxError: String? = null,
+    val pendingAfter: Int? = null,
 ) {
+    /**
+     * Whether the session shows Claude at work ("✻ Pondering…"), as the terminal does: while the computer says it works,
+     * and from the moment the person sends something until Claude's answer starts to come, which the computer's own
+     * status can take a while to say.
+     */
+    val working: Boolean get() = session != null && (session.status == "working" || pendingAfter != null || sending)
+
     /** What the box says: where its words go, once a session is open. */
     val placeholder: String? get() = session?.let { "Message Claude in ${it.shown}…" }
 
@@ -63,7 +76,9 @@ class ClaudeModel(
     private val stop: suspend () -> Unit,
     private val scope: CoroutineScope,
     private val pollMs: Long = CLAUDE_POLL_MS,
+    private val now: () -> Long = System::currentTimeMillis,
 ) {
+    private var pendingAt = 0L // when the person sent what waits for Claude's answer (pendingAfter)
     private val current = MutableStateFlow(ClaudeState())
     val state: StateFlow<ClaudeState> = current.asStateFlow()
 
@@ -129,7 +144,7 @@ class ClaudeModel(
     private fun list(note: String?) {
         leaveSession()
         listing?.cancel()
-        update { copy(session = null, items = null, problem = null, looking = true, listError = note) }
+        update { copy(session = null, items = null, problem = null, looking = true, listError = note, pendingAfter = null) }
         val mine = generation
         listing = scope.launch {
             val job = coroutineContext[Job]
@@ -215,7 +230,7 @@ class ClaudeModel(
                 }
                 val feed = r.feed?.takeIf { it.session.id == id }
                 update {
-                    if (feed == null) copy(problem = null) else copy(session = feed.session, items = feed.items, problem = null)
+                    if (feed == null) copy(problem = null) else copy(session = feed.session, items = feed.items, problem = null, pendingAfter = stillPending(this, feed))
                 }
                 delay(pollMs)
             }
@@ -258,10 +273,31 @@ class ClaudeModel(
                 failed = messageOf(e)
             } finally {
                 if (mine == generation) {
-                    update { copy(sending = false, draft = if (failed != null && draft.isEmpty()) text else draft, boxError = failed) }
+                    // Sent, to the session still shown: Claude is at work from now, as far as the person can tell, until
+                    // its answer comes (stillPending).
+                    val waits = failed == null && current.value.session?.id == session.id
+                    if (waits) pendingAt = now()
+                    update {
+                        copy(
+                            sending = false, draft = if (failed != null && draft.isEmpty()) text else draft, boxError = failed,
+                            pendingAfter = if (waits) items?.lastOrNull()?.id ?: 0 else pendingAfter,
+                        )
+                    }
                 }
             }
         }
+    }
+
+    /**
+     * Whether what the person sent still waits for Claude's answer, with the session's newest look: not once something
+     * of Claude's newer than it has come (a reply, a tool), Claude stopped to ask (waiting) or failed, or it has been
+     * waiting CLAUDE_PENDING_MS.
+     */
+    private fun stillPending(s: ClaudeState, feed: RemoteFeed): Int? {
+        val after = s.pendingAfter ?: return null
+        val answered = feed.items.any { it.id > after && it.kind != "you" }
+        val stopped = feed.session.status == "waiting" || feed.session.status == "failed"
+        return if (answered || stopped || now() - pendingAt > CLAUDE_PENDING_MS) null else after
     }
 
     private fun messageOf(e: Exception): String = (e as? BuddyError)?.message?.ifEmpty { null } ?: FAILED

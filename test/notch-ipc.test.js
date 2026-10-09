@@ -18,6 +18,7 @@ function setup({ hasWindow = true } = {}) {
     ipcMain: { on: (channel, fn) => { handlers[channel] = fn; }, handle: (channel, fn) => { invokes[channel] = fn; } },
     notch,
     onClick: () => calls.push(['click']),
+    onClaude: () => calls.push(['claude']),
     sleep: { hold: (reason, on) => calls.push(['hold', reason, on]) },
     characters: { modelBytes: (id) => `bytes of ${id}`, get: (id) => ({ accent: `${id} glow` }) },
     store: { get: (key) => (key === 'buddyId' ? 'boy-1' : undefined) },
@@ -25,9 +26,12 @@ function setup({ hasWindow = true } = {}) {
   return { handlers, invokes, calls, notch, fromPage: { sender: page }, fromElsewhere: { sender: {} } };
 }
 
-test('the notch page tells main two things: whether the pointer is over the shape, and a click', () => {
-  const { handlers } = setup();
-  assert.deepStrictEqual(Object.keys(handlers).sort(), ['notch:click', 'notch:hover']);
+test('the notch page tells main three things: whether the pointer is over the shape, a click, and a click on Clawd', () => {
+  const { handlers, calls, fromPage, fromElsewhere } = setup();
+  assert.deepStrictEqual(Object.keys(handlers).sort(), ['notch:claude', 'notch:click', 'notch:hover']);
+  handlers['notch:claude'](fromPage);
+  handlers['notch:claude'](fromElsewhere);
+  assert.deepStrictEqual(calls, [['claude']], 'Claude mode, for the notch page only');
 });
 
 test('hover goes to the notch window as true or false, and holds the sleep countdown while it lasts', () => {

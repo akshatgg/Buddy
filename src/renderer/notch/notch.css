@@ -95,7 +95,7 @@ body.z #zz { display: block; }
    turns) and bobs; needing the person it waves, with a "!"; done, it jumps with happy > < eyes and a green ✓; failed,
    it droops with sad eyes and a red ×. Its eyes and the badge are drawn in the notch's black. */
 #icon {
-  position: absolute; top: 50%; width: 18px; height: 15px; margin: -8.5px 0 0 -9px;
+  position: absolute; top: 50%; width: 18px; height: 15px; margin: -8.5px 0 0 -9px; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
 #icon .clawd { width: 18px; height: 15px; overflow: visible; }

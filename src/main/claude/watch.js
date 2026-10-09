@@ -108,15 +108,18 @@ function overallOf(sessions, previous, name) {
 /**
  * The status the notch shows beside Buddy (notch-window.js status), or null: what the one working session is doing,
  * how many work, that one needs the person, or that the work is done or failed. Done and failed have no words: the
- * bubble says those, and the notch shows them for a moment only.
+ * bubble says those, and the notch shows them for a moment only. `session` is the session a click on it opens in
+ * Claude mode (the one that needs the person, or the only one working), or null for the list.
  */
 function statusOf(sessions, overall) {
-  if (overall === 'needsYou') return { kind: 'needsYou', text: 'Claude needs you' };
+  const ids = (test) => Object.keys(sessions).filter((id) => test(sessions[id]));
+  if (overall === 'needsYou') return { kind: 'needsYou', text: 'Claude needs you', session: ids((s) => s.needsYou)[0] };
   if (overall === 'working') {
-    const busy = Object.values(sessions).filter((s) => s.working);
-    return { kind: 'working', text: busy.length > 1 ? `${busy.length} Claudes working` : `Claude · ${busy[0].doing ?? THINKING}` };
+    const busy = ids((s) => s.working);
+    const text = busy.length > 1 ? `${busy.length} Claudes working` : `Claude · ${sessions[busy[0]].doing ?? THINKING}`;
+    return { kind: 'working', text, session: busy.length === 1 ? busy[0] : null };
   }
-  if (overall === 'done' || overall === 'failed') return { kind: overall, text: '' };
+  if (overall === 'done' || overall === 'failed') return { kind: overall, text: '', session: null };
   return null;
 }
 

@@ -360,19 +360,85 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
 }
 .claude-items > li { flex: none; min-width: 0; } /* each line keeps its whole height: the list scrolls instead */
 .claude-items p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.claude-items .cl-you { align-self: flex-end; max-width: 86%; padding: 7px 11px; border-radius: 14px; border-bottom-right-radius: 5px; background: var(--accent-soft); }
-.claude-items .cl-claude { align-self: flex-start; max-width: 96%; padding: 7px 11px; border-radius: 14px; border-bottom-left-radius: 5px; background: var(--track); }
-.claude-items .cl-tool, .claude-items .cl-result {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.4;
+
+/* ---- Claude mode as Claude Code's terminal draws it: black, white, monospace (claude-cli.js says what each row is) ---- */
+
+.panel.cli {
+  --cli-bg: #000;
+  --cli-fg: #f2f2f2;
+  --cli-dim: #8c8c8c;
+  --cli-bar: #2c2c2c;
+  --cli-line: #3a3a3a;
+  --cli-green: #4eba65;
+  --cli-red: #ff6b80;
+  --cli-orange: #d77757;
+  --cli-blue: #b1b9f9;
+  border-color: #222;
+  background: var(--cli-bg);
+  color: var(--cli-fg);
+  font: 12px/1.5 ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 }
-.claude-items .cl-tool { color: var(--fg); }
-.claude-items .cl-tool::before { content: "⏺ "; color: var(--accent); }
-.claude-items .cl-result { margin-top: -3px; padding: 4px 8px; border-left: 2px solid var(--line); color: var(--muted); }
-.claude-items .cl-result.error { border-left-color: var(--error); color: var(--error); }
-.claude-items .cl-event { align-self: center; color: var(--muted); font-size: 12px; }
-.claude-items .cl-note { align-self: center; color: var(--muted); font-size: 11px; }
+.panel.cli header, .panel.cli .claude-bar { color: var(--cli-fg); }
+.panel.cli header .muted, .panel.cli .muted { color: var(--cli-dim); }
+.panel.cli .claude-bar { border-bottom-color: var(--cli-line); }
+.panel.cli .btn, .panel.cli .icon { color: var(--cli-fg); }
+.panel.cli .sessions button { border-color: var(--cli-line); background: #0d0d0d; color: var(--cli-fg); font: inherit; }
+.panel.cli .sessions button:hover { background: #1a1a1a; }
+.panel.cli .status-chip { background: #1f1f1f; color: var(--cli-dim); }
+.panel.cli .status-chip.working { background: rgba(215, 119, 87, 0.2); color: var(--cli-orange); }
+.panel.cli .status-chip.waiting { background: rgba(255, 107, 128, 0.18); color: var(--cli-red); }
+
+.panel.cli .claude-items { gap: 12px; padding: 10px 12px 12px; }
+.claude-items .cl-text p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.claude-items .cl-text p.blank { height: 0.75em; }
+.claude-items .cl-text code { color: var(--cli-blue); font: inherit; }
+.claude-items .cl-text strong { font-weight: 700; }
+
+/* ❯ what the person typed, on a grey bar across the whole width. */
+.claude-items .cl-you { display: flex; gap: 8px; margin: 0 -12px; padding: 2px 12px; background: var(--cli-bar); }
+.cl-prompt { flex: none; color: var(--cli-dim); }
+/* ● Claude's reply: a white dot, then the words hanging beside it. */
+.claude-items .cl-claude { display: flex; gap: 8px; }
+.cl-dot { flex: none; width: 1ch; }
+.claude-items .cl-claude > .cl-dot { color: var(--cli-fg); }
+/* ● Tool(what it was given), the dot green (red when it failed), and ⎿ what it gave back under it. */
+.claude-items .cl-tool .cl-call { margin: 0; overflow-wrap: anywhere; }
+.claude-items .cl-tool .cl-dot { display: inline-block; margin-right: 8px; color: var(--cli-green); }
+.claude-items .cl-tool.error .cl-dot { color: var(--cli-red); }
+.cl-out, .claude-items .cl-event { display: flex; gap: 8px; padding-left: 2ch; color: var(--cli-dim); }
+.cl-out.error, .claude-items .cl-event.error { color: var(--cli-red); }
+.cl-elbow { flex: none; }
+.claude-items .cl-event p { margin: 0; }
+/* Ran 3 shell commands: folded, grey; a click unfolds the tools. ∴ Thinking: the same, its words grey and slanted. */
+.cl-fold { display: flex; gap: 8px; width: 100%; margin: 0; padding: 0 0 0 calc(1ch + 8px); border: 0; background: none; color: var(--cli-dim); font: inherit; text-align: left; cursor: pointer; }
+.cl-fold:hover { color: var(--cli-fg); }
+.cl-summary.error .cl-fold { color: var(--cli-red); }
+.claude-items .cl-thinking .cl-fold { padding-left: 0; }
+.cl-mark { flex: none; width: 1ch; }
+.cl-thought { margin: 4px 0 0 calc(1ch + 8px); color: var(--cli-dim); font-style: italic; }
+.cl-inner { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 0; padding: 0; list-style: none; }
+/* ✻ Pondering…: Claude at work, its star turning as the terminal's does. ⏵ Waiting for you. */
+.claude-items .cl-working { display: flex; gap: 8px; color: var(--cli-orange); }
+.cl-spin { flex: none; width: 1ch; }
+.cl-spin::before { content: "✻"; animation: cli-spin 1.2s steps(1, end) infinite; }
+@keyframes cli-spin {
+  0% { content: "·"; } 16% { content: "✢"; } 33% { content: "✳"; } 50% { content: "✶"; } 66% { content: "✻"; } 83% { content: "✽"; }
+}
+.claude-items .cl-waiting { color: var(--cli-orange); }
+.panel.cli .claude-items .cl-note { align-self: flex-start; color: var(--cli-dim); }
+
+/* The box: ❯ between two lines, as the terminal's prompt. */
+.panel.cli .compose { border-top: 0; }
+.panel.cli .box {
+  border: 0; border-top: 1px solid var(--cli-line); border-bottom: 1px solid var(--cli-line); border-radius: 0;
+  background: transparent; box-shadow: none;
+}
+.panel.cli .box { padding-left: 4px; }
+.panel.cli .box::before { content: "❯"; align-self: center; padding-left: 4px; color: var(--cli-fg); }
+.panel.cli .box:has(textarea:focus-visible) { outline: none; border-color: #5a5a5a; }
+.panel.cli .box textarea { color: var(--cli-fg); font: inherit; }
+.panel.cli .box textarea::placeholder { color: #5c5c5c; }
+.panel.cli .compose .note { font-family: inherit; }
 
 /* ---- The panel's size: the grip in its outer bottom corner (away from the buddy), dragged to resize ---- */
 

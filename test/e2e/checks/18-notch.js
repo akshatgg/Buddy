@@ -106,6 +106,19 @@ module.exports = async function notchCheck(ctx, { assert, waitFor }) {
     ctx.panel.hide();
     await settled();
 
+    // A click on Clawd (Claude Code at work) opens the panel in Claude mode, drawn as the terminal; the session list
+    // here, as this status names no session the panel knows.
+    ctx.home.status({ kind: 'working', text: 'Claude · editing code', session: null });
+    await waitFor(async () => !(await page("document.getElementById('icon').hidden")), 'Clawd beside Buddy');
+    await page("document.getElementById('icon').click()");
+    await waitFor(() => ctx.panel.isVisible(), 'the panel to open after a click on Clawd');
+    const panelPage = (script) => ctx.panel.window().webContents.executeJavaScript(script);
+    await waitFor(() => panelPage("!document.getElementById('claude-view').hidden && document.querySelector('.panel').classList.contains('cli')"), 'Claude mode');
+    await panelPage("document.getElementById('claude-mode').click()"); // back to the chat, for the checks after
+    ctx.home.status(null);
+    ctx.panel.hide();
+    await settled();
+
     // Settings → Floating: the floating buddy comes back and the notch window goes; In the notch: the other way.
     ctx.store.set({ home: 'floating' });
     await ctx.home.refresh();

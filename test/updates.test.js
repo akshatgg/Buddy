@@ -646,3 +646,10 @@ test('the Mac swap script is not stopped by the signals a shutdown or log out se
   assert.match(MAC_SWAP_SCRIPT.split('\n')[0], /^trap '' TERM INT HUP$/);
 });
 
+
+test("resetMacPermissions clears Buddy's own permission entries, and no other app's", async () => {
+  const { resetMacPermissions } = require('../src/main/updates');
+  const calls = [];
+  await resetMacPermissions(async (file, args) => { calls.push([file, args]); });
+  assert.deepStrictEqual(calls, [['/usr/bin/tccutil', ['reset', 'All', 'com.akshatgg.buddy']]]);
+});

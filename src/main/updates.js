@@ -376,8 +376,10 @@ async function stageMacApp({ dmg, dir, version, run }) {
 // An ad-hoc signed app is a different app to macOS after every update, so
 // its privacy switches (Accessibility, Screen Recording) would still show on
 // in System Settings while no longer applying to it. Those stale entries are
-// cleared, so the new copy asks again instead of failing silently. A
-// Developer ID signed app keeps its permissions and is left alone.
+// cleared, so the new copy asks again instead of failing silently. An app
+// signed with a certificate (Buddy's own, build/afterPack.js, or a Developer
+// ID) is the same app to macOS after an update: it keeps its permissions and
+// is left alone.
 // It ignores the signals a shutdown or log out sends (Buddy is mostly quit
 // that way), so the swap is not cut off between its two moves.
 const MAC_SWAP_SCRIPT = [
@@ -412,6 +414,16 @@ function shouldAutoCheck(settings) {
 // that is, right after an update. Records this version either way. A fresh
 // install (nothing ran before) is not an update: onboarding asks for the
 // permissions then. `store` is { get(key), set(patch) } (src/main/store.js).
+/**
+ * Clear Buddy's permission entries on the Mac (`tccutil reset All`), so that macOS asks afresh and its switches work.
+ * After an update from a build signed otherwise (an ad-hoc one, before Buddy had its own certificate), the old entries
+ * still show as on but no longer apply to the new app: Buddy calls this when it finds its permissions gone right after
+ * an update. `run(file, args)` runs a program (execFile, promised); a failure is the caller's to log.
+ */
+function resetMacPermissions(run) {
+  return run('/usr/bin/tccutil', ['reset', 'All', BUNDLE_ID]);
+}
+
 function firstLaunchOfNewVersion(store, currentVersion) {
   const last = store.get('lastRunVersion');
   if (last === currentVersion) return false;
@@ -583,6 +595,6 @@ module.exports = {
   RELEASES_API, RELEASES_PAGE, WINDOWS_INSTALLER, MAC_DMGS, BUNDLE_ID, CHECK_INTERVAL_MS,
   MAC_SWAP_SCRIPT, parseVersion, compareVersions, fetchLatestRelease, parseLatestYml, formatLatestYml,
   sha512OfFile, updateAsset, downloadVerified, downloadVerifiedInstaller, stageMacApp, replaceableBundle,
-  installKind, installTarget, installerArgs, shouldAutoCheck, firstLaunchOfNewVersion, createUpdater, fetchWithTimeout,
+  installKind, installTarget, installerArgs, shouldAutoCheck, firstLaunchOfNewVersion, resetMacPermissions, createUpdater, fetchWithTimeout,
   friendlyError, REQUEST_TIMEOUT_MS
 };

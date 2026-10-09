@@ -52,6 +52,15 @@ name: Release
 #                        access to akshatgg/homebrew-tap. Without it the
 #                        release still goes out; the job warns and attaches
 #                        buddy.rb to the run, to copy to the tap by hand.
+#   MAC_SIGN_P12, MAC_SIGN_P12_PASSWORD
+#                        Buddy's own (self-signed) code-signing certificate,
+#                        base64 of its .p12, and the .p12's password. Every
+#                        release is signed with the same one, so macOS sees an
+#                        update as the same app and keeps the permissions it
+#                        was given (Accessibility, Screen Recording, the
+#                        microphone). Without it the app is ad-hoc signed and
+#                        macOS asks for them again after every update (the job
+#                        warns). Gatekeeper still asks once (Open Anyway).
 #   CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD,
 #   APPLE_TEAM_ID        Developer ID signing + notarization (see
 #                        electron-builder.config.js). Without them the app is
@@ -229,6 +238,33 @@ jobs:
       - name: Build the Swift helper
         run: npm run build:native
 
+      # Buddy's own signing certificate (see MAC_SIGN_P12 above): build/afterPack.js signs with it.
+      - name: Use Buddy's signing certificate
+        env:
+          MAC_SIGN_P12: ${{ secrets.MAC_SIGN_P12 }}
+          MAC_SIGN_P12_PASSWORD: ${{ secrets.MAC_SIGN_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$MAC_SIGN_P12" ]; then
+            echo "::warning::No MAC_SIGN_P12 secret: Buddy is ad-hoc signed, so macOS will ask for its permissions again after this update."
+            exit 0
+          fi
+          kc="$RUNNER_TEMP/buddy-signing.keychain-db"
+          kpw="$(openssl rand -hex 16)"
+          p12="$RUNNER_TEMP/buddy-signing.p12"
+          printf '%s' "$MAC_SIGN_P12" | base64 --decode > "$p12"
+          security create-keychain -p "$kpw" "$kc"
+          security set-keychain-settings "$kc"   # no auto-lock in the middle of the build
+          security unlock-keychain -p "$kpw" "$kc"
+          security import "$p12" -k "$kc" -P "$MAC_SIGN_P12_PASSWORD" -T /usr/bin/codesign >/dev/null
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kpw" "$kc" >/dev/null
+          rm -f "$p12"
+          # It is self-signed, so not "trusted": find-identity lists it with CSSMERR_TP_NOT_TRUSTED, and codesign signs with it all the same.
+          id="$(security find-identity -p codesigning "$kc" | awk '/[0-9A-F]{40}/ { print $2; exit }')"
+          [ -n "$id" ] || { echo "::error::MAC_SIGN_P12 holds no code-signing identity"; exit 1; }
+          echo "MAC_SIGN_IDENTITY=$id" >> "$GITHUB_ENV"
+          echo "MAC_SIGN_KEYCHAIN=$kc" >> "$GITHUB_ENV"
+
       - name: Build the DMG
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -250,6 +286,11 @@ jobs:
           mnt="$(mktemp -d)"
           hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg" >/dev/null
           codesign --verify --strict --deep "$mnt/Buddy.app"
+          # Signed with Buddy's own certificate, when the release has it: else macOS forgets the permissions on update.
+          if [ -n "${MAC_SIGN_IDENTITY:-}" ]; then
+            codesign -d -r- "$mnt/Buddy.app" 2>&1 | grep -qi "certificate root = H\"$MAC_SIGN_IDENTITY\"" \
+              || { echo "::error::Buddy.app is not signed with Buddy's own certificate"; hdiutil detach "$mnt" >/dev/null; exit 1; }
+          fi
           v="$(plutil -extract CFBundleShortVersionString raw -o - "$mnt/Buddy.app/Contents/Info.plist")"
           [ "$v" = "$VERSION" ] || { echo "::error::Buddy.app says $v, not $VERSION"; exit 1; }
           lipo -archs "$mnt/Buddy.app/Contents/Resources/bin/buddy-helper"

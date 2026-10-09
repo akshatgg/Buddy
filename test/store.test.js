@@ -68,14 +68,14 @@ test('Buddy lives in the notch unless the person chose Floating (Settings → Bu
   assert.strictEqual(createStore({ file }).get('home'), 'notch');
 });
 
-test('the panel listens as it opens unless that is turned off (Settings → General)', (t) => {
+test('the panel listens only after 🎤 unless listening as it opens is turned on (Settings → General)', (t) => {
   const store = createStore({ file: tmpFile(t) });
-  assert.strictEqual(store.get('listenOnOpen'), true);
-  // A settings file from before voice has no such setting: it is on for that person too.
+  assert.strictEqual(store.get('listenOnOpen'), false);
+  // A settings file from before voice has no such setting: it is off for that person too.
   const file = tmpFile(t);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ onboarded: true, buddyOn: true }));
-  assert.strictEqual(createStore({ file }).get('listenOnOpen'), true);
+  assert.strictEqual(createStore({ file }).get('listenOnOpen'), false);
 });
 
 test('no projects for Claude Code yet, and no last pick', (t) => {

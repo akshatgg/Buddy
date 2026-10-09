@@ -677,9 +677,10 @@ test('set: only the settings a page may change are taken from a patch, and __pro
   assert.strictEqual(({}).size, undefined, 'Object.prototype was not touched');
 });
 
-test('set: "Listen when the panel opens" is on unless turned off, and takes nothing but true or false', async () => {
+test('set: "Listen when the panel opens" is off unless turned on, and takes nothing but true or false', async () => {
   const s = setup();
-  assert.strictEqual((await s.call('settings:get')).settings.listenOnOpen, true);
+  assert.strictEqual((await s.call('settings:get')).settings.listenOnOpen, false);
+  assert.strictEqual((await s.call('settings:set', { listenOnOpen: true })).settings.listenOnOpen, true);
   assert.strictEqual((await s.call('settings:set', { listenOnOpen: false })).settings.listenOnOpen, false);
   assert.strictEqual(s.store.get('listenOnOpen'), false);
   for (const listenOnOpen of ['true', 1, 0, null, undefined, {}, ['on']]) {

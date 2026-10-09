@@ -37,3 +37,36 @@ self.addEventListener('fetch', (event) => {
     }
   })());
 });
+
+// ---- notifications ----
+// Buddy's server sends { title, body, session, tag } (web/lib/push.js message). Each one is shown; tapping it opens the
+// app on that session (/app#claude/<session>), in the app's window if it is open.
+
+self.addEventListener('push', (event) => {
+  let data;
+  try {
+    data = (event.data ? event.data.json() : null) ?? {};
+  } catch {
+    data = {}; // not JSON: a notification with Buddy's name only
+  }
+  const title = typeof data.title === 'string' && data.title ? data.title : 'Buddy';
+  const session = typeof data.session === 'string' && /^[\w-]{1,100}$/.test(data.session) ? data.session : '';
+  event.waitUntil(self.registration.showNotification(title, {
+    body: typeof data.body === 'string' ? data.body : '',
+    tag: typeof data.tag === 'string' ? data.tag : 'buddy',
+    icon: '/icon-192.png',
+    data: { url: session ? `/app#claude/${session}` : '/app' },
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || '/app';
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const open = windows.find((client) => new URL(client.url).pathname.startsWith('/app'));
+    if (!open) return self.clients.openWindow(url);
+    open.postMessage({ type: 'open', url });
+    return open.focus();
+  })());
+});

@@ -6,11 +6,12 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.view.View
+import androidx.core.graphics.withSave
 import kotlin.math.max
 import kotlin.math.min
 
 private const val ORANGE = 0xFFEF8A62.toInt() // Claude Code's orange, a little brighter: it glows as the eyes do
-private const val SCREEN = 0xFF130E0C.toInt() // the face screen's dark, over the eye Clawd takes the place of
+private const val SCREEN = 0xFF21170F.toInt() // the face screen's dark, over the eye Clawd takes the place of
 
 /**
  * Clawd drawn over the head's right eye (Clawd.kt), on top of the head's TextureView: a patch of the face screen's
@@ -51,11 +52,15 @@ class ClawdEyeView(context: Context) : View(context) {
         val rows = Clawd.FRAMES[p.frame] ?: return
         val sx = place[2]
         val sy = place[3]
+        canvas.withSave { drawClawd(p, rows, sx, sy) }
+    }
+
+    private fun Canvas.drawClawd(p: ClawdPose, rows: List<String>, sx: Float, sy: Float) {
+        val canvas = this
         val w = Clawd.WIDTH * sx
         val h = Clawd.HEIGHT * sy
         val cw = w / Clawd.COLUMNS
         val ch = h / Clawd.ROWS
-        canvas.save()
         canvas.translate(place[0], place[1])
         canvas.rotate(place[4])
         // The patch: over the whole eye and the whole critter, with room for its hop.
@@ -86,6 +91,5 @@ class ClawdEyeView(context: Context) : View(context) {
                 canvas.drawRect(7.8f * cw, 1.4f * ch, 9.2f * cw, 1.9f * ch, dark)
             }
         }
-        canvas.restore()
     }
 }

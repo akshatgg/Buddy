@@ -65,8 +65,11 @@ function createHome({ floating, notch, bubble, store, helper, screen, platform =
       if (where === 'notch') notch.voiceLevel(level);
       else floating.voiceLevel(level);
     },
-    /** Claude Code's status (claude/watch.js): shown beside Buddy in the notch; the floating buddy has its bubble. */
-    status: (value) => notch.status(value),
+    /** Claude Code's status (claude/watch.js): beside Buddy in the notch, and as Clawd in one of the floating buddy's eyes. */
+    status(value) {
+      notch.status(value);
+      floating.claude(value);
+    },
     /** Settings → Buddy → "In the notch" changed: the notch draws the face or the eyes. */
     restyle: () => notch.relayout(),
     say(text) {

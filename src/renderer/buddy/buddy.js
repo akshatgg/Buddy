@@ -14,6 +14,7 @@ import { BLEND, blendPose, smoothLevel } from './blend.js';
 import { fitCamera, fromWindow, headMark } from './layout.js';
 import { createPetDetector, createShakeDetector } from './gestures.js';
 import { createSymbols } from './symbols.js';
+import { FRAMES, COLUMNS, ROWS, EYES, clawdPose } from './clawd.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
@@ -24,6 +25,7 @@ renderer.setClearColor(0x000000, 0);
 // previews with the same curve.
 renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 1;
+renderer.localClippingEnabled = true; // Clawd's eye: the buddy's own right eye is cut away while Clawd is there
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100);
@@ -58,6 +60,7 @@ const symbolsRoot = document.getElementById('symbols');
 const symbols = createSymbols(symbolsRoot);
 const now = () => performance.now() / 1000;
 
+const IDLE_CLAWD_FPS = 12; // at least this while Clawd shows: its steps are a quarter of a second
 const LOOK_EPSILON = 0.01; // radians (a few pixels of pointer): a smaller turn of the head is not worth waking for
 // What the app shows until it ends it: the buddy at work, or listening. Petting does not cut these short.
 const LASTING = new Set(['thinking', 'listening']);
@@ -79,6 +82,7 @@ const voice = { reading: 0, level: 0, at: now() }; // the voice level last read,
 let timer = null; // the one pending frame; null while the loop is paused
 let lastTick = -Infinity; // when the last frame was drawn, in now() seconds
 let paused = false; // main paused the page (buddy:pause: the buddy is hidden, or the screen is locked)
+let clawd = { kind: null, since: 0 }; // Claude Code's status (buddy:claude): Clawd in the right eye while it lasts
 
 window.__buddyMood = mood.name; // for the end-to-end test, with __buddyPose and __buddyFrames
 window.__buddyFrames = 0;
@@ -130,6 +134,102 @@ function glowing(object) {
   return parts;
 }
 
+/* ---- Clawd in the right eye (clawd.js): a small glowing plane on the face screen, and the eye under it cut away ---- */
+
+const CLAWD_COLOR = '#ef8a62'; // Claude Code's orange, a little brighter: it glows on the dark screen as the eyes do
+const CLAWD_CELL = 16; // texture pixels a grid cell
+const EYE_SPLIT = 0.06; // the right eye is the glow right of this (in the face's own space); the mouth is left alone
+const clawdTextures = new Map(); // `${frame}:${eyes}` → texture, drawn once and kept for every character
+
+/** The texture of one of Clawd's frames with its eyes: orange cells, the eyes cut out so the dark screen shows. */
+function clawdTexture(frame, eyes) {
+  const key = `${frame}:${eyes}`;
+  if (clawdTextures.has(key)) return clawdTextures.get(key);
+  const c = document.createElement('canvas');
+  c.width = COLUMNS * CLAWD_CELL;
+  c.height = ROWS * CLAWD_CELL;
+  const g = c.getContext('2d');
+  g.fillStyle = CLAWD_COLOR;
+  FRAMES[frame].forEach((row, y) => [...row].forEach((cell, x) => {
+    if (cell === 'X') g.fillRect(x * CLAWD_CELL, y * CLAWD_CELL, CLAWD_CELL, CLAWD_CELL);
+  }));
+  g.globalCompositeOperation = 'destination-out';
+  const u = CLAWD_CELL;
+  if (eyes === EYES.open) {
+    g.fillRect(3 * u, u, u, u);
+    g.fillRect(8 * u, u, u, u);
+  } else if (eyes === EYES.happy) { // > <
+    g.lineWidth = u * 0.45;
+    g.lineCap = 'square';
+    g.beginPath();
+    g.moveTo(2.6 * u, 0.6 * u); g.lineTo(3.7 * u, 1.2 * u); g.lineTo(2.6 * u, 1.8 * u);
+    g.moveTo(9.4 * u, 0.6 * u); g.lineTo(8.3 * u, 1.2 * u); g.lineTo(9.4 * u, 1.8 * u);
+    g.stroke();
+  } else { // sad: two low dashes
+    g.fillRect(2.8 * u, 1.4 * u, 1.4 * u, 0.5 * u);
+    g.fillRect(7.8 * u, 1.4 * u, 1.4 * u, 0.5 * u);
+  }
+  const texture = new THREE.CanvasTexture(c);
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.LinearFilter;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  clawdTextures.set(key, texture);
+  return texture;
+}
+
+/**
+ * Clawd's plane over the right eye, in the face's space, hidden until Claude Code runs; and the plane that cuts the
+ * right eye out of the glow while it shows. The eye's place comes from the glow's own shape at rest.
+ */
+function buildClawd(face, faces) {
+  const eye = new THREE.Box3();
+  const point = new THREE.Vector3();
+  for (const mesh of faces) {
+    mesh.updateMatrix();
+    const pos = mesh.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i += 1) {
+      point.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrix);
+      if (point.x > EYE_SPLIT) eye.expandByPoint(point);
+    }
+  }
+  const size = eye.getSize(new THREE.Vector3());
+  const centre = eye.getCenter(new THREE.Vector3());
+  const width = Math.max(size.x, size.y) * 1.9;
+  const height = (width * ROWS) / COLUMNS;
+  const material = new THREE.MeshBasicMaterial({ transparent: true, toneMapped: false, depthWrite: false });
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+  plane.position.set(centre.x, centre.y, eye.max.z + 0.01);
+  plane.visible = false;
+  plane.renderOrder = 1;
+  face.add(plane);
+  const cut = new THREE.Plane();
+  for (const mesh of faces) {
+    for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) m.clippingPlanes = [cut];
+  }
+  return { plane, cut, centre, cell: height / ROWS, local: new THREE.Plane(new THREE.Vector3(-1, 0, 0), EYE_SPLIT) };
+}
+
+/** Clawd as it is at `t`: its frame, eyes and hop; and the right eye cut away while it shows (else nothing is cut). */
+function drawClawd(t) {
+  const c = rig.clawd;
+  const pose = clawdPose(clawd.kind, t - clawd.since);
+  c.plane.visible = pose.visible;
+  window.__buddyClawd = pose.visible ? pose.frame : null; // for the end-to-end test
+  if (pose.visible) {
+    const map = clawdTexture(pose.frame, pose.eyes);
+    if (c.plane.material.map !== map) {
+      c.plane.material.map = map;
+      c.plane.material.needsUpdate = true;
+    }
+    c.plane.position.y = c.centre.y + pose.lift * c.cell;
+    rig.face.updateWorldMatrix(true, false);
+    c.cut.copy(c.local).applyMatrix4(rig.face.matrixWorld);
+  } else {
+    c.cut.set(new THREE.Vector3(-1, 0, 0), 1e6); // far away: nothing is cut
+  }
+  return pose.visible;
+}
+
 /** Pick out what the character contract promises. Returns null, after logging, if a node is missing. */
 function buildRig(gltf) {
   const nodes = Object.fromEntries(CONTRACT_NODES.map((name) => [name, gltf.scene.getObjectByName(name)]));
@@ -144,7 +244,7 @@ function buildRig(gltf) {
     if (o.isMesh && o.morphTargetDictionary) faces.push(o);
   });
   return {
-    scene: gltf.scene, root, head, armL, armR, faces,
+    scene: gltf.scene, root, head, armL, armR, faces, face, clawd: buildClawd(face, faces),
     // The eyes' glow and the ear rims' (EarRims is optional: a model without it has no ear glow).
     glows: glowing(face), ears: glowing(gltf.scene.getObjectByName('EarRims')),
     height: 0, // set once the model is framed
@@ -296,6 +396,7 @@ function render(t) {
   for (const shape of EYE_SHAPES) setMorph(shape, pose[shape]); // the smile and the feelings' eyes (moods.js)
   setGlow(rig.glows, pose.glow);
   setGlow(rig.ears, pose.ears);
+  drawClawd(t);
   renderer.render(scene, camera);
   window.__buddyPose = pose;
   window.__buddyFrames += 1;
@@ -320,7 +421,9 @@ function tick() {
     blinkSoon: blinker.soon(t, BLINK_LOOKAHEAD),
     sinceActive: t - lastActive,
   });
-  timer = setTimeout(tick, 1000 / fps);
+  // Clawd walking or waving needs more frames than a buddy at rest gets.
+  const withClawd = clawdPose(clawd.kind, t - clawd.since).visible ? Math.max(fps, IDLE_CLAWD_FPS) : fps;
+  timer = setTimeout(tick, 1000 / withClawd);
   if (rig) render(t);
 }
 
@@ -468,6 +571,14 @@ window.buddy.onPause((value) => {
     // The mood showing now gets its symbols back, as old as it is: a sleep past 5 minutes has no more letters.
     startSymbols(mood.name, Math.max(0, now() - mood.since));
   }
+});
+// Claude Code's status: Clawd in the right eye while a session works or needs the person, a moment for done or failed.
+// The same lasting status again goes on as it was (main sends it again to a page that reloads, say).
+window.buddy.onClaude((status) => {
+  const kind = typeof status?.kind === 'string' ? status.kind : null;
+  if (kind === clawd.kind && (kind === 'working' || kind === 'needsYou')) return;
+  clawd = { kind, since: now() };
+  wake();
 });
 window.buddy.onReload(() => {
   load().catch((err) => console.error('[buddy] model failed to load', err));

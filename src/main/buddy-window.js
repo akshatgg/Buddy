@@ -19,6 +19,8 @@ const MAX_CRASHES = 3; // this many page crashes within CRASH_WINDOW_MS and we s
 const CRASH_WINDOW_MS = 60_000;
 
 // BrowserWindow can be passed in so tests can run without Electron; the real one is loaded only when none is.
+const CLAUDE_KINDS = ['working', 'needsYou', 'done', 'failed']; // Claude Code's statuses Clawd shows (claude())
+
 function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {}, BrowserWindow = require('electron').BrowserWindow }) {
   let win = null;
   let loaded = false; // the page has finished loading, so it can take messages
@@ -27,6 +29,7 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
   let paused = false; // what a freshly loaded page is told
   let panelOpen = false; // whether the panel is open, which a freshly loaded page is told too
   let micOn = false; // whether the microphone is on, which it is told too
+  let claude = null; // Claude Code at work or needing the person ({ kind }), which a freshly loaded page is told too
   let crashes = []; // when the page crashed, within the last CRASH_WINDOW_MS
   let drag = { dx: 0, dy: 0 };
   let cursorTimer = null;
@@ -95,6 +98,7 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
     send('buddy:pause', paused);
     if (panelOpen) send('buddy:panel-open', true); // a new page starts with the panel closed
     if (micOn) send('buddy:mic-on', true); // and with the microphone off
+    if (claude) send('buddy:claude', claude); // and with no Clawd in its eye
     if (pendingMood !== null) {
       send('buddy:mood', pendingMood);
       pendingMood = null;
@@ -235,6 +239,16 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
     micOn(on) {
       micOn = Boolean(on);
       send('buddy:mic-on', micOn);
+    },
+    /**
+     * Claude Code's status (claude/watch.js): { kind: working | needsYou | done | failed }, or null. While a session
+     * runs, Clawd shows in one of the buddy's eyes. Working and needs-you last, so a page that loads meanwhile is told
+     * them; done and failed show for a moment only.
+     */
+    claude(value) {
+      const kind = value && typeof value === 'object' && CLAUDE_KINDS.includes(value.kind) ? value.kind : null;
+      claude = kind === 'working' || kind === 'needsYou' ? { kind } : null;
+      send('buddy:claude', kind ? { kind } : null);
     },
     pause(value) {
       paused = value;

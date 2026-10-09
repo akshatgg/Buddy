@@ -5,7 +5,7 @@
 // SDK keeps the person signed in and renews their ID token itself before it expires (it lasts an hour): token() answers
 // a fresh one, and token(true) a new one, for a token Buddy's server turned down (api.js).
 
-import { FIREBASE, FIREBASE_SDK } from './config.js';
+import { FIREBASE_SDK, firebaseFor } from './config.js';
 
 export const SIGN_IN_FAILED = "Sign-in didn't work. Try again.";
 export const SIGN_IN_OFFLINE = 'No internet. Connect, then sign in.';
@@ -33,11 +33,11 @@ export function personOf(user) {
 /**
  * Start Firebase Auth. onUser(person | null) is called once the SDK knows who is signed in, and at each sign-in and
  * sign-out; onError(message) when coming back from Google failed. `load` imports a module by its URL (a fake in the
- * tests). Answers { signIn, signOut, token }.
+ * tests); `host` is the page's, for the domain sign-in comes back to. Answers { signIn, signOut, token }.
  */
-export async function startAuth({ onUser, onError = () => {}, load = (url) => import(url) }) {
+export async function startAuth({ onUser, onError = () => {}, load = (url) => import(url), host = globalThis.location?.host }) {
   const [app, sdk] = await Promise.all([load(`${FIREBASE_SDK}/firebase-app.js`), load(`${FIREBASE_SDK}/firebase-auth.js`)]);
-  const auth = sdk.initializeAuth(app.initializeApp(FIREBASE), {
+  const auth = sdk.initializeAuth(app.initializeApp(firebaseFor(host)), {
     persistence: [sdk.indexedDBLocalPersistence, sdk.browserLocalPersistence],
     popupRedirectResolver: sdk.browserPopupRedirectResolver,
   });

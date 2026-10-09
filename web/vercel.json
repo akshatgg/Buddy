@@ -4,6 +4,10 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "regions": ["bom1"],
+  "rewrites": [
+    { "source": "/__/auth/:path*", "destination": "https://buddy-7f8c2.firebaseapp.com/__/auth/:path*" },
+    { "source": "/__/firebase/:path*", "destination": "https://buddy-7f8c2.firebaseapp.com/__/firebase/:path*" }
+  ],
   "functions": {
     "api/ask.js": { "maxDuration": 60 },
     "api/transcribe.js": { "maxDuration": 60 }

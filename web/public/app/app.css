@@ -85,6 +85,7 @@ button { cursor: pointer; }
 .sessions { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .sessions button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 12px 14px; border: 0; border-radius: 16px; background: var(--paper); box-shadow: 0 0 0 1px var(--line); text-align: left; }
 .sessions .name { min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.sessions .name .under { display: block; font-size: 12px; font-weight: 400; opacity: 0.6; }
 .status-chip { flex: none; padding: 1px 10px; border-radius: 999px; background: var(--line); color: var(--ink-2); font-size: 13px; }
 .status-chip.working { background: var(--orange-tint); color: var(--ink); }
 .status-chip.waiting { background: var(--bad-bg); color: var(--bad-ink); }

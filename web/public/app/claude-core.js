@@ -20,7 +20,7 @@ const text = (value) => (typeof value === 'string' ? value.trim() : '');
 
 function readSession(j) {
   if (!j || typeof j.id !== 'string' || !SESSION_ID.test(j.id)) return null;
-  return { id: j.id, name: text(j.name) || 'Claude Code', status: text(j.status) || 'idle', canTalk: j.canTalk === true, device: text(j.device) || null };
+  return { id: j.id, name: text(j.name) || 'Claude Code', title: text(j.title) || null, status: text(j.status) || 'idle', canTalk: j.canTalk === true, device: text(j.device) || null };
 }
 
 // A kind the phone does not know shows as a note, as on the Mac.

@@ -5,8 +5,8 @@ import assert from 'node:assert';
 import { createClaude, readLook, byDevice, POLL_MS, GONE } from '../web/public/app/claude-core.js';
 import { ApiError } from '../web/public/app/api.js';
 
-const S1 = { id: 'aaaa-1111', name: 'shop', status: 'working', canTalk: true, device: 'MacBook Air' };
-const S2 = { id: 'bbbb-2222', name: 'blog', status: 'done', canTalk: false, device: 'Office PC' };
+const S1 = { id: 'aaaa-1111', name: 'shop', title: null, status: 'working', canTalk: true, device: 'MacBook Air' };
+const S2 = { id: 'bbbb-2222', name: 'blog', title: null, status: 'done', canTalk: false, device: 'Office PC' };
 const ITEMS = [{ id: 1, kind: 'you', text: 'fix it', error: false }, { id: 2, kind: 'claude', text: 'Done.', error: false }];
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -176,10 +176,20 @@ test('a look is read the way the Android app reads it: odd parts left out, each 
     feed: { id: S1.id, name: 'shop', status: 'working', canTalk: true, device: 'MacBook Air', items: [...ITEMS, { id: 2, kind: 'claude', text: 'again' }, { id: 3, kind: 'html', text: 'x' }, { id: 'a', text: 'x' }] },
   }), {
     online: true,
-    sessions: [S1, { id: 'cccc', name: 'Claude Code', status: 'idle', canTalk: false, device: null }],
+    sessions: [S1, { id: 'cccc', name: 'Claude Code', title: null, status: 'idle', canTalk: false, device: null }],
     feed: { session: S1, items: [...ITEMS, { id: 3, kind: 'event', text: 'x', error: false }] },
   });
   assert.deepStrictEqual(readLook(null), { online: false, sessions: [], feed: null });
+});
+
+test('the title Claude Code gave a session is kept (trimmed), else null', () => {
+  const r = readLook({
+    online: true,
+    sessions: [{ ...S1, title: '  Fix the login bug ' }, { ...S2, title: '   ' }, { id: 'dddd', name: 'x', title: 5 }],
+    feed: { ...S1, title: 'Fix the login bug', items: [] },
+  });
+  assert.deepStrictEqual(r.sessions.map((s) => s.title), ['Fix the login bug', null, null]);
+  assert.strictEqual(r.feed.session.title, 'Fix the login bug');
 });
 
 test('sessions are grouped by computer, in the order the computers come', () => {

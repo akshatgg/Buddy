@@ -47,7 +47,10 @@ export function startClaudeView({ api, onMic, onFull }) {
       rows.append(...sessions.map((session) => {
         const li = make('li');
         const pick = button('', '', () => core.open(session.id));
-        pick.append(make('span', 'name', session.name), make('span', `status-chip ${session.status}`, STATUS[session.status] || session.status));
+        // The title Claude Code gave it ("Fix the login bug"), with the short name under it; else just the name.
+        const name = make('span', 'name', session.title || session.name);
+        if (session.title) name.append(make('span', 'under', session.name));
+        pick.append(name, make('span', `status-chip ${session.status}`, STATUS[session.status] || session.status));
         li.append(pick);
         return li;
       }));
@@ -63,7 +66,9 @@ export function startClaudeView({ api, onMic, onFull }) {
 
   function drawSession(s) {
     const { session } = s;
-    $('claude-name').textContent = session.device ? `${session.name} · on ${session.device}` : session.name;
+    const named = session.title || session.name;
+    $('claude-name').textContent = session.device ? `${named} · on ${session.device}` : named;
+    $('claude-name').title = session.title ? `${session.title} (${session.name})` : session.name;
     $('claude-status').className = `status-chip ${session.status}`;
     $('claude-status').textContent = STATUS[session.status] || session.status;
     const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
@@ -83,7 +88,7 @@ export function startClaudeView({ api, onMic, onFull }) {
     newest = last;
     setLine('claude-problem', s.problem);
     setLine('claude-error', s.boxError || voiceError);
-    if (voice === 'idle') input.placeholder = `Message Claude in ${session.name}…`;
+    if (voice === 'idle') input.placeholder = `Message Claude in ${session.title || session.name}…`;
   }
 
   function updateSend() {
@@ -170,7 +175,7 @@ export function startClaudeView({ api, onMic, onFull }) {
       voice = state;
       $('claude-mic').setAttribute('aria-pressed', String(state === 'listening'));
       $('claude-mic').disabled = state === 'writing';
-      input.placeholder = PLACEHOLDERS[state] || (core.state.session ? `Message Claude in ${core.state.session.name}…` : '');
+      input.placeholder = PLACEHOLDERS[state] || (core.state.session ? `Message Claude in ${core.state.session.title || core.state.session.name}…` : '');
     },
     addWords(text) {
       const typed = input.value.trimEnd();

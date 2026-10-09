@@ -172,7 +172,7 @@ function phoneStop(doc) {
 
 /**
  * The sessions of a computer's report that just stopped working: working in its last report, done or waiting in this
- * one. Each is { id, name, status }, for a notification on the person's phones (web/lib/push.js). The session a watcher
+ * one. Each is { id, name, title, status }, for a notification on the person's phones (web/lib/push.js). The session a watcher
  * is looking at right now (within NOTIFY_WATCH_MS) is left out: the person sees it already. A computer's first report,
  * one turning sharing off, or one back after it was offline (its last report older than ONLINE_MS: that news is old)
  * has none.
@@ -185,7 +185,7 @@ function justFinished(doc, body, now) {
   const wasWorking = (id) => before.sessions.some((s) => s.id === id && s.status === 'working');
   return cleanSessions(body.sessions)
     .filter((s) => (s.status === 'done' || s.status === 'waiting') && s.id !== watched && wasWorking(s.id))
-    .map(({ id, name, status }) => ({ id, name, status }));
+    .map(({ id, name, title, status }) => ({ id, name, title, status }));
 }
 
 /** A device id from a request (the watcher's own computer, to leave out), or null for none. */

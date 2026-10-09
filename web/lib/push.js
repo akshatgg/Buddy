@@ -68,9 +68,9 @@ function removeEndpoints(doc, endpoints) {
   return { next: left.length ? { subs: left } : null, result: { on: false } };
 }
 
-/** The notification for a session that stopped working (remote.justFinished): its name, and what happened. */
+/** The notification for a session that stopped working (remote.justFinished): its title (else its name), and what happened. */
 function message(session) {
-  return { title: session.name, body: SAYS[session.status] || SAYS.done, session: session.id, tag: `claude-${session.id}` };
+  return { title: session.title || session.name, body: SAYS[session.status] || SAYS.done, session: session.id, tag: `claude-${session.id}` };
 }
 
 module.exports = { MAX_SUBS, ENDPOINT_MAX, checkSubscription, subsOf, addSub, removeEndpoints, message };

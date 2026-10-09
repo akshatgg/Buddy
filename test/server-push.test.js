@@ -57,8 +57,8 @@ test('a session that was working and now is done or waiting has just finished; a
   const doc = record([S1, S2, { ...S1, id: 'cccc-3333', status: 'idle' }]);
   const body = { device: MAC, sessions: [{ ...S1, status: 'done' }, { ...S2, status: 'waiting' }, { ...S1, id: 'cccc-3333', status: 'done' }] };
   assert.deepStrictEqual(remote.justFinished(doc, body, T), [
-    { id: S1.id, name: 'shop', status: 'done' },
-    { id: S2.id, name: 'blog', status: 'waiting' },
+    { id: S1.id, name: 'shop', title: null, status: 'done' },
+    { id: S2.id, name: 'blog', title: null, status: 'waiting' },
   ]);
   assert.deepStrictEqual(remote.justFinished(doc, { device: MAC, sessions: [S1, { ...S2, status: 'failed' }] }, T), [], 'still working, or failed');
   assert.deepStrictEqual(remote.justFinished(null, body, T), [], "a computer's first report");
@@ -132,6 +132,8 @@ test('a phone switching on is kept in place of the same one; at most 5, the newe
 test('what a notification says', () => {
   assert.deepStrictEqual(pushRules.message({ id: S1.id, name: 'shop', status: 'done' }),
     { title: 'shop', body: 'Claude Code finished', session: S1.id, tag: `claude-${S1.id}` });
+  assert.strictEqual(pushRules.message({ id: S1.id, name: 'shop', title: 'Fix the login bug', status: 'done' }).title, 'Fix the login bug', 'the title, when it has one');
+  assert.strictEqual(pushRules.message({ id: S1.id, name: 'shop', title: null, status: 'done' }).title, 'shop');
   assert.strictEqual(pushRules.message({ id: S1.id, name: 'shop', status: 'waiting' }).body, 'Claude Code needs you');
 });
 

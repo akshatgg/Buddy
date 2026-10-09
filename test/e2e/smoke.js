@@ -102,6 +102,17 @@ const helper = Object.assign(new EventEmitter(), {
 // The test must never read or overwrite the person's real clipboard, so the app gets this one. Like Electron's
 // (from Electron 44), readText and writeText answer promises.
 let clipboardText = '';
+// Claude mode's terminal (src/main/claude/terminal.js): what it was asked to type, and the error it throws when set.
+const claudeTerminal = {
+  typed: [],
+  fail: null,
+  async type(args) {
+    if (this.fail) throw this.fail;
+    this.typed.push(args);
+    return { app: 'iterm' };
+  },
+};
+
 const clipboard = {
   readText: async () => clipboardText,
   writeText: async (text) => {
@@ -317,7 +328,11 @@ async function waitFor(fn, what, ms = 8000) {
       loginItems: { get: () => false, set: (on) => loginCalls.push(on) },
       sleep: { later: (fn, ms) => setTimeout(fn, ms / sleepClock.speed) },
       claudeSettingsFile: path.join(userData, 'claude-home', 'settings.json'), // Claude Code's hooks go here, never into ~/.claude
+      // Claude mode reads sessions from the test's own folder, and types into a pretend terminal that keeps what it got.
+      claudeDirs: [path.join(userData, 'claude-home')],
+      terminal: claudeTerminal,
     });
+    ctx.claudeTerminal = claudeTerminal;
     Object.assign(ctx, { helper, clipboard, globalShortcut, loginCalls, systemPreferences });
     ctx.home ??= ctx.buddy; // where Buddy lives (the notch or the floating buddy), as main returns it
     ctx.sleepClock = sleepClock;

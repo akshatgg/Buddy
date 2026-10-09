@@ -57,7 +57,16 @@ function parseEvent(text) {
   if (Object.prototype.toString.call(json) !== '[object Object]') return null;
   if (!EVENTS.includes(json.hook_event_name) || typeof json.session_id !== 'string' || !json.session_id) return null;
   const str = (value) => (typeof value === 'string' ? value : '');
-  return { name: json.hook_event_name, sessionId: json.session_id, folder: folderName(str(json.cwd)), matcher: str(json.matcher), error: str(json.error) };
+  return {
+    name: json.hook_event_name, sessionId: json.session_id, folder: folderName(str(json.cwd)), matcher: str(json.matcher), error: str(json.error),
+    cwd: str(json.cwd), transcript: str(json.transcript_path), // for Claude mode (live.js)
+  };
+}
+
+/** The terminal a hook said Claude Code runs in (its X-Buddy-Tty header, hooks.js), or '' when it did not say. */
+function ttyOf(headers) {
+  const value = typeof headers?.['x-buddy-tty'] === 'string' ? headers['x-buddy-tty'].trim() : '';
+  return /^(ttys?\d{1,4}|pts\/\d{1,4})$/.test(value) ? value : '';
 }
 
 const newState = () => ({ sessions: {}, overall: 'idle', mood: MOODS.idle });
@@ -149,10 +158,11 @@ function forget(state, now) {
 /**
  * The server and the switch. `ui` is main.js's { mood(name), bubble(text) }; `chatBusy()` says the panel's chat has a
  * message in flight, whose moods win: a mood that comes then waits, and the picture is sent once the chat is done.
+ * `onEvent` hears every event, with the terminal it came from (`tty`): Claude mode follows the sessions with it.
  * The clock, the timers, the port pick and the token are passed in by the unit tests.
  */
 function createWatch({
-  store, hooks, ui, chatBusy = () => false, active = () => true,
+  store, hooks, ui, chatBusy = () => false, active = () => true, onEvent = () => {},
   now = Date.now, later = defaultLater, cancel = clearTimeout, randomPort = defaultRandomPort, newToken = defaultToken,
 }) {
   let server = null;
@@ -197,12 +207,17 @@ function createWatch({
     else send(mood);
   }
 
-  function take(text) {
+  function take(text, tty = '') {
     const event = parseEvent(text);
     if (!event) return;
     const r = apply(state, event, now());
     state = r.state;
     show(r);
+    try {
+      onEvent({ ...event, tty });
+    } catch (err) {
+      console.warn('[buddy] Claude mode could not take an event:', err.message);
+    }
   }
 
   /** Only Claude Code's hooks are heard: the path carries the token. The hook is answered before anything is done. */
@@ -226,7 +241,7 @@ function createWatch({
     req.on('end', () => {
       res.statusCode = 204;
       res.end();
-      take(Buffer.concat(chunks).toString('utf8'));
+      take(Buffer.concat(chunks).toString('utf8'), ttyOf(req.headers));
     });
     req.on('error', () => {});
   }
@@ -357,4 +372,4 @@ function createWatch({
   return { start, stop, setOn, status, tick };
 }
 
-module.exports = { MOODS, FORGET_AFTER_MS, QUIET_MS, OFF_LINE, BODY_LIMIT, PORT_MIN, PORT_MAX, folderName, parseEvent, newState, apply, forget, createWatch };
+module.exports = { MOODS, FORGET_AFTER_MS, QUIET_MS, OFF_LINE, BODY_LIMIT, PORT_MIN, PORT_MAX, folderName, parseEvent, ttyOf, newState, apply, forget, createWatch };

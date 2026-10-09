@@ -48,6 +48,9 @@ const { createProjects } = require('./claude/projects');
 const { createJobs } = require('./claude/job');
 const { createHooks } = require('./claude/hooks');
 const { createWatch } = require('./claude/watch');
+const { createLive } = require('./claude/live');
+const { createTerminal } = require('./claude/terminal');
+const { createClaudeMode } = require('./claude/mode');
 const { createUpdater, installTarget, firstLaunchOfNewVersion } = require('./updates');
 const { helperFile, windows: onWindows } = require('./platform');
 
@@ -214,8 +217,20 @@ async function start(options = {}) {
   });
   // The chat's own moods win over Claude Code's: chatBusy says a chat answer is in flight. While Buddy is off the
   // switch is only saved (active), and power's onChange starts the watcher when Buddy is turned on.
+  // Claude mode (claude/mode.js): the panel shows a Claude Code session from the terminal, and types into it. Its
+  // sessions come from Claude Code's config folder (~/.claude, or CLAUDE_CONFIG_DIR) and from every hook event heard.
+  // The end-to-end test passes its own folder and terminal, so that it never reads real sessions or types anywhere.
+  const claudeDirs = options.claudeDirs
+    || [path.join(app.getPath('home'), '.claude'), ...(process.env.CLAUDE_CONFIG_DIR ? [process.env.CLAUDE_CONFIG_DIR] : [])];
+  const live = createLive({ configDirs: () => claudeDirs });
+  const claudeMode = createClaudeMode({
+    live,
+    terminal: options.terminal || createTerminal(),
+    clipboard: options.clipboard || clipboard,
+    send: (session) => panel.send('panel:claude-state', session),
+  });
   const watch = createWatch({
-    store, find, hooks, ui, chatBusy: () => actions.state().busy === true, active: () => power.isOn(),
+    store, find, hooks, ui, chatBusy: () => actions.state().busy === true, active: () => power.isOn(), onEvent: (event) => live.hear(event),
   });
   const startWatch = () => {
     if (store.get('watchClaudeCode') !== true) return;
@@ -301,7 +316,7 @@ async function start(options = {}) {
   });
   registerNotchIpc({ ipcMain, notch: buddy.notchWindow(), onClick: onCall });
   registerPanelIpc({
-    ipcMain, panel, actions, openSettings, microphone, ui, shell, askAccessibility: () => helper.call('requestAccessibility'),
+    ipcMain, panel, actions, openSettings, microphone, ui, shell, askAccessibility: () => helper.call('requestAccessibility'), claudeMode,
   });
   const settingsIpc = registerSettingsIpc({
     ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch,
@@ -391,7 +406,7 @@ async function start(options = {}) {
   return {
     store, secrets, memory, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, trayState, shortcut, updater,
     home: buddy, // the same object as buddy, by the name the e2e checks for the notch use
-    projects, jobs, find, // Claude Code (src/main/claude)
+    projects, jobs, find, live, // Claude Code (src/main/claude)
   };
 }
 

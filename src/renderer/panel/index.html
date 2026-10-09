@@ -11,6 +11,7 @@
   <header>
     <div class="title"><strong id="who">Buddy</strong> <span id="where" class="muted"></span></div>
     <div class="tools">
+      <button id="claude-mode" class="btn small mode" type="button" aria-pressed="false" title="Claude mode: your Claude Code sessions">Claude</button>
       <button id="settings" class="icon glyph-gear" type="button" title="Settings" aria-label="Settings"></button>
       <button id="close" class="icon cross" type="button" title="Close (Esc)" aria-label="Close"></button>
     </div>
@@ -23,6 +24,24 @@
     </div>
     <ol id="items" class="items"></ol>
     <p id="thinking" class="thinking" aria-live="polite" hidden></p>
+  </div>
+
+  <div id="claude-view" class="claude" hidden>
+    <div id="claude-pick" class="claude-pick">
+      <p class="claude-ask">Which Claude Code session?</p>
+      <ul id="claude-sessions" class="sessions"></ul>
+      <p id="claude-none" class="muted small" hidden>No Claude Code session is running. Start <code>claude</code> in a terminal, then look again.</p>
+      <p id="claude-pick-error" class="note error" hidden></p>
+      <button id="claude-again" class="btn small" type="button">Look again</button>
+    </div>
+    <div id="claude-session" class="claude-session" hidden>
+      <div class="claude-bar">
+        <button id="claude-back" class="btn small quiet" type="button" aria-label="Back to the sessions">‹ Sessions</button>
+        <strong id="claude-name" class="grow"></strong>
+        <span id="claude-status" class="status-chip"></span>
+      </div>
+      <ol id="claude-items" class="claude-items" aria-label="The session"></ol>
+    </div>
   </div>
 
   <div class="compose">

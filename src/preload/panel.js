@@ -17,4 +17,10 @@ contextBridge.exposeInMainWorld('buddy', {
   transcribe: (audio, mime) => ipcRenderer.invoke('panel:transcribe', audio, mime),
   listening: (on) => ipcRenderer.send('panel:listening', Boolean(on)),
   voiceLevel: (level) => ipcRenderer.send('panel:voice-level', level),
+  // Claude mode: the Claude Code sessions running now, one of them shown as it goes, and words typed into its terminal.
+  claudeSessions: () => ipcRenderer.invoke('panel:claude-sessions'),
+  claudeOpen: (id) => ipcRenderer.invoke('panel:claude-open', id),
+  claudeTalk: (id, text) => ipcRenderer.invoke('panel:claude-talk', id, text),
+  claudeClose: () => ipcRenderer.send('panel:claude-close'),
+  onClaudeState: (fn) => ipcRenderer.on('panel:claude-state', (_event, session) => fn(session)),
 });

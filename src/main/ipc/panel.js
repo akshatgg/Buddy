@@ -58,12 +58,12 @@ function createMicrophone({ systemPreferences, platform = process.platform }) {
 
 /**
  * `microphone` is createMicrophone()'s; `ui` has the buddy's two voice hooks, listening(on) and voiceLevel(0..1)
- * (main.js). `askAccessibility` has the helper ask macOS, which puts Buddy in the Accessibility list. `shell` opens
- * Windows' Settings and macOS's System Settings; Electron's is loaded only when none is given, so that these handlers
- * can be tested in plain Node.
+ * (main.js). `askAccessibility` has the helper ask macOS, which puts Buddy in the Accessibility list. `claudeMode` is
+ * claude/mode.js's: the panel's Claude mode. `shell` opens Windows' Settings and macOS's System Settings; Electron's is
+ * loaded only when none is given, so that these handlers can be tested in plain Node.
  */
 function registerPanelIpc({
-  ipcMain, panel, actions, openSettings, microphone, ui, askAccessibility, shell, platform = process.platform,
+  ipcMain, panel, actions, openSettings, microphone, ui, askAccessibility, claudeMode, shell, platform = process.platform,
 }) {
   const fromPanel = (webContents) => webContents === panel.window()?.webContents;
   const handle = guarded(ipcMain, fromPanel);
@@ -73,6 +73,15 @@ function registerPanelIpc({
   handle('panel:send', (message) => actions.send(typeof message === 'string' ? message : ''));
   handle('panel:act', (id, button) => actions.act(id, button));
   handle('panel:drop-selection', () => actions.dropSelection());
+
+  // Claude mode: the sessions running now, one of them shown (its changes follow on 'panel:claude-state'), and what the
+  // person sends typed into its terminal. Closing it, or the panel, stops the reading.
+  handle('panel:claude-sessions', () => claudeMode.sessions());
+  handle('panel:claude-open', (id) => claudeMode.open(id));
+  handle('panel:claude-talk', (id, text) => claudeMode.talk(id, typeof text === 'string' ? text : ''));
+  ipcMain.on('panel:claude-close', (event) => {
+    if (fromPanel(event.sender)) claudeMode.close();
+  });
 
   // Before it records, the page asks for the microphone: the first time, macOS asks the person.
   // macOS's question takes the focus from the panel, which stays open meanwhile (panel-window.js whileHeld).

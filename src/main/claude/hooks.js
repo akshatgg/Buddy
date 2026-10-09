@@ -41,10 +41,13 @@ const isPlainObject = (value) => Object.prototype.toString.call(value) === '[obj
  * The shell command of a Buddy hook: curl the event (stdin) to Buddy, unless this is one of Buddy's own runs. The same
  * on every platform: Claude Code runs hook commands in bash (Git Bash on Windows), never in cmd.exe. On a Windows
  * machine without Git Bash it runs them in PowerShell, where this fails without blocking (watching does not work there).
+ * The X-Buddy-Tty header names the terminal Claude Code runs in (the hook's parent is Claude Code), so that Claude
+ * mode can type into it (claude/terminal.js); where ps cannot say, it is empty.
  */
 function hookCommand({ port, token }) {
   const url = `http://127.0.0.1:${port}${MARK}${token}`;
-  return `[ -n "$${ENV_MARK}" ] || curl -s -m 2 -X POST --data-binary @- ${url} >/dev/null 2>&1; exit 0`;
+  const tty = '-H "X-Buddy-Tty: $(ps -o tty= -p $PPID 2>/dev/null)"';
+  return `[ -n "$${ENV_MARK}" ] || curl -s -m 2 -X POST ${tty} --data-binary @- ${url} >/dev/null 2>&1; exit 0`;
 }
 
 /** Buddy's exact shape: the mark of its own runs, and its local URL with a 32-character token. */

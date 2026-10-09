@@ -302,3 +302,69 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
+
+/* ---- Claude mode: a Claude Code session from the terminal (panel.js, the end) ---- */
+
+/* The header's Claude button: lit while the panel shows Claude Code. */
+.btn.mode { margin-right: 4px; }
+.btn.mode[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--fg); }
+
+.claude { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+
+/* The sessions to pick from. */
+.claude-pick { display: flex; flex-direction: column; gap: 8px; margin: auto 0; padding: 6px 14px 18px; }
+.claude-ask { margin: 0 0 2px; font-size: 15px; font-weight: 600; text-align: center; }
+.claude-pick > .btn { align-self: center; }
+.claude-pick .muted { margin: 0; text-align: center; }
+.sessions { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.sessions:empty { display: none; }
+.sessions button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--fg);
+  text-align: left;
+}
+.sessions button:hover { background: var(--hover); }
+.sessions .name { flex: 1; min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+
+/* How a session stands: a small chip, coloured by its status. */
+.status-chip { flex: none; padding: 1px 8px; border-radius: 10px; background: var(--track); color: var(--muted); font-size: 11px; }
+.status-chip.working { background: var(--accent-soft); color: var(--fg); }
+.status-chip.waiting { background: var(--error-soft); color: var(--error); }
+
+/* One session: a bar with its name, then everything in it, newest at the bottom. */
+.claude-session { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.claude-bar { display: flex; flex: none; align-items: center; gap: 6px; padding: 0 12px 6px 6px; border-bottom: 1px solid var(--line-soft); }
+.claude-bar .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.claude-items {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  margin: 0;
+  padding: 8px 14px 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+.claude-items p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.claude-items .you { align-self: flex-end; max-width: 86%; padding: 7px 11px; border-radius: 14px; border-bottom-right-radius: 5px; background: var(--accent-soft); }
+.claude-items .claude { align-self: flex-start; max-width: 96%; padding: 7px 11px; border-radius: 14px; border-bottom-left-radius: 5px; background: var(--track); }
+.claude-items .tool, .claude-items .result {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.claude-items .tool { color: var(--fg); }
+.claude-items .tool::before { content: "⏺ "; color: var(--accent); }
+.claude-items .result { margin-top: -3px; padding: 4px 8px; border-left: 2px solid var(--line); color: var(--muted); }
+.claude-items .result.error { border-left-color: var(--error); color: var(--error); }
+.claude-items .event { align-self: center; color: var(--muted); font-size: 12px; }
+.claude-items .older { align-self: center; color: var(--muted); font-size: 11px; }

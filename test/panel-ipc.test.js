@@ -43,6 +43,12 @@ function setup(actions = {}, { platform = 'darwin', mic = 'granted', openFails =
       calls.push('askAccessibility');
       if (askFails) throw askFails;
     },
+    claudeMode: {
+      sessions: async () => { calls.push('claudeSessions'); return { sessions: [] }; },
+      open: async (id) => { calls.push(['claudeOpen', id]); return { session: { id } }; },
+      talk: async (id, text) => { calls.push(['claudeTalk', id, text]); return { typed: true }; },
+      close: () => calls.push('claudeClose'),
+    },
     shell: {
       async openExternal(url) {
         calls.push(['openExternal', url]);
@@ -54,10 +60,24 @@ function setup(actions = {}, { platform = 'darwin', mic = 'granted', openFails =
   return { handlers, listeners, calls, fromPanel: { sender: PANEL_PAGE } };
 }
 
-test('the panel asks through five channels and tells main four things; the old ones are gone', () => {
+test('the panel asks through eight channels and tells main five things; the old ones are gone', () => {
   const s = setup();
-  assert.deepStrictEqual(Object.keys(s.handlers).sort(), ['panel:act', 'panel:drop-selection', 'panel:mic-access', 'panel:send', 'panel:transcribe']);
-  assert.deepStrictEqual(Object.keys(s.listeners).sort(), ['panel:close', 'panel:listening', 'panel:open-settings', 'panel:voice-level']);
+  assert.deepStrictEqual(Object.keys(s.handlers).sort(), [
+    'panel:act', 'panel:claude-open', 'panel:claude-sessions', 'panel:claude-talk', 'panel:drop-selection', 'panel:mic-access', 'panel:send', 'panel:transcribe',
+  ]);
+  assert.deepStrictEqual(Object.keys(s.listeners).sort(), ['panel:claude-close', 'panel:close', 'panel:listening', 'panel:open-settings', 'panel:voice-level']);
+});
+
+test('Claude mode: the sessions, one opened, words for its terminal (only text), and closing it, from the panel only', async () => {
+  const s = setup();
+  assert.deepStrictEqual(await s.handlers['panel:claude-sessions'](s.fromPanel), { ok: true, sessions: [] });
+  assert.deepStrictEqual(await s.handlers['panel:claude-open'](s.fromPanel, 'a'), { ok: true, session: { id: 'a' } });
+  assert.deepStrictEqual(await s.handlers['panel:claude-talk'](s.fromPanel, 'a', 'run it'), { ok: true, typed: true });
+  await s.handlers['panel:claude-talk'](s.fromPanel, 'a', { not: 'text' });
+  assert.strictEqual((await s.handlers['panel:claude-sessions'](SOMEONE_ELSE)).ok, false, 'only the panel page');
+  s.listeners['panel:claude-close'](SOMEONE_ELSE);
+  s.listeners['panel:claude-close'](s.fromPanel);
+  assert.deepStrictEqual(s.calls, ['claudeSessions', ['claudeOpen', 'a'], ['claudeTalk', 'a', 'run it'], ['claudeTalk', 'a', ''], 'claudeClose']);
 });
 
 test('a message goes to actions.send, and the answer is { ok: true } once it is in: the state events show the rest', async () => {

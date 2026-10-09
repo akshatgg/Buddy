@@ -33,9 +33,14 @@ test('a session is named after the last part of its folder, on the Mac and on Wi
 });
 
 test('parseEvent reads what the hook sends, and refuses what is not an event', () => {
-  const text = JSON.stringify({ hook_event_name: 'StopFailure', session_id: 'abc', cwd: '/x/my-app', matcher: 'rate_limit', error: 'Rate limit reached' });
-  assert.deepStrictEqual(parseEvent(text), { name: 'StopFailure', sessionId: 'abc', folder: 'my-app', matcher: 'rate_limit', error: 'Rate limit reached' });
-  assert.deepStrictEqual(parseEvent(JSON.stringify({ hook_event_name: 'Stop', session_id: 'abc' })), { name: 'Stop', sessionId: 'abc', folder: 'your project', matcher: '', error: '' });
+  const text = JSON.stringify({
+    hook_event_name: 'StopFailure', session_id: 'abc', cwd: '/x/my-app', matcher: 'rate_limit', error: 'Rate limit reached', transcript_path: '/h/.claude/projects/p/abc.jsonl',
+  });
+  assert.deepStrictEqual(parseEvent(text), {
+    name: 'StopFailure', sessionId: 'abc', folder: 'my-app', matcher: 'rate_limit', error: 'Rate limit reached', cwd: '/x/my-app', transcript: '/h/.claude/projects/p/abc.jsonl',
+  });
+  assert.deepStrictEqual(parseEvent(JSON.stringify({ hook_event_name: 'Stop', session_id: 'abc', transcript_path: 7 })),
+    { name: 'Stop', sessionId: 'abc', folder: 'your project', matcher: '', error: '', cwd: '', transcript: '' });
   assert.strictEqual(parseEvent('not json'), null);
   assert.strictEqual(parseEvent('[]'), null);
   assert.strictEqual(parseEvent(JSON.stringify({ hook_event_name: 'SubagentStop', session_id: 'abc' })), null);

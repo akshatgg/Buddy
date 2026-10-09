@@ -1,6 +1,6 @@
 /* Buddy's site. Everything here is extra: without it the page reads and every download link works.
    It shows the newest release's version and size, points the Android button at the newest Android
-   release, leads with the right button on Windows and Android, and tells iPhone visitors where Buddy runs. */
+   release, leads with the right button on Windows, Android and iPhone, and tells iPhone visitors how to keep it. */
 (function (root) {
   'use strict';
 
@@ -44,9 +44,9 @@
     return { version: best.parts.join('.'), url: RELEASES + '/download/' + best.tag + '/' + APK, size: best.size };
   }
 
-  /** A line for visitors whose device has no Buddy yet, or ''. */
+  /** A line for visitors whose device needs a word on how to get Buddy, or ''. */
   function deviceNote(ua) {
-    if (/iPhone|iPad|iPod/i.test(ua)) return 'Buddy for iPhone is coming soon. Right now it runs on Mac, Windows and Android.';
+    if (/iPhone|iPad|iPod/i.test(ua)) return 'On iPhone, Buddy runs in Safari: open it, then tap Share → Add to Home Screen to keep it.';
     return '';
   }
 
@@ -59,6 +59,7 @@
   var ua = (root.navigator && root.navigator.userAgent) || '';
   var onWindows = /Windows/i.test(ua) && !/Windows Phone/i.test(ua);
   var onAndroid = /Android/i.test(ua);
+  var onIphone = /iPhone|iPad|iPod/i.test(ua);
 
   function each(selector, fn) { Array.prototype.forEach.call(doc.querySelectorAll(selector), fn); }
   function note(text) {
@@ -66,7 +67,7 @@
   }
 
   // The hero's main button leads with this device's download, and is then updated (or pointed at the
-  // releases page) with that platform's other buttons: kind is "win" or "android".
+  // releases page) with that platform's other buttons: kind is "win", "android" or "iphone".
   function leadWith(kind, url, label, fine) {
     each('[data-hero-download]', function (a) {
       a.removeAttribute('data-mac-download');
@@ -82,6 +83,7 @@
     var apk = doc.querySelector('[data-android-download]');
     if (apk) leadWith('android', apk.href, 'Download for Android', 'For phones on Android 8.0 or newer.');
   }
+  if (onIphone) leadWith('iphone', '/app', 'Open Buddy for iPhone', 'In Safari, on iOS 16.4 or later.');
   note(deviceNote(ua));
 
   if (!root.fetch) return;

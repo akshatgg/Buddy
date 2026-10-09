@@ -78,6 +78,14 @@ test('what a device sends: its outbox for its own account, all its facts the fir
   assert.deepStrictEqual(sync.opsToSend({ uid: 'u2', linked: 'u1', facts, outbox }), { ops: [], sent: 1 });
 });
 
+test('the outbox after a sync: without what was sent, unless "forget everything" rewrote it meanwhile', () => {
+  const then = [forget('a'), forget('b')];
+  assert.deepStrictEqual(sync.outboxAfter(then, 2, [...then, forget('c')]), [forget('c')]);
+  assert.deepStrictEqual(sync.outboxAfter(then, 0, [...then, forget('c')]), [...then, forget('c')], 'nothing was sent of it');
+  assert.deepStrictEqual(sync.outboxAfter(then, 2, [{ op: 'clear' }]), [{ op: 'clear' }]);
+  assert.deepStrictEqual(sync.outboxAfter(then, 2, then), []);
+});
+
 test("after a sync, the device keeps the server's facts with what it changed meanwhile on top", () => {
   assert.deepStrictEqual(sync.afterSync([BOSS, CITY], [forget('f2'), add('f3', 'You like tea.', 3)]),
     [BOSS, { id: 'f3', text: 'You like tea.', at: 3 }]);

@@ -296,6 +296,10 @@ function renderAccount() {
   for (const id of ['profile-name', 'profile-email']) $(id).title = $(id).textContent;
   $('sign-in').hidden = account.signedIn || !canSignIn;
   $('sign-out').hidden = !account.signedIn;
+  // Settings → Memory says where what Buddy knows is kept: with the account while signed in (src/main/memory-sync.js).
+  $('memory-lead').textContent = account.signedIn
+    ? 'Buddy learns these from your chats. They are saved to your account, so your other devices know them too.'
+    : 'Buddy learns these from your chats. They stay on this computer until you sign in.';
 }
 
 // ---- the rest of the page ----

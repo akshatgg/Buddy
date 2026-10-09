@@ -63,8 +63,8 @@ function checkPermission(which) {
 function registerSettingsIpc({
   ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch, onFinishOnboarding, shell,
   account, cloud, canSignIn, version,
-  // What Buddy knows about the person (memory.js), for Settings → Memory.
-  memory,
+  // What Buddy knows about the person (memory.js), for Settings → Memory, and its sync with the account (memory-sync.js).
+  memory, memorySync = null,
   // The microphone as macOS sees it (ipc/panel.js createMicrophone), for Settings → Permissions.
   microphone,
   // Claude Code on this computer (claude/find.js): its status is the fifth AI choice's "key".
@@ -353,7 +353,10 @@ function registerSettingsIpc({
   // shows what is kept now. For the Settings window only: the Welcome has no Memory section.
   const memoryState = () => ({ facts: memory.list(), learning: memory.learning() });
 
-  handleSettings('settings:memory', () => memoryState());
+  handleSettings('settings:memory', () => {
+    memorySync?.sync(); // what the person's other devices learnt meanwhile follows on 'memory:changed'
+    return memoryState();
+  });
 
   handleSettings('settings:memory-add', (text) => {
     const fact = cleanFact(text);

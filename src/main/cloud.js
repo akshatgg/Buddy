@@ -208,6 +208,12 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
   const remoteSend = (sessionId, text) => call('/api/remote/phone', { method: 'POST', body: { action: 'send', session: sessionId, text }, timeoutMs: REMOTE_TIMEOUT_MS });
   const remoteStop = () => call('/api/remote/phone', { method: 'POST', body: { action: 'stop' }, timeoutMs: REMOTE_TIMEOUT_MS });
 
+  /**
+   * What Buddy knows about the person, kept with their account (memory-sync.js): this computer's changes, `ops`, go to
+   * the server, which answers { facts } as the account has them now.
+   */
+  const memory = (ops) => call('/api/memory', { method: 'POST', body: { ops } });
+
   const admin = {
     settings: () => call('/api/admin/settings'),
     save: (patch) => call('/api/admin/settings', { method: 'PUT', body: patch }),
@@ -226,6 +232,7 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
     remoteLook,
     remoteSend,
     remoteStop,
+    memory,
     admin,
     /** `fn()` is called whenever the kept settings change. */
     onChange: (fn) => {

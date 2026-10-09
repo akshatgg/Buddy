@@ -57,6 +57,24 @@ fun Context.openFloatSettings() = open(Intent(Settings.ACTION_MANAGE_OVERLAY_PER
  */
 fun Context.openAccessibilitySettings() = open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
 
+/**
+ * Buddy's App info page in the phone's settings: its ⋮ menu has "Allow restricted settings", which Android asks for
+ * before Buddy can type for you can be turned on in an app that did not come from an app store.
+ */
+fun Context.openAppInfo() = open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:$packageName".toUri()))
+
+/** The app that installed Buddy (the Play Store, a browser, a file manager…), or null when Android does not say. */
+fun Context.installer(): String? = try {
+    if (Build.VERSION.SDK_INT >= 30) {
+        packageManager.getInstallSourceInfo(packageName).installingPackageName
+    } else {
+        @Suppress("DEPRECATION")
+        packageManager.getInstallerPackageName(packageName)
+    }
+} catch (e: Exception) {
+    null
+}
+
 private fun Context.openNotificationSettings() =
     open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
 

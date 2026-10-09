@@ -82,6 +82,7 @@ import com.akshatgg.buddy.ui.common.Note
 import com.akshatgg.buddy.ui.common.StatusLine
 import com.akshatgg.buddy.ui.common.allowed
 import com.akshatgg.buddy.ui.common.openAccessibilitySettings
+import com.akshatgg.buddy.ui.common.openAppInfo
 import com.akshatgg.buddy.ui.common.openFloatSettings
 import com.akshatgg.buddy.ui.common.rememberAllowed
 import com.akshatgg.buddy.ui.panel.Primary
@@ -207,6 +208,7 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
                     }
                     Hairline()
                     LookRow(state.lookOn, turnOn = { disclosing = true }, turnOff = { context.openAccessibilitySettings() })
+                    if (state.lookBlocked) UnlockHelp(openAppInfo = { context.openAppInfo() })
                     Hairline()
                     TagRow(state, onChange = model::setTagOn)
                     Hairline()
@@ -260,8 +262,10 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
 
                 if (disclosing) {
                     LookDisclosure(
+                        mayBeBlocked = state.lookMayBeBlocked,
                         proceed = {
                             disclosing = false
+                            model.lookAsked()
                             context.openAccessibilitySettings()
                         },
                         dismiss = { disclosing = false },
@@ -410,21 +414,40 @@ private fun TagRow(state: SettingsState, onChange: (Boolean) -> Unit) {
     }
 }
 
+/**
+ * Android blocked Buddy can type for you ("Restricted setting"), as it does for an app that did not come from an app
+ * store: how to unlock it, once, on Buddy's App info page.
+ */
+@Composable
+private fun UnlockHelp(openAppInfo: () -> Unit) {
+    val colors = Buddy.colors
+    Column(Modifier.rowPadding(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Android says \"Restricted setting\"? Unlock it once:", fontWeight = FontWeight.Medium)
+        UNLOCK_STEPS.forEachIndexed { i, step ->
+            Text("${i + 1}. $step", color = colors.muted, style = MaterialTheme.typography.bodySmall)
+        }
+        Primary("Open App info", modifier = Modifier.fillMaxWidth(), onClick = openAppInfo)
+    }
+}
+
 /** Google's "prominent disclosure": what the Accessibility service is for, before Android's settings open. */
 @Composable
-private fun LookDisclosure(proceed: () -> Unit, dismiss: () -> Unit) {
+private fun LookDisclosure(mayBeBlocked: Boolean, proceed: () -> Unit, dismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = dismiss,
         title = { Text("Buddy can type for you") },
         text = {
-            Text(
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
                 "Buddy uses Android's Accessibility to see where the box you are typing in is, so that the head can look " +
                     "at it; to read the text in that box only when you ask Buddy to fix it; and to put Buddy's text into it " +
                     "when you ask. With Fix where I type on, it also looks at what you type in a box (never a password " +
                     "box), only to spot @buddy; when you type it, Buddy sends only that paragraph to the AI and puts the " +
                     "new text in its place. It reads nothing else, and nothing is kept or sent anywhere except with your " +
                     "question, or the paragraph you tagged, to the AI.",
-            )
+                )
+                Text(lookSteps(mayBeBlocked), fontWeight = FontWeight.Medium)
+            }
         },
         confirmButton = { TextButton(proceed, shape = ROUNDED) { Text("Continue") } },
         dismissButton = { TextButton(dismiss, shape = ROUNDED) { Text("Not now") } },

@@ -79,6 +79,38 @@ class SettingsModelTest {
         assertFalse(m.state.value.lookOn)
     }
 
+    @Test fun androidsBlockShowsHowToUnlockItOnlyAfterTurnOnLeftItOff() = runTest {
+        var enabled = false
+        val m = SettingsModel(account, cloud, settings, memory, this, lookEnabled = { enabled }, lookMayBeBlocked = true)
+        assertFalse("not asked yet", m.state.value.lookBlocked)
+        m.lookAsked() // Continue: off to Android's Accessibility settings
+        m.resumed(canFloat = true) // back, still off: Android's "Restricted setting"
+        assertTrue(m.state.value.lookBlocked)
+        assertTrue("it stays after the app is closed and opened again", SettingsModel(account, cloud, settings, memory, this, lookEnabled = { enabled }, lookMayBeBlocked = true).state.value.lookBlocked)
+        enabled = true // unlocked and turned on
+        m.resumed(canFloat = true)
+        assertFalse(m.state.value.lookBlocked)
+        assertFalse("forgotten once on", settings.lookAsked)
+    }
+
+    @Test fun aPhoneAndroidDoesNotBlockNeverShowsHowToUnlock() = runTest {
+        val m = SettingsModel(account, cloud, settings, memory, this, lookEnabled = { false }, lookMayBeBlocked = false)
+        m.lookAsked()
+        m.resumed(canFloat = true)
+        assertFalse(m.state.value.lookBlocked)
+    }
+
+    @Test fun androidBlocksItFrom13ForAppsNotFromThePlayStore() {
+        assertTrue(mayBeRestricted(33, null))
+        assertTrue(mayBeRestricted(35, "com.google.android.packageinstaller"))
+        assertTrue(mayBeRestricted(34, "com.android.chrome"))
+        assertFalse("the Play Store", mayBeRestricted(35, "com.android.vending"))
+        assertFalse("before Android 13", mayBeRestricted(32, null))
+        assertTrue(lookSteps(mayBeBlocked = true).contains("Restricted setting"))
+        assertFalse(lookSteps(mayBeBlocked = false).contains("Restricted setting"))
+        assertTrue(UNLOCK_STEPS.any { "Allow restricted settings" in it })
+    }
+
     @Test fun aChangeIsSavedAndSaysSoForAFewSeconds() = runTest {
         val m = model()
         assertFalse("the buddy already chosen", m.pick("boy-1"))

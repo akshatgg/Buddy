@@ -46,6 +46,7 @@ class MainViewModel(saved: SavedStateHandle) : ViewModel() {
     val welcome = WelcomeModel(graph.settings, viewModelScope, saved)
     val settings = SettingsModel(
         graph.account, graph.cloud, graph.settings, graph.memory, viewModelScope, graph.lookEnabled, graph.memorySyncer::request,
+        graph.lookMayBeBlocked,
     )
     val ai = AiFormModel(
         graph.settings, graph.secrets, graph.providers, graph.keySaver, graph.router::listModels, graph.router::modelFor, viewModelScope,

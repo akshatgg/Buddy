@@ -349,7 +349,7 @@ function setVoice(next) {
   $('box-frame').classList.toggle('listening', next === 'listening');
   $('box-frame').classList.toggle('writing', next === 'writing');
   const talkingToClaude = mode === 'claude' && claude.session && (next === 'idle' || next === 'starting');
-  $('box').placeholder = talkingToClaude ? CLAUDE_WORDS.placeholder(claude.session.name) : PLACEHOLDERS[next];
+  $('box').placeholder = talkingToClaude ? CLAUDE_WORDS.placeholder(claude.session.title || claude.session.name) : PLACEHOLDERS[next];
   $('mic').setAttribute('aria-pressed', String(on));
   $('mic').title = MIC_TITLES[next];
   show($('voice-bars'), next === 'listening' || next === 'writing');
@@ -617,7 +617,7 @@ function applyMode() {
   show($('selection'), !on && Boolean(state?.selection));
   show($('claude-pick'), on && !claude.session);
   show($('claude-session'), on && Boolean(claude.session));
-  $('box').placeholder = on && claude.session ? CLAUDE_WORDS.placeholder(claude.session.name) : PLACEHOLDERS[voice];
+  $('box').placeholder = on && claude.session ? CLAUDE_WORDS.placeholder(claude.session.title || claude.session.name) : PLACEHOLDERS[voice];
   if (state) $('where').textContent = on ? '· Claude Code' : state.appName ? `· ${state.appName}` : '';
   updateSend();
 }
@@ -636,9 +636,11 @@ async function claudeList() {
     const li = make('li');
     const b = make('button');
     b.type = 'button';
-    const name = make('span', 'name', s.name);
-    // A session on another of the person's computers (shared through Buddy's server) says which one.
-    if (s.remote && s.device) name.append(make('span', 'device', `on ${s.device}`));
+    // The session's title, as its terminal tab shows it ("Fix the login bug"), over its short name and, for a session
+    // on another of the person's computers (shared through Buddy's server), which one.
+    const name = make('span', 'name', s.title || s.name);
+    const under = [s.title ? s.name : '', s.remote && s.device ? `on ${s.device}` : ''].filter(Boolean).join(' · ');
+    if (under) name.append(make('span', 'device', under));
     b.append(name, make('span', `status-chip ${s.status}`, CLAUDE_STATUS[s.status] || s.status));
     b.addEventListener('click', () => claudeOpen(s.id));
     li.append(b);
@@ -687,7 +689,9 @@ function drawClaude(session, { scroll = false } = {}) {
   if (!session) return;
   claude.session = session;
   applyMode();
-  $('claude-name').textContent = session.remote && session.device ? `${session.name} · on ${session.device}` : session.name;
+  const named = session.title || session.name;
+  $('claude-name').textContent = session.remote && session.device ? `${named} · on ${session.device}` : named;
+  $('claude-name').title = session.title ? `${session.title} (${session.name})` : session.name; // the whole of it, on hover
   const chip = $('claude-status');
   chip.className = `status-chip ${session.status}`;
   chip.textContent = CLAUDE_STATUS[session.status] || session.status;

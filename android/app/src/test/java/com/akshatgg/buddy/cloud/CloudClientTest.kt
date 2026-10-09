@@ -382,6 +382,16 @@ class CloudClientTest {
         assertEquals("Akshat's MacBook Air", r.feed?.session?.device)
     }
 
+    @Test fun remoteLookReadsEachSessionsTitleAndShowsItOverItsName() = runTest {
+        signIn()
+        val cloud = client()
+        serve(HttpResponse(200, """{"online":true,"sessions":[{"id":"a","name":"buddy-f8","title":"Link automatic settings page","status":"idle","canTalk":true},{"id":"b","name":"web","title":"  ","status":"idle","canTalk":true},{"id":"c","name":"api","title":null,"status":"idle","canTalk":true}],"feed":{"id":"a","name":"buddy-f8","title":"Link automatic settings page","status":"idle","canTalk":true,"items":[]}}"""))
+        val r = cloud.remoteLook("a")
+        assertEquals(listOf("Link automatic settings page", null, null), r.sessions.map { it.title })
+        assertEquals(listOf("Link automatic settings page", "web", "api"), r.sessions.map { it.shown })
+        assertEquals("Link automatic settings page", r.feed?.session?.title)
+    }
+
     @Test fun remoteSendAndStopPostTheirAction() = runTest {
         signIn()
         val cloud = client()

@@ -130,7 +130,7 @@ test('listUsers: the most recently active first, those who never asked last, up 
 test("Claude mode's record: written, read back the same, left alone, and deleted, as the change says", async () => {
   const remote = require('../../web/lib/remote');
   const T = 1_800_000_000_000;
-  const S1 = { id: 'aaaa-1111', name: 'shop', status: 'working', canTalk: true };
+  const S1 = { id: 'aaaa-1111', name: 'shop', title: 'Fix the cart total', status: 'working', canTalk: true };
   const MAC = { id: 'mac-11111111', name: 'Mac' };
   const ITEMS = [{ id: 1, kind: 'you', text: 'fix it' }, { id: 2, kind: 'result', text: 'boom', error: true }];
   assert.deepStrictEqual(await db.updateRemote('u1', (doc) => remote.macReport(doc, { device: MAC, sessions: [S1] }, T)), { watch: null, inbox: [] });
@@ -139,7 +139,7 @@ test("Claude mode's record: written, read back the same, left alone, and deleted
   const told = await db.updateRemote('u1', (doc) => remote.macReport(doc, { device: MAC, sessions: [S1], feed: { ...S1, items: ITEMS } }, T + 2000));
   assert.strictEqual(told.watch, S1.id);
   const watched = await db.updateRemote('u1', (doc) => remote.phoneLook(doc, S1.id, T + 3000));
-  assert.deepStrictEqual(watched.feed, { id: S1.id, device: 'Mac', name: 'shop', status: 'working', canTalk: true, items: ITEMS });
+  assert.deepStrictEqual(watched.feed, { id: S1.id, device: 'Mac', name: 'shop', title: 'Fix the cart total', status: 'working', canTalk: true, items: ITEMS });
   await db.updateRemote('u1', (doc) => remote.phoneSend(doc, { sessionId: S1.id, text: 'go on', id: 'm1' }, T + 4000));
   const inbox = await db.updateRemote('u1', (doc) => remote.macReport(doc, { device: MAC, sessions: [S1] }, T + 5000));
   assert.deepStrictEqual(inbox.inbox, [{ id: 'm1', sessionId: S1.id, text: 'go on' }]);

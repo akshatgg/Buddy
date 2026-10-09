@@ -158,5 +158,9 @@
         "flags": "g"
       }
     }
+  },
+  "memorySync": {
+    "maxOps": 100,
+    "maxGone": 300
   }
 }

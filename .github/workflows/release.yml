@@ -258,6 +258,8 @@ jobs:
           security unlock-keychain -p "$kpw" "$kc"
           security import "$p12" -k "$kc" -P "$MAC_SIGN_P12_PASSWORD" -T /usr/bin/codesign >/dev/null
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kpw" "$kc" >/dev/null
+          # In the search list too: codesign looks for the identity's key there, whatever --keychain names.
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
           rm -f "$p12"
           # It is self-signed, so not "trusted": find-identity lists it with CSSMERR_TP_NOT_TRUSTED, and codesign signs with it all the same.
           id="$(security find-identity -p codesigning "$kc" | awk '/[0-9A-F]{40}/ { print $2; exit }')"

@@ -75,18 +75,6 @@ class ChatViewModel : ViewModel() {
         maxSelection = graph.shared.limitText,
     )
 
-    /**
-     * Claude mode, in the panel only (the Fix sheet has no Claude button): the Claude Code sessions on the person's
-     * computer, through Buddy's server. Its looks and its "stop" run in the app's scope too, so that the stop sent as
-     * the panel closes still goes.
-     */
-    val claude = ClaudeModel(
-        look = { graph.cloud.remoteLook(it) },
-        send = { session, text -> graph.cloud.remoteSend(session, text) },
-        stop = { graph.cloud.remoteStop() },
-        scope = graph.scope,
-    )
-
     /** Android's answer to "Start recording or casting?", from the activity that asked (or the one made after a turn). */
     fun pictureAnswered(result: ActivityResult) {
         picture?.complete(result)
@@ -131,10 +119,9 @@ class ChatViewModel : ViewModel() {
         }
     }
 
-    /** The panel was closed: an answer still on its way is let go of, and Claude mode ends. */
+    /** The panel was closed: an answer still on its way is let go of. */
     override fun onCleared() {
         model.close()
-        claude.close()
     }
 }
 

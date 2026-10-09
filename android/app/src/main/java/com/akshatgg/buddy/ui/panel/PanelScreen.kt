@@ -1,6 +1,28 @@
 package com.akshatgg.buddy.ui.panel
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.lerp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,12 +40,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -78,23 +98,13 @@ class PanelCallbacks(
     /** The ⚙ in the header. */
     val settings: () -> Unit = {},
     val close: () -> Unit = {},
-    /** The Claude button in the header and Claude mode's own; null where there is none (the Fix sheet, signed out). */
-    val claude: ClaudeCallbacks? = null,
+    /** The header's Claude button: Claude Code on its own screen. Null where there is none (the Fix sheet, signed out). */
+    val claude: (() -> Unit)? = null,
+    /** The card to the whole screen (true) or back (false): its handle, and the header's button. Null: it keeps its size. */
+    val setFull: ((Boolean) -> Unit)? = null,
 )
 
-/** What Claude mode's buttons and box do. PanelActivity wires them to ClaudeModel. */
-class ClaudeCallbacks(
-    /** The Claude button: into Claude mode, or back to the chat. */
-    val toggle: () -> Unit = {},
-    /** A session picked from the list. */
-    val open: (String) -> Unit = {},
-    /** "Look again", and "‹ Sessions". */
-    val list: () -> Unit = {},
-    val setDraft: (String) -> Unit = {},
-    val send: () -> Unit = {},
-)
-
-private const val PLACEHOLDER = "Tell me what to do…"
+internal const val PLACEHOLDER = "Tell me what to do…"
 
 /** The examples under the greeting of an empty chat, as on the Mac. */
 const val EXAMPLES = "“boss ko mail, kal chutti chahiye” · “fix this” · “what does this mean?”"
@@ -127,6 +137,18 @@ private val SendArrow = ImageVector.Builder("send", 16.dp, 16.dp, 16f, 16f).addP
     strokeLineJoin = StrokeJoin.Round,
 ).build()
 
+// Four corners pointing out, for "Full screen", and in, for "Smaller".
+private fun corners(name: String, path: String) = ImageVector.Builder(name, 16.dp, 16.dp, 16f, 16f).addPath(
+    pathData = addPathNodes(path),
+    stroke = SolidColor(Color.Black),
+    strokeLineWidth = 1.7f,
+    strokeLineCap = StrokeCap.Round,
+    strokeLineJoin = StrokeJoin.Round,
+).build()
+
+private val Bigger = corners("bigger", "M2 6V2H6M10 2H14V6M14 10V14H10M6 14H2V10")
+private val Smaller = corners("smaller", "M6 2V6H2M14 6H10V2M10 14V10H14M2 10H6V14")
+
 /** The first words of a selection, for its card. */
 internal fun firstWords(selection: String, max: Int = 60): String {
     val line = selection.replace(Regex("\\s+"), " ").trim()
@@ -138,44 +160,71 @@ internal fun canSend(state: PanelState) = !state.busy && (state.draft.isNotBlank
 
 /**
  * The panel: a card at the bottom of the screen with the buddy's name and the app, the chat, the selection the panel
- * was opened with, and the box, in the Mac panel's words. `micButton` is the voice button's place in the box. With
- * Claude mode on (`claude`, where the panel has a Claude button), a Claude Code session takes the chat's place, and the
- * box types into it.
+ * was opened with, and the box, in the Mac panel's words. `micButton` is the voice button's place in the box. `full`:
+ * the card fills the screen (where `on.setFull` lets it).
  */
 @Composable
 fun PanelScreen(
     state: PanelState,
     buddyName: String,
     on: PanelCallbacks,
-    claude: ClaudeState = ClaudeState(),
+    full: Boolean = false,
     micButton: @Composable () -> Unit = {},
 ) {
-    val claudeOn = on.claude?.takeIf { claude.on }
-    Sheet(on.close) {
-        Header(buddyName, if (claudeOn != null) "Claude Code" else state.appName, on.settings, on.close, on.claude?.let { c -> { ClaudeButton(claude.on, c.toggle) } })
-        if (claudeOn != null) {
-            ClaudeView(claude, claudeOn, Modifier.weight(1f, fill = false))
-            InputRow(claude.draft, claude.placeholder ?: PLACEHOLDER, claude.canSend, claudeOn.setDraft, claudeOn.send, micButton)
-            claude.boxError?.let { Text(it, color = Buddy.colors.error, style = MaterialTheme.typography.bodySmall) }
-        } else {
-            Messages(state, Modifier.weight(1f, fill = false), on.press)
-            if (state.busy) Busy(buddyName)
-            if (state.selection.isNotBlank()) SelectionCard(state.selection, on.dropSelection)
-            InputRow(state.draft, PLACEHOLDER, canSend(state), on.setDraft, on.send, micButton)
-            state.boxError?.let { Text(it, color = Buddy.colors.error, style = MaterialTheme.typography.bodySmall) }
-        }
+    Sheet(on.close, full, on.setFull) { body ->
+        Header(buddyName, state.appName, on.settings, on.close, on.claude, full, on.setFull)
+        Messages(state, body, on.press)
+        if (state.busy) Busy(buddyName)
+        if (state.selection.isNotBlank()) SelectionCard(state.selection, on.dropSelection)
+        InputRow(state.draft, PLACEHOLDER, canSend(state), on.setDraft, on.send, micButton)
+        state.boxError?.let { Text(it, color = Buddy.colors.error, style = MaterialTheme.typography.bodySmall) }
     }
 }
 
+// How long the card takes to fill the screen, or to go back.
+private const val GROW_MS = 250
+
 /**
  * Buddy's card over whatever app is on screen, at the bottom, at most most of the screen high, with a handle bar. A
- * tap outside the card closes it, as a click anywhere else hides the Mac's panel.
+ * tap outside the card closes it, as a click anywhere else hides the Mac's panel. Its handle pulls it: up to the whole
+ * screen (`full`, through `setFull`), down from there back to the card, and down from the card to close it; the card
+ * follows the finger while it pulls, and goes on to where sheetMove says when it lets go. Full, the card is the whole
+ * screen, and keeps its words clear of the status bar, the navigation bar and the keyboard. `body` is for the part of
+ * the content that takes the room the card has (the chat): it fills a card that is taller than what it holds.
  */
 @Composable
-internal fun Sheet(onClose: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun Sheet(
+    onClose: () -> Unit,
+    full: Boolean = false,
+    setFull: ((Boolean) -> Unit)? = null,
+    content: @Composable ColumnScope.(body: Modifier) -> Unit,
+) {
     val colors = Buddy.colors
+    val density = LocalDensity.current
+    val direction = LocalLayoutDirection.current
+    val nowFull by rememberUpdatedState(full && setFull != null)
+    val nowSetFull by rememberUpdatedState(setFull)
+    val nowClose by rememberUpdatedState(onClose)
+    // 0: the card, 1: the whole screen, and between the two while it moves.
+    val grown = remember { Animatable(if (nowFull) 1f else 0f) }
+    // How far the card is pulled down below its place, toward closing (px).
+    val slide = remember { Animatable(0f) }
+    // How far the handle is pulled now (px, down is more); 0 when the finger is up.
+    var drag by remember { mutableFloatStateOf(0f) }
+    // The card's own height (px), measured while it is a card: where it grows from. 0 until it has been one.
+    var natural by remember { mutableIntStateOf(0) }
+    LaunchedEffect(nowFull) { grown.animateTo(if (nowFull) 1f else 0f, tween(GROW_MS)) }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val tallest = maxHeight * 0.85f
+        val screen = constraints.maxHeight.toFloat()
+        // What the card grows by from its own height to the whole screen; half the screen if it opened full.
+        fun span() = (screen - (natural.takeIf { it > 0 } ?: (screen / 2).toInt())).coerceAtLeast(1f)
+        // Where the card is with the finger's pull added: a pull up grows it, a pull down shrinks it to a card and then
+        // slides it down.
+        fun grownNow() = if (nowSetFull == null) 0f else (grown.value - drag / span()).coerceIn(0f, 1f)
+        fun slideNow() = (slide.value + (drag - grown.value * span()).coerceAtLeast(0f)).coerceAtLeast(0f)
+        val p = grownNow()
         Spacer(
             Modifier.fillMaxSize().clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -184,38 +233,102 @@ internal fun Sheet(onClose: () -> Unit, content: @Composable ColumnScope.() -> U
                 onClick = onClose,
             ),
         )
+        // The system bars and the keyboard: around the card while it is one, inside it as it fills the screen.
+        val insets = WindowInsets.safeDrawing.asPaddingValues()
+        fun around(p: Float, side: Dp, margin: Dp) = (side + margin) * (1f - p)
+        val outside = PaddingValues(
+            start = around(p, insets.calculateStartPadding(direction), 16.dp),
+            top = around(p, insets.calculateTopPadding(), 16.dp),
+            end = around(p, insets.calculateEndPadding(direction), 16.dp),
+            bottom = around(p, insets.calculateBottomPadding(), 16.dp),
+        )
+        val inside = PaddingValues(
+            start = insets.calculateStartPadding(direction) * p,
+            top = insets.calculateTopPadding() * p,
+            end = insets.calculateEndPadding(direction) * p,
+            bottom = insets.calculateBottomPadding() * p,
+        )
+        val size = if (p > 0f) {
+            val from = with(density) { natural.takeIf { it > 0 }?.toDp() ?: (maxHeight / 2) }
+            Modifier.height(lerp(from, maxHeight, p))
+        } else {
+            Modifier.heightIn(max = tallest).onSizeChanged { if (drag == 0f && slide.value == 0f) natural = it.height }
+        }
         // A Surface takes every touch that lands on it, so a tap on the card never reaches the space behind it.
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.safeDrawing)
-                .imePadding()
-                .padding(16.dp)
-                .widthIn(max = 420.dp)
-                .heightIn(max = tallest)
+                .graphicsLayer { translationY = slideNow() }
+                .padding(outside)
+                .widthIn(max = if (maxWidth > 420.dp) lerp(420.dp, maxWidth, p) else maxWidth)
+                .then(size)
                 .fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(lerp(14.dp, 0.dp, p)),
             color = colors.card,
             contentColor = colors.fg,
-            border = BorderStroke(1.dp, colors.line),
+            border = if (p < 1f) BorderStroke(1.dp, colors.line) else null,
             shadowElevation = 6.dp,
         ) {
-            Column(
-                Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Box(
-                    Modifier.align(Alignment.CenterHorizontally).size(width = 36.dp, height = 4.dp)
-                        .background(colors.line, RoundedCornerShape(2.dp)),
+            Column(Modifier.padding(inside).padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
+                Handle(
+                    pull = { drag += it },
+                    letGo = { velocity ->
+                        val move = sheetMove(nowFull, drag, velocity, screen).let {
+                            if (nowSetFull == null && (it == SheetMove.EXPAND || it == SheetMove.COLLAPSE)) SheetMove.STAY else it
+                        }
+                        if (move == SheetMove.CLOSE) {
+                            nowClose()
+                            return@Handle
+                        }
+                        // The card stays where the finger left it, and goes on from there.
+                        val at = grownNow()
+                        val down = slideNow()
+                        grown.snapTo(at)
+                        slide.snapTo(down)
+                        drag = 0f
+                        when (move) {
+                            SheetMove.EXPAND -> nowSetFull?.invoke(true)
+                            SheetMove.COLLAPSE -> nowSetFull?.invoke(false)
+                            else -> {}
+                        }
+                        coroutineScope {
+                            launch { slide.animateTo(0f, tween(GROW_MS)) }
+                            if (move == SheetMove.STAY) launch { grown.animateTo(if (nowFull) 1f else 0f, tween(GROW_MS)) }
+                        }
+                    },
                 )
-                content()
+                Column(Modifier.weight(1f, fill = p > 0f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    content(Modifier.weight(1f, fill = p > 0f))
+                }
             }
         }
     }
 }
 
+/** The bar at the top of the card, and the strip around it that the finger pulls. */
 @Composable
-private fun Header(buddyName: String, appName: String, onSettings: () -> Unit, onClose: () -> Unit, claudeButton: (@Composable () -> Unit)? = null) {
+private fun Handle(pull: (Float) -> Unit, letGo: suspend CoroutineScope.(Float) -> Unit) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(22.dp)
+            .draggable(rememberDraggableState(pull), Orientation.Vertical, onDragStopped = letGo),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Box(Modifier.padding(top = 8.dp).size(width = 36.dp, height = 4.dp).background(Buddy.colors.line, RoundedCornerShape(2.dp)))
+    }
+}
+
+@Composable
+private fun Header(
+    buddyName: String,
+    appName: String,
+    onSettings: () -> Unit,
+    onClose: () -> Unit,
+    onClaude: (() -> Unit)?,
+    full: Boolean,
+    setFull: ((Boolean) -> Unit)?,
+) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(buddyName, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium, maxLines = 1)
         Text(
@@ -226,7 +339,12 @@ private fun Header(buddyName: String, appName: String, onSettings: () -> Unit, o
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        claudeButton?.invoke()
+        onClaude?.let { ClaudeButton(it) }
+        setFull?.let { set ->
+            IconButton(onClick = { set(!full) }) {
+                Icon(if (full) Smaller else Bigger, contentDescription = if (full) "Smaller" else "Full screen", Modifier.size(16.dp), tint = Buddy.colors.muted)
+            }
+        }
         IconButton(onClick = onSettings) {
             Icon(Gear, contentDescription = "Settings", Modifier.size(18.dp), tint = Buddy.colors.muted)
         }
@@ -345,7 +463,7 @@ private fun SelectionCard(selection: String, onDrop: () -> Unit) {
 
 /** The box, the 🎤 and the send button: the chat's, or in Claude mode the session's. */
 @Composable
-private fun InputRow(draft: String, placeholder: String, canSend: Boolean, setDraft: (String) -> Unit, send: () -> Unit, micButton: @Composable () -> Unit) {
+internal fun InputRow(draft: String, placeholder: String, canSend: Boolean, setDraft: (String) -> Unit, send: () -> Unit, micButton: @Composable () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         OutlinedTextField(
             value = draft,

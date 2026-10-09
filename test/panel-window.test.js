@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { createPanelWindow, permissionRules, PAGE } = require('../src/main/panel-window');
-const { panelBounds } = require('../src/main/geometry');
+const { panelBounds, PANEL: PANEL_SIZE, PANEL_BIG, PANEL_MIN } = require('../src/main/geometry');
 const { panelUnderNotch } = require('../src/main/notch-geometry');
 
 const PAGE_URL = pathToFileURL(PAGE).href;
@@ -116,7 +116,10 @@ class FakeWindow {
         this.handlers[event] = fn;
       },
       setWindowOpenHandler() {},
-      send() {},
+      sent: [],
+      send(channel, payload) {
+        this.sent.push([channel, payload]);
+      },
       isDevToolsOpened: () => false,
     };
   }
@@ -349,4 +352,72 @@ test('a late blur from Buddy\'s own brief hide leaves the panel open when it has
   w.focused = false; // a real click somewhere else
   w.events.blur();
   assert.strictEqual(w.isVisible(), false);
+});
+
+// ---- the panel's size ----
+
+/** A store that keeps what it is given, as the settings file does. */
+const memoryStore = (saved = {}) => ({ saved, get: (k) => saved[k], set: (p) => Object.assign(saved, p) });
+const layoutOf = (w) => w.webContents.sent.filter(([channel]) => channel === 'panel:layout').at(-1)?.[1];
+
+test('the grip, dragged, resizes the panel beside the buddy, keeps it there, and the size is kept for next time', async () => {
+  const store = memoryStore();
+  const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession(), store });
+  await panel.show({}, BESIDE); // the buddy is on the right half: the panel on its left, the grip on the panel's left
+  const w = panel.window();
+  assert.deepStrictEqual(w.bounds, panelBounds(BUDDY, AREA));
+  assert.deepStrictEqual(layoutOf(w), { grip: 'left', big: false });
+
+  panel.resizeStart({ x: 500, y: 700 });
+  panel.resizeMove({ x: 400, y: 750 }); // 100 left (wider) and 50 down (twice that taller: it stays centred on the buddy)
+  assert.deepStrictEqual([w.bounds.width, w.bounds.height], [PANEL_SIZE.width + 100, PANEL_SIZE.height + 100]);
+  assert.strictEqual(w.bounds.x + w.bounds.width, panelBounds(BUDDY, AREA).x + PANEL_SIZE.width, 'the edge beside the buddy stays put');
+  assert.strictEqual(store.saved.panelSize, undefined, 'not kept until the drag ends');
+  panel.resizeEnd();
+  assert.deepStrictEqual(store.saved.panelSize, { width: PANEL_SIZE.width + 100, height: PANEL_SIZE.height + 100 });
+
+  panel.resizeStart({ x: 0, y: 0 });
+  panel.resizeMove({ x: 5000, y: -5000 }); // far past the smallest
+  panel.resizeEnd();
+  assert.deepStrictEqual(store.saved.panelSize, PANEL_MIN, 'never smaller than PANEL_MIN');
+
+  const again = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession(), store });
+  await again.show({}, BESIDE);
+  assert.deepStrictEqual([again.window().bounds.width, again.window().bounds.height], [PANEL_MIN.width, PANEL_MIN.height], 'opens as it was left');
+});
+
+test('⤢ makes the panel big (as the screen allows), and again back to its first size', async () => {
+  const store = memoryStore();
+  const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession(), store });
+  await panel.show({}, BESIDE);
+  const w = panel.window();
+  panel.toggleSize();
+  assert.deepStrictEqual([w.bounds.width, w.bounds.height], [PANEL_BIG.width, Math.min(PANEL_BIG.height, AREA.height - 16)]);
+  assert.strictEqual(layoutOf(w).big, true);
+  assert.ok(w.bounds.y >= AREA.y && w.bounds.y + w.bounds.height <= AREA.y + AREA.height, 'on the screen');
+  panel.toggleSize();
+  assert.deepStrictEqual([w.bounds.width, w.bounds.height], [PANEL_SIZE.width, PANEL_SIZE.height]);
+  assert.strictEqual(layoutOf(w).big, false);
+  assert.deepStrictEqual(store.saved.panelSize, PANEL_SIZE);
+});
+
+test('under the notch the grip is in the bottom corner and the panel grows from its middle', async () => {
+  const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession(), store: memoryStore() });
+  await panel.show({}, BELOW);
+  const w = panel.window();
+  assert.strictEqual(layoutOf(w).grip, 'both');
+  const middle = w.bounds.x + w.bounds.width / 2;
+  panel.resizeStart({ x: 0, y: 0 });
+  panel.resizeMove({ x: 40, y: 60 });
+  assert.deepStrictEqual([w.bounds.width, w.bounds.height], [PANEL_SIZE.width + 80, PANEL_SIZE.height + 60]);
+  assert.strictEqual(w.bounds.x + w.bounds.width / 2, middle, 'still centred on the notch');
+});
+
+test('a drag or ⤢ before the panel ever opened does nothing', () => {
+  const panel = createPanelWindow({ BrowserWindow: FakeWindow, session: fakeSession(), store: memoryStore() });
+  panel.resizeStart({ x: 0, y: 0 });
+  panel.resizeMove({ x: 10, y: 10 });
+  panel.resizeEnd();
+  panel.toggleSize();
+  assert.strictEqual(panel.window(), null);
 });

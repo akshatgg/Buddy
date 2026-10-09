@@ -10,6 +10,12 @@ contextBridge.exposeInMainWorld('buddy', {
   act: (id, button) => ipcRenderer.invoke('panel:act', id, button),
   dropSelection: () => ipcRenderer.invoke('panel:drop-selection'),
   close: () => ipcRenderer.send('panel:close'),
+  // The panel's size: its grip dragged (the pointer's place on the screen), the header's ⤢, and where the grip goes.
+  resizeStart: (point) => ipcRenderer.send('panel:resize-start', point),
+  resizeMove: (point) => ipcRenderer.send('panel:resize-move', point),
+  resizeEnd: () => ipcRenderer.send('panel:resize-end'),
+  toggleSize: () => ipcRenderer.send('panel:size-toggle'),
+  onLayout: (fn) => ipcRenderer.on('panel:layout', (_event, layout) => fn(layout)),
   openSettings: (code) => ipcRenderer.send('panel:open-settings', typeof code === 'string' ? code : undefined),
   // Voice: may the panel use the microphone (on the Mac this asks macOS the first time), write down a recording
   // (base64) through Buddy's server, and tell main when the panel listens and how loud the voice is (0 to 1).

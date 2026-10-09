@@ -31,6 +31,7 @@ const DEFAULTS = Object.freeze({
   home: 'notch', // Settings → Buddy's "Where Buddy lives": 'notch' (on a Mac with one) or 'floating' (src/main/home.js)
   projects: [], // the folders Claude Code may work in, as [{ path, name }] (src/main/claude/projects.js)
   lastProject: null, // the path of the project the chat last worked in, or null
+  panelSize: null, // the size the person made the panel (panel-window.js): null for the size it first opens at
   watchClaudeCode: false, // Settings → Claude Code's "Show me what Claude Code is doing" (src/main/claude/watch.js)
   shareClaudeToPhone: false, // Settings → Claude Code's "Show my sessions on my other devices" (src/main/claude/share.js)
   deviceId: null, // this computer, to the person's other devices (claude/share.js thisDevice): made on first use

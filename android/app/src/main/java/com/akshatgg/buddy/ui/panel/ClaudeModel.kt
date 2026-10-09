@@ -25,10 +25,10 @@ const val CLAUDE_NO_TALK = "Your computer can't type into this terminal; what yo
 private const val FAILED = "Something went wrong. Try again."
 
 /**
- * What Claude mode shows. `on`: the panel shows Claude mode instead of the chat. While `session` is null the sessions
- * are listed: `looking` while they are asked for, `online` whether the computer shares them (null: not known, as when
- * the asking failed with `listError`). With a `session`, its `items` (null until the computer has sent them) and
- * `problem`, why the last look at it failed. `draft` and `boxError` are the box's, kept apart from the chat's.
+ * What Claude mode shows. `on`: in Claude mode (its screen is open, and the person signed in). While `session` is null
+ * the sessions are listed: `looking` while they are asked for, `online` whether the computer shares them (null: not
+ * known, as when the asking failed with `listError`). With a `session`, its `items` (null until the computer has sent
+ * them) and `problem`, why the last look at it failed. `draft` and `boxError` are the box's.
  */
 data class ClaudeState(
     val on: Boolean = false,
@@ -51,11 +51,11 @@ data class ClaudeState(
 }
 
 /**
- * Claude mode in the panel, as the Mac panel's (panel.js, its end) on a phone: the Claude Code sessions running on the
- * person's computer, reached through Buddy's server, and one of them shown, with the box typing into it. The phone
- * looks at the session it shows every 1.5 s, and only while the panel is on screen: the computer sends its items only
- * while the phone looks, and stops when it is told (`stop`: back to the list, out of Claude mode, the panel hidden or
- * closed). Plain Kotlin, so that it is tested on the JVM; `look`, `send` and `stop` are CloudClient's calls.
+ * Claude mode, on its own screen (ClaudeActivity), as the Mac panel's (panel.js, its end) on a phone: the Claude Code
+ * sessions running on the person's computers, reached through Buddy's server, and one of them shown, with the box
+ * typing into it. The phone looks at the session it shows every 1.5 s, and only while the screen is in view: the
+ * computer sends its items only while the phone looks, and stops when it is told (`stop`: back to the list, out of
+ * Claude mode, the screen hidden or closed). Plain Kotlin, so that it is tested on the JVM; `look`, `send` and `stop` are CloudClient's calls.
  */
 class ClaudeModel(
     private val look: suspend (String?) -> RemoteLook,
@@ -68,7 +68,7 @@ class ClaudeModel(
     val state: StateFlow<ClaudeState> = current.asStateFlow()
 
     private var listing: Job? = null // the sessions being asked for now, if they are
-    private var polling: Job? = null // the looks at the session shown, while the panel is on screen
+    private var polling: Job? = null // the looks at the session shown, while the screen is in view
     private var shown = true
     private var generation = 0 // one more each time Claude mode ends: what was on its way for an earlier one is dropped
 
@@ -78,23 +78,23 @@ class ClaudeModel(
 
     // ---- in and out ----
 
-    /** The Claude button: into Claude mode, on the list of sessions; or back to the chat. */
-    fun toggle() {
-        if (current.value.on) {
-            leave()
-            return
-        }
+    /**
+     * Into Claude mode, on the list of sessions: the screen opened, or the person signed in on it. Already in it (the
+     * screen made again after a turn of the phone), it stays where it is.
+     */
+    fun enter() {
+        if (current.value.on) return
         update { copy(on = true) }
         list()
     }
 
-    /** The panel was closed: Claude mode ends with it, and the next panel opens on the chat. */
+    /** The screen was closed: Claude mode ends with it. */
     fun close() {
         shown = false
         leave()
     }
 
-    /** Back to the chat (the Claude button again, or the person signed out): Claude mode's work stops, and the computer's. */
+    /** Out of Claude mode (the person signed out): its work stops, and the computer's. */
     fun leave() {
         generation += 1
         listing?.cancel()
@@ -103,7 +103,7 @@ class ClaudeModel(
         current.value = ClaudeState()
     }
 
-    /** The panel is on screen again: the session it showed is looked at again, or the sessions asked for anew. */
+    /** The screen is in view again: the session it showed is looked at again, or the sessions asked for anew. */
     fun shown() {
         shown = true
         val s = current.value
@@ -111,7 +111,7 @@ class ClaudeModel(
         if (s.session != null) poll() else list()
     }
 
-    /** The panel went behind the app: the phone stops looking, and the computer stops sending. */
+    /** The screen went out of view: the phone stops looking, and the computer stops sending. */
     fun hidden() {
         shown = false
         if (polling != null) {

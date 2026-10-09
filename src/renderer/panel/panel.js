@@ -752,3 +752,43 @@ window.buddy.onClaudeState(async (session) => {
   $('claude-pick-error').textContent = session.message;
   show($('claude-pick-error'), true);
 });
+
+/* ---- The panel's size: the grip in its corner, and the header's ⤢ ---- */
+
+const grip = $('grip');
+const SIZE_WORDS = { small: { glyph: '⤢', title: 'Bigger', label: 'Make the panel bigger' }, big: { glyph: '⤡', title: 'Smaller', label: 'Make the panel smaller' } };
+
+/** Main says where the grip goes (away from the buddy) and whether the panel is big (⤢ then makes it smaller). */
+window.buddy.onLayout(({ grip: side, big }) => {
+  grip.className = `grip ${['left', 'right', 'both'].includes(side) ? side : 'right'}`;
+  const words = big ? SIZE_WORDS.big : SIZE_WORDS.small;
+  $('size').textContent = words.glyph;
+  $('size').title = words.title;
+  $('size').setAttribute('aria-label', words.label);
+});
+$('size').addEventListener('click', () => window.buddy.toggleSize());
+
+// The grip follows the pointer on the screen (screenX/Y), since the window moves under it as it grows. The drag is
+// followed on the whole page and ends on any release: the window resizing under the pointer can take its capture away.
+let resizingPointer = null;
+grip.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  resizingPointer = e.pointerId;
+  try {
+    grip.setPointerCapture(e.pointerId);
+  } catch {
+    // followed on the page all the same
+  }
+  window.buddy.resizeStart({ x: e.screenX, y: e.screenY });
+});
+document.addEventListener('pointermove', (e) => {
+  if (e.pointerId === resizingPointer) window.buddy.resizeMove({ x: e.screenX, y: e.screenY });
+});
+const endResize = (e) => {
+  if (e.pointerId !== resizingPointer) return;
+  resizingPointer = null;
+  window.buddy.resizeEnd();
+};
+document.addEventListener('pointerup', endResize);
+document.addEventListener('pointercancel', endResize);

@@ -50,6 +50,9 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
 .icon::before, .icon::after { content: ""; position: absolute; left: 50%; top: 50%; background: currentColor; }
 .icon.glyph-gear::before { width: 14px; height: 14px; margin: -7px 0 0 -7px; clip-path: var(--glyph); }
 .icon.glyph-gear::after { display: none; }
+/* ⤢: bigger, and ⤡ back when it is big (panel.js sets the words). */
+.icon.glyph-size::before, .icon.glyph-size::after { display: none; }
+.icon.glyph-size { font-size: 15px; line-height: 28px; }
 .cross::before, .cross::after {
   width: 13px;
   height: 1.5px;
@@ -370,3 +373,20 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
 .claude-items .cl-result.error { border-left-color: var(--error); color: var(--error); }
 .claude-items .cl-event { align-self: center; color: var(--muted); font-size: 12px; }
 .claude-items .cl-note { align-self: center; color: var(--muted); font-size: 11px; }
+
+/* ---- The panel's size: the grip in its outer bottom corner (away from the buddy), dragged to resize ---- */
+
+.grip { position: fixed; bottom: 7px; width: 16px; height: 16px; z-index: 2; touch-action: none; }
+.grip.right, .grip.both { right: 7px; cursor: nwse-resize; }
+.grip.left { left: 7px; cursor: nesw-resize; }
+/* Three short diagonal lines, as a window's own resize corner has. */
+.grip::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  background: repeating-linear-gradient(135deg, transparent 0 3px, var(--muted) 3px 4px);
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  opacity: 0.6;
+}
+.grip.left::before { clip-path: polygon(0 0, 100% 100%, 0 100%); background: repeating-linear-gradient(45deg, transparent 0 3px, var(--muted) 3px 4px); }
+.grip:hover::before { opacity: 1; }

@@ -38,7 +38,20 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- A long press on Buddy's icon: Claude Code. -->
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
+        <!-- Claude Code on Buddy's own screen: from the panel's Claude button, and from the shortcut on Buddy's icon. Its
+             own task, so that Back from it goes to where the person was, not to Settings; in Recents as "Claude Code". The
+             launcher starts a shortcut as Buddy itself, so no other app needs to reach it. -->
+        <activity
+            android:name=".ui.claude.ClaudeActivity"
+            android:exported="false"
+            android:label="@string/claude_label"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.akshatgg.buddy.claude"
+            android:theme="@style/Theme.Buddy"
+            android:windowSoftInputMode="adjustResize" />
         <!-- Its own task (no affinity), kept out of Recents: the panel is a card over another app, not a screen of Buddy's. -->
         <activity
             android:name=".ui.panel.PanelActivity"

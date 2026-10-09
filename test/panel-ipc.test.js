@@ -25,6 +25,10 @@ function setup(actions = {}, { platform = 'darwin', mic = 'granted', openFails =
     panel: {
       window: () => ({ webContents: PANEL_PAGE }),
       hide: () => calls.push('hide'),
+      resizeStart: (p) => calls.push(['resizeStart', p]),
+      resizeMove: (p) => calls.push(['resizeMove', p]),
+      resizeEnd: () => calls.push('resizeEnd'),
+      toggleSize: () => calls.push('toggleSize'),
       whileHeld: async (ask) => { calls.push('hold'); try { return await ask(); } finally { calls.push('let go'); } },
     },
     actions,
@@ -60,12 +64,15 @@ function setup(actions = {}, { platform = 'darwin', mic = 'granted', openFails =
   return { handlers, listeners, calls, fromPanel: { sender: PANEL_PAGE } };
 }
 
-test('the panel asks through eight channels and tells main five things; the old ones are gone', () => {
+test('the panel asks through eight channels and tells main nine things; the old ones are gone', () => {
   const s = setup();
   assert.deepStrictEqual(Object.keys(s.handlers).sort(), [
     'panel:act', 'panel:claude-open', 'panel:claude-sessions', 'panel:claude-talk', 'panel:drop-selection', 'panel:mic-access', 'panel:send', 'panel:transcribe',
   ]);
-  assert.deepStrictEqual(Object.keys(s.listeners).sort(), ['panel:claude-close', 'panel:close', 'panel:listening', 'panel:open-settings', 'panel:voice-level']);
+  assert.deepStrictEqual(Object.keys(s.listeners).sort(), [
+    'panel:claude-close', 'panel:close', 'panel:listening', 'panel:open-settings', 'panel:resize-end', 'panel:resize-move', 'panel:resize-start',
+    'panel:size-toggle', 'panel:voice-level',
+  ]);
 });
 
 test('Claude mode: the sessions, one opened, words for its terminal (only text), and closing it, from the panel only', async () => {
@@ -342,4 +349,16 @@ test('elsewhere the microphone is unknown, and nothing is asked', async () => {
   assert.strictEqual(microphone.status(), 'unknown');
   assert.strictEqual(await microphone.ask(), 'unknown');
   assert.deepStrictEqual(system.log, []);
+});
+
+test("the grip's drag and the ⤢ reach the panel window, from the panel page only, with real points only", () => {
+  const s = setup();
+  s.listeners['panel:resize-start'](s.fromPanel, { x: 10, y: 20 });
+  s.listeners['panel:resize-move'](s.fromPanel, { x: 30.5, y: 25 });
+  s.listeners['panel:resize-move'](s.fromPanel, { x: NaN, y: 1 });
+  s.listeners['panel:resize-move'](s.fromPanel, 'x');
+  s.listeners['panel:resize-end'](s.fromPanel);
+  s.listeners['panel:size-toggle'](s.fromPanel);
+  for (const channel of ['panel:resize-start', 'panel:resize-move', 'panel:resize-end', 'panel:size-toggle']) s.listeners[channel](SOMEONE_ELSE, { x: 1, y: 1 });
+  assert.deepStrictEqual(s.calls, [['resizeStart', { x: 10, y: 20 }], ['resizeMove', { x: 30.5, y: 25 }], 'resizeEnd', 'toggleSize']);
 });

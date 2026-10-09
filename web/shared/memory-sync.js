@@ -115,7 +115,19 @@ function opsToSend({ uid, linked, facts, outbox }) {
   return { ops: adds.slice(-MAX_OPS), sent: kept.length };
 }
 
+/**
+ * The outbox once the server answered: `now` without the `sent` changes of `then` (the outbox as it was sent). Changes
+ * made meanwhile were added after those; but "Forget everything", or an outbox past MAX_OPS, rewrote it, and then all
+ * of `now` stays to be sent next time (sending a change twice does no harm).
+ */
+function outboxAfter(then, sent, now) {
+  const read = (box) => (Array.isArray(box) ? box.map(readOp).filter(Boolean) : []);
+  const covered = JSON.stringify(read(then).slice(0, sent));
+  const current = read(now);
+  return JSON.stringify(current.slice(0, sent)) === covered ? current.slice(sent) : current;
+}
+
 /** What a device keeps after the server answered `facts`: those, with the changes it made meanwhile (`rest`) on top. */
 const afterSync = (facts, rest) => applyOps({ facts }, (rest || []).map(readOp).filter(Boolean)).result.facts;
 
-module.exports = { MAX_OPS, MAX_GONE, checkOps, applyOps, addToOutbox, opsToSend, afterSync, factsOf };
+module.exports = { MAX_OPS, MAX_GONE, checkOps, applyOps, addToOutbox, opsToSend, outboxAfter, afterSync, factsOf };

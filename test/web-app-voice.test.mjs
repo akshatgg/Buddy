@@ -11,17 +11,19 @@ const settle = () => new Promise((resolve) => setImmediate(resolve));
  * A browser with a microphone that hears `level` (the samples' value), a recorder that records `mimeType`, a clock
  * the test moves (tick(ms) runs the timers that are due), and `denied` for a microphone the person said no to.
  */
-function fakeBrowser({ level = 0.3, mimeType = 'audio/mp4', denied = false, supports = ['audio/mp4'] } = {}) {
+function fakeBrowser({ level = 0.3, mimeType = 'audio/mp4', denied = false, supports = ['audio/mp4'], recorderBreaks = false, slow = false } = {}) {
   let now = 0;
   let timers = [];
   const mic = { level };
-  const seen = { tracksStopped: 0, closed: 0, recorderStarted: null };
+  const seen = { tracksStopped: 0, closed: 0, resumed: 0, recorderStarted: null, asked: 0 };
+  const pending = [];
   class Recorder extends EventTarget {
     static isTypeSupported(type) {
       return supports.includes(type);
     }
     constructor(stream, options) {
       super();
+      if (recorderBreaks) throw new Error('no recorder');
       this.options = options;
       this.mimeType = mimeType;
       this.state = 'inactive';
@@ -39,6 +41,9 @@ function fakeBrowser({ level = 0.3, mimeType = 'audio/mp4', denied = false, supp
     }
   }
   class AudioCtx {
+    async resume() {
+      seen.resumed += 1;
+    }
     createAnalyser() {
       return { fftSize: 0, getFloatTimeDomainData: (samples) => samples.fill(mic.level) };
     }
@@ -64,6 +69,8 @@ function fakeBrowser({ level = 0.3, mimeType = 'audio/mp4', denied = false, supp
     navigator: {
       mediaDevices: {
         getUserMedia: async () => {
+          seen.asked += 1;
+          if (slow) await new Promise((resolve) => pending.push(resolve)); // the phone is still asking
           if (denied) throw Object.assign(new Error('no'), { name: 'NotAllowedError' });
           return { getTracks: () => [{ stop: () => { seen.tracksStopped += 1; } }] };
         },
@@ -73,6 +80,10 @@ function fakeBrowser({ level = 0.3, mimeType = 'audio/mp4', denied = false, supp
   return {
     env,
     seen,
+    /** The phone answers the questions it was asked. */
+    answer() {
+      while (pending.length) pending.shift()();
+    },
     /** From now on the microphone hears this. */
     hear(value) {
       mic.level = value;
@@ -179,4 +190,36 @@ test('the kind of recording, and base64', () => {
   assert.strictEqual(toBase64(new Uint8Array([104, 105])), 'aGk=');
   const big = new Uint8Array(100_000).fill(65);
   assert.strictEqual(Buffer.from(toBase64(big), 'base64').length, 100_000);
+});
+
+test('a recorder that cannot be made lets the microphone go, and the next tap works', async () => {
+  const broken = fakeBrowser({ recorderBreaks: true });
+  const { voice, seen } = setup(broken);
+  await voice.start();
+  assert.strictEqual(broken.seen.tracksStopped, 1, 'the microphone is let go');
+  assert.strictEqual(voice.state, 'idle');
+  assert.deepStrictEqual(seen.errors, [NO_MIC]);
+  broken.env.MediaRecorder = fakeBrowser().env.MediaRecorder; // now it can
+  await voice.start();
+  assert.strictEqual(voice.state, 'listening');
+});
+
+test('the sound is woken (iOS may start it asleep)', async () => {
+  const browser = fakeBrowser();
+  const { voice } = setup(browser);
+  await voice.start();
+  assert.strictEqual(browser.seen.resumed, 1);
+});
+
+test('cancel and a new tap while the phone is still asking: only the new one listens', async () => {
+  const browser = fakeBrowser({ slow: true });
+  const { voice } = setup(browser);
+  const first = voice.start();
+  voice.cancel();
+  const second = voice.start();
+  browser.answer();
+  await Promise.all([first, second]);
+  assert.strictEqual(voice.state, 'listening');
+  assert.strictEqual(browser.seen.tracksStopped, 1, "the first tap's microphone is let go");
+  assert.strictEqual(browser.seen.asked, 2);
 });

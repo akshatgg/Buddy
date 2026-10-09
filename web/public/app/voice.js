@@ -49,6 +49,7 @@ export function voiceFailure(err) {
  */
 export function createVoice({ transcribe, onState = () => {}, onLevel = () => {}, onWords = () => {}, onError = () => {}, env = globalThis }) {
   let state = 'idle';
+  let began = 0; // counts the taps that started listening
   let rec = null; // the recording under way: { stream, recorder, chunks, size, ctx, timer, timing, began }
 
   function set(next) {
@@ -120,36 +121,49 @@ export function createVoice({ transcribe, onState = () => {}, onLevel = () => {}
         return;
       }
       set('listening');
+      const turn = ++began; // a cancel and a new tap while the phone is still asking must not both go on
       let stream;
       try {
         stream = await env.navigator.mediaDevices.getUserMedia({ audio: true });
       } catch (err) {
+        if (turn !== began) return;
         set('idle');
         onError(err?.name === 'NotAllowedError' ? MIC_DENIED : NO_MIC);
         return;
       }
-      if (state !== 'listening') {
+      if (state !== 'listening' || turn !== began) {
         for (const track of stream.getTracks()) track.stop(); // cancelled while the phone was asking
         return;
       }
-      const type = pickType((t) => Recorder.isTypeSupported(t));
-      const recorder = new Recorder(stream, type ? { mimeType: type } : {});
-      const ctx = new AudioCtx();
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 1024;
-      ctx.createMediaStreamSource(stream).connect(analyser);
-      rec = {
-        stream, recorder, ctx, analyser, chunks: [], size: 0, timer: null,
-        samples: new Float32Array(analyser.fftSize), timing: VoiceTiming.createVoiceTiming(), began: env.performance.now(),
-      };
-      const mine = rec;
-      recorder.addEventListener('dataavailable', (e) => {
-        if (!e.data?.size) return;
-        mine.chunks.push(e.data);
-        mine.size += e.data.size;
-      });
-      recorder.start(SLICE_MS);
-      rec.timer = env.setTimeout(look, LEVEL_EVERY_MS);
+      let ctx;
+      try {
+        const type = pickType((t) => Recorder.isTypeSupported(t));
+        const recorder = new Recorder(stream, type ? { mimeType: type } : {});
+        ctx = new AudioCtx();
+        ctx.resume?.().catch(() => {}); // made after an await, iOS may start it asleep, and the level would read silence
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 1024;
+        ctx.createMediaStreamSource(stream).connect(analyser);
+        rec = {
+          stream, recorder, ctx, analyser, chunks: [], size: 0, timer: null,
+          samples: new Float32Array(analyser.fftSize), timing: VoiceTiming.createVoiceTiming(), began: env.performance.now(),
+        };
+        const mine = rec;
+        recorder.addEventListener('dataavailable', (e) => {
+          if (!e.data?.size) return;
+          mine.chunks.push(e.data);
+          mine.size += e.data.size;
+        });
+        recorder.start(SLICE_MS);
+        rec.timer = env.setTimeout(look, LEVEL_EVERY_MS);
+      } catch {
+        // the microphone must not stay on (iOS keeps its light lit) when the recorder or the sound cannot be made
+        rec = null;
+        for (const track of stream.getTracks()) track.stop();
+        ctx?.close().catch(() => {});
+        set('idle');
+        onError(NO_MIC);
+      }
     },
 
     /** 🎤 tapped again: listening ends, and what was said is written down. */

@@ -10,6 +10,7 @@
  *                   refundDay, refundCount
  *   remote/{uid}    Claude mode on the phone: the sessions the person's computer shares (web/lib/remote.js)
  *   push/{uid}      the person's phones that get notifications: their Web Push subscriptions (web/lib/push.js)
+ *   memory/{uid}    what Buddy knows about the person, for all their devices (shared/memory-sync.js)
  */
 
 /**
@@ -26,6 +27,7 @@ function createFirestoreDb(firestore) {
   const users = firestore.collection('users');
   const remotes = firestore.collection('remote');
   const pushes = firestore.collection('push');
+  const memories = firestore.collection('memory');
 
   const toDate = (value) => (value && typeof value.toDate === 'function' ? value.toDate() : null);
   const fresh = ({ email, name, now }) => ({ email, name, joined: now, lastActive: null, blocked: false, usedDay: '', usedCount: 0 });
@@ -141,6 +143,11 @@ function createFirestoreDb(firestore) {
     /** The person's notifications record, changed in a transaction (update). */
     async updatePush(uid, change) {
       return update(pushes.doc(uid), change);
+    },
+
+    /** What Buddy knows about the person (memory/{uid}), changed in a transaction (update). */
+    async updateMemory(uid, change) {
+      return update(memories.doc(uid), change);
     },
 
     /** Block or unblock a person; null when there is nobody with that uid, or no uid that Firestore could have. */

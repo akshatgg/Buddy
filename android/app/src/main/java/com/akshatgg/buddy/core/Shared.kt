@@ -67,6 +67,12 @@ class Shared(json: String) {
     /** What Buddy may remember: cleanFact's limits and patterns, read by ai/MemoryRules.kt. */
     val memoryRules: JsonObject = root.getValue("memoryRules").jsonObject
 
+    // What Buddy knows, kept with the account (shared/memory-sync.js): the most changes one sync sends (and an outbox
+    // keeps), and the most forgotten ids a record remembers. Read by store/MemorySync.kt.
+    private val memorySync = root.getValue("memorySync").jsonObject
+    val memoryMaxOps: Int = memorySync.getValue("maxOps").jsonPrimitive.int
+    val memoryMaxGone: Int = memorySync.getValue("maxGone").jsonPrimitive.int
+
     val providers: List<ProviderFacts> = root.getValue("providers").jsonArray.map { element ->
         val p = element.jsonObject
         ProviderFacts(

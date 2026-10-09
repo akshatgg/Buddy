@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const prompts = require('../shared/prompts');
 const { PROVIDER_IDS } = require('../shared/providers');
 const memoryRules = require('../shared/memory-rules');
+const memorySync = require('../shared/memory-sync');
 const { buildShared, buildChatCases, TO, CASES_TO } = require('../tools/sync-android-shared');
 
 test('android shared.json is up to date with shared/ (run `npm run sync:android` after changing shared/)', () => {
@@ -58,4 +59,8 @@ test('shared.json holds the memory rules: the limits and every pattern cleanFact
   const secret = new RegExp(m.patterns.secretWords.source, m.patterns.secretWords.flags);
   assert.ok(secret.test('Your ATM PIN is 1234.'));
   assert.ok(!secret.test('Your PIN code is 110001.'));
+});
+
+test('shared.json holds the limits of the memory kept with the account (shared/memory-sync.js)', () => {
+  assert.deepEqual(buildShared().memorySync, { maxOps: memorySync.MAX_OPS, maxGone: memorySync.MAX_GONE });
 });

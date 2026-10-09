@@ -5,9 +5,9 @@
  * against the Firestore emulator (test/firestore/firestore-db.test.js) with the same expectations.
  * `state.calls` records which methods were called, in order.
  */
-function fakeDb({ config = null, users = {}, remotes = {}, pushes = {} } = {}) {
+function fakeDb({ config = null, users = {}, remotes = {}, pushes = {}, memories = {} } = {}) {
   const state = {
-    config: structuredClone(config), users: structuredClone(users), remotes: structuredClone(remotes), pushes: structuredClone(pushes), calls: [],
+    config: structuredClone(config), users: structuredClone(users), remotes: structuredClone(remotes), pushes: structuredClone(pushes), memories: structuredClone(memories), calls: [],
   };
   const copy = (uid) => ({ uid, ...structuredClone(state.users[uid]) });
   const fresh = ({ email, name, now }) => ({ email, name, joined: now, lastActive: null, blocked: false, usedDay: '', usedCount: 0 });
@@ -67,6 +67,13 @@ function fakeDb({ config = null, users = {}, remotes = {}, pushes = {} } = {}) {
       const { next, result } = change(Object.hasOwn(state.pushes, uid) ? structuredClone(state.pushes[uid]) : null);
       if (next === null) delete state.pushes[uid];
       else if (next !== undefined) state.pushes[uid] = structuredClone(next);
+      return structuredClone(result);
+    },
+    async updateMemory(uid, change) {
+      state.calls.push('updateMemory');
+      const { next, result } = change(Object.hasOwn(state.memories, uid) ? structuredClone(state.memories[uid]) : null);
+      if (next === null) delete state.memories[uid];
+      else if (next !== undefined) state.memories[uid] = structuredClone(next);
       return structuredClone(result);
     },
     async setBlocked(uid, blocked) {

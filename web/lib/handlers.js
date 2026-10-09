@@ -28,6 +28,7 @@ const { withDefaults, isFreeOn, applyPatch } = require('./free-config');
 const { transcribeWithGroq, readRecording } = require('./transcribe');
 const remote = require('./remote');
 const pushRules = require('./push');
+const memorySync = require('../shared/memory-sync');
 
 // The app gives up on an answer after 60 seconds; the server gives up on the AI before that, so the person hears
 // "Buddy couldn't answer" and the request is given back.
@@ -344,6 +345,18 @@ async function pushRoute(req, deps) {
   throw new BuddyError('bad_request', 'Not a notifications request.');
 }
 
+/**
+ * POST /api/memory { ops }: what Buddy knows about the person, the same on all their devices (shared/memory-sync.js).
+ * The device's changes are applied to the account's facts, and the answer is { facts }, oldest first. No ops: just
+ * the facts. For anyone signed in, blocked or not: these are their own facts, and not an AI request.
+ */
+async function memoryRoute(req, deps) {
+  allowMethods(req, 'POST');
+  const who = await signedIn(req, deps);
+  const ops = memorySync.checkOps(isPlainObject(req.body) ? req.body.ops : undefined);
+  return answer(await deps.db.updateMemory(who.uid, (doc) => memorySync.applyOps(doc, ops)));
+}
+
 function settingsView(cfg, hasKey) {
   return {
     config: cfg,
@@ -437,4 +450,4 @@ async function handle(handler, req, deps) {
   }
 }
 
-module.exports = { config, ask, transcribe, remoteMac, remotePhone, pushRoute, adminSettings, adminModels, adminUsers, handle, kindOf, STATUS, ASK_TIMEOUT_MS };
+module.exports = { config, ask, transcribe, remoteMac, remotePhone, pushRoute, memoryRoute, adminSettings, adminModels, adminUsers, handle, kindOf, STATUS, ASK_TIMEOUT_MS };

@@ -14,6 +14,7 @@ const {
 } = require('electron');
 const { createStore } = require('./store');
 const { createMemory } = require('./memory');
+const { createMemorySync } = require('./memory-sync');
 const { createSecrets } = require('./secrets');
 const { loadCloudConfig } = require('./cloud-config');
 const { createAccount } = require('./account');
@@ -100,6 +101,8 @@ async function start(options = {}) {
     openBrowser: (url) => shell.openExternal(url),
   });
   const cloud = options.cloud || createCloud({ config: cloudConfig, account, store });
+  // What Buddy knows about the person, kept with their account too, while they are signed in (memory-sync.js).
+  const memorySync = createMemorySync({ memory, store, account, cloud });
   const find = createFind(); // Claude Code on this computer, for Settings → Claude Code and the Claude Code pieces
   // The folders Claude Code may work in (Settings → Claude Code), and the jobs the chat runs in them (claude/job.js).
   const projects = createProjects({ store });
@@ -140,7 +143,10 @@ async function start(options = {}) {
     // Its page crashed or did not load, or its window was closed: a listening there is over, and the page cannot say so.
     onGone: () => ui.listening(false),
     // While the panel is open the buddy does not fall asleep or fidget, however the panel opens and closes.
-    onVisible: (visible) => feelings.panel(visible),
+    onVisible: (visible) => {
+      feelings.panel(visible);
+      if (visible) memorySync.syncIfStale(); // facts another device learnt meanwhile, for this chat
+    },
   });
   const windows = createSettingsWindows({ app });
   const openSettings = (section) => windows.open('settings', section ? { section } : undefined);
@@ -259,6 +265,7 @@ async function start(options = {}) {
   const tagWatch = createTagWatch({ helper, ai, store, ui, active: () => power.isOn() });
   const startWatch = () => {
     share.start();
+    memorySync.sync(); // what the person's other devices learnt while Buddy was off
     tagWatch.refresh();
     if (store.get('watchClaudeCode') !== true) return;
     watch.start().catch((err) => console.warn('[buddy] could not watch Claude Code:', err.message));
@@ -333,6 +340,7 @@ async function start(options = {}) {
     if (current !== uid) {
       uid = current;
       cloud.forget();
+      memorySync.sync(); // someone signed in: what this computer knows joins their account's, or takes it
     }
     if (!account.isSignedIn()) windows.close('admin');
     if (account.isSignedIn()) share.start();
@@ -366,7 +374,7 @@ async function start(options = {}) {
   });
   const settingsIpc = registerSettingsIpc({
     ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch, tagWatch,
-    account, cloud, memory, microphone, canSignIn: Boolean(cloudConfig),
+    account, cloud, memory, memorySync, microphone, canSignIn: Boolean(cloudConfig),
     home: buddy, // Settings → Buddy → Where Buddy lives: whether there is a notch, and moving Buddy when it changes
     find, // Claude Code on this computer: the fifth AI choice, with no key
     version: VERSION,

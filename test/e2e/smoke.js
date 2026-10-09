@@ -21,6 +21,7 @@ const path = require('node:path');
 const { BuddyError } = require('../../shared/errors');
 const { PROVIDERS, PROVIDER_IDS } = require('../../shared/providers');
 const { parseChat } = require('../../shared/prompts');
+const { applyOps } = require('../../shared/memory-sync');
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-e2e-'));
 app.setPath('userData', userData);
@@ -248,6 +249,14 @@ const cloud = {
   forget() {
     this.forgets += 1;
     for (const fn of this.listeners) fn();
+  },
+  memoryRecord: null, // what Buddy knows about the person, as the server keeps it with their account (memory/{uid})
+  memorySyncs: [], // the changes each sync sent (src/main/memory-sync.js)
+  async memory(ops) {
+    this.memorySyncs.push(ops);
+    const { next, result } = applyOps(this.memoryRecord, ops);
+    if (next !== undefined) this.memoryRecord = next;
+    return result;
   },
   heard: '', // what the server writes down from the next recording
   recordings: [], // { audio, mime, signal } of each recording the app sent to be written down

@@ -17,7 +17,8 @@ test('what the person typed, Claude\'s replies, the tools it ran and what they g
     { type: 'thinking', thinking: 'hmm' },
     { type: 'text', text: '  I will look at it.  ' },
     { type: 'tool_use', name: 'Bash', input: { command: 'npm test\n  -- --watch' } },
-  ])), [{ kind: 'claude', text: 'I will look at it.' }, { kind: 'tool', text: '$ npm test -- --watch' }]);
+  ])), [{ kind: 'thinking', text: 'hmm' }, { kind: 'claude', text: 'I will look at it.' }, { kind: 'tool', text: '$ npm test -- --watch' }]);
+  assert.deepStrictEqual(itemsOf(assistant([{ type: 'thinking', thinking: '  ', signature: 'x' }, { type: 'thinking' }])), [], 'a thinking with no words');
   assert.deepStrictEqual(itemsOf(user([{ type: 'tool_result', content: 'all 12 pass' }])), [{ kind: 'result', text: 'all 12 pass' }]);
   assert.deepStrictEqual(itemsOf(user([{ type: 'tool_result', content: [{ type: 'text', text: 'boom' }], is_error: true }])),
     [{ kind: 'result', text: 'boom', error: true }]);

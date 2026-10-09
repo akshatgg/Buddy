@@ -22,7 +22,7 @@ module.exports = async function claudeModeCheck(ctx, { assert, waitFor }) {
   fs.mkdirSync(path.dirname(transcript), { recursive: true });
   const line = (entry) => `${JSON.stringify(entry)}\n`;
   fs.writeFileSync(transcript, line({ type: 'user', message: { role: 'user', content: 'fix the cart total' } })
-    + line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Found it: the tax was added twice.' }, { type: 'tool_use', name: 'Bash', input: { command: 'npm test' } }] } })
+    + line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'The tax is added in two places.' }, { type: 'text', text: 'Found it: the tax was **added twice**.' }, { type: 'tool_use', name: 'Bash', input: { command: 'npm test' } }] } })
     + line({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: '42 passing' }] } })
     + line({ type: 'ai-title', aiTitle: 'Fix the cart total', sessionId: id }));
 
@@ -41,11 +41,26 @@ module.exports = async function claudeModeCheck(ctx, { assert, waitFor }) {
   assert.match(await page("document.querySelector('#claude-sessions button').innerText"), /shop-e2e/, 'its short name under it');
   assert.strictEqual(await page("document.getElementById('chat').hidden"), true, 'the chat steps aside');
 
-  // Picked: the whole session as the terminal shows it.
+  // Picked: the whole session as Claude Code's terminal shows it: black, ❯ what was typed, ∴ the thinking folded, ●
+  // the reply with its bold, and the shell command folded into "Ran 1 shell command" until clicked.
   await page("document.querySelector('#claude-sessions button').click()");
   await shows('Found it: the tax was added twice.', "Claude's reply");
+  assert.strictEqual(await page("document.querySelector('.panel').classList.contains('cli')"), true, 'drawn as the terminal');
+  assert.strictEqual(await page("getComputedStyle(document.querySelector('.panel')).backgroundColor"), 'rgb(0, 0, 0)', 'on black');
+  assert.strictEqual(await page("document.querySelector('.cl-claude strong').textContent"), 'added twice', 'the bold is bold');
   const text = await page("document.getElementById('claude-items').innerText");
-  for (const expected of ['fix the cart total', 'npm test', '42 passing']) assert.ok(text.includes(expected), `the session shows "${expected}"`);
+  for (const expected of ['❯', 'fix the cart total', '∴', 'Thinking…', 'Ran 1 shell command']) assert.ok(text.includes(expected), `the session shows "${expected}"`);
+  assert.ok(!text.includes('The tax is added in two places.'), 'the thinking is folded');
+  await page("document.querySelector('.cl-summary .cl-fold').click()");
+  await shows('42 passing', 'the folded command, unfolded');
+  const unfolded = await page("document.getElementById('claude-items').innerText");
+  assert.ok(unfolded.includes('Bash(npm test)') && unfolded.includes('⎿'), 'the command as the terminal writes it, with what it gave back');
+  await page("document.querySelector('.cl-thinking .cl-fold').click()");
+  await shows('The tax is added in two places.', 'the thinking, unfolded');
+  if (process.env.BUDDY_E2E_SHOTS) { // a picture to look at by eye (as 18-notch.js)
+    await new Promise((r) => setTimeout(r, 300)); // the window paints what was unfolded
+    fs.writeFileSync(path.join(process.env.BUDDY_E2E_SHOTS, 'claude-mode.png'), (await panel.webContents.capturePage()).toPNG());
+  }
   assert.strictEqual(await page("document.getElementById('claude-name').textContent"), 'Fix the cart total');
 
   // Many long lines, as a real session has: each keeps its whole height, and none is drawn over the one before.
@@ -60,7 +75,7 @@ module.exports = async function claudeModeCheck(ctx, { assert, waitFor }) {
     assert.ok(height >= content, `line ${i} (${cls}) is as tall as its words: ${height} < ${content}`);
     if (i > 0) assert.ok(top >= layout[i - 1][2] - 0.5, `line ${i} (${cls}) starts below line ${i - 1}: ${top} < ${layout[i - 1][2]}`);
   }
-  assert.ok(layout.some(([cls]) => cls === 'cl-claude') && layout.some(([cls]) => cls === 'cl-tool'), 'replies and tools are there');
+  assert.ok(layout.some(([cls]) => cls === 'cl-claude') && layout.some(([cls]) => cls === 'cl-summary'), 'replies and folded tools are there');
   assert.strictEqual(await page("document.getElementById('box').placeholder"), 'Message Claude in Fix the cart total…');
 
   // It goes on: a new reply in the file shows by itself.

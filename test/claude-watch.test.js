@@ -396,8 +396,8 @@ test('the notch status goes out when it changes, even while the chat holds the m
   await post(port, path, event('PostToolUse', { tool_name: 'Bash' }));
   await tick();
   assert.deepStrictEqual(ui.statuses, [
-    { kind: 'working', text: 'Claude · thinking' },
-    { kind: 'working', text: 'Claude · running a command' },
+    { kind: 'working', text: 'Claude · thinking', session: 's1' },
+    { kind: 'working', text: 'Claude · running a command', session: 's1' },
   ], 'the same status is not sent twice');
   assert.deepStrictEqual(ui.moods, [], 'the moods wait for the chat');
   watch.stop();

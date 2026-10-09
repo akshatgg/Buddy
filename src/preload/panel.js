@@ -29,4 +29,6 @@ contextBridge.exposeInMainWorld('buddy', {
   claudeTalk: (id, text) => ipcRenderer.invoke('panel:claude-talk', id, text),
   claudeClose: () => ipcRenderer.send('panel:claude-close'),
   onClaudeState: (fn) => ipcRenderer.on('panel:claude-state', (_event, session) => fn(session)),
+  // Clawd was clicked in the notch: Claude mode, on this session (or the list, for null).
+  onClaudeShow: (fn) => ipcRenderer.on('panel:claude-show', (_event, id) => fn(id)),
 });

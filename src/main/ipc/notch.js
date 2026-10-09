@@ -6,11 +6,11 @@
 const NO_SLEEP = { hold() {} };
 
 /**
- * `sleep` is the buddy's sleep countdown: the pointer on the notch holds it, as on the floating buddy (a click opens
+ * `onClaude` is a click on Clawd (Claude Code's status): the panel opens in Claude mode. `sleep` is the buddy's sleep countdown: the pointer on the notch holds it, as on the floating buddy (a click opens
  * the panel, which holds it too). `characters` and `store` give the face its model (notch:model), as for the floating
  * buddy (ipc/buddy.js).
  */
-function registerNotchIpc({ ipcMain, notch, onClick, sleep = NO_SLEEP, characters = null, store = null }) {
+function registerNotchIpc({ ipcMain, notch, onClick, onClaude = onClick, sleep = NO_SLEEP, characters = null, store = null }) {
   const fromNotch = (event) => Boolean(notch.window()) && event.sender === notch.window().webContents;
   // A notch that hid, went or reloads with the pointer on it never says the pointer left: it lets go of the hold then.
   notch.onHoverLost?.(() => sleep.hold('hover', false));
@@ -26,6 +26,7 @@ function registerNotchIpc({ ipcMain, notch, onClick, sleep = NO_SLEEP, character
     sleep.hold('hover', Boolean(over));
   });
   ipcMain.on('notch:click', (event) => fromNotch(event) && onClick());
+  ipcMain.on('notch:claude', (event) => fromNotch(event) && onClaude()); // Clawd clicked: the panel in Claude mode
 }
 
 module.exports = { registerNotchIpc };

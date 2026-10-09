@@ -173,6 +173,7 @@ async function start(options = {}) {
   installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings, Welcome and Admin, and no Cmd+Q (none on Windows)
 
   // What actions.js (and, for voice, ipc/panel.js) does with the panel, the bubble and the buddy.
+  let claudeSession = null; // the Claude Code session Clawd shows in the notch, opened by a click on it (onClaude)
   const ui = {
     showPanel: (state) => panel.show(state, buddy.panelAt()),
     panelState: (state) => panel.send('panel:state', state),
@@ -186,7 +187,10 @@ async function start(options = {}) {
     panelWindowHandle: () => windowHandle(panel.window()), // for the helper on Windows (actions.js)
     openSettings,
     bubble: (text) => buddy.say(text),
-    status: (value) => buddy.status(value), // Claude Code's status beside Buddy in the notch (claude/watch.js)
+    status(value) { // Claude Code's status beside Buddy in the notch (claude/watch.js), and the session a click opens
+      claudeSession = value?.session ?? null;
+      buddy.status(value);
+    },
     mood: (name) => feelings.mood(name), // a use: it wakes a sleeping buddy, and the sleep countdown starts again
     // For the buddy's feelings, which have their own design: when the panel listens (listening(on), from its page; and
     // false when main hides the panel or its page is gone) and how loud the person speaks (voiceLevel(0..1), about 10
@@ -341,7 +345,17 @@ async function start(options = {}) {
     // An open panel moves with the buddy as it is dragged, and to the edge it snaps to.
     ipcMain, buddy, characters, store, onClick: onCall, sleep, onMove: () => panel.follow(buddy.panelAt()),
   });
-  registerNotchIpc({ ipcMain, notch: buddy.notchWindow(), onClick: onCall, sleep, characters, store });
+  // A click on Clawd in the notch: the panel opens (if it is not open) in Claude mode, on the session Clawd shows.
+  const onClaude = async () => {
+    if (!power.isOn()) return;
+    try {
+      if (!panel.isVisible()) await actions.open();
+      panel.send('panel:claude-show', claudeSession);
+    } catch (err) {
+      console.error('[buddy] could not open Claude mode', err);
+    }
+  };
+  registerNotchIpc({ ipcMain, notch: buddy.notchWindow(), onClick: onCall, onClaude, sleep, characters, store });
   registerPanelIpc({
     ipcMain, panel, actions, openSettings, microphone, ui, shell, askAccessibility: () => helper.call('requestAccessibility'), claudeMode,
   });

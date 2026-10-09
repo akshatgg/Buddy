@@ -9,7 +9,6 @@ import com.akshatgg.buddy.ai.Action
 import com.akshatgg.buddy.ai.Answer
 import com.akshatgg.buddy.ai.AskInput
 import com.akshatgg.buddy.ai.KeySaver
-import com.akshatgg.buddy.ai.MemoryRules
 import com.akshatgg.buddy.ai.Prompts
 import com.akshatgg.buddy.ai.Router
 import com.akshatgg.buddy.ai.providers.Providers
@@ -24,6 +23,7 @@ import com.akshatgg.buddy.store.Facts
 import com.akshatgg.buddy.store.KeyValue
 import com.akshatgg.buddy.store.KeystoreSecrets
 import com.akshatgg.buddy.store.Memory
+import com.akshatgg.buddy.store.MemorySync
 import com.akshatgg.buddy.store.Secrets
 import com.akshatgg.buddy.store.SharedPrefsKeyValue
 import com.akshatgg.buddy.typing.ServiceTypeIn
@@ -73,7 +73,7 @@ class AppGraph(
     }
     val router = Router(account, cloud, settings, secrets, providers, prompts)
     val keySaver = KeySaver(settings, secrets, providers)
-    val memory = Memory(kv, MemoryRules(shared))
+    val memory = Memory(kv, MemorySync(shared))
 
     /** Whether Buddy can type for you (LookService) is on in Android's Accessibility settings. */
     val lookEnabled: () -> Boolean = { LookService.isEnabled(context) }

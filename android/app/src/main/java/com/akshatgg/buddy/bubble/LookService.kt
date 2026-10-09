@@ -1,12 +1,15 @@
 package com.akshatgg.buddy.bubble
 
 import android.accessibilityservice.AccessibilityService
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -19,6 +22,7 @@ import com.akshatgg.buddy.typing.BoxText
 import com.akshatgg.buddy.typing.Tag
 import com.akshatgg.buddy.typing.TagFlow
 import com.akshatgg.buddy.typing.TagShow
+import com.akshatgg.buddy.typing.TagTrace
 import com.akshatgg.buddy.typing.TypingTarget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,9 +77,21 @@ class LookService : AccessibilityService() {
         val type = event.eventType
         if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) target.onWindow(from, fromKeyboard)
         if (fromBuddy || fromKeyboard) return // LookFilter says NONE, and TypingTarget keeps nothing of theirs
-        val node = if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) null else event.source
+        if (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            contentChanged(event, from)
+            return
+        }
+        // The box: the event's own, or, from an app whose own box does not say it is one (a custom one), the box that
+        // has the keyboard now.
+        val source = if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) null else event.source
+        val node = if (type == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED && (source == null || !isBox(source))) {
+            source?.let(::recycle)
+            focusedBox(from)
+        } else {
+            source
+        }
         try {
-            val editable = node?.isEditable == true
+            val editable = node?.let(::isBox) == true
             val password = node?.isPassword == true
             if (node != null && editable && type in BOX_EVENTS) {
                 // A copy is kept, which only TypingTarget touches (under its lock): this one is used below for the
@@ -84,6 +100,7 @@ class LookService : AccessibilityService() {
             }
             if (type == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED && node != null && editable) {
                 // Fix where I type: only to look for the tag, and never in a password box.
+                TagTrace.typedIn(labelOf(from))
                 if (password || event.isPassword) tags?.stop() else tags?.onTyped(typed(event, node))
             }
             if (!BubbleBus.listening) return // no buddy on screen: nobody to turn
@@ -107,6 +124,60 @@ class LookService : AccessibilityService() {
         scope = null
         BubbleBus.lookAway()
         super.onDestroy()
+    }
+
+    private var lastContentLook = 0L // when a content change was last looked at for a box's text (contentChanged)
+
+    /**
+     * Some apps' own text boxes (drawn by the app, not Android's) say a change of text only as "the window's content
+     * changed". With Fix where I type on, such a change from the app the person types in is looked at, at most every
+     * CONTENT_LOOK_MS: the box with the keyboard, if it is one, is taken as typed in.
+     */
+    private fun contentChanged(event: AccessibilityEvent, from: String?) {
+        if (from == null || tags == null || from == packageName) return
+        if (event.contentChangeTypes and AccessibilityEvent.CONTENT_CHANGE_TYPE_TEXT == 0) return
+        val settings = AppGraph.instance.settings
+        if (!settings.buddyOn || !settings.tagOn) return
+        val now = SystemClock.uptimeMillis()
+        if (now - lastContentLook < CONTENT_LOOK_MS) return
+        lastContentLook = now
+        val box = focusedBox(from) ?: return
+        try {
+            if (box.isPassword) return
+            target.onBox(from, copy(box))
+            TagTrace.typedIn(labelOf(from))
+            tags?.onTyped(if (box.isShowingHintText) "" else box.text ?: "")
+        } finally {
+            recycle(box)
+        }
+    }
+
+    /** A node Buddy can type in: one that says it is editable, or that takes its text set (some apps' own boxes). */
+    private fun isBox(node: AccessibilityNodeInfo): Boolean =
+        node.isEditable || node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SET_TEXT }
+
+    /** The box that has the keyboard now, in `from`'s window (not Buddy's, not a password's), or null. */
+    private fun focusedBox(from: String?): AccessibilityNodeInfo? {
+        val focused = try {
+            findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        } catch (e: RuntimeException) {
+            null
+        } ?: return null
+        if (focused.packageName?.toString() != from || from == packageName || !isBox(focused)) {
+            recycle(focused)
+            return null
+        }
+        return focused
+    }
+
+    /** An app's label, for Settings' last step of Fix where I type, or its package when it has none. */
+    private fun labelOf(pkg: String?): String? {
+        if (pkg == null) return null
+        return try {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString().trim().ifEmpty { pkg }
+        } catch (e: PackageManager.NameNotFoundException) {
+            pkg
+        }
     }
 
     /** The text a box changed to: the event's, else the box's own (empty while it only shows its hint). */
@@ -136,11 +207,18 @@ class LookService : AccessibilityService() {
         BoxText(text, box.textSelectionStart, box.textSelectionEnd)
     }
 
-    /** Set the kept box's whole text and put the cursor at `cursor`: false when it could not be set. */
+    /**
+     * Set the kept box's whole text and put the cursor at `cursor`: false when it could not be set. Some apps ignore a
+     * text set from outside, or put their own back at once (a box they keep the text of themselves): then the text is
+     * pasted over all of it instead, as the person would, and their clipboard is given back after.
+     */
     fun write(text: String, cursor: Int): Boolean = target.withBox { node ->
         val box = fresh(node) ?: return@withBox false
         val words = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
-        if (!box.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, words)) return@withBox false
+        val set = box.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, words)
+        if (!set || !holds(box, text)) {
+            if (!paste(box, text)) return@withBox false
+        }
         val at = Bundle().apply {
             putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, cursor)
             putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, cursor)
@@ -148,6 +226,38 @@ class LookService : AccessibilityService() {
         box.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, at) // the cursor after the words: nice, not needed
         true
     } == true
+
+    /** Whether the box has `text` now (after a moment: some apps take one to show it). */
+    private fun holds(box: AccessibilityNodeInfo, text: String): Boolean {
+        repeat(3) {
+            if (box.refresh() && box.text?.toString() == text) return true
+            Thread.sleep(WRITE_SETTLE_MS)
+        }
+        return false
+    }
+
+    /** `text` pasted over all of the box, through the clipboard, whose own words are put back after. */
+    private fun paste(box: AccessibilityNodeInfo, text: String): Boolean {
+        if (!box.actionList.any { it.id == AccessibilityNodeInfo.ACTION_PASTE }) return false
+        val clipboard = getSystemService(ClipboardManager::class.java) ?: return false
+        val before = try {
+            clipboard.primaryClip
+        } catch (e: SecurityException) {
+            null
+        }
+        clipboard.setPrimaryClip(ClipData.newPlainText("Buddy", text))
+        val all = Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, box.text?.length ?: 0)
+        }
+        box.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, all)
+        val pasted = box.performAction(AccessibilityNodeInfo.ACTION_PASTE) && holds(box, text)
+        Thread.sleep(WRITE_SETTLE_MS) // the app reads the clipboard as it pastes: give it back after that
+        // Their own clipboard back. When Android would not let Buddy read it, there is nothing to give back: the fixed
+        // text stays on it (it is never cleared, which could lose theirs).
+        if (before != null) clipboard.setPrimaryClip(before)
+        return pasted
+    }
 
     /**
      * The chat's copy of the kept box (TypingTarget.withBox), brought up to date; null when it is gone or is not a box
@@ -200,6 +310,8 @@ class LookService : AccessibilityService() {
     }
 
     companion object {
+        private const val CONTENT_LOOK_MS = 300L
+        private const val WRITE_SETTLE_MS = 120L
         private val BOX_EVENTS = setOf(
             AccessibilityEvent.TYPE_VIEW_FOCUSED,
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,

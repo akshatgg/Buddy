@@ -205,10 +205,30 @@ class TagFlowTest {
         f.onTyped(box.box!!.text)
         pause()
         assertTrue(asked.isEmpty())
+        assertTrue("the last step shown in Settings", TagTrace.last.value!!.endsWith(TagTrace.ELSEWHERE))
         box.box = BoxText("a @buddy\nnow typing here", -1, -1) // the cursor is not known: the tag counts
         f.onTyped(box.box!!.text)
         pause()
         assertEquals(1, asked.size)
+        // Some apps' own boxes say the cursor is at 0 whatever it is: taken as not known either.
+        box.box = BoxText("hi there @buddy", 0, 0)
+        f.onTyped(box.box!!.text)
+        pause()
+        assertEquals(2, asked.size)
+    }
+
+    @Test fun settingsShowsHowFarItGot() = runTest {
+        val f = flow()
+        TagTrace.typedIn("Telegram")
+        f.onTyped("no tag here")
+        assertEquals("Telegram · ${TagTrace.TYPING}", TagTrace.last.value)
+        f.onTyped("i not coming @buddy") // seen in the event, but the box itself cannot be read
+        assertEquals("Telegram · ${TagTrace.SAW_TAG}", TagTrace.last.value)
+        pause()
+        assertEquals("Telegram · ${TagTrace.NO_BOX}", TagTrace.last.value)
+        f.typed("i not coming @buddy")
+        pause()
+        assertEquals("Telegram · ${TagTrace.FIXED}", TagTrace.last.value)
     }
 
     @Test fun buddysOwnChangeDoesNotStartItAgain() = runTest {

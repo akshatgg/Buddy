@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Buddy can type for you (bubble/LookService.kt): the text box events of every app, the right to ask where a box is
      on the screen and, when the chat asks, to read or set its text; with Fix where I type on, the text a box changes to,
-     looked at only for "@buddy". flagRetrieveInteractiveWindows: the box is in the app
+     looked at only for "@buddy" (typeWindowContentChanged: some apps' own boxes say a new text only that way).
+     flagRetrieveInteractiveWindows: the box is in the app
      under Buddy's panel, which is not the active window while the panel is open. Nothing is spoken or shown by Android
      for it. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeViewFocused|typeViewTextChanged|typeViewTextSelectionChanged|typeWindowStateChanged"
+    android:accessibilityEventTypes="typeViewFocused|typeViewTextChanged|typeViewTextSelectionChanged|typeWindowStateChanged|typeWindowContentChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"

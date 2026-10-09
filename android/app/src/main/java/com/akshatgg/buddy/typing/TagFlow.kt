@@ -70,9 +70,11 @@ class TagFlow(
         if (now == written) return
         // The quick look: most keystrokes have no "@" at all.
         if (!wanted() || '@' !in now || Tag.findTag(now, names()) == null) {
+            if (wanted()) TagTrace.step(TagTrace.TYPING)
             stop()
             return
         }
+        TagTrace.step(TagTrace.SAW_TAG)
         waiting?.cancel()
         waiting = scope.launch {
             delay(pauseMs)
@@ -89,15 +91,17 @@ class TagFlow(
 
     private suspend fun fix() {
         if (busy || !wanted()) return
-        val read = box.read() ?: return
+        val read = box.read() ?: return TagTrace.step(TagTrace.NO_BOX)
         val names = names()
-        val tag = Tag.findTag(read.text, names) ?: return
-        if (read.selEnd >= 0 && read.selEnd !in tag.start..tag.end + 1) return // the cursor is elsewhere: an old tag
-        val split = Tag.splitAtTag(read.text, names) ?: return
+        val tag = Tag.findTag(read.text, names) ?: return TagTrace.step(TagTrace.NO_BOX)
+        // The cursor elsewhere: an old tag. Some apps say the cursor is at 0 (or nowhere) whatever it is: not known then.
+        if (read.selEnd > 0 && read.selEnd !in tag.start..tag.end + 1) return TagTrace.step(TagTrace.ELSEWHERE)
+        val split = Tag.splitAtTag(read.text, names) ?: return TagTrace.step(TagTrace.NOTHING_BEFORE)
         busy = true
         try {
             show.mood(Mood.THINKING)
             show.say(TAG_FIXING)
+            TagTrace.step(TagTrace.ASKING)
             val answer = Tag.cleanAnswer(askTag(split).text)
             if (answer.isEmpty()) throw BuddyError("upstream", TAG_NOTHING)
             // Still what was read? Had they typed on meanwhile, their words would be lost.
@@ -108,7 +112,11 @@ class TagFlow(
             }
             val fixed = split.prefix + answer + split.suffix
             written = fixed
-            if (!box.write(fixed, split.prefix.length + answer.length)) throw BuddyError("failed", TAG_CANT_PUT)
+            if (!box.write(fixed, split.prefix.length + answer.length)) {
+                TagTrace.step(TagTrace.NOT_PUT)
+                throw BuddyError("failed", TAG_CANT_PUT)
+            }
+            TagTrace.step(TagTrace.FIXED)
             show.mood(Mood.HAPPY)
             offerUndo(read, fixed)
         } catch (e: CancellationException) {
@@ -131,6 +139,7 @@ class TagFlow(
 
     /** As the panel: a buddy with no internet gets sleepy; any other failure is said, and the buddy calms down. */
     private fun fail(err: BuddyError) {
+        if (err.message != TAG_CANT_PUT) TagTrace.step(TagTrace.FAILED)
         show.mood(if (err.code == "network" || err.code == "timeout") Mood.SLEEPY else Mood.IDLE)
         show.say(err.message?.ifEmpty { null } ?: TAG_NOTHING)
     }

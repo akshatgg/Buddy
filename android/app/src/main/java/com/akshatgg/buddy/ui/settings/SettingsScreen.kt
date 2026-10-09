@@ -22,8 +22,8 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -38,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -59,8 +60,8 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -72,6 +73,7 @@ import com.akshatgg.buddy.account.User
 import com.akshatgg.buddy.ai.aiSection
 import com.akshatgg.buddy.store.BuddySize
 import com.akshatgg.buddy.store.Fact
+import com.akshatgg.buddy.typing.TagTrace
 import com.akshatgg.buddy.ui.common.AiForm
 import com.akshatgg.buddy.ui.common.AiFormModel
 import com.akshatgg.buddy.ui.common.BuddyPicker
@@ -87,10 +89,10 @@ import com.akshatgg.buddy.ui.panel.Secondary
 import com.akshatgg.buddy.ui.panel.Segmented
 import com.akshatgg.buddy.ui.theme.Buddy
 import com.akshatgg.buddy.ui.theme.BuddyRadius
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
-import kotlin.time.Duration.Companion.seconds
 
 /** A part of Settings to scroll to ("ai", "account", "buddy" or "memory"). A new one each time, so the same part can be asked again. */
 class SectionRequest(val name: String)
@@ -393,6 +395,11 @@ private fun TagRow(state: SettingsState, onChange: (Boolean) -> Unit) {
             Text(tagExplanation(state.name, state.characterId), color = colors.muted, style = MaterialTheme.typography.bodySmall)
             if (state.tagOn && !state.lookOn) {
                 Text("It needs Buddy can type for you, above.", color = colors.muted, style = MaterialTheme.typography.bodySmall)
+            }
+            // Where it got to last time: when @buddy does nothing in an app, this says where it stopped there.
+            val last by TagTrace.last.collectAsState()
+            if (state.tagOn && state.lookOn) last?.let {
+                Text("Last: $it", color = colors.muted, style = MaterialTheme.typography.bodySmall)
             }
         }
         Switch(

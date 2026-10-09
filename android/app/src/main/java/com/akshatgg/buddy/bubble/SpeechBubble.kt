@@ -18,19 +18,33 @@ import kotlin.math.max
 
 private const val MAX_DP = 240
 private const val SHOW_MS = 3500L
+private const val TAP_SHOW_MS = 15_000L // words that can be tapped (Fix where I type's Undo) stay as long as that works
 
 /**
  * A few words beside the head ("Copied — …"), on the side away from the edge it sits on, as the Mac's bubble: a card
- * in the Mac's colours, shown for a few seconds. Touches go through it to the app underneath.
+ * in the Mac's colours, shown for a few seconds. Touches go through it to the app underneath, unless it has something
+ * to do on a tap (`onTap`): then it takes taps, and stays up longer.
  */
 internal class SpeechBubble(private val context: Context, private val windows: WindowManager, private val scope: CoroutineScope) {
     private var view: TextView? = null // while it is on screen
     private var timer: Job? = null
 
-    /** Show `text` beside the head's window `head`, inside `area`, the part of the screen the head keeps to. */
-    fun say(text: String, head: Rect, area: Rect) {
+    /**
+     * Show `text` beside the head's window `head`, inside `area`, the part of the screen the head keeps to. `onTap`, when
+     * given, is done on a tap, which closes the bubble.
+     */
+    fun say(text: String, head: Rect, area: Rect, onTap: (() -> Unit)? = null) {
         val bubble = view ?: make()
         bubble.text = text
+        if (onTap != null) {
+            bubble.setOnClickListener {
+                hide()
+                onTap()
+            }
+        } else {
+            bubble.setOnClickListener(null)
+            bubble.isClickable = false
+        }
         val margin = context.px(MARGIN_DP)
         bubble.measure(
             MeasureSpec.makeMeasureSpec(area.width() - 2 * margin, MeasureSpec.AT_MOST),
@@ -39,7 +53,7 @@ internal class SpeechBubble(private val context: Context, private val windows: W
         val width = bubble.measuredWidth
         val height = bubble.measuredHeight
         val x = if (head.centerX() > area.centerX()) head.left - width - margin else head.right + margin
-        val place = overlay(width, height, FLAG_NOT_TOUCHABLE)
+        val place = overlay(width, height, if (onTap == null) FLAG_NOT_TOUCHABLE else 0)
         place.x = Snap.clamp(x, area.left + margin, area.right - width - margin)
         place.y = Snap.clamp(head.centerY() - height / 2, area.top + margin, area.bottom - height - margin)
         if (view == null) {
@@ -50,7 +64,7 @@ internal class SpeechBubble(private val context: Context, private val windows: W
         }
         timer?.cancel()
         timer = scope.launch {
-            delay(SHOW_MS)
+            delay(if (onTap == null) SHOW_MS else TAP_SHOW_MS)
             hide()
         }
     }

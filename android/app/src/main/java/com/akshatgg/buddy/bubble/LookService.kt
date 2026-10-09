@@ -14,12 +14,20 @@ import android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTE
 import android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_ARG_START_INDEX
 import android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY
 import androidx.core.os.BundleCompat
+import com.akshatgg.buddy.AppGraph
 import com.akshatgg.buddy.typing.BoxText
+import com.akshatgg.buddy.typing.Tag
+import com.akshatgg.buddy.typing.TagFlow
+import com.akshatgg.buddy.typing.TagShow
 import com.akshatgg.buddy.typing.TypingTarget
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 
 /**
  * Buddy can type for you: Android's Accessibility, turned on by the person in Android's settings after Settings'
- * disclosure (optional). It does three things, and nothing else:
+ * disclosure (optional). It does four things, and nothing else:
  *
  *  - Look where I type: tells the floating head where the text box the person types in is, so that it turns toward it
  *    (Look.kt, BubbleService). For that it reads only where things are, never the text.
@@ -27,16 +35,35 @@ import com.akshatgg.buddy.typing.TypingTarget
  *    they are in, so that the chat can name the app and find the box after the panel opened over it.
  *  - When the chat asks, and only then, it reads that box's text (`read`: the chat's "box" step, and the text it has
  *    before Buddy puts words in, for Undo) or sets it (`write`).
+ *  - Fix where I type (TagFlow, while Buddy and that setting are on): it looks at the text of a box as the person
+ *    types in it, only to see whether it has "@buddy" (or the buddy's name) in it. When it does and they pause, it
+ *    reads that box, sends the AI only the paragraph the tag ends (and what they wrote after the tag), and sets the box
+ *    to the AI's text in its place; a tap on "Fixed ✅" puts the old text back.
  *
- * A password box is never kept, read or written. It logs nothing and keeps no text: what it reads goes to the chat in
- * this process, and from there only with the person's question to the AI.
+ * A password box is never kept, read, looked at or written. It logs nothing and keeps no text: what it reads goes to
+ * the chat or to TagFlow in this process, and from there only with the person's question, or the tagged paragraph, to
+ * the AI.
  */
 class LookService : AccessibilityService() {
     private val target by lazy { TypingTarget(packageName, ::recycle, ::copy) }
+    private var scope: CoroutineScope? = null
+    private var tags: TagFlow? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         running = this
+        val graph = AppGraph.instance
+        val settings = graph.settings
+        val mine = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        scope = mine
+        tags = TagFlow(
+            scope = mine,
+            box = graph.typeIn,
+            ask = graph.ask,
+            wanted = { settings.buddyOn && settings.tagOn },
+            names = { Tag.tagNames(settings.buddyName) },
+            show = BusTagShow,
+        )
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
@@ -55,6 +82,10 @@ class LookService : AccessibilityService() {
                 // look, on this thread, while the chat may be using the kept one on another.
                 if (password) target.onPassword(from) else target.onBox(from, copy(node))
             }
+            if (type == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED && node != null && editable) {
+                // Fix where I type: only to look for the tag, and never in a password box.
+                if (password || event.isPassword) tags?.stop() else tags?.onTyped(typed(event, node))
+            }
             if (!BubbleBus.listening) return // no buddy on screen: nobody to turn
             when (LookFilter.action(type, fromBuddy, fromKeyboard, editable, password)) {
                 LookAction.LOOK -> node?.let(::where)?.let { BubbleBus.lookAt(it.x, it.y) }
@@ -70,8 +101,19 @@ class LookService : AccessibilityService() {
 
     override fun onDestroy() {
         if (running === this) running = null
+        tags?.stop()
+        tags = null
+        scope?.cancel()
+        scope = null
         BubbleBus.lookAway()
         super.onDestroy()
+    }
+
+    /** The text a box changed to: the event's, else the box's own (empty while it only shows its hint). */
+    private fun typed(event: AccessibilityEvent, box: AccessibilityNodeInfo): CharSequence {
+        val said = event.text.joinToString("")
+        if (said.isNotEmpty()) return said
+        return if (box.isShowingHintText) "" else box.text ?: ""
     }
 
     /** The label of the app the person was last in, or null. */
@@ -176,4 +218,10 @@ class LookService : AccessibilityService() {
             LookService::class.java.name,
         )
     }
+}
+
+/** Fix where I type shows itself on the floating buddy. */
+private object BusTagShow : TagShow {
+    override fun mood(mood: Mood) = BubbleBus.mood(mood)
+    override fun say(text: String, onTap: (() -> Unit)?) = BubbleBus.say(text, onTap)
 }

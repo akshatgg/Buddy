@@ -90,6 +90,10 @@ const helper = Object.assign(new EventEmitter(), {
       this.watching = args.on;
       return { watching: args.on };
     }
+    if (cmd === 'watchTyping') {
+      this.watchingTyping = args.on ? args.names : null; // Buddy where you type: the tag's names, while it watches
+      return { watching: args.on };
+    }
     if (Object.hasOwn(this.replies, cmd)) {
       const reply = this.replies[cmd];
       if (reply instanceof Error) throw reply;

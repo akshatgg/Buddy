@@ -9,13 +9,14 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-enum class Action(val id: String) { WRITE("write"), FIX("fix"), CHECK("check"), CHAT("chat") }
+/** TAG is Buddy where you type: the person's own text, tagged with "@buddy" and what to do (typing/Tag.kt). */
+enum class Action(val id: String) { WRITE("write"), FIX("fix"), CHECK("check"), CHAT("chat"), TAG("tag") }
 
 /** One message of the chat so far: `from` is "you" or "buddy". */
 data class ChatTurn(val from: String, val text: String)
 
 /**
- * What an action is asked with. write, fix and check use the first four; a chat (shared/prompts.js chatPrompt) uses
+ * What an action is asked with. write, fix and check use the first four, and a tag `text` and `instruction`; a chat (shared/prompts.js chatPrompt) uses
  * `message` and the rest, and `image` on its second step. Android never sends the desktop's `projects`.
  */
 data class AskInput(
@@ -77,6 +78,7 @@ class Prompts(private val shared: Shared) {
             }
             Action.FIX -> Prompt(shared.fixSystem, requireText(input.text, shared.limitText, m.getValue("fixEmpty"), m.getValue("tooLongText")), null)
             Action.CHAT -> chatPrompt(shared, input)
+            Action.TAG -> tagPrompt(input)
             Action.CHECK -> {
                 val image = input.image.orEmpty()
                 if (image.isEmpty()) throw BuddyError("bad_request", m.getValue("checkEmpty"))
@@ -85,6 +87,20 @@ class Prompts(private val shared: Shared) {
                 Prompt(shared.checkSystem, if (question.isNotEmpty()) shared.checkQuestionPrefix + question else shared.checkDefaultQuestion, image)
             }
         }
+    }
+
+    /**
+     * Buddy where you type, as shared/prompts.js buildPrompt('tag'): the instruction ("fix" when there is none), then
+     * the text to rewrite. Nothing to rewrite is refused in the Mac's words.
+     */
+    private fun tagPrompt(input: AskInput): Prompt {
+        val m = shared.messages
+        val text = jsTrim(input.text.orEmpty())
+        if (text.isEmpty()) throw BuddyError("bad_request", shared.tagEmpty)
+        if (text.length > shared.limitText) throw BuddyError("bad_request", m.getValue("tooLongText"))
+        val instruction = jsTrim(input.instruction.orEmpty())
+        if (instruction.length > shared.limitInstruction) throw BuddyError("bad_request", m.getValue("tooLongInstruction"))
+        return Prompt(shared.tagSystem, "Instruction: ${instruction.ifEmpty { "fix" }}\n\nTheir text:\n\"\"\"\n$text\n\"\"\"", null)
     }
 
     /** Read a chat answer as shared/prompts.js parseChat does. */

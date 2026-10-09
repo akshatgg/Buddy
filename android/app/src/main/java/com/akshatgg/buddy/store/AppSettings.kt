@@ -61,6 +61,14 @@ class AppSettings(private val kv: KeyValue) {
         get() = flag("notificationsAsked", false)
         set(v) = kv.putString("notificationsAsked", v.toString())
 
+    /**
+     * Fix where I type: "@buddy" (or the buddy's name) typed after some text in any app has Buddy rewrite it in place
+     * (typing/TagFlow.kt). It needs Buddy can type for you (LookService) too.
+     */
+    var tagOn: Boolean
+        get() = flag("tagOn", true)
+        set(v) = kv.putString("tagOn", v.toString())
+
     /** The server's last answer about free mode, null when there is none. */
     var cloud: FreeSettings?
         get() = FreeSettings.fromJson(kv.getString("cloud"))

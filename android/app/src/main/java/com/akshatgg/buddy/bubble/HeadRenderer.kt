@@ -22,6 +22,8 @@ import com.google.android.filament.gltfio.FilamentAsset
 import com.google.android.filament.gltfio.ResourceLoader
 import com.google.android.filament.utils.Utils
 import java.nio.ByteBuffer
+import kotlin.math.atan2
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.tan
@@ -77,6 +79,14 @@ class HeadRenderer(context: Context, textureView: TextureView, characterId: Stri
     // What the camera frames, in world space: the head's box with room to move.
     private val frameCentre = FloatArray(3)
     private val frameSize = FloatArray(3)
+
+    // Where the right eye is on the view, for Clawd (eyeOnScreen): the view's size, and room for the sums.
+    private var viewWidth = 0
+    private var viewHeight = 0
+    private val faceWorld = FloatArray(16)
+    private val viewMatrix = DoubleArray(16)
+    private val projection = DoubleArray(16)
+    private val onScreen = FloatArray(6) // the eye's centre, a step across and a step up from it, in view pixels
 
     init {
         // The model first, so that a file that is not a buddy leaves nothing behind.
@@ -228,6 +238,8 @@ class HeadRenderer(context: Context, textureView: TextureView, characterId: Stri
     /** Fit the viewport and the camera to the surface. A size of zero (not laid out yet) changes nothing. */
     private fun resize(width: Int, height: Int) {
         if (width == 0 || height == 0) return
+        viewWidth = width
+        viewHeight = height
         view.viewport = Viewport(0, 0, width, height)
         frameCamera(width.toDouble() / height)
     }
@@ -266,6 +278,42 @@ class HeadRenderer(context: Context, textureView: TextureView, characterId: Stri
         Matrix.translateM(headTransform, 0, -pivot[0], -pivot[1], -pivot[2])
         val tm = engine.transformManager
         tm.setTransform(tm.getInstance(head), headTransform)
+    }
+
+    /**
+     * Where the right eye is on the view as the head is posed now, for Clawd (ClawdEyeView): into `out`, its centre (x,
+     * y in view pixels), the pixels one unit of the face takes across and up, and the head's tilt in degrees. False when
+     * there is no face or the view is not laid out.
+     */
+    fun eyeOnScreen(out: FloatArray): Boolean {
+        if (face == 0 || viewWidth == 0 || viewHeight == 0) return false
+        val tm = engine.transformManager
+        tm.getWorldTransform(tm.getInstance(face), faceWorld)
+        camera.getViewMatrix(viewMatrix)
+        camera.getProjectionMatrix(projection)
+        val (x, y, z) = Clawd.EYE_CENTRE.toList()
+        val step = 0.1f
+        if (!project(x, y, z, 0) || !project(x + step, y, z, 2) || !project(x, y + step, z, 4)) return false
+        out[0] = onScreen[0]
+        out[1] = onScreen[1]
+        out[2] = hypot(onScreen[2] - onScreen[0], onScreen[3] - onScreen[1]) / step
+        out[3] = hypot(onScreen[4] - onScreen[0], onScreen[5] - onScreen[1]) / step
+        out[4] = Math.toDegrees(atan2((onScreen[3] - onScreen[1]).toDouble(), (onScreen[2] - onScreen[0]).toDouble())).toFloat()
+        return true
+    }
+
+    /** A point of the face (its own space) on the view, in pixels from the top left, into onScreen[at], [at + 1]. */
+    private fun project(x: Float, y: Float, z: Float, at: Int): Boolean {
+        // Column-major, as Filament and android.opengl.Matrix keep them: the face's world, the camera's view, then its lens.
+        val wx = faceWorld[0] * x + faceWorld[4] * y + faceWorld[8] * z + faceWorld[12]
+        val wy = faceWorld[1] * x + faceWorld[5] * y + faceWorld[9] * z + faceWorld[13]
+        val wz = faceWorld[2] * x + faceWorld[6] * y + faceWorld[10] * z + faceWorld[14]
+        val v = DoubleArray(4) { r -> viewMatrix[r] * wx + viewMatrix[4 + r] * wy + viewMatrix[8 + r] * wz + viewMatrix[12 + r] }
+        val c = DoubleArray(4) { r -> projection[r] * v[0] + projection[4 + r] * v[1] + projection[8 + r] * v[2] + projection[12 + r] * v[3] }
+        if (c[3] <= 0.0) return false
+        onScreen[at] = (((c[0] / c[3]) + 1) / 2 * viewWidth).toFloat()
+        onScreen[at + 1] = ((1 - (c[1] / c[3])) / 2 * viewHeight).toFloat()
+        return true
     }
 
     /** Draw one frame, if there is a surface to draw on. */

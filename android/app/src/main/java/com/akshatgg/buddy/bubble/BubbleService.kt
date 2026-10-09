@@ -83,6 +83,18 @@ class BubbleService : LifecycleService() {
     // The head draws only while it is visible, and an overlay stays "visible" with the screen off or locked, so it is
     // hidden then: the Mac's buddy:pause on lock-screen.
     private var screenOff = false
+
+    // Claude Code on the person's computer, for Clawd in the head's eye: the sessions they share through Buddy's server.
+    private val claudeWatch = ClaudeWatch(
+        scope = lifecycleScope,
+        look = {
+            val graph = AppGraph.instance
+            if (!graph.account.isSignedIn()) null
+            else graph.cloud.remoteLook().takeIf { it.online }?.sessions?.map { it.status }
+        },
+        paused = { screenOff },
+        onKind = { head?.claude = it },
+    )
     private var screenReceiver: BroadcastReceiver? = null
 
     // The person can take "Display over other apps" away in the phone's settings while Buddy runs. Android then hides
@@ -114,6 +126,7 @@ class BubbleService : LifecycleService() {
         }
         watchOverlayPermission()
         listenToScreen()
+        claudeWatch.start()
         lifecycleScope.launch {
             BubbleBus.events.collect { event ->
                 when (event) {
@@ -178,6 +191,7 @@ class BubbleService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        claudeWatch.stop()
         glide?.cancel()
         overlayWatcher?.let { getSystemService(AppOpsManager::class.java).stopWatchingMode(it) }
         overlayWatcher = null

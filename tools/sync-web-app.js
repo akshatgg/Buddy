@@ -3,9 +3,10 @@
 /**
  * Buddy on iPhone (web/public/app/) is a web page, so it carries copies of what it reuses from the rest of Buddy:
  *
- *   shared/    shared/'s errors, memory rules and prompts, the Mac's sleep countdown and feelings (src/main/), and the
- *              panel's voice timing: Node modules and a page script, each made into an ES module here; and the buddy
- *              page's own ES modules (src/renderer/buddy/), copied as they are
+ *   shared/    shared/'s errors, memory rules, prompts and AI providers (shared/providers/), the Mac's sleep countdown,
+ *              feelings and free-mode words (src/main/), and the panel's voice timing: Node modules and a page script,
+ *              each made into an ES module here; and the buddy page's own ES modules (src/renderer/buddy/), copied as
+ *              they are
  *   buddies/   the buddies (assets/buddies/): buddies.json, and each one's .glb and preview
  *   vendor/    three.js from node_modules, with the loader and the studio room the head needs
  *
@@ -23,6 +24,7 @@ const TO = path.join(ROOT, 'web', 'public', 'app');
 const MADE = ['shared', 'buddies', 'vendor']; // the folders this makes; everything else in web/public/app is written by hand
 
 const THREE = 'node_modules/three';
+const PROVIDER_MODULES = ['index.js', 'http.js', 'anthropic.js', 'openai-compatible.js', 'gemini.js'];
 const BUDDY_MODULES = ['blend.js', 'moods.js', 'gestures.js', 'symbols.js', 'symbols.css', 'layout.js'];
 const THREE_FILES = [
   'build/three.module.js', 'build/three.core.js', 'LICENSE',
@@ -41,6 +43,8 @@ function plan(root = ROOT) {
     ['shared/prompts.js', { from: 'shared/prompts.js', as: 'commonjs' }],
     ['shared/sleep.js', { from: 'src/main/sleep.js', as: 'commonjs' }],
     ['shared/feelings.js', { from: 'src/main/feelings.js', as: 'commonjs' }],
+    ['shared/free-state.js', { from: 'src/main/free-state.js', as: 'commonjs' }],
+    ...PROVIDER_MODULES.map((file) => [`shared/providers/${file}`, { from: `shared/providers/${file}`, as: 'commonjs' }]),
     ['shared/voice-timing.js', { from: 'src/renderer/panel/voice-timing.js', as: 'script', name: 'VoiceTiming' }],
     ...BUDDY_MODULES.map((file) => [`shared/${file}`, { from: `src/renderer/buddy/${file}`, as: 'copy' }]),
     ['buddies/buddies.json', { from: 'assets/buddies/buddies.json', as: 'copy' }],
@@ -57,10 +61,11 @@ const note = (from) => `// Made by tools/sync-web-app.js from ${from}. Do not ed
 
 /**
  * A Node module as an ES module: its code runs as it is, inside a function that is given `module` and `require` (which
- * knows only the module's own files, imported next to it), and what it exports is exported by name.
+ * knows only the module's own files, imported from where they are made: './x' next to it, '../x' one folder up), and
+ * what it exports is exported by name.
  */
 function fromCommonJs(source, from, root) {
-  const deps = [...new Set([...source.matchAll(/require\('(\.\/[\w-]+)'\)/g)].map((m) => m[1]))];
+  const deps = [...new Set([...source.matchAll(/require\('(\.\.?\/[\w-]+)'\)/g)].map((m) => m[1]))];
   const names = Object.keys(require(path.join(root, from)));
   return [
     note(from).trimEnd(),

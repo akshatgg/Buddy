@@ -34,6 +34,32 @@ test('the Node modules made into ES modules answer as they do in Node', async ()
   assert.strictEqual(VoiceTiming.recordingMime('audio/mp4;codecs=mp4a.40.2'), 'audio/mp4');
   const { buddyLevel } = await import(url('feelings.js'));
   assert.strictEqual(buddyLevel(0.1), 0.5);
+  const { aiSection } = await import(url('free-state.js'));
+  const free = { freeOn: true, limitMode: 'daily', limit: 30, usedToday: 4, allowOwnKey: true, blocked: false };
+  assert.deepStrictEqual(aiSection(free), require('../src/main/free-state').aiSection(free));
+});
+
+test('the AI providers, made into ES modules, are the same four, and talk to the provider as in Node', async () => {
+  const providers = await import(pathToFileURL(path.join(TO, 'shared', 'providers', 'index.js')).href);
+  const node = require('../shared/providers');
+  assert.deepStrictEqual(providers.PROVIDER_IDS, node.PROVIDER_IDS);
+  const facts = (p) => ({ label: p.label, keyUrl: p.keyUrl, keyPrefixes: p.keyPrefixes, fallbackModels: p.fallbackModels });
+  for (const id of node.PROVIDER_IDS) assert.deepStrictEqual(facts(providers.getProvider(id)), facts(node.PROVIDERS[id]), id);
+  assert.strictEqual(providers.providerForKey('sk-ant-x'), 'anthropic');
+  assert.strictEqual(providers.providerForKey('gsk_x'), 'groq');
+  assert.throws(() => providers.getProvider('constructor'), (err) => err.name === 'BuddyError' && err.code === 'bad_request');
+  // A refused key is the shared errors' BuddyError, in the shared words (http.js, through '../errors').
+  const fetchImpl = async () => ({ ok: false, status: 401, text: async () => '{}' });
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    await assert.rejects(
+      providers.getProvider('groq').complete({ apiKey: 'k', model: 'm', system: 's', user: 'u', maxTokens: 10, fetchImpl }),
+      (err) => err.name === 'BuddyError' && err.code === 'bad_key' && err.message === 'Your Groq key was rejected. Check it in Settings.',
+    );
+  } finally {
+    console.warn = warn;
+  }
 });
 
 test('the sync makes only its own folders: stale files in them go, the hand-written files stay', (t) => {

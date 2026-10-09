@@ -91,7 +91,7 @@ test('on: one entry on each of the seven events, after the entries already there
   assert.strictEqual(out.hooks.SessionEnd.length, 1);
   assert.strictEqual(out.model, 'opus');
   assert.deepStrictEqual(out.permissions, OWNER.permissions);
-  assert.strictEqual(out.hooks.Notification[0].matcher, 'permission_prompt|idle_prompt|agent_needs_input');
+  assert.strictEqual(out.hooks.Notification[0].matcher, 'permission_prompt|agent_needs_input|elicitation_dialog', 'not idle_prompt: an idle session needs nothing');
   assert.ok(!('matcher' in out.hooks.Stop[1]), 'Stop has no matcher');
 });
 

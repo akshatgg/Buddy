@@ -13,6 +13,7 @@
  */
 
 const path = require('node:path');
+const { needsYou } = require('./hooks');
 
 const KEEP = 500; // the items kept for a session: the newest
 const TITLE_READ = 512 * 1024; // a session's title is looked for in this much of the end of its file
@@ -237,7 +238,9 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
       s.items = [];
     }
     if (typeof event.tty === 'string' && TTY.test(event.tty)) s.tty = event.tty;
-    s.status = STATUS_AFTER[event.name] ?? s.status ?? 'idle';
+    // A notification that needs nothing (an idle session, hooks.js needsYou) does not make the session wait for the person.
+    const counts = event.name !== 'Notification' || needsYou(event);
+    s.status = (counts ? STATUS_AFTER[event.name] : null) ?? s.status ?? 'idle';
     s.lastEvent = now();
     sessions.set(id, s);
     changed(id);

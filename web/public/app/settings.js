@@ -74,8 +74,14 @@ export function startSettings({ store, memory, buddies, onBuddy, account, onSign
   $('push-switch').addEventListener('change', async (e) => {
     const toggle = e.target;
     toggle.disabled = true;
-    const r = toggle.checked ? await push.on() : await push.off();
-    toggle.disabled = false;
+    let r;
+    try {
+      r = toggle.checked ? await push.on() : await push.off();
+    } catch {
+      r = { ok: false, error: 'That did not work. Try again.' };
+    } finally {
+      toggle.disabled = false;
+    }
     if (!r.ok) toggle.checked = !toggle.checked;
     showPushNote(r.ok ? '' : r.error);
   });

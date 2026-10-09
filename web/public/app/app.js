@@ -45,13 +45,14 @@ function say(text) {
 
 let auth = null;
 let authReady;
+let authSettled = false;
 const authStarted = new Promise((resolve) => {
   authReady = resolve;
 });
 const api = createApi({
   getToken: async (force) => {
-    const a = await authStarted;
-    return a ? a.token(force) : null;
+    await authStarted;
+    return auth ? auth.token(force) : null;
   },
   onSignedOut: () => auth?.signOut(),
 });
@@ -161,9 +162,19 @@ const claudeView = startClaudeView({ api, onMic: toggleVoice, onFull: (on) => ap
 
 const push = createPush({ api, pushKey: () => config?.pushKey || null });
 
+const PUSH_OFF_MS = 5000;
+let signingOut = false;
+
 async function signOut() {
-  await push.off(); // this phone stops getting the person's notifications
-  await auth?.signOut();
+  if (signingOut) return;
+  signingOut = true;
+  try {
+    // This phone stops getting the person's notifications; if that hangs, signing out goes on without it.
+    await Promise.race([push.off().catch(() => null), new Promise((resolve) => setTimeout(resolve, PUSH_OFF_MS))]);
+    await auth?.signOut();
+  } finally {
+    signingOut = false;
+  }
 }
 
 const settings = startSettings({
@@ -212,6 +223,7 @@ window.addEventListener('hashchange', followLink);
 function showSignedOut() {
   person = null;
   config = null;
+  tab = 'chat'; // the next sign-in opens on Chat
   app.dataset.signed = 'out';
   $('signin').hidden = false;
   $('tabs').hidden = true;
@@ -235,26 +247,32 @@ async function showSignedIn(who) {
   claudeView.setVoice(config?.voiceOn === true);
 }
 
-$('signin-button').addEventListener('click', () => {
-  if (!auth) {
+/** Starts sign-in; on the first try or a later one. True when it is running. Opening the sign-in page is a navigation,
+ * so it may come after an await. */
+async function beginAuth() {
+  try {
+    auth = await startAuth({ onUser: (who) => (who ? showSignedIn(who) : showSignedOut()), onError: showSignInError });
+  } catch (err) {
+    console.error('[buddy] sign-in could not start', err);
+    if (!authSettled) showSignedOut();
     showSignInError(SIGN_IN_OFFLINE);
-    return;
+    return false;
+  } finally {
+    if (!authSettled) {
+      authSettled = true;
+      authReady();
+    }
   }
+  return true;
+}
+
+$('signin-button').addEventListener('click', async () => {
+  if (!auth && !(await beginAuth())) return;
   showSignInError('');
   auth.signIn().catch((err) => showSignInError(signInMessage(err)));
 });
 
-startAuth({ onUser: (who) => (who ? showSignedIn(who) : showSignedOut()), onError: showSignInError })
-  .then((a) => {
-    auth = a;
-    authReady(a);
-  })
-  .catch((err) => {
-    console.error('[buddy] sign-in could not start', err);
-    authReady(null);
-    showSignedOut();
-    showSignInError(SIGN_IN_OFFLINE);
-  });
+beginAuth();
 
 // ---- the page ----
 

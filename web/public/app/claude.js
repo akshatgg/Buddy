@@ -26,6 +26,7 @@ export function startClaudeView({ api, onMic, onFull }) {
   let shownId = null; // the session drawn last, and its newest item: the list scrolls down for new items only
   let newest = 0;
   let voice = 'idle';
+  let voiceError = null; // a voice error stays until the next mic tap or send; the 2 s redraws would wipe it otherwise
 
   function setLine(id, message) {
     $(id).textContent = message || '';
@@ -80,7 +81,7 @@ export function startClaudeView({ api, onMic, onFull }) {
     shownId = session.id;
     newest = last;
     setLine('claude-problem', s.problem);
-    setLine('claude-error', s.boxError);
+    setLine('claude-error', s.boxError || voiceError);
     if (voice === 'idle') input.placeholder = `Message Claude in ${session.name}…`;
   }
 
@@ -105,7 +106,9 @@ export function startClaudeView({ api, onMic, onFull }) {
 
   async function sendTyped() {
     const text = input.value;
-    if (!text.trim()) return;
+    if (!text.trim() || !core.state.session || core.state.sending) return; // the words stay in the box
+    voiceError = null;
+    setLine('claude-error', '');
     input.value = '';
     grow(input);
     updateSend();
@@ -134,7 +137,11 @@ export function startClaudeView({ api, onMic, onFull }) {
   $('claude-full').addEventListener('click', () => setFull(!full));
   $('claude-back').addEventListener('click', () => core.list());
   $('claude-again').addEventListener('click', () => core.list());
-  $('claude-mic').addEventListener('click', () => onMic());
+  $('claude-mic').addEventListener('click', () => {
+    voiceError = null;
+    setLine('claude-error', '');
+    onMic();
+  });
 
   return {
     /** The tab opened (with `openId`, a notification's session): in Claude mode, or in view again. */
@@ -169,6 +176,9 @@ export function startClaudeView({ api, onMic, onFull }) {
       grow(input);
       updateSend();
     },
-    showError: (message) => setLine('claude-error', message),
+    showError(message) {
+      voiceError = message || null;
+      setLine('claude-error', message);
+    },
   };
 }

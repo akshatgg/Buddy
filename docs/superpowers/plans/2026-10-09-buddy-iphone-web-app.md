@@ -5024,6 +5024,7 @@ export function startClaudeView({ api, onMic, onFull }) {
   let shownId = null; // the session drawn last, and its newest item: the list scrolls down for new items only
   let newest = 0;
   let voice = 'idle';
+  let voiceError = null; // a voice error stays until the next mic tap or send; the 2 s redraws would wipe it otherwise
 
   function setLine(id, message) {
     $(id).textContent = message || '';
@@ -5078,7 +5079,7 @@ export function startClaudeView({ api, onMic, onFull }) {
     shownId = session.id;
     newest = last;
     setLine('claude-problem', s.problem);
-    setLine('claude-error', s.boxError);
+    setLine('claude-error', s.boxError || voiceError);
     if (voice === 'idle') input.placeholder = `Message Claude in ${session.name}…`;
   }
 
@@ -5103,7 +5104,9 @@ export function startClaudeView({ api, onMic, onFull }) {
 
   async function sendTyped() {
     const text = input.value;
-    if (!text.trim()) return;
+    if (!text.trim() || !core.state.session || core.state.sending) return; // the words stay in the box
+    voiceError = null;
+    setLine('claude-error', '');
     input.value = '';
     grow(input);
     updateSend();
@@ -5132,7 +5135,11 @@ export function startClaudeView({ api, onMic, onFull }) {
   $('claude-full').addEventListener('click', () => setFull(!full));
   $('claude-back').addEventListener('click', () => core.list());
   $('claude-again').addEventListener('click', () => core.list());
-  $('claude-mic').addEventListener('click', () => onMic());
+  $('claude-mic').addEventListener('click', () => {
+    voiceError = null;
+    setLine('claude-error', '');
+    onMic();
+  });
 
   return {
     /** The tab opened (with `openId`, a notification's session): in Claude mode, or in view again. */
@@ -5167,7 +5174,10 @@ export function startClaudeView({ api, onMic, onFull }) {
       grow(input);
       updateSend();
     },
-    showError: (message) => setLine('claude-error', message),
+    showError(message) {
+      voiceError = message || null;
+      setLine('claude-error', message);
+    },
   };
 }
 ```
@@ -5253,8 +5263,14 @@ export function startSettings({ store, memory, buddies, onBuddy, account, onSign
   $('push-switch').addEventListener('change', async (e) => {
     const toggle = e.target;
     toggle.disabled = true;
-    const r = toggle.checked ? await push.on() : await push.off();
-    toggle.disabled = false;
+    let r;
+    try {
+      r = toggle.checked ? await push.on() : await push.off();
+    } catch {
+      r = { ok: false, error: 'That did not work. Try again.' };
+    } finally {
+      toggle.disabled = false;
+    }
     if (!r.ok) toggle.checked = !toggle.checked;
     showPushNote(r.ok ? '' : r.error);
   });
@@ -5343,13 +5359,14 @@ function say(text) {
 
 let auth = null;
 let authReady;
+let authSettled = false;
 const authStarted = new Promise((resolve) => {
   authReady = resolve;
 });
 const api = createApi({
   getToken: async (force) => {
-    const a = await authStarted;
-    return a ? a.token(force) : null;
+    await authStarted;
+    return auth ? auth.token(force) : null;
   },
   onSignedOut: () => auth?.signOut(),
 });
@@ -5459,9 +5476,19 @@ const claudeView = startClaudeView({ api, onMic: toggleVoice, onFull: (on) => ap
 
 const push = createPush({ api, pushKey: () => config?.pushKey || null });
 
+const PUSH_OFF_MS = 5000;
+let signingOut = false;
+
 async function signOut() {
-  await push.off(); // this phone stops getting the person's notifications
-  await auth?.signOut();
+  if (signingOut) return;
+  signingOut = true;
+  try {
+    // This phone stops getting the person's notifications; if that hangs, signing out goes on without it.
+    await Promise.race([push.off().catch(() => null), new Promise((resolve) => setTimeout(resolve, PUSH_OFF_MS))]);
+    await auth?.signOut();
+  } finally {
+    signingOut = false;
+  }
 }
 
 const settings = startSettings({
@@ -5510,6 +5537,7 @@ window.addEventListener('hashchange', followLink);
 function showSignedOut() {
   person = null;
   config = null;
+  tab = 'chat'; // the next sign-in opens on Chat
   app.dataset.signed = 'out';
   $('signin').hidden = false;
   $('tabs').hidden = true;
@@ -5533,26 +5561,32 @@ async function showSignedIn(who) {
   claudeView.setVoice(config?.voiceOn === true);
 }
 
-$('signin-button').addEventListener('click', () => {
-  if (!auth) {
+/** Starts sign-in; on the first try or a later one. True when it is running. Opening the sign-in page is a navigation,
+ * so it may come after an await. */
+async function beginAuth() {
+  try {
+    auth = await startAuth({ onUser: (who) => (who ? showSignedIn(who) : showSignedOut()), onError: showSignInError });
+  } catch (err) {
+    console.error('[buddy] sign-in could not start', err);
+    if (!authSettled) showSignedOut();
     showSignInError(SIGN_IN_OFFLINE);
-    return;
+    return false;
+  } finally {
+    if (!authSettled) {
+      authSettled = true;
+      authReady();
+    }
   }
+  return true;
+}
+
+$('signin-button').addEventListener('click', async () => {
+  if (!auth && !(await beginAuth())) return;
   showSignInError('');
   auth.signIn().catch((err) => showSignInError(signInMessage(err)));
 });
 
-startAuth({ onUser: (who) => (who ? showSignedIn(who) : showSignedOut()), onError: showSignInError })
-  .then((a) => {
-    auth = a;
-    authReady(a);
-  })
-  .catch((err) => {
-    console.error('[buddy] sign-in could not start', err);
-    authReady(null);
-    showSignedOut();
-    showSignInError(SIGN_IN_OFFLINE);
-  });
+beginAuth();
 
 // ---- the page ----
 

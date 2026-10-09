@@ -31,6 +31,7 @@ function setup({ notches = [ENTRY], displays = [PRIMARY], home = 'notch', platfo
     panelOpen: (open) => calls.push(['floating.panelOpen', open]),
     micOn: (on) => calls.push(['floating.micOn', on]),
     voiceLevel: (level) => calls.push(['floating.voiceLevel', level]),
+    claude: (value) => calls.push(['floating.claude', value]),
     setHover: (over) => calls.push(['floating.setHover', over]),
     beginDrag: (p) => calls.push(['floating.beginDrag', p]),
     dragTo: (p) => calls.push(['floating.dragTo', p]),
@@ -305,7 +306,8 @@ test('the character, the panel and the microphone reach both, so the one Buddy m
     ['floating.micOn', true], ['notch.micOn', true], ['floating.voiceLevel', 0.5],
   ]);
   assert.deepStrictEqual(s.calls.slice(after), [
-    ['notch.voiceLevel', 0.25], ['notch.status', { kind: 'working', text: 'Claude · planning' }], ['notch.relayout'],
+    ['notch.voiceLevel', 0.25], ['notch.status', { kind: 'working', text: 'Claude · planning' }],
+    ['floating.claude', { kind: 'working', text: 'Claude · planning' }], ['notch.relayout'],
   ]);
 });
 

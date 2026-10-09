@@ -415,3 +415,26 @@ test('a mood sent while the page loads is still the one it gets, once', (t) => {
   win().handlers['did-finish-load']();
   assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false], ['buddy:mood', 'asleep']], 'not twice');
 });
+
+test("Claude Code's status goes to the page as Clawd's kind; a lasting one is told again to a page that loads", (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  const { buddy, win } = setup();
+  buddy.show();
+  win().load();
+  buddy.claude({ kind: 'working', text: 'Claude · editing code', session: 's1' });
+  assert.deepStrictEqual(win().sent.at(-1), ['buddy:claude', { kind: 'working' }], 'only the kind: the page needs no more');
+  win().handlers['did-navigate']();
+  let before = win().sent.length;
+  win().handlers['did-finish-load']();
+  assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false], ['buddy:claude', { kind: 'working' }]]);
+  buddy.claude({ kind: 'done', text: '' });
+  assert.deepStrictEqual(win().sent.at(-1), ['buddy:claude', { kind: 'done' }]);
+  win().handlers['did-navigate']();
+  before = win().sent.length;
+  win().handlers['did-finish-load']();
+  assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false]], 'done is a moment: not told again');
+  for (const value of [null, 'working', { kind: 'nonsense' }]) {
+    buddy.claude(value);
+    assert.deepStrictEqual(win().sent.at(-1), ['buddy:claude', null], JSON.stringify(value));
+  }
+});

@@ -21,6 +21,7 @@ data class FreeSettings(
     val blocked: Boolean,
     val isAdmin: Boolean,
     val voiceOn: Boolean = false, // the server can write down what is said (it has a Groq key)
+    val clawdLook: String = "head", // where Clawd walks with the head while Claude Code works: "head" or "face" (the admin's)
 ) {
     fun toJson(): String = buildJsonObject {
         put("freeOn", freeOn)
@@ -31,6 +32,7 @@ data class FreeSettings(
         put("blocked", blocked)
         put("isAdmin", isAdmin)
         put("voiceOn", voiceOn)
+        put("clawdLook", clawdLook)
     }.toString()
 
     companion object {
@@ -44,6 +46,7 @@ data class FreeSettings(
             blocked = flag(j, "blocked"),
             isAdmin = flag(j, "isAdmin"),
             voiceOn = flag(j, "voiceOn"),
+            clawdLook = if (j?.get("clawdLook").let { it is JsonPrimitive && it.isString && it.content == "face" }) "face" else "head",
         )
 
         /** The copy kept in the app's settings; null when there is none or it cannot be read. */

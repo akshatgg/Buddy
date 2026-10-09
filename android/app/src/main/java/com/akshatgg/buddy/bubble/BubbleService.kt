@@ -127,6 +127,10 @@ class BubbleService : LifecycleService() {
         watchOverlayPermission()
         listenToScreen()
         claudeWatch.start()
+        // Where Clawd walks with the head: the admin's choice, from Buddy's server (on the head for someone signed out).
+        lifecycleScope.launch {
+            AppGraph.instance.cloud.free.collect { head?.clawdLook = Clawd.lookOf(it?.clawdLook) }
+        }
         lifecycleScope.launch {
             BubbleBus.events.collect { event ->
                 when (event) {

@@ -4,13 +4,17 @@
  * The admin's switches for free mode (Firestore config/free): what they are when nothing is saved yet, and
  * whether a change the admin asks for is valid. `hasKey(providerId)` says whether the server has a key for it.
  *
- *   { enabled, limitMode: 'unlimited' | 'daily', dailyRequests, allowOwnKey, provider, model }
+ *   { enabled, limitMode: 'unlimited' | 'daily', dailyRequests, allowOwnKey, provider, model, clawdLook }
+ *
+ * clawdLook is not about free mode, but it is the admin's too and goes to every app with these: where Clawd walks with
+ * the buddy while Claude Code works, 'head' (on top of its head) or 'face' (along its face screen, under the eyes).
  */
 
 const { BuddyError } = require('../shared/errors');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
 
 const DEFAULT_LIMIT = 30;
+const CLAWD_LOOKS = ['head', 'face'];
 const MAX_LIMIT = 10_000;
 const MODEL_MAX = 200;
 
@@ -30,6 +34,7 @@ function withDefaults(stored, hasKey) {
     allowOwnKey: s.allowOwnKey === true,
     provider,
     model,
+    clawdLook: CLAWD_LOOKS.includes(s.clawdLook) ? s.clawdLook : CLAWD_LOOKS[0],
   };
 }
 
@@ -71,10 +76,14 @@ function applyPatch(current, patch, hasKey) {
     if (!model || model.length > MODEL_MAX) throw bad('Pick a model.');
     next.model = model;
   }
+  if (has('clawdLook')) {
+    if (!CLAWD_LOOKS.includes(patch.clawdLook)) throw bad('Pick where Clawd walks: on the head or on the face.');
+    next.clawdLook = patch.clawdLook;
+  }
   if (next.enabled && !hasKey(next.provider)) {
     throw bad(`There is no ${PROVIDERS[next.provider].label} key on the server, so free mode can't use it.`);
   }
   return next;
 }
 
-module.exports = { withDefaults, isFreeOn, applyPatch, DEFAULT_LIMIT, MAX_LIMIT };
+module.exports = { withDefaults, isFreeOn, applyPatch, DEFAULT_LIMIT, MAX_LIMIT, CLAWD_LOOKS };

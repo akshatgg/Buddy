@@ -36,6 +36,27 @@ class ClawdTest {
         assertFalse(Clawd.pose(null, 0.0).visible)
     }
 
+    @Test fun workingWalksBackAndForthFacingTheWayItGoes() {
+        val quarter = Math.PI / 2 / Clawd.PACE
+        assertEquals(1f, Clawd.pose(ClawdKind.WORKING, quarter, walk = quarter).x, 1e-6f)
+        assertEquals(1f, Clawd.pose(ClawdKind.WORKING, 0.1, walk = 0.1).facing)
+        assertEquals(-1f, Clawd.pose(ClawdKind.WORKING, 0.1, walk = quarter + 0.1).facing)
+        for (kind in listOf(ClawdKind.NEEDS_YOU, ClawdKind.DONE, ClawdKind.FAILED)) assertEquals(0f, Clawd.pose(kind, 0.1).x)
+    }
+
+    @Test fun theTwoLooksTheHeadWatchesUpOrDownAndEasesThere() {
+        assertEquals(Clawd.LOOKS.getValue("face"), Clawd.lookOf("face"))
+        for (name in listOf("head", null, "eyes")) assertEquals(Clawd.LOOKS.getValue("head"), Clawd.lookOf(name))
+        val pose = ClawdPose(true, "walkA", ClawdEyes.OPEN, 0f, x = 0.5f)
+        val up = Clawd.watch(pose, Clawd.lookOf("head"), ClawdWatch(), 10.0)
+        assertEquals(0.6f, up.look, 1e-4f); assertTrue(up.pitch < 0f); assertEquals(0.09f, up.yaw, 1e-4f); assertEquals(1f, up.amount, 1e-4f)
+        assertTrue(Clawd.watch(pose, Clawd.lookOf("face"), ClawdWatch(), 10.0).look < 0f)
+        val halfway = Clawd.watch(pose, Clawd.lookOf("head"), ClawdWatch(), 0.05)
+        assertTrue(halfway.look > 0f && halfway.look < 0.6f)
+        val back = Clawd.watch(ClawdPose(false, "stand", ClawdEyes.OPEN, 0f), Clawd.lookOf("head"), up, 10.0)
+        assertEquals(0f, back.amount, 1e-4f)
+    }
+
     @Test fun theKindFollowsTheSessions() {
         assertEquals(ClawdKind.NEEDS_YOU, Clawd.kindOf(listOf("working", "waiting"), null))
         assertEquals(ClawdKind.WORKING, Clawd.kindOf(listOf("idle", "working"), null))

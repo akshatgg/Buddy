@@ -133,6 +133,7 @@ async function config(req, deps) {
     blocked: user.blocked === true,
     isAdmin: isAdmin(who, deps),
     voiceOn: hasKey('groq'), // voice needs only the server's Groq key, whatever free mode is set to
+    clawdLook: cfg.clawdLook, // where Clawd walks with the buddy while Claude Code works (the admin's choice)
     ...(deps.push ? { pushKey: deps.push.publicKey } : {}), // notifications on the phone (POST /api/push)
   });
 }

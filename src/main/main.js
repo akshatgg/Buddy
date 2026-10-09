@@ -340,6 +340,11 @@ async function start(options = {}) {
     tray.refresh();
   });
   cloud.onChange(() => tray.refresh());
+  // Where Clawd walks with the buddy while Claude Code works: the admin's choice, from Buddy's server; on the head for
+  // someone signed out.
+  const clawdLook = () => buddy.clawdLook(account.isSignedIn() ? cloud.last()?.clawdLook : null);
+  clawdLook();
+  cloud.onChange(clawdLook);
 
   registerBuddyIpc({
     // An open panel moves with the buddy as it is dragged, and to the edge it snaps to.

@@ -62,6 +62,7 @@ function render() {
   for (const radio of document.querySelectorAll('input[name="limitMode"]')) radio.checked = radio.value === config.limitMode;
   $('daily').value = String(config.dailyRequests);
   $('own').checked = config.allowOwnKey;
+  for (const radio of document.querySelectorAll('input[name="clawdLook"]')) radio.checked = radio.value === config.clawdLook;
   // Only providers with a key on the server can be picked, plus the saved one, so that the list shows what is saved.
   const choices = providers.filter((p) => p.hasKey || p.id === config.provider);
   $('provider').replaceChildren(...choices.map((p) => el('option', {
@@ -164,6 +165,20 @@ $('save').addEventListener('click', async () => {
   showStatus('save-status', 'Saved ✓ Every Buddy app uses it the next time it is opened.', 'good');
 });
 $('users-refresh').addEventListener('click', loadUsers);
+// Where Clawd walks: saved at once, on its own (the Free AI form keeps whatever is being changed there).
+for (const radio of document.querySelectorAll('input[name="clawdLook"]')) {
+  radio.addEventListener('change', async () => {
+    showStatus('clawd-status', 'Saving…');
+    const r = await window.buddy.save({ clawdLook: radio.value });
+    if (!r.ok) {
+      showStatus('clawd-status', r.error.message, 'error');
+      for (const other of document.querySelectorAll('input[name="clawdLook"]')) other.checked = other.value === view.config.clawdLook;
+      return;
+    }
+    view = { ...view, config: { ...view.config, clawdLook: r.config.clawdLook } };
+    showStatus('clawd-status', 'Saved ✓ Every Buddy app uses it the next time it checks.', 'good');
+  });
+}
 
 (async () => {
   const r = await window.buddy.settings();
@@ -175,6 +190,7 @@ $('users-refresh').addEventListener('click', loadUsers);
   view = r;
   render();
   $('free-card').hidden = false;
+  $('clawd-card').hidden = false;
   $('users-card').hidden = false;
   await loadUsers();
 })();

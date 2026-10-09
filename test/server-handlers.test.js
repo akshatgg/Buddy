@@ -191,7 +191,7 @@ test('config: the first call adds the user, and with nothing saved free mode is 
   const s = setup();
   assert.deepStrictEqual(await s.run(config, 'GET'), {
     status: 200,
-    body: { freeOn: false, limitMode: 'daily', limit: 30, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false, voiceOn: false },
+    body: { freeOn: false, limitMode: 'daily', limit: 30, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false, voiceOn: false, clawdLook: 'head' },
   });
   assert.deepStrictEqual(s.db.state.users.u1, userDoc());
 });
@@ -199,7 +199,7 @@ test('config: the first call adds the user, and with nothing saved free mode is 
 test("config: free mode on, today's count, and own keys allowed", async () => {
   const s = setup({ stored: freeDaily(5, { allowOwnKey: true }), users: { u1: userDoc({ usedDay: TODAY, usedCount: 3, lastActive: NOW }) } });
   assert.deepStrictEqual((await s.run(config, 'GET')).body, {
-    freeOn: true, limitMode: 'daily', limit: 5, usedToday: 3, allowOwnKey: true, blocked: false, isAdmin: false, voiceOn: false,
+    freeOn: true, limitMode: 'daily', limit: 5, usedToday: 3, allowOwnKey: true, blocked: false, isAdmin: false, voiceOn: false, clawdLook: 'head',
   });
 });
 
@@ -494,7 +494,7 @@ test('admin settings: with nothing saved, the defaults, and which providers have
   const r = await s.run(adminSettings, 'GET', { token: 'admin' });
   assert.strictEqual(r.status, 200);
   assert.deepStrictEqual(r.body.config, {
-    enabled: false, limitMode: 'daily', dailyRequests: 30, allowOwnKey: false, provider: 'anthropic', model: 'claude-haiku-4-5-20251001',
+    enabled: false, limitMode: 'daily', dailyRequests: 30, allowOwnKey: false, provider: 'anthropic', model: 'claude-haiku-4-5-20251001', clawdLook: 'head',
   });
   assert.deepStrictEqual(r.body.providers.map((p) => [p.id, p.label, p.hasKey]), [
     ['anthropic', 'Claude (Anthropic)', true], ['openai', 'OpenAI', false], ['gemini', 'Google Gemini', false], ['groq', 'Groq', true],
@@ -517,12 +517,12 @@ test('admin settings: a change is saved and every user sees it; a refused one ch
   const saved = await s.run(adminSettings, 'PUT', { token: 'admin', body: { enabled: true, dailyRequests: 10, allowOwnKey: true } });
   assert.strictEqual(saved.status, 200);
   const expected = {
-    enabled: true, limitMode: 'daily', dailyRequests: 10, allowOwnKey: true, provider: 'anthropic', model: 'claude-haiku-4-5-20251001',
+    enabled: true, limitMode: 'daily', dailyRequests: 10, allowOwnKey: true, provider: 'anthropic', model: 'claude-haiku-4-5-20251001', clawdLook: 'head',
   };
   assert.deepStrictEqual(saved.body.config, expected);
   assert.deepStrictEqual(s.db.state.config, expected);
   assert.deepStrictEqual((await s.run(config, 'GET')).body, {
-    freeOn: true, limitMode: 'daily', limit: 10, usedToday: 0, allowOwnKey: true, blocked: false, isAdmin: false, voiceOn: false,
+    freeOn: true, limitMode: 'daily', limit: 10, usedToday: 0, allowOwnKey: true, blocked: false, isAdmin: false, voiceOn: false, clawdLook: 'head',
   });
 
   assert.deepStrictEqual(await s.run(adminSettings, 'PUT', { token: 'admin', body: { dailyRequests: 0 } }),
@@ -608,4 +608,9 @@ test('a failure nobody planned for is a 500 in plain words, and only its kind is
   const logged = error.mock.calls[0].arguments.join(' ');
   assert.match(logged, /\[api\] failed: SyntaxError/);
   assert.doesNotMatch(logged, /secret/, 'what the person sent is never logged');
+});
+
+test("config: where Clawd walks is the admin's choice, for every user; the head when nothing is saved", async () => {
+  assert.strictEqual((await setup().run(config, 'GET')).body.clawdLook, 'head');
+  assert.strictEqual((await setup({ stored: { clawdLook: 'face' } }).run(config, 'GET')).body.clawdLook, 'face');
 });

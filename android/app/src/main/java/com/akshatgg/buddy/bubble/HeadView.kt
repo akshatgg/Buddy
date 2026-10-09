@@ -78,14 +78,23 @@ class HeadView(context: Context) : FrameLayout(context) {
     }
 
     /**
-     * Claude Code on the person's computer (ClaudeWatch): Clawd takes the place of the right eye while a session works
-     * or needs them, and shows a moment for done or failed (Clawd.pose). The same lasting kind again goes on as it was.
+     * Claude Code on the person's computer (ClaudeWatch): Clawd walks with the head while a session works or needs them,
+     * and shows a moment for done or failed (Clawd.pose); the head watches it. The same lasting kind again goes on as it
+     * was.
      */
     var claude: ClawdKind? = null
         @MainThread set(value) {
             if (field == value && (value == ClawdKind.WORKING || value == ClawdKind.NEEDS_YOU)) return
             field = value
             claudeSince = now()
+            wake()
+        }
+
+    /** Where Clawd walks: the admin's choice (Clawd.lookOf), from Buddy's server. */
+    var clawdLook: ClawdLook = Clawd.lookOf(null)
+        @MainThread set(value) {
+            if (field == value) return
+            field = value
             wake()
         }
 
@@ -103,11 +112,13 @@ class HeadView(context: Context) : FrameLayout(context) {
         addView(it, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
     private var renderer: HeadRenderer? = null
-    private val clawdView = ClawdEyeView(context).also {
+    private val clawdView = ClawdView(context).also {
         addView(it, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)) // over the head
     }
-    private val eyePlace = FloatArray(5)
+    private val clawdPlace = FloatArray(5)
     private var claudeSince = 0.0
+    private var watch = ClawdWatch() // how the head watches Clawd, eased (Clawd.watch)
+    private var watchAt = 0.0
     private var released = false
     private var currentMood = Mood.IDLE
     private var moodSince = 0.0
@@ -170,22 +181,33 @@ class HeadView(context: Context) : FrameLayout(context) {
         val t = seconds(frameTimeNanos)
         lastTick = t
         if (currentMood != Mood.IDLE || pressing) lastActive = t
-        val clawd = Clawd.pose(claude, t - claudeSince)
+        val clawd = Clawd.pose(claude, t - claudeSince, walk = t)
         val moodFps = Moods.fpsFor(currentMood, pressing, blinker.soon(t, BLINK_LOOKAHEAD), t - lastActive)
         val fps = if (clawd.visible) max(moodFps, Clawd.FPS) else moodFps // its steps need the frames
         schedule(1.0 / Moods.drawFps(fps, picker = t < turnUntil, looking = lookEase.moving(t)) - (now() - t))
 
         val renderer = renderer ?: return
-        val pose = Moods.pose(currentMood, t - moodSince)
+        // While Clawd shows the head watches it rather than think: Claude Code at work sends thinking, whose eyes are a line.
+        val shownMood = if (clawd.visible && currentMood == Mood.THINKING) Mood.IDLE else currentMood
+        val pose = Moods.pose(shownMood, t - moodSince)
         if (pose.done) {
             currentMood = Mood.IDLE
             moodSince = t
         }
         val picker = if (t < turnUntil) pose.copy(yaw = pose.yaw + Moods.turn(t)) else pose
         val look = lookEase.value(t)
-        val shown = if (look == Turn.FRONT) picker else picker.copy(yaw = picker.yaw + look.yaw, pitch = picker.pitch + look.pitch)
+        val looking = if (look == Turn.FRONT) picker else picker.copy(yaw = picker.yaw + look.yaw, pitch = picker.pitch + look.pitch)
+        watch = Clawd.watch(clawd, clawdLook, watch, t - watchAt)
+        watchAt = t
+        val shown = if (watch.amount == 0f) looking else looking.copy(
+            yaw = looking.yaw + watch.yaw, pitch = looking.pitch + watch.pitch,
+            eyeL = looking.eyeL + watch.look, eyeR = looking.eyeR + watch.look,
+        )
         renderer.setPose(shown, blinker.value(t), Moods.floatOffset(t))
-        if (clawd.visible && renderer.eyeOnScreen(eyePlace)) clawdView.show(clawd, eyePlace) else clawdView.hide()
+        val spot = clawdLook
+        val placed = clawd.visible &&
+            renderer.spotOnScreen(spot.walk * clawd.x, spot.y, spot.z, clawdPlace)
+        if (placed) clawdView.show(clawd, spot.width, clawdPlace) else clawdView.hide()
         renderer.render(frameTimeNanos)
     }
 

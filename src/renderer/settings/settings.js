@@ -196,6 +196,35 @@ $('claude-watch-switch').addEventListener('change', async () => {
 // Check again: the switch follows Claude Code's fresh answer (a cached one could still say "not installed").
 $('claude-check').addEventListener('click', () => renderClaudeWatch({ force: true }));
 
+/**
+ * Settings → Claude Code's "Show my sessions on my other devices" (src/main/claude/share.js): the switch and the line under
+ * it, dimmed while nobody is signed in (the phone finds the computer by the Google account).
+ */
+async function renderClaudeShare() {
+  const share = await window.buddy.claudeShare();
+  if (!share.ok) {
+    showStatus('claude-share-status', share.error.message, 'error');
+    return;
+  }
+  $('claude-share-switch').checked = share.on;
+  $('claude-share-switch').disabled = !share.canTurnOn && !share.on;
+  $('claude-share-line').textContent = share.line;
+}
+$('claude-share-switch').addEventListener('change', async () => {
+  const want = $('claude-share-switch').checked;
+  $('claude-share-switch').disabled = true; // not flipped again while this one is on its way
+  const r = await window.buddy.setClaudeShare(want);
+  $('claude-share-switch').disabled = false;
+  if (r.ok) {
+    $('claude-share-switch').checked = r.on;
+    $('claude-share-line').textContent = r.line;
+    showStatus('claude-share-status', 'Saved ✓', 'good');
+  } else {
+    $('claude-share-switch').checked = !want;
+    showStatus('claude-share-status', r.error.message, 'error');
+  }
+});
+
 
 function showSection(name) {
   if (loadFailed) return; // there is no section to show
@@ -707,6 +736,7 @@ window.addEventListener('focus', async () => {
   snap = fresh;
   render({ fields: false });
   if (changed) showStatus('account-status', '');
+  if (changed) renderClaudeShare(); // signed in or out: the phone switch follows
 });
 
 (async () => {
@@ -727,6 +757,7 @@ window.addEventListener('focus', async () => {
   await renderClaude();
   await loadProjects();
   await renderClaudeWatch();
+  await renderClaudeShare();
   // The admin may have changed free mode since the app last asked; what is typed meanwhile stays.
   const fresh = await window.buddy.refresh();
   if (fresh.ok) {

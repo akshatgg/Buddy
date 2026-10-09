@@ -51,6 +51,7 @@ const { createWatch } = require('./claude/watch');
 const { createLive } = require('./claude/live');
 const { createTerminal } = require('./claude/terminal');
 const { createClaudeMode } = require('./claude/mode');
+const { createShare, thisDevice } = require('./claude/share');
 const { createUpdater, installTarget, firstLaunchOfNewVersion } = require('./updates');
 const { helperFile, windows: onWindows } = require('./platform');
 
@@ -223,16 +224,31 @@ async function start(options = {}) {
   const claudeDirs = options.claudeDirs
     || [path.join(app.getPath('home'), '.claude'), ...(process.env.CLAUDE_CONFIG_DIR ? [process.env.CLAUDE_CONFIG_DIR] : [])];
   const live = createLive({ configDirs: () => claudeDirs });
+  const terminal = options.terminal || createTerminal();
+  const device = thisDevice({ store }); // this computer, to the person's other devices (claude/share.js)
   const claudeMode = createClaudeMode({
     live,
-    terminal: options.terminal || createTerminal(),
+    terminal,
+    // The sessions the person's other computers share, through Buddy's server, for someone signed in.
+    remote: {
+      available: () => account.isSignedIn(),
+      look: (sessionId) => cloud.remoteLook(sessionId, device.id),
+      send: (sessionId, text) => cloud.remoteSend(sessionId, text),
+      stop: () => cloud.remoteStop(),
+    },
     clipboard: options.clipboard || clipboard,
     send: (session) => panel.send('panel:claude-state', session),
   });
   const watch = createWatch({
     store, find, hooks, ui, chatBusy: () => actions.state().busy === true, active: () => power.isOn(), onEvent: (event) => live.hear(event),
   });
+  // Claude mode on the phone (claude/share.js): with its switch on, signed in and Buddy on, the sessions running here
+  // are shared with the person's phone through Buddy's server.
+  const share = createShare({
+    store, cloud, live, terminal, device, signedIn: () => account.isSignedIn(), active: () => power.isOn(),
+  });
   const startWatch = () => {
+    share.start();
     if (store.get('watchClaudeCode') !== true) return;
     watch.start().catch((err) => console.warn('[buddy] could not watch Claude Code:', err.message));
   };
@@ -266,6 +282,7 @@ async function start(options = {}) {
         // Through actions, as closing the panel does: the chat ends, and an answer still on its way does nothing.
         actions.dismiss().catch((err) => console.error('[buddy] could not close the panel', err));
         watch.stop(); // the buddy goes idle if Claude Code had moved it
+        share.stop();
         buddy.hide();
       }
       tray.refresh();
@@ -306,6 +323,8 @@ async function start(options = {}) {
       cloud.forget();
     }
     if (!account.isSignedIn()) windows.close('admin');
+    if (account.isSignedIn()) share.start();
+    else share.stop();
     tray.refresh();
   });
   cloud.onChange(() => tray.refresh());
@@ -338,7 +357,7 @@ async function start(options = {}) {
   registerAdminIpc({ ipcMain, windows, cloud });
   registerClaudeIpc({
     ipcMain, allowed: (webContents) => windows.owns(webContents, 'settings') || windows.owns(webContents, 'onboarding'),
-    find, watch, projects, dialog, openExternal: (url) => shell.openExternal(url),
+    find, watch, share, projects, dialog, openExternal: (url) => shell.openExternal(url),
   });
   updatesIpc = registerUpdatesIpc({
     ipcMain,

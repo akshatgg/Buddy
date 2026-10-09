@@ -78,7 +78,23 @@ class PanelCallbacks(
     /** The ⚙ in the header. */
     val settings: () -> Unit = {},
     val close: () -> Unit = {},
+    /** The Claude button in the header and Claude mode's own; null where there is none (the Fix sheet, signed out). */
+    val claude: ClaudeCallbacks? = null,
 )
+
+/** What Claude mode's buttons and box do. PanelActivity wires them to ClaudeModel. */
+class ClaudeCallbacks(
+    /** The Claude button: into Claude mode, or back to the chat. */
+    val toggle: () -> Unit = {},
+    /** A session picked from the list. */
+    val open: (String) -> Unit = {},
+    /** "Look again", and "‹ Sessions". */
+    val list: () -> Unit = {},
+    val setDraft: (String) -> Unit = {},
+    val send: () -> Unit = {},
+)
+
+private const val PLACEHOLDER = "Tell me what to do…"
 
 /** The examples under the greeting of an empty chat, as on the Mac. */
 const val EXAMPLES = "“boss ko mail, kal chutti chahiye” · “fix this” · “what does this mean?”"
@@ -122,17 +138,32 @@ internal fun canSend(state: PanelState) = !state.busy && (state.draft.isNotBlank
 
 /**
  * The panel: a card at the bottom of the screen with the buddy's name and the app, the chat, the selection the panel
- * was opened with, and the box, in the Mac panel's words. `micButton` is the voice button's place in the box.
+ * was opened with, and the box, in the Mac panel's words. `micButton` is the voice button's place in the box. With
+ * Claude mode on (`claude`, where the panel has a Claude button), a Claude Code session takes the chat's place, and the
+ * box types into it.
  */
 @Composable
-fun PanelScreen(state: PanelState, buddyName: String, on: PanelCallbacks, micButton: @Composable () -> Unit = {}) {
+fun PanelScreen(
+    state: PanelState,
+    buddyName: String,
+    on: PanelCallbacks,
+    claude: ClaudeState = ClaudeState(),
+    micButton: @Composable () -> Unit = {},
+) {
+    val claudeOn = on.claude?.takeIf { claude.on }
     Sheet(on.close) {
-        Header(buddyName, state.appName, on.settings, on.close)
-        Messages(state, Modifier.weight(1f, fill = false), on.press)
-        if (state.busy) Busy(buddyName)
-        if (state.selection.isNotBlank()) SelectionCard(state.selection, on.dropSelection)
-        InputRow(state, on, micButton)
-        state.boxError?.let { Text(it, color = Buddy.colors.error, style = MaterialTheme.typography.bodySmall) }
+        Header(buddyName, if (claudeOn != null) "Claude Code" else state.appName, on.settings, on.close, on.claude?.let { c -> { ClaudeButton(claude.on, c.toggle) } })
+        if (claudeOn != null) {
+            ClaudeView(claude, claudeOn, Modifier.weight(1f, fill = false))
+            InputRow(claude.draft, claude.placeholder ?: PLACEHOLDER, claude.canSend, claudeOn.setDraft, claudeOn.send, micButton)
+            claude.boxError?.let { Text(it, color = Buddy.colors.error, style = MaterialTheme.typography.bodySmall) }
+        } else {
+            Messages(state, Modifier.weight(1f, fill = false), on.press)
+            if (state.busy) Busy(buddyName)
+            if (state.selection.isNotBlank()) SelectionCard(state.selection, on.dropSelection)
+            InputRow(state.draft, PLACEHOLDER, canSend(state), on.setDraft, on.send, micButton)
+            state.boxError?.let { Text(it, color = Buddy.colors.error, style = MaterialTheme.typography.bodySmall) }
+        }
     }
 }
 
@@ -184,7 +215,7 @@ internal fun Sheet(onClose: () -> Unit, content: @Composable ColumnScope.() -> U
 }
 
 @Composable
-private fun Header(buddyName: String, appName: String, onSettings: () -> Unit, onClose: () -> Unit) {
+private fun Header(buddyName: String, appName: String, onSettings: () -> Unit, onClose: () -> Unit, claudeButton: (@Composable () -> Unit)? = null) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(buddyName, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium, maxLines = 1)
         Text(
@@ -195,6 +226,7 @@ private fun Header(buddyName: String, appName: String, onSettings: () -> Unit, o
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        claudeButton?.invoke()
         IconButton(onClick = onSettings) {
             Icon(Gear, contentDescription = "Settings", Modifier.size(18.dp), tint = Buddy.colors.muted)
         }
@@ -311,22 +343,23 @@ private fun SelectionCard(selection: String, onDrop: () -> Unit) {
     }
 }
 
+/** The box, the 🎤 and the send button: the chat's, or in Claude mode the session's. */
 @Composable
-private fun InputRow(state: PanelState, on: PanelCallbacks, micButton: @Composable () -> Unit) {
+private fun InputRow(draft: String, placeholder: String, canSend: Boolean, setDraft: (String) -> Unit, send: () -> Unit, micButton: @Composable () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         OutlinedTextField(
-            value = state.draft,
-            onValueChange = on.setDraft,
+            value = draft,
+            onValueChange = setDraft,
             modifier = Modifier.weight(1f),
-            placeholder = { Text("Tell me what to do…", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            placeholder = { Text(placeholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             maxLines = 4,
             shape = RoundedCornerShape(BuddyRadius),
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(onSend = { if (canSend(state)) on.send() }),
+            keyboardActions = KeyboardActions(onSend = { if (canSend) send() }),
         )
         micButton()
-        IconButton(onClick = on.send, enabled = canSend(state)) {
-            Icon(SendArrow, contentDescription = "Send", Modifier.size(20.dp), tint = if (canSend(state)) Buddy.colors.accent else Buddy.colors.muted)
+        IconButton(onClick = send, enabled = canSend) {
+            Icon(SendArrow, contentDescription = "Send", Modifier.size(20.dp), tint = if (canSend) Buddy.colors.accent else Buddy.colors.muted)
         }
     }
 }

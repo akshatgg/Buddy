@@ -64,7 +64,7 @@ function fakeLive() {
   };
 }
 
-function setup({ typeFails = null } = {}) {
+function setup({ typeFails = null, remote = null } = {}) {
   const live = fakeLive();
   const sent = [];
   const typed = [];
@@ -81,6 +81,7 @@ function setup({ typeFails = null } = {}) {
     },
     clipboard: { writeText: async (text) => copied.push(text) },
     send: (view) => sent.push(view),
+    remote,
     every: (fn, ms) => { const t = { fn, ms, on: true }; timers.push(t); return t; },
     stopEvery: (t) => { t.on = false; },
   });
@@ -89,7 +90,7 @@ function setup({ typeFails = null } = {}) {
 
 test('the page lists the sessions, opens one, and is sent its changes while it is open', async () => {
   const s = setup();
-  assert.deepStrictEqual(await s.mode.sessions(), { sessions: [{ id: 'a', name: 'shop', status: 'working', canTalk: true }] });
+  assert.deepStrictEqual(await s.mode.sessions(), { sessions: [{ id: 'a', name: 'shop', status: 'working', canTalk: true, remote: false }] });
   assert.deepStrictEqual(s.live.calls, ['discover']);
   assert.deepStrictEqual(await s.mode.open('a'), { session: s.live.views.a });
   assert.deepStrictEqual(s.live.calls.slice(1), [['refresh', 'a']]);
@@ -129,4 +130,78 @@ test('where Buddy cannot type into the terminal, the words are copied and the an
   const empty = setup({ typeFails: new BuddyError('bad_request', 'Type something first.') });
   await assert.rejects(empty.mode.talk('a', ''), { code: 'bad_request' });
   assert.deepStrictEqual(empty.copied, [], 'nothing to copy');
+});
+
+// ---- sessions on the person's other computers ----
+
+const PC_SESSION = { id: 'r1', name: 'api', status: 'waiting', canTalk: true, device: 'Office PC' };
+/** The server as the remote calls see it: `answers` for look, in order (an Error is thrown). */
+function fakeRemote({ answers = [], signedIn = true } = {}) {
+  const calls = [];
+  return {
+    calls,
+    available: () => signedIn,
+    async look(id) {
+      calls.push(['look', id]);
+      const next = answers.length > 1 ? answers.shift() : answers[0];
+      if (next instanceof Error) throw next;
+      return next;
+    },
+    async send(id, text) { calls.push(['send', id, text]); },
+    async stop() { calls.push(['stop']); },
+  };
+}
+
+test("the list has this computer's sessions, then the other computers' ones with their names", async () => {
+  const remote = fakeRemote({ answers: [{ online: true, sessions: [PC_SESSION], feed: null }] });
+  const s = setup({ remote });
+  const { sessions } = await s.mode.sessions();
+  assert.deepStrictEqual(sessions.map((x) => [x.id, x.remote, x.device]), [['a', false, undefined], ['r1', true, 'Office PC']]);
+  assert.deepStrictEqual(remote.calls, [['look', null]]);
+  const out = setup({ remote: fakeRemote({ signedIn: false }) });
+  assert.deepStrictEqual((await out.mode.sessions()).sessions.map((x) => x.id), ['a'], 'signed out: only this computer');
+});
+
+test('the server out of reach: the list still has this computer\'s sessions', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const s = setup({ remote: fakeRemote({ answers: [new BuddyError('network', 'offline')] }) });
+  assert.deepStrictEqual((await s.mode.sessions()).sessions.map((x) => x.id), ['a']);
+});
+
+test("another computer's session: waiting until its items come, then looked at every 1.5 s; words go to it", async () => {
+  const items = [{ id: 1, kind: 'claude', text: 'Hi' }];
+  const remote = fakeRemote({ answers: [
+    { online: true, sessions: [PC_SESSION], feed: null },
+    { online: true, sessions: [PC_SESSION], feed: { ...PC_SESSION, items } },
+  ] });
+  const s = setup({ remote });
+  const { session } = await s.mode.open('r1');
+  assert.deepStrictEqual(session, { id: 'r1', name: 'api', status: 'waiting', canTalk: true, device: 'Office PC', remote: true, waiting: true, items: [] });
+  assert.strictEqual(s.timers[0].ms, 1500);
+  s.timers[0].fn();
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(s.sent.at(-1).items, items);
+  assert.strictEqual(s.sent.at(-1).waiting, false);
+
+  assert.deepStrictEqual(await s.mode.talk('r1', 'go on'), { typed: true, remote: true });
+  assert.deepStrictEqual(remote.calls.at(-1), ['send', 'r1', 'go on']);
+  assert.deepStrictEqual(s.typed, [], 'nothing typed on this computer');
+
+  s.mode.close();
+  assert.deepStrictEqual(remote.calls.at(-1), ['stop'], 'the server is told the watching stopped');
+  assert.strictEqual(s.timers[0].on, false);
+});
+
+test("another computer's session that ends: the page is told, with why, and the looking stops", async () => {
+  const remote = fakeRemote({ answers: [
+    { online: true, sessions: [PC_SESSION], feed: null },
+    new BuddyError('not_found', GONE),
+  ] });
+  const s = setup({ remote });
+  await s.mode.open('r1');
+  s.timers[0].fn();
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(s.sent.at(-1), { id: 'r1', gone: true, message: GONE });
+  assert.strictEqual(s.timers[0].on, false);
+  await assert.rejects(s.mode.open('zzz'), { code: 'not_found' }, 'not in the list: gone');
 });

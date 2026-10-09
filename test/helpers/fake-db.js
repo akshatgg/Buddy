@@ -5,8 +5,8 @@
  * against the Firestore emulator (test/firestore/firestore-db.test.js) with the same expectations.
  * `state.calls` records which methods were called, in order.
  */
-function fakeDb({ config = null, users = {} } = {}) {
-  const state = { config: structuredClone(config), users: structuredClone(users), calls: [] };
+function fakeDb({ config = null, users = {}, remotes = {} } = {}) {
+  const state = { config: structuredClone(config), users: structuredClone(users), remotes: structuredClone(remotes), calls: [] };
   const copy = (uid) => ({ uid, ...structuredClone(state.users[uid]) });
   const fresh = ({ email, name, now }) => ({ email, name, joined: now, lastActive: null, blocked: false, usedDay: '', usedCount: 0 });
 
@@ -48,6 +48,13 @@ function fakeDb({ config = null, users = {} } = {}) {
       state.calls.push('listUsers');
       const time = (u) => (u.lastActive ? u.lastActive.getTime() : -1);
       return Object.keys(state.users).map(copy).sort((a, b) => time(b) - time(a)).slice(0, limit);
+    },
+    async updateRemote(uid, change) {
+      state.calls.push('updateRemote');
+      const { next, result } = change(Object.hasOwn(state.remotes, uid) ? structuredClone(state.remotes[uid]) : null);
+      if (next === null) delete state.remotes[uid];
+      else if (next !== undefined) state.remotes[uid] = structuredClone(next);
+      return structuredClone(result);
     },
     async setBlocked(uid, blocked) {
       state.calls.push('setBlocked');

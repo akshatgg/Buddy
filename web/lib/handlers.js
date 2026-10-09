@@ -23,6 +23,7 @@ const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
 const { dayKey } = require('./day');
 const { withDefaults, isFreeOn, applyPatch } = require('./free-config');
 const { transcribeWithGroq, readRecording } = require('./transcribe');
+const remote = require('./remote');
 
 // The app gives up on an answer after 60 seconds; the server gives up on the AI before that, so the person hears
 // "Buddy couldn't answer" and the request is given back.
@@ -46,6 +47,7 @@ const STATUS = {
   free_limit: 429,
   voice_busy: 429, // Groq's limit for the server's key
   upstream: 502,
+  mac_offline: 409, // Claude mode on the phone: the person's computer is not sharing its sessions
   server: 503, // the server could not check a sign-in (any other failure of its own is a 500, with the same code)
   voice_off: 503, // no Groq key on the server
 };
@@ -230,6 +232,41 @@ async function transcribe(req, deps) {
   return answer({ text });
 }
 
+/**
+ * POST /api/remote/mac { device, sessions, feed?, done?, off? }: one of the person's computers shares its Claude Code
+ * sessions (Claude mode from anywhere, web/lib/remote.js). Answers { watch, inbox }: its session being watched, and the
+ * words sent to its sessions. Nothing in it is logged.
+ */
+async function remoteMac(req, deps) {
+  allowMethods(req, 'POST');
+  const who = await signedIn(req, deps);
+  const body = isPlainObject(req.body) ? req.body : {};
+  return answer(await deps.db.updateRemote(who.uid, (doc) => remote.macReport(doc, body, deps.now().getTime())));
+}
+
+/**
+ * The watcher's side of Claude mode (the phone, or another computer). GET /api/remote/phone?session=<id>&exclude=<its
+ * own device id>: { online, sessions, feed } (looking at a session keeps it watched). POST { action: 'send', session, text }: the words wait for the computer, which types them
+ * into that session's terminal. POST { action: 'stop' }: the phone stops watching, and the session's items go.
+ */
+async function remotePhone(req, deps) {
+  allowMethods(req, 'GET', 'POST');
+  const who = await signedIn(req, deps);
+  const now = deps.now().getTime();
+  if (req.method === 'GET') {
+    const sessionId = remote.checkSessionId(req.query?.session);
+    const exclude = remote.checkDeviceId(req.query?.exclude); // a computer watching: its own sessions are not listed
+    return answer(await deps.db.updateRemote(who.uid, (doc) => remote.phoneLook(doc, sessionId, now, exclude)));
+  }
+  const body = isPlainObject(req.body) ? req.body : {};
+  if (body.action === 'stop') return answer(await deps.db.updateRemote(who.uid, (doc) => remote.phoneStop(doc)));
+  if (body.action !== 'send') throw new BuddyError('bad_request', 'Not a Claude mode request.');
+  const sessionId = remote.checkSessionId(body.session, { required: true });
+  const text = remote.checkText(body.text);
+  const id = deps.newId ? deps.newId() : require('node:crypto').randomUUID();
+  return answer(await deps.db.updateRemote(who.uid, (doc) => remote.phoneSend(doc, { sessionId, text, id }, now)));
+}
+
 function settingsView(cfg, hasKey) {
   return {
     config: cfg,
@@ -323,4 +360,4 @@ async function handle(handler, req, deps) {
   }
 }
 
-module.exports = { config, ask, transcribe, adminSettings, adminModels, adminUsers, handle, kindOf, STATUS, ASK_TIMEOUT_MS };
+module.exports = { config, ask, transcribe, remoteMac, remotePhone, adminSettings, adminModels, adminUsers, handle, kindOf, STATUS, ASK_TIMEOUT_MS };

@@ -17,6 +17,7 @@ class AppSettingsTest {
         assertEquals(BuddySize.MEDIUM, s.size); assertEquals("anthropic", s.provider)
         assertNull(s.model("openai")); assertNull(s.cloud)
         assertFalse(s.notificationsAsked)
+        assertFalse("the panel opens as a card", s.panelFull)
     }
 
     @Test fun namesAreTrimmedCutAndFallBackToTheCharacters() {
@@ -36,6 +37,16 @@ class AppSettingsTest {
         assertTrue(again.notificationsAsked)
         assertEquals("gpt-4.1", again.model("openai")); assertFalse(again.bubbleRight)
         assertEquals(1f, again.bubbleY); assertEquals(BuddySize.LARGE, again.size)
+    }
+
+    @Test fun aFullScreenPanelIsRememberedForTheNextOne() {
+        val kv = MemoryKeyValue()
+        AppSettings(kv).panelFull = true
+        assertTrue(AppSettings(kv).panelFull)
+        AppSettings(kv).panelFull = false
+        assertFalse(AppSettings(kv).panelFull)
+        kv.putString("panelFull", "maybe")
+        assertFalse("an odd value reads as the card", AppSettings(kv).panelFull)
     }
 
     @Test fun freeSettingsReadOddAnswersAsOff() {

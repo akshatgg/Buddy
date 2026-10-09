@@ -1,5 +1,8 @@
 package com.akshatgg.buddy.ui.panel
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -47,5 +50,24 @@ class PanelScreenTest {
     @Test fun whileTheBuddyThinksItSaysSo() {
         compose.setContent { BuddyTheme { PanelScreen(PanelState(busy = true, items = listOf(YouSaid(1, "hi"))), "Aarav", PanelCallbacks()) } }
         compose.onNodeWithText("Aarav is thinking…").assertIsDisplayed()
+    }
+
+    @Test fun theSizeButtonFillsTheScreenAndGoesBack() {
+        val asked = mutableListOf<Boolean>()
+        var full by mutableStateOf(false)
+        val on = PanelCallbacks(setFull = { asked += it; full = it })
+        compose.setContent { BuddyTheme { PanelScreen(PanelState(), "Aarav", on, full = full) } }
+        compose.onNodeWithContentDescription("Full screen").performClick()
+        compose.onNodeWithContentDescription("Smaller").assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("Full screen").assertIsDisplayed()
+        assertEquals(listOf(true, false), asked)
+    }
+
+    @Test fun aSheetThatKeepsItsSizeHasNoSizeButtonAndClaudeOpensItsScreen() {
+        var claude = 0
+        compose.setContent { BuddyTheme { PanelScreen(PanelState(), "Aarav", PanelCallbacks(claude = { claude++ })) } }
+        compose.onNodeWithContentDescription("Full screen").assertDoesNotExist()
+        compose.onNodeWithText("Claude").performClick()
+        assertEquals(1, claude)
     }
 }

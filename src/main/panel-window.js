@@ -10,7 +10,7 @@
 const path = require('node:path');
 const { fileURLToPath } = require('node:url');
 const electron = require('electron');
-const { PANEL, panelBounds } = require('./geometry');
+const { PANEL, PANEL_BIG, panelBounds, panelSize, panelGrip, resizedPanel } = require('./geometry');
 const { panelUnderNotch } = require('./notch-geometry');
 const { floatingType } = require('./platform');
 
@@ -83,17 +83,22 @@ function permissionRules({ isPanel, page = PAGE, platform = process.platform }) 
  * microphone meanwhile. `onGone()` is called once for each window whose page is gone: it crashed or did not load, or
  * the window was closed. Such a page cannot say that it stopped listening. `onVisible(visible)` hears the panel show
  * (true) and hide (false), however it hides: Buddy hides it, a click somewhere else does, or its window is gone (for the
- * buddy, which does not fall asleep or fidget while the person uses the panel).
+ * buddy, which does not fall asleep or fidget while the person uses the panel). `store` keeps the size the person made
+ * the panel (`panelSize`); without one it opens at PANEL every time.
  */
 function createPanelWindow({
   BrowserWindow = electron.BrowserWindow,
   session = electron.session.defaultSession,
   onGone = () => {},
   onVisible = () => {},
+  store = null,
 } = {}) {
   let win = null;
   let ready = null;
   let hiddenAt = 0;
+  let size = store?.get('panelSize') ?? PANEL; // as the person left it; kept within the screen where it opens
+  let lastAt = null; // where home last said the panel goes (show, follow), for a resize
+  let resizing = null; // a drag of the grip: { start: the size it began from, point: where the pointer was }
 
   const rules = permissionRules({ isPanel: (webContents) => Boolean(win) && !win.isDestroyed() && webContents === win.webContents });
   session.setPermissionRequestHandler(rules.request);
@@ -129,7 +134,7 @@ function createPanelWindow({
 
   function create() {
     const w = new BrowserWindow({
-      ...PANEL,
+      ...PANEL, // the real size comes with show()'s bounds
       type: floatingType,
       frame: false,
       transparent: true,
@@ -174,8 +179,27 @@ function createPanelWindow({
     });
   }
 
-  /** The panel's bounds for where home says it goes (show() and follow()). */
-  const boundsAt = (at) => (at.kind === 'below' ? panelUnderNotch(at.notch, at.area) : panelBounds(at.buddy, at.area));
+  /** The panel's bounds for where home says it goes (show() and follow()), at the person's size. */
+  const boundsAt = (at) => (at.kind === 'below' ? panelUnderNotch(at.notch, at.area, panelSize(size, at.area)) : panelBounds(at.buddy, at.area, size));
+  const isBig = (at) => {
+    const now = panelSize(size, at.area);
+    const big = panelSize(PANEL_BIG, at.area);
+    return now.width >= big.width && now.height >= big.height;
+  };
+
+  /** Tell the page which corner the grip goes in and whether ⤢ makes it smaller (panel.js). */
+  function sendLayout() {
+    if (win && !win.isDestroyed() && lastAt) win.webContents.send('panel:layout', { grip: panelGrip(lastAt), big: isBig(lastAt) });
+  }
+
+  /** Put the open panel at the size the person chose, where home said it goes, and keep that size. */
+  function applySize({ save }) {
+    if (!win || win.isDestroyed() || !lastAt) return;
+    size = panelSize(size, lastAt.area);
+    win.setBounds(boundsAt(lastAt));
+    if (save) store?.set({ panelSize: size });
+    sendLayout();
+  }
 
   return {
     window: () => win,
@@ -198,8 +222,10 @@ function createPanelWindow({
       const w = win;
       await ready;
       if (w !== win) return; // the window was closed or dropped (a crash, a failed load) while its page was loading
+      lastAt = at;
       w.setBounds(boundsAt(at));
       w.webContents.send('panel:open', state);
+      sendLayout();
       w.show();
       w.focus();
       onVisible(true);
@@ -213,7 +239,33 @@ function createPanelWindow({
     },
     /** Move the open panel to `at` (as show() takes it), when the buddy was dragged: it stays beside the buddy. */
     follow(at) {
-      if (win && !win.isDestroyed() && win.isVisible()) win.setBounds(boundsAt(at));
+      if (!win || win.isDestroyed() || !win.isVisible()) return;
+      lastAt = at;
+      win.setBounds(boundsAt(at));
+      sendLayout(); // the buddy may have crossed the middle of the screen: the grip changes side
+    },
+    /**
+     * The grip in the panel's corner, dragged: `point` is the pointer on the screen. The panel grows or shrinks with it
+     * (geometry.js resizedPanel), and the size is kept when the drag ends.
+     */
+    resizeStart(point) {
+      if (win && !win.isDestroyed() && lastAt) resizing = { start: panelSize(size, lastAt.area), point };
+    },
+    resizeMove(point) {
+      if (!resizing || !lastAt) return;
+      size = resizedPanel(resizing.start, point.x - resizing.point.x, point.y - resizing.point.y, panelGrip(lastAt), lastAt.area);
+      applySize({ save: false });
+    },
+    resizeEnd() {
+      if (!resizing) return;
+      resizing = null;
+      applySize({ save: true });
+    },
+    /** The header's ⤢: big (PANEL_BIG, or as big as the screen allows), or back to the size it first opens at. */
+    toggleSize() {
+      if (!lastAt) return;
+      size = isBig(lastAt) ? PANEL : PANEL_BIG;
+      applySize({ save: true });
     },
     hide,
     isVisible: () => Boolean(win && win.isVisible()),

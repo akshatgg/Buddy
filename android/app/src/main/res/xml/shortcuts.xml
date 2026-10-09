@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Buddy's icon, a long press: Claude Code, straight to its screen. The launcher starts it in a task of its own, and as
+     Buddy, so ClaudeActivity stays closed to other apps. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="claude"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/claude_shortcut_short"
+        android:shortcutLongLabel="@string/claude_label">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.akshatgg.buddy"
+            android:targetClass="com.akshatgg.buddy.ui.claude.ClaudeActivity" />
+    </shortcut>
+</shortcuts>

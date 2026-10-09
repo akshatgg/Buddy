@@ -134,6 +134,7 @@ async function start(options = {}) {
   // listening that stops while the answer to a message is still on its way goes back to thinking.
   const feelings = createFeelings({ buddy, sleep, busy: () => actions.state().busy });
   const panel = createPanelWindow({
+    store, // the size the person made the panel
     // Its page crashed or did not load, or its window was closed: a listening there is over, and the page cannot say so.
     onGone: () => ui.listening(false),
     // While the panel is open the buddy does not fall asleep or fidget, however the panel opens and closes.

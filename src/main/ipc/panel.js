@@ -99,6 +99,21 @@ function registerPanelIpc({
     ui.voiceLevel(Math.min(1, Math.max(0, level)));
   });
 
+  // The panel's size: its grip dragged (where the pointer is on the screen), and the header's ⤢.
+  const point = (p) => (Number.isFinite(p?.x) && Number.isFinite(p?.y) ? { x: p.x, y: p.y } : null);
+  ipcMain.on('panel:resize-start', (event, p) => {
+    if (fromPanel(event.sender) && point(p)) panel.resizeStart(point(p));
+  });
+  ipcMain.on('panel:resize-move', (event, p) => {
+    if (fromPanel(event.sender) && point(p)) panel.resizeMove(point(p));
+  });
+  ipcMain.on('panel:resize-end', (event) => {
+    if (fromPanel(event.sender)) panel.resizeEnd();
+  });
+  ipcMain.on('panel:size-toggle', (event) => {
+    if (fromPanel(event.sender)) panel.toggleSize();
+  });
+
   ipcMain.on('panel:close', (event) => {
     // Through actions, which ends the chat and on Windows also hands the keyboard back to the app it was opened from.
     if (fromPanel(event.sender)) actions.dismiss().catch((err) => console.error('[buddy] could not close the panel', err));

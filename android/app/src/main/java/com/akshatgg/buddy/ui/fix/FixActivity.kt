@@ -10,6 +10,8 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.akshatgg.buddy.AppGraph
 import com.akshatgg.buddy.bubble.BubbleBus
@@ -45,6 +47,9 @@ private fun replaceable(intent: Intent, waiting: Boolean) = waiting && intent.ac
  */
 class FixActivity : ComponentActivity(), ChatHost {
     private val kept: ChatViewModel by viewModels()
+    private val settings = AppGraph.instance.settings
+    // Full screen or the card, as the panel: the person's last choice in either.
+    private var full by mutableStateOf(settings.panelFull)
 
     @SuppressLint("InvalidFragmentVersionForActivityResult") // as in PanelActivity: a plain ComponentActivity
     override val consent: ActivityResultLauncher<Intent> =
@@ -59,7 +64,7 @@ class FixActivity : ComponentActivity(), ChatHost {
         val model = kept.model
         // The sheet made again after a turn of the phone shows the same chat.
         if (savedInstanceState == null) model.open(selection = textOf(intent), replaceable = replaceable(intent, waiting = callingActivity != null))
-        val buddyName = AppGraph.instance.settings.buddyName
+        val buddyName = settings.buddyName
         val on = PanelCallbacks(
             setDraft = model::setDraft,
             send = model::send,
@@ -67,13 +72,17 @@ class FixActivity : ComponentActivity(), ChatHost {
             press = model::press,
             settings = { openSettingsFor(null) },
             close = ::finish,
+            setFull = { on ->
+                full = on
+                settings.panelFull = on
+            },
         )
         setContent {
             BuddyTheme {
                 val state by model.state.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
                 // One recorder for this screen; its words go into the box, its refusals become a line in the chat.
                 val voice = remember { AppGraph.instance.voiceFactory(applicationContext) }
-                PanelScreen(state, buddyName, on) {
+                PanelScreen(state, buddyName, on, full) {
                     MicButton(voice, onWords = model::voiceWords, onError = model::voiceError)
                 }
             }

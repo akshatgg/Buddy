@@ -106,3 +106,23 @@ test('resizing keeps the bottom-centre point', () => {
   const b = g.resizeAround({ x: 1000, y: 400, width: 96, height: 112 }, { width: 132, height: 154 }, AREA);
   assert.deepStrictEqual(b, { x: 982, y: 358, width: 132, height: 154 });
 });
+
+test("the panel's size: the person's, within PANEL_MIN and the work area; PANEL when there is none", () => {
+  assert.deepStrictEqual(g.panelSize(null, AREA), g.PANEL);
+  assert.deepStrictEqual(g.panelSize({ width: 500.4, height: 600.6 }, AREA), { width: 500, height: 601 });
+  assert.deepStrictEqual(g.panelSize({ width: 10, height: 10 }, AREA), g.PANEL_MIN);
+  assert.deepStrictEqual(g.panelSize({ width: 9999, height: 9999 }, AREA), { width: AREA.width - 16, height: AREA.height - 16 });
+  assert.deepStrictEqual(g.panelSize({ width: 'big', height: NaN }, AREA), g.PANEL);
+});
+
+test('the grip goes on the side away from the buddy, and a drag grows the panel the right way', () => {
+  const right = { kind: 'beside', buddy: { x: 1336, y: 400, width: 96, height: 112 }, area: AREA };
+  const left = { kind: 'beside', buddy: { x: 8, y: 400, width: 96, height: 112 }, area: AREA };
+  assert.strictEqual(g.panelGrip(right), 'left');
+  assert.strictEqual(g.panelGrip(left), 'right');
+  assert.strictEqual(g.panelGrip({ kind: 'below' }), 'both');
+  const start = { width: 400, height: 500 };
+  assert.deepStrictEqual(g.resizedPanel(start, -50, 20, 'left', AREA), { width: 450, height: 540 });
+  assert.deepStrictEqual(g.resizedPanel(start, 50, 20, 'right', AREA), { width: 450, height: 540 });
+  assert.deepStrictEqual(g.resizedPanel(start, 50, 20, 'both', AREA), { width: 500, height: 520 });
+});

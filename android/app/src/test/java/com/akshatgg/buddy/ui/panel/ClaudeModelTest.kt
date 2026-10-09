@@ -59,7 +59,7 @@ class ClaudeModelTest {
 
     /** Into Claude mode, the list asked for and answered. */
     private fun TestScope.listed(m: ClaudeModel = model()): ClaudeModel {
-        m.toggle()
+        m.enter()
         runCurrent()
         return m
     }
@@ -74,10 +74,10 @@ class ClaudeModelTest {
 
     // ---- the list ----
 
-    @Test fun theClaudeButtonListsTheComputersSessions() = runTest {
+    @Test fun theScreenListsTheComputersSessions() = runTest {
         val m = model()
         assertFalse(m.s.on)
-        m.toggle()
+        m.enter()
         assertTrue(m.s.on)
         assertTrue("asked for", m.s.looking)
         runCurrent()
@@ -120,10 +120,32 @@ class ClaudeModelTest {
         assertEquals(listOf(buddy, web), m.s.sessions)
     }
 
-    @Test fun theClaudeButtonAgainGoesBackToTheChat() = runTest {
+    @Test fun signingOutEndsClaudeMode() = runTest {
         val m = listed()
-        m.toggle()
+        m.leave()
         assertEquals(ClaudeState(), m.s)
+    }
+
+    @Test fun theScreenMadeAgainAfterATurnStaysWhereItWas() = runTest {
+        val m = opened()
+        m.enter()
+        runCurrent()
+        assertEquals(buddy, m.s.session)
+        assertEquals("the list is not asked for again", 1, calls.count { it == "look -" })
+        assertFalse("nothing stopped", "stop" in calls)
+    }
+
+    @Test fun signingInAgainListsTheSessionsAnew() = runTest {
+        val m = opened()
+        m.leave()
+        runCurrent()
+        assertEquals("stop", calls.last())
+        m.enter()
+        runCurrent()
+        assertTrue(m.s.on)
+        assertNull(m.s.session)
+        assertEquals(listOf(buddy, web), m.s.sessions)
+        assertEquals(2, calls.count { it == "look -" })
     }
 
     // ---- a session ----
@@ -210,9 +232,9 @@ class ClaudeModelTest {
         assertEquals("no more looks at it", 1, looks())
     }
 
-    @Test fun theClaudeButtonFromASessionStopsItToo() = runTest {
+    @Test fun signingOutFromASessionStopsItToo() = runTest {
         val m = opened()
-        m.toggle()
+        m.leave()
         runCurrent()
         assertEquals(ClaudeState(), m.s)
         assertEquals("stop", calls.last())
@@ -220,7 +242,7 @@ class ClaudeModelTest {
         assertEquals(1, looks())
     }
 
-    @Test fun aHiddenPanelStopsLookingAndLooksAgainWhenShown() = runTest {
+    @Test fun aHiddenScreenStopsLookingAndLooksAgainWhenShown() = runTest {
         val m = opened()
         m.hidden()
         runCurrent()
@@ -235,7 +257,7 @@ class ClaudeModelTest {
         assertEquals(3, looks())
     }
 
-    @Test fun aClosedPanelStopsAndEndsClaudeMode() = runTest {
+    @Test fun aClosedScreenStopsAndEndsClaudeMode() = runTest {
         val m = opened()
         m.close()
         runCurrent()
@@ -325,7 +347,7 @@ class ClaudeModelTest {
         m.setDraft("hi")
         m.send()
         runCurrent()
-        m.toggle()
+        m.leave()
         held!!.complete(Unit)
         runCurrent()
         assertEquals(ClaudeState(), m.s)
@@ -350,15 +372,15 @@ class ClaudeModelTest {
             stop = { throw BuddyError("network", "Couldn't reach Buddy's server. Check your internet.") },
             scope = backgroundScope,
         )
-        m.toggle()
+        m.enter()
         runCurrent()
         m.open("s-1")
         runCurrent()
         m.list()
         runCurrent()
         assertNull(m.s.session)
-        m.toggle()
-        m.toggle()
+        m.leave()
+        m.enter()
         runCurrent()
         assertTrue(m.s.on)
     }

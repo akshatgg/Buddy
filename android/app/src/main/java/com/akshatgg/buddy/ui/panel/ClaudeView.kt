@@ -37,10 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -54,21 +51,33 @@ import com.akshatgg.buddy.cloud.RemoteItem
 import com.akshatgg.buddy.cloud.RemoteSession
 import com.akshatgg.buddy.ui.theme.Buddy
 
-/** The header's Claude button: lit while the panel shows Claude Code, as on the Mac. */
+/** What Claude mode's buttons and box do. ClaudeActivity wires them to ClaudeModel; a test leaves them be. */
+class ClaudeCallbacks(
+    /** A session picked from the list. */
+    val open: (String) -> Unit = {},
+    /** "Look again", and "‹ Sessions". */
+    val list: () -> Unit = {},
+    val setDraft: (String) -> Unit = {},
+    val send: () -> Unit = {},
+)
+
+/** The panel header's Claude button: Claude Code on its own screen, as the Mac's opens Claude mode. */
 @Composable
-internal fun ClaudeButton(on: Boolean, onClick: () -> Unit) {
-    val colors = Buddy.colors
+internal fun ClaudeButton(onClick: () -> Unit) {
     OutlinedButton(
         onClick,
-        Modifier.height(32.dp).semantics { selected = on },
+        Modifier.height(32.dp),
         shape = ROUNDED,
         contentPadding = PaddingValues(horizontal = 10.dp),
-        border = BorderStroke(1.dp, if (on) colors.accent else colors.line),
-        colors = ButtonDefaults.outlinedButtonColors(containerColor = if (on) colors.accentSoft else Color.Transparent, contentColor = colors.fg),
+        border = BorderStroke(1.dp, Buddy.colors.line),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = Buddy.colors.fg),
     ) { Text("Claude", fontSize = 13.sp) }
 }
 
-/** Claude mode in the chat's place: the sessions to pick from, or the one picked. */
+/**
+ * Claude mode: the sessions to pick from, or the one picked. `modifier` is for the room it has (the screen's, under its
+ * bar): the session's items fill it, and the box under it stays at the bottom.
+ */
 @Composable
 internal fun ClaudeView(state: ClaudeState, on: ClaudeCallbacks, modifier: Modifier) {
     val session = state.session

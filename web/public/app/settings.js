@@ -3,6 +3,7 @@
 
 import { $, make, button } from './dom.js';
 import { FAILED, NOT_INSTALLED, NOT_SUPPORTED } from './push.js';
+import { whereKept } from './memory.js';
 
 const NOT_KEPT = "I didn't keep that. It may be known already, too long, or something secret like a password.";
 
@@ -34,6 +35,7 @@ export function startSettings({ store, memory, buddies, onBuddy, account, onSign
   function drawMemory() {
     const facts = memory.list();
     $('learn').checked = memory.learning();
+    $('memory-where').textContent = whereKept(Boolean(account()));
     $('facts').replaceChildren(...facts.map((fact) => {
       const li = make('li');
       const forget = button('chip', 'Forget', () => {
@@ -106,6 +108,7 @@ export function startSettings({ store, memory, buddies, onBuddy, account, onSign
   $('signout').addEventListener('click', () => onSignOut());
 
   return {
+    drawMemory,
     draw() {
       drawBuddies();
       drawMemory();

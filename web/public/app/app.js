@@ -6,7 +6,7 @@
 import { createStore, localStorageOf } from './store.js';
 import { createApi, TIMEOUTS } from './api.js';
 import { startAuth, signInMessage, SIGN_IN_OFFLINE } from './auth.js';
-import { createMemory } from './memory.js';
+import { createMemory, startMemorySync } from './memory.js';
 import { createChat } from './chat-core.js';
 import { startChatView } from './chat.js';
 import { startSettings } from './settings.js';
@@ -20,7 +20,7 @@ import { $ } from './dom.js';
 
 const app = $('app');
 const store = createStore(localStorageOf(window));
-const memory = createMemory({ store });
+const memory = createMemory({ store, onChange: () => memorySync.changed() });
 const TABS = ['chat', 'claude', 'settings'];
 const BUBBLE_MS = 2500;
 const LINK = /^#claude\/([\w-]{1,100})$/; // a notification's session: /app#claude/<session id>
@@ -56,6 +56,16 @@ const api = createApi({
   },
   onSignedOut: () => {
     if (person) signOut(); // turned down twice: signed out as from Settings, notifications and all
+  },
+});
+
+// What Buddy knows about the person, kept with their account (memory.js).
+const memorySync = startMemorySync({
+  memory,
+  uid: () => person?.uid || null,
+  post: (body) => api.post('/api/memory', body, { timeoutMs: TIMEOUTS.memory }),
+  onSynced: () => {
+    if (tab === 'settings') settings.drawMemory();
   },
 });
 
@@ -217,6 +227,7 @@ function showTab(next, { open = null } = {}) {
   sleep.poke();
   if (next === 'claude') claudeView.show(open);
   if (next === 'settings') settings.draw();
+  if (next === 'settings') memorySync.sync();
 }
 
 for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => showTab(b.dataset.tab));
@@ -253,6 +264,7 @@ async function showSignedIn(who) {
   $('tabs').hidden = false;
   showTab(tab);
   followLink();
+  memorySync.sync();
   await loadConfig(who);
 }
 
@@ -319,6 +331,7 @@ document.addEventListener('visibilitychange', () => {
     claudeView.hidden();
   } else {
     configAgain();
+    memorySync.syncIfStale();
     if (tab === 'claude' && person) claudeView.show();
   }
 });

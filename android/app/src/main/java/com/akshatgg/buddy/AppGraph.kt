@@ -9,13 +9,13 @@ import com.akshatgg.buddy.ai.Action
 import com.akshatgg.buddy.ai.Answer
 import com.akshatgg.buddy.ai.AskInput
 import com.akshatgg.buddy.ai.KeySaver
-import com.akshatgg.buddy.ai.MemoryRules
 import com.akshatgg.buddy.ai.Prompts
 import com.akshatgg.buddy.ai.Router
 import com.akshatgg.buddy.ai.providers.Providers
 import com.akshatgg.buddy.bubble.BubbleBus
 import com.akshatgg.buddy.bubble.LookService
 import com.akshatgg.buddy.cloud.CloudClient
+import com.akshatgg.buddy.cloud.MemorySyncer
 import com.akshatgg.buddy.core.Shared
 import com.akshatgg.buddy.net.Http
 import com.akshatgg.buddy.net.UrlConnectionHttp
@@ -24,6 +24,7 @@ import com.akshatgg.buddy.store.Facts
 import com.akshatgg.buddy.store.KeyValue
 import com.akshatgg.buddy.store.KeystoreSecrets
 import com.akshatgg.buddy.store.Memory
+import com.akshatgg.buddy.store.MemorySync
 import com.akshatgg.buddy.store.Secrets
 import com.akshatgg.buddy.store.SharedPrefsKeyValue
 import com.akshatgg.buddy.typing.ServiceTypeIn
@@ -73,7 +74,7 @@ class AppGraph(
     }
     val router = Router(account, cloud, settings, secrets, providers, prompts)
     val keySaver = KeySaver(settings, secrets, providers)
-    val memory = Memory(kv, MemoryRules(shared))
+    val memory = Memory(kv, MemorySync(shared))
 
     /** Whether Buddy can type for you (LookService) is on in Android's Accessibility settings. */
     val lookEnabled: () -> Boolean = { LookService.isEnabled(context) }
@@ -89,7 +90,7 @@ class AppGraph(
     /** Buddy can type for you: the box the person types in, through LookService. */
     val typeIn: TypeIn = ServiceTypeIn(appContext)
 
-    /** What Buddy knows about the person, as the chat sees it: the memory on this phone. */
+    /** What Buddy knows about the person, as the chat sees it: the memory on this phone (kept with the account too, signed in). */
     val facts: Facts get() = memory
 
     /** The signed-in person's first name, or "". */
@@ -101,7 +102,11 @@ class AppGraph(
      */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    /** What Buddy knows, kept with the signed-in person's account: synced at start, at a sign-in and after changes. */
+    val memorySyncer = MemorySyncer(memory, account.user, cloud::memory, scope)
+
     init {
+        memorySyncer.start()
         // Whenever the person is signed out (from Settings, or because the server or Firebase turned the sign-in
         // down), their free-mode settings are forgotten, so that the next person does not inherit them (or the
         // admin's menu). The Mac forgets on a sign-in too; here this runs a moment after the change, and could then

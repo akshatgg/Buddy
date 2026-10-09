@@ -27,6 +27,8 @@ const DEFAULTS = Object.freeze({
   lastRunVersion: null, // the version that ran last, so the first launch after an update is known
   memory: [], // what Buddy knows about the person, as [{ id, text, at }] oldest first (src/main/memory.js)
   learnFromChats: true, // Settings → Memory's "Learn about me from chats": off, a chat saves nothing new
+  memoryOutbox: [], // the changes to `memory` that Buddy's server has not taken yet (shared/memory-sync.js)
+  memoryUid: null, // the account `memory` is kept with (src/main/memory-sync.js): null until it first synced
   listenOnOpen: false, // Settings → General's "Listen when the panel opens": off, the panel listens only after 🎤
   tagOn: true, // Settings → General's "Fix where I type": "@buddy" after text, anywhere (src/main/tag.js)
   home: 'notch', // Settings → Buddy's "Where Buddy lives": 'notch' (on a Mac with one) or 'floating' (src/main/home.js)

@@ -121,6 +121,7 @@ mark { background: var(--orange-tint); color: var(--orange-ink); border-radius: 
 /* steps: a real order, so they are numbered */
 .steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
 .steps li { display: grid; gap: 10px; align-content: start; padding: 28px; border-radius: 28px; background: var(--paper); box-shadow: 0 0 0 1px var(--line); }
+.claude-connect { margin-top: 56px; }
 .steps .num { font: 800 56px/1 var(--display); color: var(--orange); }
 .steps p { color: var(--ink-2); }
 kbd { font: 600 14px/1 var(--body); background: var(--cream); border: 1px solid var(--line); border-bottom-width: 3px; border-radius: 8px; padding: 4px 8px; color: var(--ink); }

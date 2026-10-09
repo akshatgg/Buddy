@@ -40,6 +40,7 @@ function plan(root = ROOT) {
   const files = [
     ['shared/errors.js', { from: 'shared/errors.js', as: 'commonjs' }],
     ['shared/memory-rules.js', { from: 'shared/memory-rules.js', as: 'commonjs' }],
+    ['shared/memory-sync.js', { from: 'shared/memory-sync.js', as: 'commonjs' }],
     ['shared/prompts.js', { from: 'shared/prompts.js', as: 'commonjs' }],
     ['shared/sleep.js', { from: 'src/main/sleep.js', as: 'commonjs' }],
     ['shared/feelings.js', { from: 'src/main/feelings.js', as: 'commonjs' }],

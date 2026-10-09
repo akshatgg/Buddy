@@ -6,7 +6,7 @@
 import { createStore, localStorageOf } from './store.js';
 import { createApi, TIMEOUTS } from './api.js';
 import { startAuth, signInMessage, SIGN_IN_OFFLINE } from './auth.js';
-import { createMemory } from './memory.js';
+import { createMemory, startMemorySync } from './memory.js';
 import { createChat } from './chat-core.js';
 import { createAsk } from './route.js';
 import { createOwnAi } from './own-ai.js';
@@ -24,7 +24,7 @@ import { $ } from './dom.js';
 
 const app = $('app');
 const store = createStore(localStorageOf(window));
-const memory = createMemory({ store });
+const memory = createMemory({ store, onChange: () => memorySync.changed() });
 const own = createOwnAi({ store }); // the person's own AI key, on this phone only
 const TABS = ['chat', 'claude', 'settings'];
 const BUBBLE_MS = 2500;
@@ -61,6 +61,16 @@ const api = createApi({
   },
   onSignedOut: () => {
     if (person) signOut(); // turned down twice: signed out as from Settings, notifications and all
+  },
+});
+
+// What Buddy knows about the person, kept with their account (memory.js).
+const memorySync = startMemorySync({
+  memory,
+  uid: () => person?.uid || null,
+  post: (body) => api.post('/api/memory', body, { timeoutMs: TIMEOUTS.memory }),
+  onSynced: () => {
+    if (tab === 'settings') settings.drawMemory();
   },
 });
 
@@ -239,6 +249,7 @@ function showTab(next, { open = null } = {}) {
     settings.draw();
     aiSettings.draw();
     admin.draw();
+    memorySync.sync();
   }
 }
 
@@ -277,6 +288,7 @@ async function showSignedIn(who) {
   $('tabs').hidden = false;
   showTab(tab);
   followLink();
+  memorySync.sync();
   await loadConfig(who);
 }
 
@@ -359,6 +371,7 @@ document.addEventListener('visibilitychange', () => {
     claudeView.hidden();
   } else {
     configAgain();
+    memorySync.syncIfStale();
     if (tab === 'claude' && person) claudeView.show();
   }
 });

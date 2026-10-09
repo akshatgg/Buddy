@@ -3,7 +3,6 @@ package com.akshatgg.buddy.ui.settings
 import com.akshatgg.buddy.FakeHttp
 import com.akshatgg.buddy.TestShared
 import com.akshatgg.buddy.account.Account
-import com.akshatgg.buddy.ai.MemoryRules
 import com.akshatgg.buddy.cloud.CloudClient
 import com.akshatgg.buddy.cloud.FreeSettings
 import com.akshatgg.buddy.core.BuddyError
@@ -13,6 +12,7 @@ import com.akshatgg.buddy.store.BuddySize
 import com.akshatgg.buddy.store.Memory
 import com.akshatgg.buddy.store.MemoryKeyValue
 import com.akshatgg.buddy.store.MemorySecrets
+import com.akshatgg.buddy.store.MemorySync
 import com.akshatgg.buddy.ui.common.Status
 import com.akshatgg.buddy.ui.common.Tone
 import kotlinx.coroutines.CoroutineScope
@@ -37,7 +37,7 @@ class SettingsModelTest {
     private val account = Account(kv, secrets, null)
     private val cloud = CloudClient(FakeHttp { HttpResponse(500, "") }, "", account, settings)
 
-    private val memory = Memory(kv, MemoryRules(TestShared.shared))
+    private val memory = Memory(kv, MemorySync(TestShared.shared))
 
     private fun CoroutineScope.model() = SettingsModel(account, cloud, settings, memory, this)
 
@@ -205,6 +205,24 @@ class SettingsModelTest {
     @Test fun theQuestionSaysHowManyThings() {
         assertEquals("Forget the 1 thing?", forgetAllQuestion(1))
         assertEquals("Forget all 3 things?", forgetAllQuestion(3))
+    }
+
+    @Test fun signedInTheFactsAreSaidToBeKeptWithTheAccountSignedOutOnThisPhone() {
+        assertEquals("Buddy learns these from your chats. They stay on this phone.", memoryWhere(signedIn = false))
+        assertEquals(
+            "Buddy learns these from your chats. They're saved to your account, so your other devices with the same sign-in know them too.",
+            memoryWhere(signedIn = true),
+        )
+        assertEquals("Buddy will forget everything it knows about you on this phone.", forgetAllWhat(signedIn = false))
+        assertTrue(forgetAllWhat(signedIn = true).endsWith("on this phone and on your other devices with the same sign-in."))
+    }
+
+    @Test fun settingsShownSyncsWhatBuddyKnows() = runTest {
+        var syncs = 0
+        val m = SettingsModel(account, cloud, settings, memory, this, syncMemory = { syncs++ })
+        m.memoryShown()
+        m.memoryShown()
+        assertEquals(2, syncs)
     }
 
     @Test fun learnAboutMeFromChatsIsOnByDefaultAndSaved() = runTest {

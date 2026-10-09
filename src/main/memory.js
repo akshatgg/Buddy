@@ -1,9 +1,10 @@
 'use strict';
 
 /**
- * What Buddy knows about the person: short facts ("Your boss is Mr. Sharma."), kept only on this computer, in the
- * settings file (store.js `memory`), as [{ id, text, at }] oldest first. They go along with each chat request so that
- * the AI can use them.
+ * What Buddy knows about the person: short facts ("Your boss is Mr. Sharma."), kept in the settings file (store.js
+ * `memory`), as [{ id, text, at }] oldest first. They go along with each chat request so that the AI can use them.
+ * Signed in, they are kept with the person's account as well, so that all their devices know the same facts
+ * (memory-sync.js): every change goes into the outbox (store.js `memoryOutbox`) for the server too.
  *
  * The chat adds the facts the AI picked up (source 'chat'), but only while "Learn about me from chats" is on (store.js
  * `learnFromChats`); Settings → Memory adds the ones the person types in (source 'settings'), forgets one, or forgets
@@ -12,6 +13,7 @@
 
 const crypto = require('node:crypto');
 const { cleanFact, MAX_FACTS } = require('../../shared/memory-rules');
+const { addToOutbox } = require('../../shared/memory-sync');
 
 /** A fact as it is kept, copied; null for anything a damaged or hand-edited settings file holds instead. */
 function readFact(entry) {
@@ -21,6 +23,7 @@ function readFact(entry) {
 
 function createMemory({ store, now = Date.now, newId = () => crypto.randomUUID() }) {
   const listeners = [];
+  const changeListeners = [];
 
   function list() {
     const saved = store.get('memory');
@@ -32,6 +35,12 @@ function createMemory({ store, now = Date.now, newId = () => crypto.randomUUID()
     store.set(patch);
     const facts = list();
     for (const fn of listeners) fn(facts);
+  }
+
+  /** Keep `patch`, with `op` in the outbox for the server, and tell those who sync that there is a change. */
+  function change(patch, op) {
+    save({ ...patch, memoryOutbox: addToOutbox(store.get('memoryOutbox'), op) });
+    for (const fn of changeListeners) fn();
   }
 
   const learning = () => store.get('learnFromChats') !== false;
@@ -50,7 +59,7 @@ function createMemory({ store, now = Date.now, newId = () => crypto.randomUUID()
       if (known.some((fact) => fact.text.toLowerCase() === clean.toLowerCase())) return null;
       const fact = { id: newId(), text: clean, at: now() };
       // Over 50, the oldest goes.
-      save({ memory: [...known, fact].slice(-MAX_FACTS) });
+      change({ memory: [...known, fact].slice(-MAX_FACTS) }, { op: 'add', ...fact });
       return { id: fact.id, text: fact.text };
     },
 
@@ -59,12 +68,12 @@ function createMemory({ store, now = Date.now, newId = () => crypto.randomUUID()
       const known = list();
       const left = known.filter((fact) => fact.id !== id);
       if (left.length === known.length) return false;
-      save({ memory: left });
+      change({ memory: left }, { op: 'forget', id });
       return true;
     },
 
     clear() {
-      if (list().length) save({ memory: [] });
+      if (list().length) change({ memory: [] }, { op: 'clear' });
     },
 
     /** "Learn about me from chats". Off, a chat saves nothing new; what is known is still used. */
@@ -72,9 +81,19 @@ function createMemory({ store, now = Date.now, newId = () => crypto.randomUUID()
       if (Boolean(on) !== learning()) save({ learnFromChats: Boolean(on) });
     },
 
-    /** fn(list()) after every change. */
+    /** The facts as the account has them (memory-sync.js), in place of these; `patch` is kept with them. */
+    replace(facts, patch = {}) {
+      save({ ...patch, memory: facts.map(readFact).filter(Boolean) });
+    },
+
+    /** fn(list()) after every change, here or from the account. */
     onChange(fn) {
       listeners.push(fn);
+    },
+
+    /** fn() after each change made here, which the account does not have yet. */
+    onLocalChange(fn) {
+      changeListeners.push(fn);
     },
   };
 }

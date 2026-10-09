@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Buddy — your English buddy on every screen</title>
-<meta name="description" content="Buddy is a small 3D friend that floats over your apps. Ask in English, Hindi or Hinglish, and it writes your email, fixes your message and pastes it where you were typing. Free for Mac, Windows, Android and iPhone.">
+<title>Buddy — a tiny buddy that writes, listens and works beside you</title>
+<meta name="description" content="Buddy is a small 3D friend on your screen. Ask in English, Hindi or Hinglish, type @buddy in any app, or just talk, and it writes, fixes and pastes it where you were typing. It also shows you what Claude Code is doing. Free for Mac, Windows, Android and iPhone.">
 <link rel="canonical" href="https://buddywrites.vercel.app/">
 <meta name="theme-color" content="#FFF5E9">
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Buddy">
-<meta property="og:title" content="Buddy — your English buddy on every screen">
-<meta property="og:description" content="Ask in English, Hindi or Hinglish. Buddy writes, fixes and checks your English in any app. Free for Mac, Windows, Android and iPhone.">
+<meta property="og:title" content="Buddy — a tiny buddy that writes, listens and works beside you">
+<meta property="og:description" content="Ask in English, Hindi or Hinglish, type @buddy in any app, or just talk. Buddy writes it, fixes it and keeps an eye on Claude Code. Free for Mac, Windows, Android and iPhone.">
 <meta property="og:url" content="https://buddywrites.vercel.app/">
 <meta property="og:image" content="https://buddywrites.vercel.app/og.png">
 <meta property="og:image:width" content="1200">
@@ -34,7 +34,7 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "Buddy",
-  "description": "A small 3D buddy that floats over your apps and writes, fixes and checks your English. Ask in English, Hindi or Hinglish.",
+  "description": "A small 3D buddy on your screen that writes, fixes and checks your English, listens when you talk, and shows you what Claude Code is doing. Ask in English, Hindi or Hinglish.",
   "applicationCategory": "ProductivityApplication",
   "operatingSystem": "macOS 14 or later, Windows 10 or 11, Android 8.0 or newer, iOS 16.4 or later (in Safari)",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
@@ -48,7 +48,7 @@
 <header class="nav">
   <div class="wrap nav__in">
     <a class="brand" href="/"><img src="/img/icon.webp" alt="" width="34" height="34">Buddy</a>
-    <nav class="nav__links" aria-label="Main"><a href="#features">Features</a><a href="#how">How it works</a><a href="#buddies">Buddies</a><a href="#faq">FAQ</a></nav>
+    <nav class="nav__links" aria-label="Main"><a href="#features">Features</a><a href="#claude">Claude Code</a><a href="#how">How it works</a><a href="#buddies">Buddies</a><a href="#faq">FAQ</a></nav>
     <a class="btn btn--ink btn--sm" href="#download">Download</a>
   </div>
 </header>
@@ -58,8 +58,8 @@
     <div class="wrap hero__grid">
       <div class="hero__copy">
         <span class="chip"><span class="dot"></span>Free for Mac, Windows, Android and iPhone</span>
-        <h1>Your English buddy, on every screen.</h1>
-        <p class="lead">Buddy floats on top of your apps. Ask in English, Hindi or Hinglish. It writes the email, fixes your message and pastes it where you were typing.</p>
+        <h1>Type it, say it, or just @buddy it.</h1>
+        <p class="lead">Ask in English, Hindi or Hinglish, type <b>@buddy</b> in any app, or just talk. Buddy writes it, fixes it and puts it where you were typing. It even keeps an eye on Claude Code for you.</p>
         <div class="cta">
           <a class="btn btn--ink" href="https://github.com/akshatgg/Buddy/releases/latest/download/Buddy-arm64.dmg" data-mac-download data-hero-download><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></svg>Download for Mac</a>
           <a class="btn btn--ghost" href="#how">See how it works</a>
@@ -90,7 +90,7 @@
   <section class="apps" aria-label="Apps Buddy works in">
     <div class="wrap apps__in">
       <p>Works wherever you type</p>
-      <ul><li>Gmail</li><li>WhatsApp</li><li>Outlook</li><li>Slack</li><li>LinkedIn</li><li>Teams</li><li>Notes</li><li>Word</li></ul>
+      <ul><li>Gmail</li><li>WhatsApp</li><li>Telegram</li><li>Outlook</li><li>Slack</li><li>LinkedIn</li><li>Teams</li><li>Notes</li><li>Word</li></ul>
     </div>
   </section>
 
@@ -98,30 +98,73 @@
     <div class="wrap">
       <div class="sec__head">
         <h2>What Buddy does</h2>
-        <p class="lead">Click Buddy and pick one. Every answer comes out in clear, proper English.</p>
+        <p class="lead">Ask it, tag it or talk to it. Every answer comes out in clear, proper English.</p>
       </div>
       <div class="cards">
         <article class="card card--orange">
-          <h3>Write for me</h3>
-          <p>Say what you need, in any words. Pick a tone and get the finished text, ready to send. Details only you know become blanks like [Name].</p>
-          <div class="mini tones" aria-label="Tones"><span class="on">Formal</span><span>Friendly</span><span>Short</span></div>
+          <h3>Ask, and it's done</h3>
+          <p>Click Buddy and ask for anything, in your own words. It writes the email, fixes the message and puts it in the app you're using. Changed your mind? Undo.</p>
+          <div class="mini tones" aria-label="Things to ask"><span class="on">Email</span><span>Reply</span><span>Message</span><span>Anything</span></div>
         </article>
         <article class="card card--pink">
-          <h3>Fix my English</h3>
-          <p>Select what you wrote. Buddy fixes the mistakes and keeps your meaning and your style.</p>
-          <div class="mini fix"><s>i am not able to come tomorow</s><span>I won't be able to come in tomorrow.</span></div>
+          <h3>@buddy, wherever you type</h3>
+          <p>Write your message, add <b>@buddy</b> (or your buddy's name, like <b>@aarav</b>) and stop typing. Buddy rewrites it right there. Say what you want after it, like "@buddy make it polite". On Mac, Windows and Android.</p>
+          <div class="mini fix"><s>i cant come tomorow @buddy make it polite</s><span>I'm sorry, I won't be able to come in tomorrow.</span></div>
+        </article>
+        <article class="card card--ink">
+          <h3>Talk to Buddy</h3>
+          <p>Tap the mic and just say it, in English, Hindi or Hinglish. Buddy listens, understands and writes it in proper English.</p>
+          <div class="mini wave" aria-hidden="true"><svg class="mic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        </article>
+        <article class="card card--paper">
+          <h3>Call its name</h3>
+          <p>No tap needed: say "Buddy", or the name you gave it, and it starts listening. Then just say what you need. Coming soon.</p>
+          <div class="mini check"><b>You say</b><ul><li>"Aarav, reply to Rahul that I'm on my way"</li></ul></div>
         </article>
         <article class="card card--paper">
           <h3>Check screen</h3>
           <p>Not sure your mail is okay? Buddy reads the window and tells you what to fix.</p>
           <div class="mini check"><b>Has problems</b><ul><li>"recieve" should be "receive"</li><li>"Pls" is too casual for a client</li></ul></div>
         </article>
-        <article class="card card--ink">
-          <h3>Speak to Buddy</h3>
-          <p>Tap the mic and say it out loud, in English, Hindi or Hinglish. Buddy writes it in proper English.</p>
-          <div class="mini wave" aria-hidden="true"><svg class="mic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <article class="card card--orange">
+          <h3>Remembers you</h3>
+          <p>Buddy learns the little things, like your name, your manager and how you sign off, so it writes like you. Signed in, it's saved to your account, so your Mac, Windows PC, Android phone and iPhone all know the same things, and you can delete any of it in Settings.</p>
+          <div class="mini tones" aria-label="Remembered"><span class="on">Your name</span><span>Your team</span><span>Your sign-off</span></div>
         </article>
       </div>
+    </div>
+  </section>
+
+  <section class="sec sec--tight" id="claude">
+    <div class="wrap">
+      <div class="sec__head">
+        <h2>Buddy + Claude Code</h2>
+        <p class="lead">Use Claude Code? Buddy shows you what it's doing, so you don't have to keep checking the terminal.</p>
+      </div>
+      <div class="cards">
+        <article class="card card--ink">
+          <h3>Clawd in your notch</h3>
+          <p>While Claude Code works, Clawd, its little orange mascot, walks in your Mac's notch. Clawd waves when Claude needs you, hops when the work is done and droops if it failed.</p>
+        </article>
+        <article class="card card--orange">
+          <h3>Buddy reacts too</h3>
+          <p>Buddy thinks while Claude thinks, and watches Clawd walk on its head or under its eyes. It cheers when the work is done and looks sad if it failed.</p>
+        </article>
+        <article class="card card--paper">
+          <h3>Claude mode</h3>
+          <p>Click Clawd (Claude Code's mascot) and pick a running Claude Code session. It looks just like the terminal: Claude's thinking, its tools, tables and all. Type your message, and it goes straight into that session.</p>
+        </article>
+        <article class="card card--pink">
+          <h3>From anywhere</h3>
+          <p>Left Claude Code running on your laptop? Follow it and reply from Buddy on your phone or another laptop, wherever you are.</p>
+        </article>
+      </div>
+      <div class="sec__head claude-connect"><h3>Connect Claude Code from your laptop</h3></div>
+      <ol class="steps">
+        <li><span class="num" aria-hidden="true">1</span><h3>Turn it on</h3><p>On your Mac, open Buddy's Settings → Claude Code and switch on "Show me what Claude Code is doing". Run Claude Code in Terminal or iTerm2 as usual.</p></li>
+        <li><span class="num" aria-hidden="true">2</span><h3>Share your sessions</h3><p>In the same place, switch on "Show my sessions on my other devices". They go only to devices signed in with your Google account.</p></li>
+        <li><span class="num" aria-hidden="true">3</span><h3>Open it anywhere</h3><p>Sign in to Buddy with the same Google account on your phone or another laptop, open Claude mode and pick a session. What you type goes into that session on your laptop.</p></li>
+      </ol>
     </div>
   </section>
 
@@ -130,8 +173,8 @@
       <div class="sec__head"><h2>Three steps, any app</h2></div>
       <ol class="steps">
         <li><span class="num" aria-hidden="true">1</span><h3>Open Buddy</h3><p>Click your buddy, or press <kbd>⌥</kbd> <kbd>Space</kbd> from any app.</p></li>
-        <li><span class="num" aria-hidden="true">2</span><h3>Ask in your words</h3><p>Type it the way you think it. Hindi and Hinglish are fine.</p></li>
-        <li><span class="num" aria-hidden="true">3</span><h3>Press Insert</h3><p>Buddy pastes the answer into the box you were typing in.</p></li>
+        <li><span class="num" aria-hidden="true">2</span><h3>Ask in your words</h3><p>Type it or say it, the way you think it. Hindi and Hinglish are fine. Or skip steps 1 and 2: type <b>@buddy</b> after your text.</p></li>
+        <li><span class="num" aria-hidden="true">3</span><h3>It's in your app</h3><p>Buddy puts the answer into the box you were typing in. Changed your mind? Undo.</p></li>
       </ol>
     </div>
   </section>
@@ -154,7 +197,7 @@
     <div class="wrap trust__in">
       <h2 id="trust-h">What you write stays yours.</h2>
       <div class="trust__pts">
-        <p><b>Nothing is kept.</b> Buddy's server never saves your text or your screenshots.</p>
+        <p><b>Your messages aren't kept.</b> Buddy's server never saves your text or your screenshots. Only the facts Buddy remembers about you are saved to your account, and you can delete them in Settings.</p>
         <p><b>One Google sign-in.</b> It only counts your free answers for the day.</p>
         <p><b>Your own key, if you like.</b> Add a Claude, OpenAI, Gemini or Groq key in Settings.</p>
         <a class="trust__more" href="/privacy">Read the privacy page</a>
@@ -208,8 +251,10 @@
       <div class="faq">
         <details open><summary>Is Buddy free?</summary><p>Yes, Buddy is free to download. Free answers come with a daily limit. When they're used up or switched off, you can use your own AI key from Claude, OpenAI, Gemini or Groq in Settings.</p></details>
         <details><summary>Which apps does it work in?</summary><p>Anywhere you can type: mail, chat, documents and websites.</p></details>
+        <details><summary>How does @buddy work?</summary><p>Type your message as usual, then add <b>@buddy</b> (or <b>@</b> and your buddy's name) at the end and stop typing for a moment. Buddy rewrites the text right there. Add what you want after the tag, like "@buddy make it shorter", or "@buddy all" for the whole box. No need to press Enter. It works on Mac, Windows and Android; switch it off in Settings if you like.</p></details>
+        <details><summary>Does it work with Claude Code?</summary><p>Yes. Switch on "Show me what Claude Code is doing" in Settings → Claude Code. Clawd shows up in your notch while Claude works, and you can open any running session in Claude mode, on your Mac or from your phone.</p></details>
         <details><summary>Does it work on an Intel Mac?</summary><p>Not yet. Buddy needs a Mac with an Apple chip (M1 or newer).</p></details>
-        <details><summary>Do you save what I write?</summary><p>No. Your text goes to the AI only to get your answer, and Buddy's server keeps none of it. The <a href="/privacy">privacy page</a> has the details.</p></details>
+        <details><summary>Do you save what I write?</summary><p>No. Your text goes to the AI only to get your answer, and Buddy's server keeps none of it. The one thing saved is the short facts Buddy remembers about you, like your name or your manager, so all your devices know them. You can see and delete them in Settings. The <a href="/privacy">privacy page</a> has the details.</p></details>
         <details><summary>How do I get updates?</summary><p>When a new version is out, Buddy shows <b>Update now</b>. One click installs it and opens Buddy again.</p></details>
       </div>
     </div>

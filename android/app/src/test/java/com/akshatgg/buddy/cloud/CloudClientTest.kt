@@ -13,6 +13,8 @@ import com.akshatgg.buddy.net.Http
 import com.akshatgg.buddy.net.HttpRequest
 import com.akshatgg.buddy.net.HttpResponse
 import com.akshatgg.buddy.store.AppSettings
+import com.akshatgg.buddy.store.Fact
+import com.akshatgg.buddy.store.MemoryOp
 import com.akshatgg.buddy.store.MemoryKeyValue
 import com.akshatgg.buddy.store.MemorySecrets
 import kotlinx.coroutines.CompletableDeferred
@@ -434,5 +436,38 @@ class CloudClientTest {
         assertEquals(listOf("bad_request", "Type something first."), listOf(bad.code, bad.message))
         val other = error { cloud.remoteStop() }
         assertEquals(listOf("server", serverProblem), listOf(other.code, other.message))
+    }
+
+    // ---- What Buddy knows, kept with the account ----
+
+    @Test fun memoryPostsTheChangesWithTheIdTokenAndReadsTheAccountsFacts() = runTest {
+        signIn()
+        val cloud = client()
+        serve(HttpResponse(200, """{"facts":[{"id":"f1","text":"Your boss is Mr. Sharma.","at":5},{"id":"f2","text":7},null,{"id":"f3","text":"You like tea."}]}"""))
+        val facts = cloud.memory(listOf(MemoryOp.Add("f1", "Your boss is Mr. Sharma.", 5), MemoryOp.Forget("f9"), MemoryOp.Clear))
+        assertEquals("a broken one is left out", listOf(Fact("f1", "Your boss is Mr. Sharma.", 5), Fact("f3", "You like tea.", 0)), facts)
+        val req = toServer().single()
+        assertEquals(
+            listOf("https://srv/api/memory", "POST", "application/json", "Bearer id", 15_000),
+            listOf(req.url, req.method, req.headers["content-type"], req.headers["authorization"], req.timeoutMs),
+        )
+        assertEquals(
+            Json.parseToJsonElement("""{"ops":[{"op":"add","id":"f1","text":"Your boss is Mr. Sharma.","at":5},{"op":"forget","id":"f9"},{"op":"clear"}]}"""),
+            Json.parseToJsonElement(req.body!!),
+        )
+        serve(HttpResponse(200, """{"facts":[]}"""))
+        assertEquals("no changes only reads", emptyList<Fact>(), cloud.memory(emptyList()))
+        assertEquals(Json.parseToJsonElement("""{"ops":[]}"""), Json.parseToJsonElement(toServer().last().body!!))
+    }
+
+    @Test fun memoryErrorsComeThroughInTheServersWords() = runTest {
+        signIn()
+        val cloud = client()
+        val cant = "Buddy couldn't save what it knows about you. Try again."
+        serve(HttpResponse(400, """{"error":{"code":"bad_request","message":"$cant"}}"""), HttpResponse(200, """{"nofacts":1}"""))
+        val bad = error { cloud.memory(emptyList()) }
+        assertEquals(listOf("bad_request", cant), listOf(bad.code, bad.message))
+        assertEquals("server", error { cloud.memory(emptyList()) }.code)
+        assertEquals("network", error { cloud.memory(emptyList()) }.code)
     }
 }

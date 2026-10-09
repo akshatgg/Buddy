@@ -44,7 +44,9 @@ private const val SECTION = "section"
 class MainViewModel(saved: SavedStateHandle) : ViewModel() {
     val graph = AppGraph.instance
     val welcome = WelcomeModel(graph.settings, viewModelScope, saved)
-    val settings = SettingsModel(graph.account, graph.cloud, graph.settings, graph.memory, viewModelScope, graph.lookEnabled)
+    val settings = SettingsModel(
+        graph.account, graph.cloud, graph.settings, graph.memory, viewModelScope, graph.lookEnabled, graph.memorySyncer::request,
+    )
     val ai = AiFormModel(
         graph.settings, graph.secrets, graph.providers, graph.keySaver, graph.router::listModels, graph.router::modelFor, viewModelScope,
     )

@@ -3,7 +3,7 @@
 // token was turned down: the call is made once more with a new token, and only when that is turned down too is the
 // person signed out (as the Mac and Android do).
 
-export const TIMEOUTS = { config: 8_000, ask: 60_000, transcribe: 45_000, remote: 10_000, push: 10_000 };
+export const TIMEOUTS = { config: 8_000, ask: 60_000, transcribe: 45_000, remote: 10_000, push: 10_000, memory: 10_000 };
 export const NO_INTERNET = 'No internet.';
 export const TOO_SLOW = "Buddy's server took too long to answer. Try again.";
 export const SERVER_PROBLEM = "Buddy's server had a problem. Try again.";

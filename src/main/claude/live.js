@@ -15,6 +15,9 @@
 const path = require('node:path');
 
 const KEEP = 500; // the items kept for a session: the newest
+const TITLE_READ = 512 * 1024; // a session's title is looked for in this much of the end of its file
+const TITLE_EVERY_MS = 30_000; // and looked for again this often, as Claude Code renames a session as the work goes on
+const TITLE_CHARS = 120;
 const FIRST_READ = 16 * 1024 * 1024; // a very long session is read from this many bytes before its end, the first time
 const READ_MAX = 16 * 1024 * 1024; // at most this much is read at once
 const FORGET_AFTER_MS = 6 * 60 * 60 * 1000; // a session quiet for this long leaves the list
@@ -113,8 +116,9 @@ function typedText(text) {
 
 /**
  * The items one line of the transcript makes: { kind, text } with kind 'you' (they typed it), 'claude' (Claude's
- * reply), 'tool' (a tool it ran), 'result' (what that gave back; `error` when it failed) or 'event' (stopped by the
- * person). A subagent's lines, Claude Code's own notes and its thinking make none.
+ * reply), 'thinking' (Claude's thinking before it, as the terminal shows it folded), 'tool' (a tool it ran), 'result' (what
+ * that gave back; `error` when it failed) or 'event' (stopped by the person). A subagent's lines and Claude Code's own
+ * notes make none, nor does a thinking with no words (Claude Code keeps only its signature at times).
  */
 function itemsOf(entry) {
   if (!isObject(entry) || entry.isSidechain === true || entry.isMeta === true) return [];
@@ -144,11 +148,30 @@ function itemsOf(entry) {
       if (block?.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
         return [{ kind: 'claude', text: cut(block.text.trim(), TEXT_CHARS) }];
       }
+      if (block?.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.trim()) {
+        return [{ kind: 'thinking', text: cut(block.thinking.trim(), TEXT_CHARS) }];
+      }
       if (block?.type === 'tool_use') return [{ kind: 'tool', text: toolLine(block.name, block.input) }];
       return [];
     });
   }
   return [];
+}
+
+/**
+ * The title Claude Code gave the session (as its terminal tab shows it: "Fix the login bug"), from the newest
+ * "ai-title" line in `text`; null when there is none.
+ */
+function titleIn(text) {
+  let title = null;
+  for (const m of text.matchAll(/"type":"ai-title","aiTitle":("(?:[^"\\]|\\.)*")/g)) {
+    try {
+      title = JSON.parse(m[1]);
+    } catch {
+      // half a line, at the edge of what was read
+    }
+  }
+  return typeof title === 'string' && title.trim() ? cut(title.trim(), TITLE_CHARS) : null;
 }
 
 /** The transcript file a hook named, if it is a .jsonl file inside Claude Code's config folder; null otherwise. */
@@ -261,6 +284,7 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
       sessions.set(s.id, s);
     }
     for (const [id, s] of sessions) if (s.pid && !running.has(id)) sessions.delete(id);
+    await Promise.all([...sessions.values()].map(readTitle));
   }
 
   /** The sessions, newest first, without the ones quiet for FORGET_AFTER_MS or ended. */
@@ -270,7 +294,26 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
     return [...sessions.values()]
       .filter((s) => s.status !== 'ended')
       .sort((a, b) => b.lastEvent - a.lastEvent)
-      .map((s) => ({ id: s.id, name: s.name, status: s.status, canTalk: Boolean(s.tty) }));
+      .map((s) => ({ id: s.id, name: s.name, title: s.title ?? null, status: s.status, canTalk: Boolean(s.tty) }));
+  }
+
+  /** Look for the session's title at the end of its file, at most every TITLE_EVERY_MS. */
+  async function readTitle(s) {
+    if (!s.transcript || (s.titleAt && now() - s.titleAt < TITLE_EVERY_MS)) return;
+    s.titleAt = now();
+    let handle;
+    try {
+      handle = await fs.open(s.transcript, 'r');
+      const { size } = await handle.stat();
+      const length = Math.min(size, TITLE_READ);
+      const buffer = Buffer.alloc(length);
+      await handle.read(buffer, 0, length, size - length);
+      s.title = titleIn(buffer.toString('utf8')) ?? s.title ?? null;
+    } catch {
+      // no file yet, or it went: the title stays as it was
+    } finally {
+      await handle?.close();
+    }
   }
 
   /** Read what was added to the session's file since the last read. Answers whether new items came. */
@@ -299,6 +342,8 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
         s.skipFirst = false;
       }
       let added = 0;
+      const title = titleIn(lines.join('\n'));
+      if (title) s.title = title;
       for (const line of lines) {
         if (!line.trim()) continue;
         let entry;
@@ -338,7 +383,7 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
   function view(id) {
     const s = sessions.get(id);
     if (!s) return null;
-    return { id: s.id, name: s.name, status: s.status, canTalk: Boolean(s.tty), items: s.items };
+    return { id: s.id, name: s.name, title: s.title ?? null, status: s.status, canTalk: Boolean(s.tty), items: s.items };
   }
 
   return {
@@ -359,4 +404,4 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
   };
 }
 
-module.exports = { KEEP, FIRST_READ, TTY, STATUS_AFTER, shortPath, toolLine, resultText, typedText, itemsOf, checkTranscript, projectFolder, createLive };
+module.exports = { KEEP, FIRST_READ, TTY, STATUS_AFTER, shortPath, toolLine, resultText, typedText, itemsOf, checkTranscript, projectFolder, titleIn, createLive };

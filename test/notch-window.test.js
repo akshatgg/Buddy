@@ -11,7 +11,11 @@ const MOVED = { x: 2000, y: -100, width: 160, height: 30 };
 const DISPLAY = { id: 1, bounds: { x: 0, y: 0, width: 1470, height: 956 }, workArea: { x: 0, y: 32, width: 1470, height: 924 } };
 const CURSOR_MS = 66;
 const MINUTE = 60_000;
-const LAYOUT = { notchWidth: 180, notchHeight: 32, reach: REACH, drop: DROP, wing: 44, wingHover: 56, sayMax: 260, corner: 12 };
+const LAYOUT = { notchWidth: 180, notchHeight: 32, reach: REACH, drop: DROP, wing: 44, wingHover: 56, sayMax: 260, corner: 12, look: 'face' };
+/** What a page that has just loaded is told, before any mood: the layout, whether it is paused, the panel and the mic. */
+const FRESH = (paused = false, layout = LAYOUT) => [
+  ['notch:layout', layout], ['notch:pause', paused], ['notch:panel-open', false], ['notch:mic-on', false],
+];
 const PAGE = path.join(__dirname, '..', 'src', 'renderer', 'notch', 'index.html');
 const PRELOAD = path.join(__dirname, '..', 'src', 'preload', 'notch.js');
 
@@ -19,7 +23,7 @@ const PRELOAD = path.join(__dirname, '..', 'src', 'preload', 'notch.js');
  * Just enough of BrowserWindow to see what the notch window does with it and sends its page. As in Electron,
  * webContents.send() throws once the page's process is gone; kill() ends that process without telling anyone.
  */
-function setup(t, { loadFails = false } = {}) {
+function setup(t, { loadFails = false, look } = {}) {
   const made = [];
   class FakeWindow {
     constructor(options) {
@@ -126,7 +130,7 @@ function setup(t, { loadFails = false } = {}) {
   }
   let pointer = { x: 10, y: 10 };
   const screen = { getCursorScreenPoint: () => pointer };
-  const notch = createNotchWindow({ screen, BrowserWindow: FakeWindow });
+  const notch = createNotchWindow({ screen, BrowserWindow: FakeWindow, ...(look ? { look } : {}) });
   t.after(() => notch.destroy()); // its cursor timer would otherwise keep the test process alive
   return {
     notch,
@@ -185,7 +189,7 @@ test('a page that is not loaded yet is sent the layout, whether it is paused and
   notch.say('Done! It\'s in Gmail ✅');
   assert.deepStrictEqual(win().sent, [], 'nothing reaches a page that is not there yet');
   win().load();
-  assert.deepStrictEqual(win().sent, [['notch:layout', LAYOUT], ['notch:pause', false], ['notch:mood', 'happy']]);
+  assert.deepStrictEqual(win().sent, [...FRESH(), ['notch:mood', 'happy']]);
   assert.ok(win().calls.filter((c) => c[0] === 'setIgnoreMouseEvents').length >= 2, 'a fresh page starts without hover');
 });
 
@@ -246,7 +250,7 @@ test('a page loaded while hidden is told it is paused', (t) => {
   notch.show(NOTCH, DISPLAY);
   notch.hide();
   win().load();
-  assert.deepStrictEqual(win().sent, [['notch:layout', LAYOUT], ['notch:pause', true]]);
+  assert.deepStrictEqual(win().sent, FRESH(true));
 });
 
 test('while shown, the pointer is sent from the window\'s centre about 15 times a second, and only when it moved', (t) => {
@@ -290,7 +294,7 @@ test('a page that crashed is logged and reloaded; another crash within the minut
   notch.mood('sad');
   assert.ok(!win().sent.some(([channel, value]) => channel === 'notch:mood' && value === 'sad'), 'a page that is loading again is sent nothing');
   win().load();
-  assert.deepStrictEqual(win().sent.slice(-3), [['notch:layout', LAYOUT], ['notch:pause', false], ['notch:mood', 'sad']]);
+  assert.deepStrictEqual(win().sent.slice(-5), [...FRESH(), ['notch:mood', 'sad']]);
 
   t.mock.timers.tick(10_000);
   win().handlers['render-process-gone']({}, { reason: 'crashed' });
@@ -366,7 +370,7 @@ test('destroy drops the window and everything kept for it', (t) => {
   notch.show(NOTCH, DISPLAY);
   assert.strictEqual(made.length, 2, 'a new window after destroy');
   win().load();
-  assert.deepStrictEqual(win().sent, [['notch:layout', LAYOUT], ['notch:pause', false]], 'the old mood is not carried over');
+  assert.deepStrictEqual(win().sent, FRESH(), 'the old mood is not carried over');
 });
 
 test('a window closed from outside is forgotten, and the next show makes a new one', (t) => {
@@ -377,4 +381,103 @@ test('a window closed from outside is forgotten, and the next show makes a new o
   assert.strictEqual(notch.isVisible(), false);
   notch.show(NOTCH, DISPLAY);
   assert.strictEqual(made.length, 2);
+});
+
+test('the look comes from the setting each time the layout is sent: eyes, or the face for anything else', (t) => {
+  let look = 'eyes';
+  const { notch, win } = setup(t, { look: () => look });
+  notch.show(NOTCH, DISPLAY);
+  win().load();
+  assert.deepStrictEqual(win().sent[0], ['notch:layout', { ...LAYOUT, look: 'eyes' }]);
+  look = 'face';
+  notch.relayout();
+  assert.deepStrictEqual(win().sent.at(-1), ['notch:layout', LAYOUT], 'Settings changed it: the page draws again');
+  look = 'wings';
+  notch.relayout();
+  assert.deepStrictEqual(win().sent.at(-1), ['notch:layout', LAYOUT]);
+});
+
+test('relayout before any show sends nothing', (t) => {
+  const { notch, made } = setup(t);
+  notch.relayout();
+  assert.strictEqual(made.length, 0);
+});
+
+test('the face hears the panel, the microphone, the voice and a new character, as the floating buddy does', (t) => {
+  const { notch, win } = setup(t);
+  notch.show(NOTCH, DISPLAY);
+  win().load();
+  const before = win().sent.length;
+  notch.panelOpen(1);
+  notch.micOn('yes');
+  notch.voiceLevel(2);
+  notch.voiceLevel('loud');
+  notch.voiceLevel(0.3);
+  notch.reloadModel();
+  assert.deepStrictEqual(win().sent.slice(before), [
+    ['notch:panel-open', true], ['notch:mic-on', true], ['notch:voice-level', 1], ['notch:voice-level', 0],
+    ['notch:voice-level', 0.3], ['notch:reload', undefined],
+  ]);
+  win().load();
+  assert.deepStrictEqual(win().sent.slice(-4), [
+    ['notch:layout', LAYOUT], ['notch:pause', false], ['notch:panel-open', true], ['notch:mic-on', true],
+  ], 'a page that loads again is told the panel and the microphone');
+});
+
+test('a sleep that lasts is told again to a page that loads, until a use wakes Buddy', (t) => {
+  const { notch, win } = setup(t);
+  notch.show(NOTCH, DISPLAY);
+  win().load();
+  notch.mood('asleep');
+  win().load();
+  assert.deepStrictEqual(win().sent.at(-1), ['notch:mood', 'asleep']);
+  notch.mood('wake');
+  win().load();
+  assert.deepStrictEqual(win().sent.at(-1), ['notch:mic-on', false], 'awake again: nothing to tell');
+});
+
+test('the status goes to the page; one that lasts is told again to a page that loads, done and failed are not', (t) => {
+  const { notch, win } = setup(t);
+  notch.show(NOTCH, DISPLAY);
+  win().load();
+  notch.status({ kind: 'working', text: 'Claude · editing code', extra: 1 });
+  assert.deepStrictEqual(win().sent.at(-1), ['notch:status', { kind: 'working', text: 'Claude · editing code' }]);
+  win().load();
+  assert.deepStrictEqual(win().sent.at(-1), ['notch:status', { kind: 'working', text: 'Claude · editing code' }]);
+  notch.status({ kind: 'done', text: 7 });
+  assert.deepStrictEqual(win().sent.at(-1), ['notch:status', { kind: 'done', text: '' }]);
+  win().load();
+  assert.deepStrictEqual(win().sent.at(-1), ['notch:mic-on', false]);
+  notch.status('nonsense');
+  assert.deepStrictEqual(win().sent.at(-1), ['notch:status', null]);
+});
+
+test('a pointer left on the shape is taken off when the window hides, reloads after a crash or goes', (t) => {
+  t.mock.method(console, 'error', () => {});
+  const { notch, win } = setup(t);
+  let lost = 0;
+  notch.onHoverLost(() => { lost += 1; });
+  notch.show(NOTCH, DISPLAY);
+  win().load();
+  notch.hide();
+  assert.strictEqual(lost, 0, 'no pointer on it: nothing to take off');
+  notch.show(NOTCH, DISPLAY);
+  notch.setHover(true);
+  notch.hide();
+  assert.strictEqual(lost, 1);
+  notch.hide();
+  assert.strictEqual(lost, 1, 'once');
+  notch.show(NOTCH, DISPLAY);
+  notch.setHover(true);
+  win().handlers['render-process-gone']({}, { reason: 'crashed' });
+  assert.strictEqual(lost, 2);
+  win().load();
+  notch.setHover(true);
+  notch.setHover(false);
+  notch.destroy();
+  assert.strictEqual(lost, 2, 'the page said the pointer left');
+  notch.show(NOTCH, DISPLAY);
+  notch.setHover(true);
+  notch.destroy();
+  assert.strictEqual(lost, 3);
 });

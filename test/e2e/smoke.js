@@ -8,6 +8,8 @@
 // Mac and on Windows.
 //
 //   npm run test:e2e
+//   BUDDY_E2E_ONLY=notch npm run test:e2e         (only the checks with "notch" in their file name)
+//   BUDDY_E2E_ONLY=40-panel,windows npm run test:e2e   (several, in order)
 
 const { app } = require('electron');
 const assert = require('node:assert');
@@ -88,6 +90,10 @@ const helper = Object.assign(new EventEmitter(), {
     if (cmd === 'permissions') return { accessibility: this.accessibility, screenRecording: true };
     if (cmd === 'watchKeys') {
       this.watching = args.on;
+      return { watching: args.on };
+    }
+    if (cmd === 'watchTyping') {
+      this.watchingTyping = args.on ? args.names : null; // Buddy where you type: the tag's names, while it watches
       return { watching: args.on };
     }
     if (Object.hasOwn(this.replies, cmd)) {
@@ -337,7 +343,10 @@ async function waitFor(fn, what, ms = 8000) {
     ctx.home ??= ctx.buddy; // where Buddy lives (the notch or the floating buddy), as main returns it
     ctx.sleepClock = sleepClock;
     const dir = path.join(__dirname, 'checks');
-    for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js')).sort()) {
+    // BUDDY_E2E_ONLY=notch runs only the checks whose file names have that in them (while working on one); a comma
+    // between names runs each of them, in the usual order (some checks need one before them, as the panel's).
+    const only = process.env.BUDDY_E2E_ONLY?.split(',').filter(Boolean);
+    for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js') && (!only || only.some((o) => f.includes(o)))).sort()) {
       await require(path.join(dir, file))(ctx, { assert, delay, waitFor });
       console.log(`ok - ${file}`);
     }

@@ -383,3 +383,23 @@ test('idle is sent only to end a mood that stays (thinking, sleepy): a wave or a
   await tick();
   assert.deepStrictEqual(ui.moods, ['thinking', 'wave', 'celebrate'], 'no idle after celebrate');
 });
+
+test('the notch status goes out when it changes, even while the chat holds the moods, and is cleared on stop', async (t) => {
+  const port = await freePort();
+  const { watch, ui } = setup(t, { ports: [port], busy: () => true });
+  ui.statuses = [];
+  ui.status = (s) => ui.statuses.push(s);
+  await watch.start();
+  const path = `/claude-code/${TOKEN}`;
+  await post(port, path, event('UserPromptSubmit'));
+  await post(port, path, event('PreToolUse', { tool_name: 'Bash' }));
+  await post(port, path, event('PostToolUse', { tool_name: 'Bash' }));
+  await tick();
+  assert.deepStrictEqual(ui.statuses, [
+    { kind: 'working', text: 'Claude · thinking', session: 's1' },
+    { kind: 'working', text: 'Claude · running a command', session: 's1' },
+  ], 'the same status is not sent twice');
+  assert.deepStrictEqual(ui.moods, [], 'the moods wait for the chat');
+  watch.stop();
+  assert.strictEqual(ui.statuses.at(-1), null);
+});

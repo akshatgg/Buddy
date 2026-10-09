@@ -60,10 +60,18 @@
             <label><input type="radio" name="home" value="floating"><span>Floating</span></label>
           </div>
         </div>
+        <div id="notch-look-row" class="group-row" hidden>
+          <span id="notch-look-label" class="row-title">In the notch</span>
+          <div id="notch-look" class="segmented" role="radiogroup" aria-labelledby="notch-look-label">
+            <label><input type="radio" name="notch-look" value="face"><span>Face</span></label>
+            <label><input type="radio" name="notch-look" value="eyes"><span>Eyes</span></label>
+          </div>
+        </div>
       </div>
       <p id="name-status" class="status small" aria-live="polite"></p>
       <p id="size-status" class="status small" aria-live="polite"></p>
       <p id="home-status" class="status small" aria-live="polite"></p>
+      <p id="notch-look-status" class="status small" aria-live="polite"></p>
     </section>
     <section id="section-shortcut" class="section" hidden>
       <h1>Shortcut</h1>
@@ -197,6 +205,13 @@
             <p class="muted small">Talk as soon as it opens. When it's off, press 🎤 to talk.</p>
           </div>
           <input id="listen-on-open" class="switch" type="checkbox" role="switch" aria-label="Listen when the panel opens">
+        </div>
+        <div class="group-row">
+          <div class="grow">
+            <p class="row-title">Fix where I type</p>
+            <p id="tag-line" class="muted small">Type @buddy after your text in any app, then pause: Buddy rewrites it in place. Say how: @buddy formal, @buddy shorter, @buddy translate to Hindi.</p>
+          </div>
+          <input id="tag-on" class="switch" type="checkbox" role="switch" aria-label="Fix where I type">
         </div>
         <div class="group-row">
           <div class="grow">

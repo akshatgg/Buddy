@@ -57,6 +57,12 @@ function buildShared() {
       tooLongInstruction: refusal('write', { instruction: 'x'.repeat(LIMITS.instruction + 1) }),
       tooLongText: refusal('fix', { text: 'x'.repeat(LIMITS.text + 1) }),
     },
+    // Buddy where you type (shared/tag.js): the app builds the user turn itself, as buildPrompt('tag') does.
+    tag: {
+      system: prompts.buildPrompt('tag', { text: 'x' }).system,
+      userExample: prompts.buildPrompt('tag', { text: 'x', instruction: 'formal' }).user,
+      empty: refusal('tag', {}),
+    },
     // The panel's one request (the chat panel design §3): the app builds its user turn itself (ChatPrompt.kt), and
     // test/android-shared.test.js with chat-cases.json keeps it to what chatPrompt and parseChat do.
     chat: {

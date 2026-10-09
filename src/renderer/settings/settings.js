@@ -354,6 +354,9 @@ function render({ fields = true } = {}) {
   // Where Buddy lives is a choice only on a Mac with a notch screen on now.
   $('home-row').hidden = !snap.hasNotch;
   for (const radio of $('home').querySelectorAll('input')) radio.checked = radio.value === snap.settings.home;
+  // How Buddy shows in the notch: only while it lives there.
+  $('notch-look-row').hidden = !snap.hasNotch || snap.settings.home !== 'notch';
+  for (const radio of $('notch-look').querySelectorAll('input')) radio.checked = radio.value === snap.settings.notchLook;
   if (!recording) showKeys(snap.settings.shortcut);
   $('power').checked = snap.buddyOn;
   $('power-status').textContent = snap.buddyOn
@@ -362,6 +365,11 @@ function render({ fields = true } = {}) {
   $('version').textContent = snap.version ? `Buddy ${snap.version}` : '';
   $('update-auto').checked = snap.settings.checkForUpdates !== false;
   $('listen-on-open').checked = snap.settings.listenOnOpen !== false;
+  $('tag-on').checked = snap.settings.tagOn !== false;
+  // The tag also answers to the buddy's own name, when it is one word.
+  const name = (snap.settings.buddyName || '').trim();
+  const also = /^[\p{L}\p{N}_]{2,24}$/u.test(name) && name.toLowerCase() !== 'buddy' ? ` (or @${name.toLowerCase()})` : '';
+  $('tag-line').textContent = `Type @buddy${also} after your text in any app, then pause: Buddy rewrites it in place. Say how: @buddy formal, @buddy shorter, @buddy translate to Hindi.`;
   const { symbols, defaultShortcut, canTap } = shortcutKeys();
   $('shortcut-reset').textContent = `Reset to ${symbols(defaultShortcut).join(' ')}`;
   // Only the Mac hears a key tapped on its own.
@@ -679,6 +687,9 @@ $('name').addEventListener('change', () => save({ buddyName: $('name').value }, 
 for (const radio of $('size').querySelectorAll('input')) {
   radio.addEventListener('change', () => save({ size: radio.value }, 'size-status'));
 }
+for (const radio of $('notch-look').querySelectorAll('input')) {
+  radio.addEventListener('change', () => save({ notchLook: radio.value }, 'notch-look-status'));
+}
 for (const radio of $('home').querySelectorAll('input')) {
   radio.addEventListener('change', () => save({ home: radio.value }, 'home-status'));
 }
@@ -710,6 +721,7 @@ $('perm-microphone-btn').addEventListener('click', async () => {
   if (!r.ok) showStatus('perm-status', r.error.message, 'error');
 });
 $('listen-on-open').addEventListener('change', () => save({ listenOnOpen: $('listen-on-open').checked }, 'listen-status'));
+$('tag-on').addEventListener('change', () => save({ tagOn: $('tag-on').checked }, 'listen-status'));
 $('update-check').addEventListener('click', () => updateCall(window.buddy.checkUpdates));
 $('update-now').addEventListener('click', () => updateCall(window.buddy.installUpdate));
 $('update-notes').addEventListener('click', () => updateCall(window.buddy.openReleaseNotes));

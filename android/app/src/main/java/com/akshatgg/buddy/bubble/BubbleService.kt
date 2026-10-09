@@ -83,6 +83,18 @@ class BubbleService : LifecycleService() {
     // The head draws only while it is visible, and an overlay stays "visible" with the screen off or locked, so it is
     // hidden then: the Mac's buddy:pause on lock-screen.
     private var screenOff = false
+
+    // Claude Code on the person's computer, for Clawd in the head's eye: the sessions they share through Buddy's server.
+    private val claudeWatch = ClaudeWatch(
+        scope = lifecycleScope,
+        look = {
+            val graph = AppGraph.instance
+            if (!graph.account.isSignedIn()) null
+            else graph.cloud.remoteLook().takeIf { it.online }?.sessions?.map { it.status }
+        },
+        paused = { screenOff },
+        onKind = { head?.claude = it },
+    )
     private var screenReceiver: BroadcastReceiver? = null
 
     // The person can take "Display over other apps" away in the phone's settings while Buddy runs. Android then hides
@@ -114,11 +126,12 @@ class BubbleService : LifecycleService() {
         }
         watchOverlayPermission()
         listenToScreen()
+        claudeWatch.start()
         lifecycleScope.launch {
             BubbleBus.events.collect { event ->
                 when (event) {
                     is BubbleEvent.SetMood -> mood(event.mood)
-                    is BubbleEvent.Say -> say(event.text)
+                    is BubbleEvent.Say -> say(event.text, event.onTap)
                     is BubbleEvent.HideFor -> hideFor(event.ms)
                     is BubbleEvent.LookAt -> lookAt(LookPoint(event.x, event.y))
                     BubbleEvent.LookAway -> lookAway()
@@ -178,6 +191,7 @@ class BubbleService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        claudeWatch.stop()
         glide?.cancel()
         overlayWatcher?.let { getSystemService(AppOpsManager::class.java).stopWatchingMode(it) }
         overlayWatcher = null
@@ -440,11 +454,12 @@ class BubbleService : LifecycleService() {
         head?.look(Turn.FRONT)
     }
 
-    private fun say(text: String) {
+    private fun say(text: String, onTap: (() -> Unit)? = null) {
         val view = head ?: return
         if (view.visibility != View.VISIBLE) {
             // Out of a sheet's way, and nothing else: kept until the last sheet goes, since Copy says "Copied — …"
             // just before it closes its sheet. Otherwise nobody would see it, or it would be in a picture of the screen.
+            // A tap is not kept: the words alone are said then.
             if (!screenOff && hideTimer?.isActive != true && BubbleBus.sheetOpen.value) {
                 heldWords = text
                 heldAt = SystemClock.elapsedRealtime()
@@ -452,7 +467,7 @@ class BubbleService : LifecycleService() {
             return
         }
         if (!Settings.canDrawOverlays(this)) return // taken away a moment ago: the watcher is about to stop the service
-        speech?.say(text, headBounds(), area())
+        speech?.say(text, headBounds(), area(), onTap)
     }
 
     private fun hideFor(ms: Long) {

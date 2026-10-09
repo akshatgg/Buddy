@@ -1,5 +1,5 @@
 'use strict';
-/* global ChatView, VoiceTiming */
+/* global ChatView, ClaudeCli, VoiceTiming */
 
 /*
  * The panel is a chat. The main process keeps the chat and sends all of it after every change (src/main/actions.js);
@@ -19,6 +19,7 @@
 const $ = (id) => document.getElementById(id);
 const { canSend, itemParts, selectionPreview, speaker, spokenLine, thinkingLine } = ChatView;
 const { exampleLine, jobHeading } = ChatView; // a Claude Code job in the chat
+const { rows: cliRows, inline: cliInline, workingVerb } = ClaudeCli; // Claude mode, drawn as the terminal draws it
 const { createVoiceTiming, levelOf, recordingMime, listensOnOpen } = VoiceTiming;
 
 let state = null; // the chat as the main process sent it last
@@ -34,7 +35,7 @@ let voiceTurn = 0; // counts the listenings; what comes back for one that was st
 let mode = 'chat'; // what the panel shows: 'chat' (the buddy's chat), or 'claude' (Claude mode, the end of this file)
 // Claude mode: the session shown (null while the sessions are listed), the id the last open asked for, whether words
 // are on their way to its terminal, and the newest item drawn.
-const claude = { session: null, asked: null, talking: false, newest: 0 };
+const claude = { session: null, asked: null, talking: false, newest: 0, open: new Set() }; // open: rows unfolded
 
 function show(el, visible) {
   el.hidden = !visible;
@@ -349,7 +350,7 @@ function setVoice(next) {
   $('box-frame').classList.toggle('listening', next === 'listening');
   $('box-frame').classList.toggle('writing', next === 'writing');
   const talkingToClaude = mode === 'claude' && claude.session && (next === 'idle' || next === 'starting');
-  $('box').placeholder = talkingToClaude ? CLAUDE_WORDS.placeholder(claude.session.name) : PLACEHOLDERS[next];
+  $('box').placeholder = talkingToClaude ? CLAUDE_WORDS.placeholder(claude.session.title || claude.session.name) : PLACEHOLDERS[next];
   $('mic').setAttribute('aria-pressed', String(on));
   $('mic').title = MIC_TITLES[next];
   show($('voice-bars'), next === 'listening' || next === 'writing');
@@ -611,13 +612,14 @@ const CLAUDE_WORDS = {
 function applyMode() {
   const on = mode === 'claude';
   $('claude-mode').setAttribute('aria-pressed', String(on));
+  document.querySelector('.panel').classList.toggle('cli', on); // black, white and monospace, as Claude Code's terminal
   show($('chat'), !on);
   show($('claude-view'), on);
   show($('notice'), !on && Boolean(state?.notice));
   show($('selection'), !on && Boolean(state?.selection));
   show($('claude-pick'), on && !claude.session);
   show($('claude-session'), on && Boolean(claude.session));
-  $('box').placeholder = on && claude.session ? CLAUDE_WORDS.placeholder(claude.session.name) : PLACEHOLDERS[voice];
+  $('box').placeholder = on && claude.session ? CLAUDE_WORDS.placeholder(claude.session.title || claude.session.name) : PLACEHOLDERS[voice];
   if (state) $('where').textContent = on ? '· Claude Code' : state.appName ? `· ${state.appName}` : '';
   updateSend();
 }
@@ -636,9 +638,11 @@ async function claudeList() {
     const li = make('li');
     const b = make('button');
     b.type = 'button';
-    const name = make('span', 'name', s.name);
-    // A session on another of the person's computers (shared through Buddy's server) says which one.
-    if (s.remote && s.device) name.append(make('span', 'device', `on ${s.device}`));
+    // The session's title, as its terminal tab shows it ("Fix the login bug"), over its short name and, for a session
+    // on another of the person's computers (shared through Buddy's server), which one.
+    const name = make('span', 'name', s.title || s.name);
+    const under = [s.title ? s.name : '', s.remote && s.device ? `on ${s.device}` : ''].filter(Boolean).join(' · ');
+    if (under) name.append(make('span', 'device', under));
     b.append(name, make('span', `status-chip ${s.status}`, CLAUDE_STATUS[s.status] || s.status));
     b.addEventListener('click', () => claudeOpen(s.id));
     li.append(b);
@@ -663,6 +667,7 @@ async function claudeOpen(id) {
     return;
   }
   claude.newest = 0;
+  claude.open.clear();
   drawClaude(r.session, { scroll: true });
   box.focus();
 }
@@ -673,12 +678,93 @@ function claudeReopen() {
   else claudeList();
 }
 
-/** One item of the session, as the terminal shows it. */
-function drawClaudeItem(item) {
-  const kind = ['you', 'claude', 'tool', 'result', 'event'].includes(item.kind) ? item.kind : 'event';
-  // Its own class names (cl-…): the chat's .you and .event, and the view's own .claude, must not reach these lines.
-  const li = make('li', `cl-${kind}${item.error ? ' error' : ''}`);
-  li.append(make('p', '', item.text));
+/** Words with Claude's **bold** and `code`, one paragraph a line (ClaudeCli.inline). */
+function cliText(text, className = '') {
+  const body = make('div', `cl-text ${className}`.trim());
+  for (const line of String(text).split('\n')) {
+    const p = make('p', line.trim() ? '' : 'blank');
+    for (const part of cliInline(line)) {
+      p.append(part.bold ? make('strong', '', part.s) : part.code ? make('code', '', part.s) : document.createTextNode(part.s));
+    }
+    body.append(p);
+  }
+  return body;
+}
+
+/** A row that unfolds when clicked (folded tools, Claude's thinking): its head, and what shows when it is open. */
+function foldable(li, row, head, body) {
+  const open = claude.open.has(`${row.type}:${row.id}`);
+  const b = make('button', 'cl-fold');
+  b.type = 'button';
+  b.setAttribute('aria-expanded', String(open));
+  b.append(...head);
+  b.addEventListener('click', () => {
+    const key = `${row.type}:${row.id}`;
+    if (claude.open.has(key)) claude.open.delete(key);
+    else claude.open.add(key);
+    drawClaude(claude.session);
+  });
+  li.append(b);
+  if (open) li.append(body());
+}
+
+/** A tool as the terminal shows it: ● Update(src/main.js), and under it ⎿ what it gave back. */
+function cliTool(row) {
+  const li = make('li', `cl-tool${row.error ? ' error' : ''}`);
+  const head = make('p', 'cl-call');
+  head.append(make('span', 'cl-dot', '●'), make('strong', '', row.name));
+  if (row.arg) head.append(document.createTextNode(`(${row.arg})`));
+  li.append(head);
+  for (const result of row.results) {
+    const out = make('div', `cl-out${result.error ? ' error' : ''}`);
+    out.append(make('span', 'cl-elbow', '⎿'), cliText(result.text));
+    li.append(out);
+  }
+  return li;
+}
+
+/** One row of the session, as Claude Code's terminal draws it (ClaudeCli.rows says which). */
+function cliRow(row) {
+  switch (row.type) {
+    case 'you': {
+      const li = make('li', 'cl-you');
+      li.append(make('span', 'cl-prompt', '❯'), cliText(row.text));
+      return li;
+    }
+    case 'claude': {
+      const li = make('li', 'cl-claude');
+      li.append(make('span', 'cl-dot', '●'), cliText(row.text));
+      return li;
+    }
+    case 'thinking': {
+      const li = make('li', 'cl-thinking');
+      foldable(li, row, [make('span', 'cl-mark', '∴'), make('em', '', 'Thinking…')], () => cliText(row.text, 'cl-thought'));
+      return li;
+    }
+    case 'tool':
+      return cliTool(row);
+    case 'summary': {
+      const li = make('li', `cl-summary${row.error ? ' error' : ''}`);
+      foldable(li, row, [document.createTextNode(row.text)], () => {
+        const inner = make('ol', 'cl-inner');
+        inner.append(...row.tools.map(cliTool));
+        return inner;
+      });
+      return li;
+    }
+    default: {
+      const li = make('li', `cl-event${row.error ? ' error' : ''}`);
+      li.append(make('span', 'cl-elbow', '⎿'), make('p', '', row.text));
+      return li;
+    }
+  }
+}
+
+/** While Claude works: the terminal's spinner and a verb, the same one for the whole turn ("✻ Pondering…"). */
+function cliWorking(items) {
+  const asked = [...items].reverse().find((item) => item?.kind === 'you');
+  const li = make('li', 'cl-working');
+  li.append(make('span', 'cl-spin', ''), make('span', '', workingVerb(asked?.id ?? 0)));
   return li;
 }
 
@@ -687,14 +773,18 @@ function drawClaude(session, { scroll = false } = {}) {
   if (!session) return;
   claude.session = session;
   applyMode();
-  $('claude-name').textContent = session.remote && session.device ? `${session.name} · on ${session.device}` : session.name;
+  const named = session.title || session.name;
+  $('claude-name').textContent = session.remote && session.device ? `${named} · on ${session.device}` : named;
+  $('claude-name').title = session.title ? `${session.title} (${session.name})` : session.name; // the whole of it, on hover
   const chip = $('claude-status');
   chip.className = `status-chip ${session.status}`;
   chip.textContent = CLAUDE_STATUS[session.status] || session.status;
   const list = $('claude-items');
   const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
   const items = Array.isArray(session.items) ? session.items : [];
-  const rows = items.map(drawClaudeItem);
+  const rows = cliRows(items).map(cliRow);
+  if (session.status === 'working') rows.push(cliWorking(items));
+  if (session.status === 'waiting') rows.push(make('li', 'cl-waiting', '⏵ Claude is waiting for you in the terminal'));
   if (session.waiting) rows.push(make('li', 'cl-note', CLAUDE_WORDS.waiting(session.device)));
   if (!session.canTalk) rows.push(make('li', 'cl-note', session.remote ? CLAUDE_WORDS.noTalkThere : CLAUDE_WORDS.noTalk));
   list.replaceChildren(...rows);
@@ -740,6 +830,15 @@ $('claude-mode').addEventListener('click', () => {
     mode = 'claude';
     claudeList();
   }
+  box.focus();
+});
+// Clawd clicked in the notch: Claude mode, on the session it shows when there is one (or the list).
+window.buddy.onClaudeShow((id) => {
+  cancelListening();
+  showSendError('');
+  mode = 'claude';
+  if (typeof id === 'string' && id) claudeOpen(id);
+  else claudeList();
   box.focus();
 });
 $('claude-back').addEventListener('click', () => claudeList());

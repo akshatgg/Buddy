@@ -52,6 +52,8 @@ function cleanSessions(value) {
   return value.filter((s) => isObject(s) && typeof s.id === 'string' && SESSION_ID.test(s.id)).slice(0, SESSIONS_MAX).map((s) => ({
     id: s.id,
     name: typeof s.name === 'string' && s.name.trim() ? cut(s.name.trim(), 100) : 'Claude Code',
+    // The title Claude Code gave it, as its terminal tab shows it ("Fix the login bug"), or null.
+    title: typeof s.title === 'string' && s.title.trim() ? cut(s.title.trim(), 120) : null,
     status: STATUSES.includes(s.status) ? s.status : 'idle',
     canTalk: s.canTalk === true,
   }));
@@ -114,7 +116,9 @@ function macReport(doc, body, now) {
   const sent = isObject(body.feed) ? body.feed : null;
   if (myWatch && sent && sent.id === myWatch) {
     const [view] = cleanSessions([sent]);
-    feed = { sessionId: myWatch, device: device.name, name: view.name, status: view.status, canTalk: view.canTalk, items: cleanItems(sent.items), at: now };
+    feed = {
+      sessionId: myWatch, device: device.name, name: view.name, title: view.title, status: view.status, canTalk: view.canTalk, items: cleanItems(sent.items), at: now,
+    };
   }
   const changed = !mine
     || mine.name !== device.name
@@ -144,8 +148,8 @@ function phoneLook(doc, sessionId, now, exclude = null) {
   if (!devices.length || sessionId === null) return { next: undefined, result };
   if (!sessions.some((s) => s.id === sessionId)) throw new BuddyError('not_found', NO_SESSION);
   if (doc.feed?.sessionId === sessionId) {
-    const { sessionId: id, device, name, status, canTalk, items } = doc.feed;
-    result.feed = { id, device, name, status, canTalk, items };
+    const { sessionId: id, device, name, title = null, status, canTalk, items } = doc.feed;
+    result.feed = { id, device, name, title, status, canTalk, items };
   }
   const fresh = doc.watch?.sessionId === sessionId && now - doc.watch.at < WATCH_MS / 3;
   const next = fresh ? undefined : { ...doc, watch: { sessionId, at: now }, feed: doc.feed?.sessionId === sessionId ? doc.feed : null };

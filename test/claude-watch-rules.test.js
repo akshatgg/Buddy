@@ -2,7 +2,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { MOODS, FORGET_AFTER_MS, QUIET_MS, folderName, parseEvent, newState, apply, forget } = require('../src/main/claude/watch');
+const {
+  MOODS, FORGET_AFTER_MS, QUIET_MS, folderName, parseEvent, newState, apply, forget, doingOf,
+} = require('../src/main/claude/watch');
 
 /** An event as parseEvent gives it, for session `session` in my-app. */
 const ev = (name, session = 's1', extra = {}) => ({ name, sessionId: session, folder: 'my-app', matcher: '', error: '', ...extra });
@@ -37,10 +39,11 @@ test('parseEvent reads what the hook sends, and refuses what is not an event', (
     hook_event_name: 'StopFailure', session_id: 'abc', cwd: '/x/my-app', matcher: 'rate_limit', error: 'Rate limit reached', transcript_path: '/h/.claude/projects/p/abc.jsonl',
   });
   assert.deepStrictEqual(parseEvent(text), {
-    name: 'StopFailure', sessionId: 'abc', folder: 'my-app', matcher: 'rate_limit', error: 'Rate limit reached', cwd: '/x/my-app', transcript: '/h/.claude/projects/p/abc.jsonl',
+    name: 'StopFailure', sessionId: 'abc', folder: 'my-app', matcher: 'rate_limit', error: 'Rate limit reached', cwd: '/x/my-app', transcript: '/h/.claude/projects/p/abc.jsonl', tool: '',
   });
+  assert.strictEqual(parseEvent(JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'abc', tool_name: 'Edit' })).tool, 'Edit');
   assert.deepStrictEqual(parseEvent(JSON.stringify({ hook_event_name: 'Stop', session_id: 'abc', transcript_path: 7 })),
-    { name: 'Stop', sessionId: 'abc', folder: 'your project', matcher: '', error: '', cwd: '', transcript: '' });
+    { name: 'Stop', sessionId: 'abc', folder: 'your project', matcher: '', error: '', cwd: '', transcript: '', tool: '' });
   assert.strictEqual(parseEvent('not json'), null);
   assert.strictEqual(parseEvent('[]'), null);
   assert.strictEqual(parseEvent(JSON.stringify({ hook_event_name: 'SubagentStop', session_id: 'abc' })), null);
@@ -198,4 +201,49 @@ test('a session waiting for the person is not ended by the quiet time', () => {
   const later = forget(state, 1000 + QUIET_MS + 1);
   assert.strictEqual(later.mood, undefined);
   assert.strictEqual(later.state.overall, 'needsYou');
+});
+
+/** The notch status after each event, from a fresh state. */
+function statuses(events) {
+  let state = newState();
+  return events.map((e) => {
+    const r = apply(state, e, 1000);
+    state = r.state;
+    return r.status;
+  });
+}
+
+test('the words for a tool: what Claude Code does, in plain words', () => {
+  assert.strictEqual(doingOf('Edit'), 'editing code');
+  assert.strictEqual(doingOf('Bash'), 'running a command');
+  assert.strictEqual(doingOf('mcp__github__create_pr'), 'using tools');
+  assert.strictEqual(doingOf('SomethingNew'), 'working');
+  assert.strictEqual(doingOf(), 'working');
+  assert.strictEqual(doingOf('toString'), 'working', 'not a property of every object');
+});
+
+test('the notch status: what the one session does, kept between tools, then done', () => {
+  const tool = (name, t) => ev(name, 's1', { tool: t });
+  assert.deepStrictEqual(statuses([
+    ev('UserPromptSubmit'), tool('PreToolUse', 'Read'), tool('PostToolUse', 'Read'), tool('PreToolUse', 'Edit'), ev('Stop'), ev('SessionEnd'),
+  ]), [
+    { kind: 'working', text: 'Claude · thinking', session: 's1' },
+    { kind: 'working', text: 'Claude · reading code', session: 's1' },
+    { kind: 'working', text: 'Claude · reading code', session: 's1' },
+    { kind: 'working', text: 'Claude · editing code', session: 's1' },
+    { kind: 'done', text: '', session: null },
+    { kind: 'done', text: '', session: null },
+  ]);
+});
+
+test('the notch status: a need beats work, several sessions are counted, a failure has no words; a click opens the one session', () => {
+  assert.deepStrictEqual(statuses([ev('UserPromptSubmit', 'a'), ev('UserPromptSubmit', 'b'), ev('PermissionRequest', 'a'), ev('PreToolUse', 'a'), ev('StopFailure', 'a'), ev('StopFailure', 'b')]), [
+    { kind: 'working', text: 'Claude · thinking', session: 'a' },
+    { kind: 'working', text: '2 Claudes working', session: null },
+    { kind: 'needsYou', text: 'Claude needs you', session: 'a' },
+    { kind: 'working', text: '2 Claudes working', session: null },
+    { kind: 'working', text: 'Claude · thinking', session: 'b' },
+    { kind: 'failed', text: '', session: null },
+  ]);
+  assert.strictEqual(statuses([ev('SessionEnd')])[0], null, 'nothing going on: no status');
 });

@@ -73,12 +73,12 @@ test('watched: the session\'s items go, and again only when they change, every s
   assert.strictEqual(await s.step(), 0, 'the phone has just begun to watch: its items go at once');
   assert.strictEqual(s.reports[0].feed, undefined, 'the watch is heard of in this answer');
   assert.strictEqual(await s.step(), WATCHED_MS, 'then every second or so');
-  assert.deepStrictEqual(s.reports[1].feed, { ...S1, items: [{ id: 1, kind: 'you', text: 'hi' }] });
+  assert.deepStrictEqual(s.reports[1].feed, { ...S1, title: null, items: [{ id: 1, kind: 'you', text: 'hi' }] });
   await s.step();
   assert.strictEqual(s.reports[2].feed, undefined, 'nothing new: not sent again');
-  s.live.items.push({ id: 2, kind: 'claude', text: 'Hello' });
+  s.live.items.push({ id: 2, kind: 'thinking', text: 'they said hi' }, { id: 3, kind: 'claude', text: 'Hello' });
   await s.step();
-  assert.strictEqual(s.reports[3].feed.items.length, 2);
+  assert.deepStrictEqual(s.reports[3].feed.items.map((i) => i.kind), ['you', 'claude'], "Claude's thinking stays on this computer");
 });
 
 test('items that did not reach the server go again', async () => {

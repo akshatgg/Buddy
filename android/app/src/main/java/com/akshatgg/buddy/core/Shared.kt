@@ -46,6 +46,12 @@ class Shared(json: String) {
 
     val messages: Map<String, String> = strings("messages")
 
+    // Buddy where you type (shared/tag.js): its system prompt, a user turn as the Mac builds it, and its refusal.
+    private val tag = root.getValue("tag").jsonObject
+    val tagSystem: String = tag.getValue("system").jsonPrimitive.content
+    val tagUserExample: String = tag.getValue("userExample").jsonPrimitive.content
+    val tagEmpty: String = tag.getValue("empty").jsonPrimitive.content
+
     // The chat (the panel's one request): its system prompt, the kinds of answer, its limits and refusals.
     private val chat = root.getValue("chat").jsonObject
     val chatSystem: String = chat.getValue("system").jsonPrimitive.content

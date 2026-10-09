@@ -52,6 +52,7 @@ const { createLive } = require('./claude/live');
 const { createTerminal } = require('./claude/terminal');
 const { createClaudeMode } = require('./claude/mode');
 const { createShare, thisDevice } = require('./claude/share');
+const { createTagWatch } = require('./tag');
 const { createUpdater, installTarget, firstLaunchOfNewVersion } = require('./updates');
 const { helperFile, windows: onWindows } = require('./platform');
 
@@ -125,7 +126,8 @@ async function start(options = {}) {
   });
   const bubble = createBubbleWindow();
   // Buddy as the rest of main sees it: in the notch (on a Mac with one) or the floating buddy, whichever is in use.
-  const buddy = createHome({ floating, notch: createNotchWindow({ screen }), bubble, store, helper, screen });
+  const notch = createNotchWindow({ screen, look: () => store.get('notchLook') }); // the face or the eyes (Settings)
+  const buddy = createHome({ floating, notch, bubble, store, helper, screen });
   helper.on('started', () => buddy.refresh()); // a helper that was down or slow at launch: ask again
   // The buddy's sleep (sleep.js): drowsy after a minute without use, asleep after two. Its own moods go straight to the
   // buddy, as they are not uses. The end-to-end test passes its own timer (options.sleep), to make the count quick.
@@ -171,6 +173,7 @@ async function start(options = {}) {
   installAppMenu({ windows }); // Edit keys in the text boxes, Cmd+W for Settings, Welcome and Admin, and no Cmd+Q (none on Windows)
 
   // What actions.js (and, for voice, ipc/panel.js) does with the panel, the bubble and the buddy.
+  let claudeSession = null; // the Claude Code session Clawd shows in the notch, opened by a click on it (onClaude)
   const ui = {
     showPanel: (state) => panel.show(state, buddy.panelAt()),
     panelState: (state) => panel.send('panel:state', state),
@@ -184,6 +187,10 @@ async function start(options = {}) {
     panelWindowHandle: () => windowHandle(panel.window()), // for the helper on Windows (actions.js)
     openSettings,
     bubble: (text) => buddy.say(text),
+    status(value) { // Claude Code's status beside Buddy in the notch (claude/watch.js), and the session a click opens
+      claudeSession = value?.session ?? null;
+      buddy.status(value);
+    },
     mood: (name) => feelings.mood(name), // a use: it wakes a sleeping buddy, and the sleep countdown starts again
     // For the buddy's feelings, which have their own design: when the panel listens (listening(on), from its page; and
     // false when main hides the panel or its page is gone) and how loud the person speaks (voiceLevel(0..1), about 10
@@ -248,8 +255,11 @@ async function start(options = {}) {
   const share = createShare({
     store, cloud, live, terminal, device, signedIn: () => account.isSignedIn(), active: () => power.isOn(),
   });
+  // Buddy where you type (tag.js): "@buddy" after text in any app, rewritten in place, while Buddy is on.
+  const tagWatch = createTagWatch({ helper, ai, store, ui, active: () => power.isOn() });
   const startWatch = () => {
     share.start();
+    tagWatch.refresh();
     if (store.get('watchClaudeCode') !== true) return;
     watch.start().catch((err) => console.warn('[buddy] could not watch Claude Code:', err.message));
   };
@@ -284,6 +294,7 @@ async function start(options = {}) {
         actions.dismiss().catch((err) => console.error('[buddy] could not close the panel', err));
         watch.stop(); // the buddy goes idle if Claude Code had moved it
         share.stop();
+        tagWatch.stop();
         buddy.hide();
       }
       tray.refresh();
@@ -334,12 +345,22 @@ async function start(options = {}) {
     // An open panel moves with the buddy as it is dragged, and to the edge it snaps to.
     ipcMain, buddy, characters, store, onClick: onCall, sleep, onMove: () => panel.follow(buddy.panelAt()),
   });
-  registerNotchIpc({ ipcMain, notch: buddy.notchWindow(), onClick: onCall });
+  // A click on Clawd in the notch: the panel opens (if it is not open) in Claude mode, on the session Clawd shows.
+  const onClaude = async () => {
+    if (!power.isOn()) return;
+    try {
+      if (!panel.isVisible()) await actions.open();
+      panel.send('panel:claude-show', claudeSession);
+    } catch (err) {
+      console.error('[buddy] could not open Claude mode', err);
+    }
+  };
+  registerNotchIpc({ ipcMain, notch: buddy.notchWindow(), onClick: onCall, onClaude, sleep, characters, store });
   registerPanelIpc({
     ipcMain, panel, actions, openSettings, microphone, ui, shell, askAccessibility: () => helper.call('requestAccessibility'), claudeMode,
   });
   const settingsIpc = registerSettingsIpc({
-    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch,
+    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch, tagWatch,
     account, cloud, memory, microphone, canSignIn: Boolean(cloudConfig),
     home: buddy, // Settings → Buddy → Where Buddy lives: whether there is a notch, and moving Buddy when it changes
     find, // Claude Code on this computer: the fifth AI choice, with no key

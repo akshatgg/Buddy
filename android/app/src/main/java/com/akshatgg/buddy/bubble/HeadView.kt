@@ -77,6 +77,18 @@ class HeadView(context: Context) : FrameLayout(context) {
         wake()
     }
 
+    /**
+     * Claude Code on the person's computer (ClaudeWatch): Clawd takes the place of the right eye while a session works
+     * or needs them, and shows a moment for done or failed (Clawd.pose). The same lasting kind again goes on as it was.
+     */
+    var claude: ClawdKind? = null
+        @MainThread set(value) {
+            if (field == value && (value == ClawdKind.WORKING || value == ClawdKind.NEEDS_YOU)) return
+            field = value
+            claudeSince = now()
+            wake()
+        }
+
     /** True while the head is touched: it draws at the full rate. */
     var pressing: Boolean = false
         @MainThread set(value) {
@@ -91,6 +103,11 @@ class HeadView(context: Context) : FrameLayout(context) {
         addView(it, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
     private var renderer: HeadRenderer? = null
+    private val clawdView = ClawdEyeView(context).also {
+        addView(it, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)) // over the head
+    }
+    private val eyePlace = FloatArray(5)
+    private var claudeSince = 0.0
     private var released = false
     private var currentMood = Mood.IDLE
     private var moodSince = 0.0
@@ -153,7 +170,9 @@ class HeadView(context: Context) : FrameLayout(context) {
         val t = seconds(frameTimeNanos)
         lastTick = t
         if (currentMood != Mood.IDLE || pressing) lastActive = t
-        val fps = Moods.fpsFor(currentMood, pressing, blinker.soon(t, BLINK_LOOKAHEAD), t - lastActive)
+        val clawd = Clawd.pose(claude, t - claudeSince)
+        val moodFps = Moods.fpsFor(currentMood, pressing, blinker.soon(t, BLINK_LOOKAHEAD), t - lastActive)
+        val fps = if (clawd.visible) max(moodFps, Clawd.FPS) else moodFps // its steps need the frames
         schedule(1.0 / Moods.drawFps(fps, picker = t < turnUntil, looking = lookEase.moving(t)) - (now() - t))
 
         val renderer = renderer ?: return
@@ -166,6 +185,7 @@ class HeadView(context: Context) : FrameLayout(context) {
         val look = lookEase.value(t)
         val shown = if (look == Turn.FRONT) picker else picker.copy(yaw = picker.yaw + look.yaw, pitch = picker.pitch + look.pitch)
         renderer.setPose(shown, blinker.value(t), Moods.floatOffset(t))
+        if (clawd.visible && renderer.eyeOnScreen(eyePlace)) clawdView.show(clawd, eyePlace) else clawdView.hide()
         renderer.render(frameTimeNanos)
     }
 

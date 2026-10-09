@@ -47,6 +47,31 @@ function createHome({ floating, notch, bubble, store, helper, screen, platform =
     isVisible: () => inUse().isVisible(),
     mood: (name) => inUse().mood(name),
     pause: (value) => inUse().pause(value),
+    // Both are told these, whichever is in use, so the one Buddy moves into already knows: the notch's face listens,
+    // stays still while the panel is open and wears the chosen character, as the floating buddy does.
+    reloadModel() {
+      floating.reloadModel();
+      notch.reloadModel();
+    },
+    panelOpen(open) {
+      floating.panelOpen(open);
+      notch.panelOpen(open);
+    },
+    micOn(on) {
+      floating.micOn(on);
+      notch.micOn(on);
+    },
+    voiceLevel(level) {
+      if (where === 'notch') notch.voiceLevel(level);
+      else floating.voiceLevel(level);
+    },
+    /** Claude Code's status (claude/watch.js): beside Buddy in the notch, and as Clawd in one of the floating buddy's eyes. */
+    status(value) {
+      notch.status(value);
+      floating.claude(value);
+    },
+    /** Settings → Buddy → "In the notch" changed: the notch draws the face or the eyes. */
+    restyle: () => notch.relayout(),
     say(text) {
       if (where === 'notch') notch.say(text);
       else bubble.say(text, floating.bounds(), floating.display().workArea);

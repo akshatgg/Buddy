@@ -73,11 +73,12 @@ function createShare({
   function feedOf(id) {
     const view = live.view(id);
     if (!view) return null;
-    const items = view.items.slice(-ITEMS_SENT);
+    // Claude's thinking is for the panel here only: the phone draws a kind it does not know as a plain line.
+    const items = view.items.filter((item) => item.kind !== 'thinking').slice(-ITEMS_SENT);
     const key = `${id}:${view.status}:${view.canTalk}:${items.length}:${items.length ? items[items.length - 1].id : 0}`;
     if (key === sentKey) return null;
     sentKey = key;
-    return { id: view.id, name: view.name, status: view.status, canTalk: view.canTalk, items };
+    return { id: view.id, name: view.name, title: view.title ?? null, status: view.status, canTalk: view.canTalk, items };
   }
 
   /** Type each new word from the phone into its session's terminal; one that cannot be typed is let go, with a note. */

@@ -60,6 +60,7 @@ function parseEvent(text) {
   return {
     name: json.hook_event_name, sessionId: json.session_id, folder: folderName(str(json.cwd)), matcher: str(json.matcher), error: str(json.error),
     cwd: str(json.cwd), transcript: str(json.transcript_path), // for Claude mode (live.js)
+    tool: str(json.tool_name), // PreToolUse and PostToolUse: what Claude Code is doing, for the notch's status
   };
 }
 
@@ -67,6 +68,21 @@ function parseEvent(text) {
 function ttyOf(headers) {
   const value = typeof headers?.['x-buddy-tty'] === 'string' ? headers['x-buddy-tty'].trim() : '';
   return /^(ttys?\d{1,4}|pts\/\d{1,4})$/.test(value) ? value : '';
+}
+
+// What Claude Code is doing, by the tool it uses, in the words the notch shows (statusOf). Any other tool is 'working'.
+const DOING = Object.freeze({
+  Edit: 'editing code', MultiEdit: 'editing code', NotebookEdit: 'editing code', Write: 'writing code',
+  Read: 'reading code', LS: 'reading code', Grep: 'searching code', Glob: 'searching code',
+  Bash: 'running a command', WebFetch: 'reading the web', WebSearch: 'searching the web',
+  Task: 'using helpers', Agent: 'using helpers', TodoWrite: 'planning',
+});
+const THINKING = 'thinking';
+
+/** The words for a tool Claude Code uses: 'editing code', 'running a command', … */
+function doingOf(tool = '') {
+  if (Object.hasOwn(DOING, tool)) return DOING[tool];
+  return String(tool).startsWith('mcp__') ? 'using tools' : 'working';
 }
 
 const newState = () => ({ sessions: {}, overall: 'idle', mood: MOODS.idle });
@@ -90,13 +106,31 @@ function overallOf(sessions, previous, name) {
 }
 
 /**
+ * The status the notch shows beside Buddy (notch-window.js status), or null: what the one working session is doing,
+ * how many work, that one needs the person, or that the work is done or failed. Done and failed have no words: the
+ * bubble says those, and the notch shows them for a moment only. `session` is the session a click on it opens in
+ * Claude mode (the one that needs the person, or the only one working), or null for the list.
+ */
+function statusOf(sessions, overall) {
+  const ids = (test) => Object.keys(sessions).filter((id) => test(sessions[id]));
+  if (overall === 'needsYou') return { kind: 'needsYou', text: 'Claude needs you', session: ids((s) => s.needsYou)[0] };
+  if (overall === 'working') {
+    const busy = ids((s) => s.working);
+    const text = busy.length > 1 ? `${busy.length} Claudes working` : `Claude · ${sessions[busy[0]].doing ?? THINKING}`;
+    return { kind: 'working', text, session: busy.length === 1 ? busy[0] : null };
+  }
+  if (overall === 'done' || overall === 'failed') return { kind: overall, text: '', session: null };
+  return null;
+}
+
+/**
  * The last step of apply and forget: the whole picture, and its mood whenever that differs from the mood last decided.
  * `moment` is an event's own mood, sent even when it is the same (a new need's wave, a failure's sad).
  */
 function settle(sessions, previous, name, moment, bubble) {
   const overall = overallOf(sessions, previous, name);
   const mood = moment ?? (MOODS[overall] !== previous.mood ? MOODS[overall] : null);
-  const out = { state: { sessions, overall, mood: mood ?? previous.mood } };
+  const out = { state: { sessions, overall, mood: mood ?? previous.mood }, status: statusOf(sessions, overall) };
   if (mood) out.mood = mood;
   if (bubble) out.bubble = bubble;
   return out;
@@ -115,7 +149,12 @@ function apply(state, event, now) {
     case 'UserPromptSubmit':
     case 'PreToolUse':
     case 'PostToolUse':
-      sessions[id] = { ...s, working: true, needsYou: false, needTold: false };
+      // What it does: a new prompt is thought about; a tool says what it does until the next one (a PostToolUse keeps
+      // it, or the words would flicker between each tool and 'thinking').
+      sessions[id] = {
+        ...s, working: true, needsYou: false, needTold: false,
+        doing: event.name === 'UserPromptSubmit' ? THINKING : event.name === 'PreToolUse' ? doingOf(event.tool) : s.doing ?? THINKING,
+      };
       if (!before.working && wasWorking) bubble = `${working(sessions)} sessions working`;
       break;
     case 'PermissionRequest':
@@ -170,6 +209,7 @@ function createWatch({
   let state = newState();
   let error = null; // the words of a hooks failure kept for the Settings line; set while the last install failed
   let lastMood = null; // the last mood this watcher sent, so stop() knows whether to put the buddy back
+  let lastStatus = null; // the last status sent to the notch, as JSON, so the same one is not sent again
   let forgetTimer = null;
   let holdTimer = null;
 
@@ -200,7 +240,16 @@ function createWatch({
     }, HOLD_EVERY_MS);
   }
 
-  function show({ mood, bubble }) {
+  /** The notch's status, when it changed. Unlike a mood it does not wait for the chat: it is not on the buddy's face. */
+  function sendStatus(next) {
+    const json = JSON.stringify(next);
+    if (json === lastStatus) return;
+    lastStatus = json;
+    ui.status?.(next);
+  }
+
+  function show({ mood, bubble, status: next }) {
+    if (next !== undefined) sendStatus(next);
     if (bubble) ui.bubble(bubble);
     if (!mood) return;
     if (chatBusy()) waitForChat();
@@ -326,6 +375,7 @@ function createWatch({
     forgetTimer = null;
     holdTimer = null;
     state = newState();
+    sendStatus(null);
     if (STAYS.includes(lastMood)) ui.mood(MOODS.idle);
     lastMood = null;
   }
@@ -372,4 +422,4 @@ function createWatch({
   return { start, stop, setOn, status, tick };
 }
 
-module.exports = { MOODS, FORGET_AFTER_MS, QUIET_MS, OFF_LINE, BODY_LIMIT, PORT_MIN, PORT_MAX, folderName, parseEvent, ttyOf, newState, apply, forget, createWatch };
+module.exports = { MOODS, DOING, doingOf, statusOf, FORGET_AFTER_MS, QUIET_MS, OFF_LINE, BODY_LIMIT, PORT_MIN, PORT_MAX, folderName, parseEvent, ttyOf, newState, apply, forget, createWatch };

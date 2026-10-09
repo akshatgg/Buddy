@@ -17,6 +17,7 @@ namespace BuddyHelper
         public const ushort Z = 0x5A;
         public const ushort Return = 0x0D;
         public const ushort Right = 0x27;
+        public const ushort Up = 0x26;
 
         public const ushort LeftShift = 0xA0;
         public const ushort LeftControl = 0xA2;
@@ -87,7 +88,7 @@ namespace BuddyHelper
 
         /// The keys of input methods (Japanese, Korean, Chinese and the like), which can read as down for as long as
         /// their mode is on: 0x15 to 0x1F (Esc, 0x1B, aside), 0xE5, 0xE7 and 0xF0 to 0xF6.
-        static bool IsInputMethodKey(int vk)
+        public static bool IsInputMethodKey(int vk)
         {
             return (vk >= 0x15 && vk <= 0x1F && vk != 0x1B) || vk == 0xE5 || vk == 0xE7 || (vk >= 0xF0 && vk <= 0xF6);
         }

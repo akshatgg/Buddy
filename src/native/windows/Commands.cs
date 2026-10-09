@@ -14,11 +14,12 @@ namespace BuddyHelper
     static class Commands
     {
         // The keys `press` may send and the modifiers it may hold, by the names Buddy uses (src/main/send-keys.js):
-        // Enter sends, Ctrl+Z undoes (D is for Mail on the Mac). Nothing else, so that Buddy can never be made to press
-        // just any key. Cmd is Ctrl here, as everywhere on Windows.
+        // Enter sends, Ctrl+Z undoes (D is for Mail on the Mac), and the Right arrow lets go of the paragraph Buddy
+        // selected for a tag when it gives up (TypeWatch). Nothing else, so that Buddy can never be made to press just
+        // any key. Cmd is Ctrl here, as everywhere on Windows.
         static readonly Dictionary<string, ushort> PressKeys = new Dictionary<string, ushort>
         {
-            { "return", KeyInput.Return }, { "z", KeyInput.Z }, { "d", KeyInput.D },
+            { "return", KeyInput.Return }, { "z", KeyInput.Z }, { "d", KeyInput.D }, { "right", KeyInput.Right },
         };
         static readonly Dictionary<string, ushort> PressModifiers = new Dictionary<string, ushort>
         {
@@ -42,6 +43,9 @@ namespace BuddyHelper
         {
             int pid = PidArg(args);
             bool selectAll = Flag(args, "selectAll");
+            // "select": "paragraph" is for a tag (TypeWatch): the paragraph the person just ended with "@buddy fix",
+            // from the caret back to its start. It stays selected, for the paste that replaces it.
+            bool paragraph = "paragraph".Equals(Program.Get(args, "select"));
             try
             {
                 if (Front.EnsureFront(pid) == null) throw new HelperError("not_frontmost", "Could not switch back to that app.");
@@ -50,7 +54,7 @@ namespace BuddyHelper
                 // the panel opens with nothing read.
                 if (Front.IsTerminal(Native.GetForegroundWindow()) || field.Terminal)
                 {
-                    if (selectAll) throw new HelperError("terminal", "I can't read a terminal. Copy your text and paste it here.");
+                    if (selectAll || paragraph) throw new HelperError("terminal", "I can't read a terminal. Copy your text and paste it here.");
                     return Program.Obj("text", "");
                 }
                 // Windows would drop the keys without a word, and the box would look empty.
@@ -68,6 +72,11 @@ namespace BuddyHelper
                     {
                         KeyInput.PressCtrl(KeyInput.A);
                         selectedAll = true;
+                        Thread.Sleep(80);
+                    }
+                    else if (paragraph)
+                    {
+                        KeyInput.PressWith(KeyInput.Up, new ushort[] { KeyInput.LeftControl, KeyInput.LeftShift });
                         Thread.Sleep(80);
                     }
                     KeyInput.PressCtrl(KeyInput.C);
@@ -146,7 +155,7 @@ namespace BuddyHelper
             int pid = PidArg(args);
             string name = Program.Get(args, "key") as string;
             ushort key;
-            if (name == null || !PressKeys.TryGetValue(name, out key)) throw new HelperError("bad_request", "key must be return, z or d");
+            if (name == null || !PressKeys.TryGetValue(name, out key)) throw new HelperError("bad_request", "key must be return, z, d or right");
             ushort[] modifiers = ModifiersArg(args);
             string via = Front.EnsureFront(pid);
             if (via == null) throw new HelperError("not_frontmost", "Could not switch back to that app.");

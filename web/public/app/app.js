@@ -1,13 +1,18 @@
 // Buddy on iPhone: starts everything. Signed out, the head and the sign-in button; signed in, three tabs under the
-// head: Chat, Claude (Claude Code on the person's computers) and Settings. Each part is its own file; this one hands
-// them what they need from each other, and tells the buddy what happens (its feelings, as src/main/feelings.js does on
-// the Mac).
+// head: Chat (answered by Buddy's server or the person's own key: route.js), Claude (Claude Code on the person's
+// computers) and Settings. Each part is its own file; this one hands them what they need from each other, and tells
+// the buddy what happens (its feelings, as src/main/feelings.js does on the Mac).
 
+import { configStale } from './config-age.js';
 import { createStore, localStorageOf } from './store.js';
 import { createApi, TIMEOUTS } from './api.js';
 import { startAuth, signInMessage, SIGN_IN_OFFLINE } from './auth.js';
 import { createMemory, startMemorySync } from './memory.js';
 import { createChat } from './chat-core.js';
+import { createAsk } from './route.js';
+import { createOwnAi } from './own-ai.js';
+import { startAiSettings } from './ai-settings.js';
+import { startAdmin } from './admin.js';
 import { startChatView } from './chat.js';
 import { startSettings } from './settings.js';
 import { createHead } from './head.js';
@@ -21,12 +26,14 @@ import { $ } from './dom.js';
 const app = $('app');
 const store = createStore(localStorageOf(window));
 const memory = createMemory({ store, onChange: () => memorySync.changed() });
+const own = createOwnAi({ store }); // the person's own AI key, on this phone only
 const TABS = ['chat', 'claude', 'settings'];
 const BUBBLE_MS = 2500;
 const LINK = /^#claude\/([\w-]{1,100})$/; // a notification's session: /app#claude/<session id>
 
 let person = null; // who is signed in: { uid, email, name, firstName }, or null
 let config = null; // GET /api/config for them: voiceOn, pushKey, …
+let configAt = 0; // when it was fetched (Date.now())
 let tab = 'chat';
 let buddies = []; // buddies.json
 let bubbleTimer = null;
@@ -138,7 +145,13 @@ const buddyName = () => (buddies.find((b) => b.id === store.read('buddy', null))
 // ---- the chat ----
 
 const chat = createChat({
-  ask: (body) => api.post('/api/ask', body, { timeoutMs: TIMEOUTS.ask }),
+  ask: createAsk({
+    config: currentConfig,
+    freshConfig: () => (person ? loadConfig(person) : Promise.resolve(null)),
+    hasKey: () => own.hasKey(),
+    askOwn: (body) => own.ask(body),
+    askServer: (body) => api.post('/api/ask', body, { timeoutMs: TIMEOUTS.ask }),
+  }),
   memory,
   userName: () => person?.firstName || '',
   onMood: feel,
@@ -212,6 +225,14 @@ const settings = startSettings({
   push,
   support: () => supportHere(window),
 });
+const aiSettings = startAiSettings({ own, config: () => config });
+const admin = startAdmin({
+  api,
+  isAdmin: () => config?.isAdmin === true,
+  onSaved: () => {
+    if (person) loadConfig(person); // the admin's own phone follows the new switches at once
+  },
+});
 
 // ---- the tabs ----
 
@@ -226,8 +247,12 @@ function showTab(next, { open = null } = {}) {
   $('settings-pane').hidden = next !== 'settings';
   sleep.poke();
   if (next === 'claude') claudeView.show(open);
-  if (next === 'settings') settings.draw();
-  if (next === 'settings') memorySync.sync();
+  if (next === 'settings') {
+    settings.draw();
+    aiSettings.draw();
+    admin.draw();
+    memorySync.sync();
+  }
 }
 
 for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => showTab(b.dataset.tab));
@@ -246,6 +271,7 @@ window.addEventListener('hashchange', followLink);
 function showSignedOut() {
   person = null;
   config = null;
+  configAt = 0;
   tab = 'chat'; // the next sign-in opens on Chat
   app.dataset.signed = 'out';
   $('signin').hidden = false;
@@ -254,6 +280,7 @@ function showSignedOut() {
   voice.cancel();
   claudeView.leave();
   chat.clear();
+  admin.update(); // hidden, and forgotten
 }
 
 async function showSignedIn(who) {
@@ -268,23 +295,42 @@ async function showSignedIn(who) {
   await loadConfig(who);
 }
 
-let configAsk = null; // the GET /api/config under way
+let configAsk = null; // the GET /api/config under way: loadConfig's answer
 
-/** GET /api/config for `who`, and what hangs on it (voice). Offline it stays null, and is asked again (configAgain). */
-async function loadConfig(who) {
-  const ask = api.get('/api/config', { timeoutMs: TIMEOUTS.config }).catch(() => null);
+/**
+ * GET /api/config for `who`, and what hangs on it (voice, Settings → AI). Answers what came, or null. Offline the
+ * config stays what it was (null at first: it is asked for again, configAgain).
+ */
+function loadConfig(who) {
+  const ask = (async () => {
+    const got = await api.get('/api/config', { timeoutMs: TIMEOUTS.config }).catch(() => null);
+    if (configAsk === ask) configAsk = null;
+    if (person !== who) return null; // signed out meanwhile
+    if (got) {
+      config = got;
+      configAt = Date.now();
+    }
+    chatView.setVoice(config?.voiceOn === true);
+    claudeView.setVoice(config?.voiceOn === true);
+    if (tab === 'settings') {
+      aiSettings.draw({ fromConfig: true });
+      admin.update();
+    }
+    return got;
+  })();
   configAsk = ask;
-  const got = await ask;
-  if (configAsk === ask) configAsk = null;
-  if (person !== who) return; // signed out meanwhile
-  config = got;
-  chatView.setVoice(config?.voiceOn === true);
-  claudeView.setVoice(config?.voiceOn === true);
+  return ask;
 }
 
-/** Back online, or back in view: the config that could not be had at sign-in is asked for again. */
+/** The config a message goes by: a fresh one, else the one on its way, else one more try (the old one stays if it fails). */
+async function currentConfig() {
+  if (person && configStale(config, configAt)) await (configAsk ?? loadConfig(person));
+  return config;
+}
+
+/** Back online, or back in view: a config that could not be had, or has got old, is asked for again. */
 function configAgain() {
-  if (person && !config && !configAsk) loadConfig(person);
+  if (person && configStale(config, configAt) && !configAsk) loadConfig(person);
 }
 window.addEventListener('online', configAgain);
 

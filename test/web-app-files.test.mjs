@@ -45,6 +45,14 @@ test("every import in the app's own modules points at a file that is there", () 
   }
 });
 
+test("every element the app's own modules look up by id ($('…')) is in the page", () => {
+  const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+  for (const file of fs.readdirSync(APP).filter((f) => f.endsWith('.js'))) {
+    const source = fs.readFileSync(path.join(APP, file), 'utf8');
+    for (const [, id] of source.matchAll(/\$\('([\w-]+)'\)/g)) assert.ok(ids.has(id), `${file} looks up #${id}, which is not in index.html`);
+  }
+});
+
 test('the page is a Home Screen app: standalone, its own scope, Buddy\'s icons, and the notch left clear', () => {
   assert.strictEqual(manifest.display, 'standalone');
   assert.strictEqual(manifest.start_url, '/app');

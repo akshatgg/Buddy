@@ -10,7 +10,10 @@ The Android app (`android/`) uses this same server, the same way as the Mac: the
 is Buddy on iPhone, a web app at https://buddywrites.vercel.app/app that people add to their Home Screen (design:
 `docs/superpowers/specs/2026-10-09-buddy-iphone-web-app-design.md`, checks: `docs/manual-checklist-iphone.md`). It uses
 the same routes and the same sign-in as the Mac, with Firebase Auth's web SDK; `/__/auth/*` and `/__/firebase/*` are
-passed on to Firebase (`vercel.json`) so that sign-in by redirect works in a Home Screen app.
+passed on to Firebase (`vercel.json`) so that sign-in by redirect works in a Home Screen app. Its Settings has an AI
+section, for the person's own AI key: kept on the phone only, it goes from the page straight to the AI provider, never
+to this server. The admin also gets an Admin section there, which uses the `/api/admin/*` routes below as the Mac's
+Admin window does (design: `docs/superpowers/specs/2026-10-09-iphone-own-key-and-admin-design.md`).
 
 | Route | Who | What |
 |---|---|---|

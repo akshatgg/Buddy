@@ -84,6 +84,23 @@
     <h2>Your buddy</h2>
     <div class="buddies" id="buddy-choice"></div>
 
+    <h2>AI</h2>
+    <p class="muted" id="ai-note" hidden></p>
+    <div class="part" id="ai-form" hidden>
+      <label class="label" for="ai-provider">Provider</label>
+      <select class="field" id="ai-provider"></select>
+      <label class="label" for="ai-key">API key</label>
+      <form class="row" id="ai-key-form">
+        <input class="field" id="ai-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <button class="btn btn--ghost btn--sm" type="submit">Save</button>
+      </form>
+      <p class="row"><span class="grow muted" id="ai-key-status" aria-live="polite"></span><a id="ai-get-key" target="_blank" rel="noopener">Get a key</a></p>
+      <button class="btn btn--ghost btn--sm" id="ai-remove" type="button" hidden>Remove</button>
+      <label class="label" for="ai-model">Model</label>
+      <select class="field" id="ai-model"></select>
+      <p class="error" id="ai-error" role="alert" hidden></p>
+    </div>
+
     <h2>Memory</h2>
     <p class="muted" id="memory-where"></p>
     <label class="switch"><span>Learn about me from chats</span><input type="checkbox" id="learn"></label>
@@ -99,6 +116,58 @@
     <h2>Notifications</h2>
     <label class="switch"><span>Tell me when Claude Code finishes or needs me</span><input type="checkbox" id="push-switch"></label>
     <p class="muted" id="push-note" hidden></p>
+
+    <!-- For the admin only (admin.js): what the Mac's Admin window does. Nothing in it shows until the settings came. -->
+    <div class="part" id="admin-part" hidden>
+      <h2>Admin</h2>
+      <p class="error" id="admin-load-error" role="alert" hidden></p>
+      <div class="part" id="admin-body" hidden>
+        <div class="part" id="admin-free">
+          <h3>Free AI</h3>
+          <p class="muted">These switches apply to every Buddy app and every user, the next time they open Buddy.</p>
+          <p class="error" id="admin-no-keys" hidden></p>
+          <p class="muted" id="admin-voice" aria-live="polite" hidden></p>
+          <label class="switch"><span>Free mode<small>Everyone uses your AI key.</small></span><input type="checkbox" id="admin-enabled"></label>
+          <p class="label" id="admin-limit-label">Free requests</p>
+          <div class="segmented" role="radiogroup" aria-labelledby="admin-limit-label">
+            <label><input type="radio" name="admin-limit" value="unlimited"><span>Unlimited</span></label>
+            <label><input type="radio" name="admin-limit" value="daily"><span>Daily limit</span></label>
+          </div>
+          <label class="switch" id="admin-daily-row"><span>Requests per user per day</span><input class="field num" id="admin-daily" type="number" min="1" max="10000" step="1" inputmode="numeric"></label>
+          <label class="switch" id="admin-own-row"><span>Also let users add their own key<small>Used after their free requests run out.</small></span><input type="checkbox" id="admin-own"></label>
+          <label class="label" for="admin-provider">AI provider</label>
+          <select class="field" id="admin-provider"></select>
+          <label class="label" for="admin-model">Model</label>
+          <div class="row">
+            <select class="field" id="admin-model"></select>
+            <button class="btn btn--ghost btn--sm" id="admin-models-refresh" type="button">Refresh</button>
+          </div>
+          <p class="muted" id="admin-models-note" aria-live="polite" hidden></p>
+          <p class="error" id="admin-models-warning" aria-live="polite" hidden></p>
+          <div class="row">
+            <button class="btn btn--ink btn--sm" id="admin-save" type="button">Save</button>
+            <span class="muted" id="admin-save-status" aria-live="polite" hidden></span>
+          </div>
+        </div>
+
+        <h3>Claude Code</h3>
+        <p class="muted">While Claude Code works, Clawd walks with Buddy on the Mac and on the phone. Pick where, for every user.</p>
+        <p class="label" id="admin-clawd-label">Clawd walks</p>
+        <div class="segmented" role="radiogroup" aria-labelledby="admin-clawd-label">
+          <label><input type="radio" name="admin-clawd" value="head"><span>On Buddy’s head</span></label>
+          <label><input type="radio" name="admin-clawd" value="face"><span>Under Buddy’s eyes</span></label>
+        </div>
+        <p class="muted" id="admin-clawd-status" aria-live="polite" hidden></p>
+
+        <h3>Users</h3>
+        <div class="row">
+          <span class="grow muted" id="admin-users-status" aria-live="polite"></span>
+          <button class="btn btn--ghost btn--sm" id="admin-users-refresh" type="button">Refresh</button>
+        </div>
+        <ul class="users" id="admin-users"></ul>
+        <p class="muted" id="admin-users-empty" hidden>No users yet.</p>
+      </div>
+    </div>
 
     <h2>Account</h2>
     <p class="muted" id="account-email"></p>

@@ -20,8 +20,8 @@ export class ApiError extends Error {
 
 /**
  * getToken(force) answers the person's ID token (a new one when `force`), or null when nobody is signed in;
- * onSignedOut() is called when the server turned the person's sign-in down twice. Answers { get, post }: each answers
- * the server's JSON, or throws an ApiError.
+ * onSignedOut() is called when the server turned the person's sign-in down twice. Answers { get, post, put }: each
+ * answers the server's JSON, or throws an ApiError.
  */
 export function createApi({ getToken, onSignedOut = () => {}, fetchImpl = (...args) => fetch(...args), base = '' }) {
   function signedOut() {
@@ -68,5 +68,6 @@ export function createApi({ getToken, onSignedOut = () => {}, fetchImpl = (...ar
   return {
     get: (path, options = {}) => call(path, { ...options, method: 'GET' }),
     post: (path, body, options = {}) => call(path, { ...options, method: 'POST', body }),
+    put: (path, body, options = {}) => call(path, { ...options, method: 'PUT', body }),
   };
 }

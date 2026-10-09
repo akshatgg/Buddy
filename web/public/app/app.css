@@ -25,7 +25,7 @@
 *, *::before, *::after { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body { background: var(--cream); color: var(--ink); font: 400 17px/1.45 var(--body); -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
-button, input, textarea { font: inherit; color: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 [hidden] { display: none !important; }
 
@@ -120,8 +120,32 @@ button { cursor: pointer; }
 .facts li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .row { display: flex; align-items: center; gap: 8px; }
 .field { flex: 1; min-width: 0; padding: 9px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); font-size: 17px; }
-.settings > .btn { align-self: flex-start; }
+.settings > .btn, .part > .btn { align-self: flex-start; }
 .settings .error { margin: 0; }
+/* a part of Settings that shows or hides as one (the AI form, Admin) */
+.part { display: flex; flex-direction: column; gap: 10px; }
+.label { margin: 4px 0 -4px; color: var(--ink-2); font-size: 15px; font-weight: 600; }
+select.field { appearance: none; padding-right: 32px; background: var(--paper) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%236B5848' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 14px center; }
+p.row { margin: 0; }
+.note { margin: 0; padding: 8px 12px; border-radius: 12px; background: var(--orange-tint); font-size: 15px; }
+/* the admin's part */
+.settings h3 { margin: 8px 0 0; font: 700 18px/1.1 var(--display); }
+.switch small { display: block; color: var(--ink-2); font-size: 14px; }
+.switch .num { flex: none; width: 96px; height: auto; text-align: right; }
+.segmented { display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--paper); box-shadow: 0 0 0 1px var(--line); }
+.segmented label { flex: 1; }
+.segmented input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented span { display: block; padding: 8px 10px; border-radius: 999px; font-size: 15px; font-weight: 600; text-align: center; }
+.segmented input:checked + span { background: var(--ink); color: var(--cream); }
+.segmented input:focus-visible + span { outline: 2px solid var(--orange); }
+.users { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.users li { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-radius: 14px; background: var(--paper); box-shadow: 0 0 0 1px var(--line); }
+.users li.blocked { background: var(--bad-bg); }
+.users .who { flex: 1; min-width: 0; }
+.users .name { display: block; font-weight: 600; }
+.users .under { display: block; overflow: hidden; color: var(--ink-2); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.row .grow { flex: 1; min-width: 0; }
+.good { margin: 0; color: var(--ok-ink); font-size: 15px; }
 
 /* the tabs */
 .tabs { display: flex; flex: none; padding-bottom: var(--bottom); border-top: 1px solid var(--line); background: var(--cream); }

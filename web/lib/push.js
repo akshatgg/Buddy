@@ -8,6 +8,8 @@
  *
  * A subscription's endpoint is the push service's address that the server posts each notification to. Only the push
  * services of Apple, Google, Mozilla and Microsoft are taken, so the server never posts to an address someone made up.
+ * The address is checked as it is written, letter by letter (ENDPOINT): web-push reads its host with Node's old
+ * url.parse, which can read an odd address differently from new URL(), so anything odd is refused before either looks.
  */
 
 const { BuddyError } = require('../shared/errors');
@@ -15,7 +17,10 @@ const { BuddyError } = require('../shared/errors');
 const MAX_SUBS = 5;
 const ENDPOINT_MAX = 1000;
 const KEY = /^[\w-]{8,200}={0,2}$/; // the browser's keys for the subscription, in base64url
-const PUSH_HOSTS = [/(^|\.)push\.apple\.com$/, /^fcm\.googleapis\.com$/, /(^|\.)push\.services\.mozilla\.com$/, /(^|\.)notify\.windows\.com$/];
+const P256DH_BYTES = 65; // the browser's public key: a P-256 point
+const AUTH_BYTES = 16; // the browser's secret for the subscription
+// https://, a push service's host (letters, digits, dots and dashes only: no user, no port), then / and a plain path
+const ENDPOINT = /^https:\/\/(?:(?:[a-z0-9-]+\.)*(?:push\.apple\.com|push\.services\.mozilla\.com|notify\.windows\.com)|fcm\.googleapis\.com)\/[\w\-.~:/?#!$&()*+,;=%]*$/i;
 const NOT_A_SUBSCRIPTION = "Notifications couldn't be switched on. Try again.";
 const SAYS = { done: 'Claude Code finished', waiting: 'Claude Code needs you' };
 
@@ -23,17 +28,17 @@ const isObject = (value) => Object.prototype.toString.call(value) === '[object O
 
 /** A push service's address, or null for anything else. */
 function checkEndpoint(value) {
-  if (typeof value !== 'string' || value.length > ENDPOINT_MAX) return null;
-  let url;
+  if (typeof value !== 'string' || value.length > ENDPOINT_MAX || !ENDPOINT.test(value)) return null;
   try {
-    url = new URL(value);
+    return require('node:url').parse(value).hostname === new URL(value).hostname ? value : null; // both read one host
   } catch {
     return null;
   }
-  return url.protocol === 'https:' && PUSH_HOSTS.some((host) => host.test(url.hostname)) ? value : null;
 }
 
-const checkKeys = (keys) => isObject(keys) && KEY.test(keys.p256dh ?? '') && KEY.test(keys.auth ?? '');
+const bytes = (key) => Buffer.from(key, 'base64url').length;
+const checkKey = (key, size) => typeof key === 'string' && KEY.test(key) && bytes(key) === size;
+const checkKeys = (keys) => isObject(keys) && checkKey(keys.p256dh, P256DH_BYTES) && checkKey(keys.auth, AUTH_BYTES);
 
 /** A browser's subscription (PushSubscription.toJSON()), checked: { endpoint, keys: { p256dh, auth } }. */
 function checkSubscription(value) {

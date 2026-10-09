@@ -66,6 +66,14 @@ test('a session that was working and now is done or waiting has just finished; a
   assert.deepStrictEqual(remote.justFinished(doc, { device: { id: 'pc-222222222', name: 'PC' }, sessions: body.sessions }, T), [], "another computer's");
 });
 
+test("a computer last seen long ago (offline, then back) has no late news: only a recent report counts", () => {
+  const body = { device: MAC, sessions: [{ ...S1, status: 'done' }] };
+  const old = (seenAt) => ({ ...record([S1]), devices: { [MAC.id]: { name: MAC.name, seenAt, sessions: [S1] } } });
+  assert.deepStrictEqual(remote.justFinished(old(T - remote.ONLINE_MS + 1), body, T).map((s) => s.id), [S1.id]);
+  assert.deepStrictEqual(remote.justFinished(old(T - remote.ONLINE_MS), body, T), []);
+  assert.deepStrictEqual(remote.justFinished(old(T - 2 * 60 * 60_000), body, T), []);
+});
+
 test('the session being watched right now is left out: the person sees it already', () => {
   const watched = record([S1, S2], { watch: { sessionId: S1.id, at: T - 1000 } });
   const body = { device: MAC, sessions: [{ ...S1, status: 'done' }, { ...S2, status: 'done' }] };
@@ -82,6 +90,17 @@ test('a subscription is checked: a push service of Apple, Google, Mozilla or Mic
     null, 'x', {}, sub('http://web.push.apple.com/x'), sub('https://evil.example.com/x'), sub('https://web.push.apple.com.evil.io/x'),
     sub(`https://web.push.apple.com/${'x'.repeat(1000)}`), { endpoint: APPLE }, { endpoint: APPLE, keys: { p256dh: 'short', auth: KEYS.auth } },
     { endpoint: APPLE, keys: { p256dh: KEYS.p256dh, auth: 'has spaces in it' } },
+    { endpoint: APPLE, keys: { p256dh: KEYS.p256dh.slice(0, 40), auth: KEYS.auth } }, // not 65 bytes
+    { endpoint: APPLE, keys: { p256dh: `${KEYS.p256dh}AAAA`, auth: KEYS.auth } },
+    { endpoint: APPLE, keys: { p256dh: KEYS.p256dh, auth: 'tBHItJI5svbpez7K' } }, // not 16 bytes
+    { endpoint: APPLE, keys: { p256dh: KEYS.p256dh, auth: `${KEYS.auth}AAAA` } },
+    // addresses the two URL parsers read differently (web-push sends to url.parse's hostname), or with more than a host
+    ...[
+      'https://169.254.169.254;.push.apple.com/latest', 'https://evil.com;.push.apple.com/', 'https://evil.com{.push.apple.com/',
+      "https://evil.com'.push.apple.com/", 'https://evil.com".push.apple.com/', 'https://evil.com`.push.apple.com/',
+      'https://evil.com%E3%80%82push.apple.com/', ' https://web.push.apple.com/x', 'https://web.push.apple.com:22/x',
+      'https://user@web.push.apple.com/x', 'https://web.push.apple.com', 'https://web.push.apple.com/x y',
+    ].map((endpoint) => sub(endpoint)),
   ];
   for (const value of refused) assert.throws(() => pushRules.checkSubscription(value), { code: 'bad_request' }, JSON.stringify(value)?.slice(0, 60));
 });
@@ -99,7 +118,7 @@ test('a phone switching on is kept in place of the same one; at most 5, the newe
   const fewer = pushRules.removeEndpoints(doc, [`${APPLE}5`]).next;
   assert.strictEqual(fewer.subs.length, 4);
   assert.deepStrictEqual(pushRules.removeEndpoints({ subs: [{ ...sub(), at: 1 }] }, [APPLE]), { next: null, result: { on: false } }, 'the last one: the record goes');
-  assert.deepStrictEqual(pushRules.subsOf({ subs: [sub(), { endpoint: 'https://evil.example.com/x', keys: KEYS }, null] }), [{ ...sub(), at: 0 }]);
+  assert.deepStrictEqual(pushRules.subsOf({ subs: [sub(), { endpoint: 'https://evil.example.com/x', keys: KEYS }, { endpoint: 'https://evil.com;.push.apple.com/', keys: KEYS }, null] }), [{ ...sub(), at: 0 }]);
 });
 
 test('what a notification says', () => {
@@ -190,6 +209,17 @@ test("Web Push failing never fails the computer's report", async (t) => {
   };
   assert.strictEqual((await broken.report([{ ...S1, status: 'done' }])).status, 200);
   assert.deepStrictEqual(error.mock.calls.map((c) => c.arguments.join(' ')), ['[push] could not notify: 14']);
+});
+
+test("a push service that never answers holds the computer's report up only so long", async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const s = setup({ remotes: { u1: record([S1]) }, pushes: { u1: { subs: [{ ...sub(), at: 1 }] } } });
+  s.deps.push.send = () => new Promise(() => {});
+  s.deps.notifyMs = 50;
+  const started = Date.now();
+  assert.deepStrictEqual(await s.report([{ ...S1, status: 'done' }]), { status: 200, body: { watch: null, inbox: [] } });
+  assert.ok(Date.now() - started < 1000, `answered in ${Date.now() - started} ms`);
+  assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments.join(' ')), ['[push] took too long']);
 });
 
 // ---- Web Push's setup ----

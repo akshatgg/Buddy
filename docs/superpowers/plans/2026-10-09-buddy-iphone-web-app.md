@@ -3613,6 +3613,14 @@ test('a session that was working and now is done or waiting has just finished; a
   assert.deepStrictEqual(remote.justFinished(doc, { device: { id: 'pc-222222222', name: 'PC' }, sessions: body.sessions }, T), [], "another computer's");
 });
 
+test("a computer last seen long ago (offline, then back) has no late news: only a recent report counts", () => {
+  const body = { device: MAC, sessions: [{ ...S1, status: 'done' }] };
+  const old = (seenAt) => ({ ...record([S1]), devices: { [MAC.id]: { name: MAC.name, seenAt, sessions: [S1] } } });
+  assert.deepStrictEqual(remote.justFinished(old(T - remote.ONLINE_MS + 1), body, T).map((s) => s.id), [S1.id]);
+  assert.deepStrictEqual(remote.justFinished(old(T - remote.ONLINE_MS), body, T), []);
+  assert.deepStrictEqual(remote.justFinished(old(T - 2 * 60 * 60_000), body, T), []);
+});
+
 test('the session being watched right now is left out: the person sees it already', () => {
   const watched = record([S1, S2], { watch: { sessionId: S1.id, at: T - 1000 } });
   const body = { device: MAC, sessions: [{ ...S1, status: 'done' }, { ...S2, status: 'done' }] };
@@ -3629,6 +3637,17 @@ test('a subscription is checked: a push service of Apple, Google, Mozilla or Mic
     null, 'x', {}, sub('http://web.push.apple.com/x'), sub('https://evil.example.com/x'), sub('https://web.push.apple.com.evil.io/x'),
     sub(`https://web.push.apple.com/${'x'.repeat(1000)}`), { endpoint: APPLE }, { endpoint: APPLE, keys: { p256dh: 'short', auth: KEYS.auth } },
     { endpoint: APPLE, keys: { p256dh: KEYS.p256dh, auth: 'has spaces in it' } },
+    { endpoint: APPLE, keys: { p256dh: KEYS.p256dh.slice(0, 40), auth: KEYS.auth } }, // not 65 bytes
+    { endpoint: APPLE, keys: { p256dh: `${KEYS.p256dh}AAAA`, auth: KEYS.auth } },
+    { endpoint: APPLE, keys: { p256dh: KEYS.p256dh, auth: 'tBHItJI5svbpez7K' } }, // not 16 bytes
+    { endpoint: APPLE, keys: { p256dh: KEYS.p256dh, auth: `${KEYS.auth}AAAA` } },
+    // addresses the two URL parsers read differently (web-push sends to url.parse's hostname), or with more than a host
+    ...[
+      'https://169.254.169.254;.push.apple.com/latest', 'https://evil.com;.push.apple.com/', 'https://evil.com{.push.apple.com/',
+      "https://evil.com'.push.apple.com/", 'https://evil.com".push.apple.com/', 'https://evil.com`.push.apple.com/',
+      'https://evil.com%E3%80%82push.apple.com/', ' https://web.push.apple.com/x', 'https://web.push.apple.com:22/x',
+      'https://user@web.push.apple.com/x', 'https://web.push.apple.com', 'https://web.push.apple.com/x y',
+    ].map((endpoint) => sub(endpoint)),
   ];
   for (const value of refused) assert.throws(() => pushRules.checkSubscription(value), { code: 'bad_request' }, JSON.stringify(value)?.slice(0, 60));
 });
@@ -3646,7 +3665,7 @@ test('a phone switching on is kept in place of the same one; at most 5, the newe
   const fewer = pushRules.removeEndpoints(doc, [`${APPLE}5`]).next;
   assert.strictEqual(fewer.subs.length, 4);
   assert.deepStrictEqual(pushRules.removeEndpoints({ subs: [{ ...sub(), at: 1 }] }, [APPLE]), { next: null, result: { on: false } }, 'the last one: the record goes');
-  assert.deepStrictEqual(pushRules.subsOf({ subs: [sub(), { endpoint: 'https://evil.example.com/x', keys: KEYS }, null] }), [{ ...sub(), at: 0 }]);
+  assert.deepStrictEqual(pushRules.subsOf({ subs: [sub(), { endpoint: 'https://evil.example.com/x', keys: KEYS }, { endpoint: 'https://evil.com;.push.apple.com/', keys: KEYS }, null] }), [{ ...sub(), at: 0 }]);
 });
 
 test('what a notification says', () => {
@@ -3739,6 +3758,17 @@ test("Web Push failing never fails the computer's report", async (t) => {
   assert.deepStrictEqual(error.mock.calls.map((c) => c.arguments.join(' ')), ['[push] could not notify: 14']);
 });
 
+test("a push service that never answers holds the computer's report up only so long", async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const s = setup({ remotes: { u1: record([S1]) }, pushes: { u1: { subs: [{ ...sub(), at: 1 }] } } });
+  s.deps.push.send = () => new Promise(() => {});
+  s.deps.notifyMs = 50;
+  const started = Date.now();
+  assert.deepStrictEqual(await s.report([{ ...S1, status: 'done' }]), { status: 200, body: { watch: null, inbox: [] } });
+  assert.ok(Date.now() - started < 1000, `answered in ${Date.now() - started} ms`);
+  assert.deepStrictEqual(warn.mock.calls.map((c) => c.arguments.join(' ')), ['[push] took too long']);
+});
+
 // ---- Web Push's setup ----
 
 test('Web Push is on only with all three VAPID values, and sends with them, an hour to live and a short wait', async () => {
@@ -3789,6 +3819,8 @@ Create `web/lib/push.js`:
  *
  * A subscription's endpoint is the push service's address that the server posts each notification to. Only the push
  * services of Apple, Google, Mozilla and Microsoft are taken, so the server never posts to an address someone made up.
+ * The address is checked as it is written, letter by letter (ENDPOINT): web-push reads its host with Node's old
+ * url.parse, which can read an odd address differently from new URL(), so anything odd is refused before either looks.
  */
 
 const { BuddyError } = require('../shared/errors');
@@ -3796,7 +3828,10 @@ const { BuddyError } = require('../shared/errors');
 const MAX_SUBS = 5;
 const ENDPOINT_MAX = 1000;
 const KEY = /^[\w-]{8,200}={0,2}$/; // the browser's keys for the subscription, in base64url
-const PUSH_HOSTS = [/(^|\.)push\.apple\.com$/, /^fcm\.googleapis\.com$/, /(^|\.)push\.services\.mozilla\.com$/, /(^|\.)notify\.windows\.com$/];
+const P256DH_BYTES = 65; // the browser's public key: a P-256 point
+const AUTH_BYTES = 16; // the browser's secret for the subscription
+// https://, a push service's host (letters, digits, dots and dashes only: no user, no port), then / and a plain path
+const ENDPOINT = /^https:\/\/(?:(?:[a-z0-9-]+\.)*(?:push\.apple\.com|push\.services\.mozilla\.com|notify\.windows\.com)|fcm\.googleapis\.com)\/[\w\-.~:/?#!$&()*+,;=%]*$/i;
 const NOT_A_SUBSCRIPTION = "Notifications couldn't be switched on. Try again.";
 const SAYS = { done: 'Claude Code finished', waiting: 'Claude Code needs you' };
 
@@ -3804,17 +3839,17 @@ const isObject = (value) => Object.prototype.toString.call(value) === '[object O
 
 /** A push service's address, or null for anything else. */
 function checkEndpoint(value) {
-  if (typeof value !== 'string' || value.length > ENDPOINT_MAX) return null;
-  let url;
+  if (typeof value !== 'string' || value.length > ENDPOINT_MAX || !ENDPOINT.test(value)) return null;
   try {
-    url = new URL(value);
+    return require('node:url').parse(value).hostname === new URL(value).hostname ? value : null; // both read one host
   } catch {
     return null;
   }
-  return url.protocol === 'https:' && PUSH_HOSTS.some((host) => host.test(url.hostname)) ? value : null;
 }
 
-const checkKeys = (keys) => isObject(keys) && KEY.test(keys.p256dh ?? '') && KEY.test(keys.auth ?? '');
+const bytes = (key) => Buffer.from(key, 'base64url').length;
+const checkKey = (key, size) => typeof key === 'string' && KEY.test(key) && bytes(key) === size;
+const checkKeys = (keys) => isObject(keys) && checkKey(keys.p256dh, P256DH_BYTES) && checkKey(keys.auth, AUTH_BYTES);
 
 /** A browser's subscription (PushSubscription.toJSON()), checked: { endpoint, keys: { p256dh, auth } }. */
 function checkSubscription(value) {
@@ -3868,13 +3903,13 @@ Replace with:
 /**
  * The sessions of a computer's report that just stopped working: working in its last report, done or waiting in this
  * one. Each is { id, name, status }, for a notification on the person's phones (web/lib/push.js). The session a watcher
- * is looking at right now is left out: the person sees it already. A computer's first report, or one turning sharing
- * off, has none.
+ * is looking at right now is left out: the person sees it already. A computer's first report, one turning sharing
+ * off, or one back after it was offline (its last report older than ONLINE_MS: that news is old) has none.
  */
 function justFinished(doc, body, now) {
   if (body.off === true) return [];
   const before = devicesOf(doc)[checkDevice(body.device).id];
-  if (!before) return [];
+  if (!before || !(now - before.seenAt < ONLINE_MS)) return [];
   const watched = watching(doc, now);
   const wasWorking = (id) => before.sessions.some((s) => s.id === id && s.status === 'working');
   return cleanSessions(body.sessions)
@@ -3935,6 +3970,21 @@ const remote = require('./remote');
 const pushRules = require('./push');
 ```
 
+Bound how long a report waits for its notifications:
+
+Find:
+
+```js
+const MODELS_TIMEOUT_MS = 15_000;
+```
+
+Replace with:
+
+```js
+const MODELS_TIMEOUT_MS = 15_000;
+const NOTIFY_MS = 4_000; // the most a computer's report waits for its notifications (notifyInTime)
+```
+
 Add the error code:
 
 Find:
@@ -3969,7 +4019,7 @@ Replace with:
   });
 ```
 
-Replace `remoteMac` with `notify` and the new `remoteMac`:
+Replace `remoteMac` with `notify`, `notifyInTime` and the new `remoteMac`:
 
 Find:
 
@@ -4014,6 +4064,20 @@ async function notify(uid, finished, deps) {
 }
 
 /**
+ * notify, but never for longer than NOTIFY_MS (deps.notifyMs in the tests): the computer's report waits for it, and
+ * must not wait on a push service or Firestore that is slow. What is still going on then is left to finish, or not.
+ */
+async function notifyInTime(uid, finished, deps) {
+  let timer;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(true), deps.notifyMs ?? NOTIFY_MS);
+  });
+  const tooLong = await Promise.race([notify(uid, finished, deps).then(() => false), late]);
+  clearTimeout(timer);
+  if (tooLong) console.warn('[push] took too long');
+}
+
+/**
  * POST /api/remote/mac { device, sessions, feed?, done?, off? }: one of the person's computers shares its Claude Code
  * sessions (Claude mode from anywhere, web/lib/remote.js). Answers { watch, inbox }: its session being watched, and the
  * words sent to its sessions. A session that stopped working (done, or waiting for the person) is told to their phones
@@ -4030,7 +4094,7 @@ async function remoteMac(req, deps) {
     finished = remote.justFinished(doc, body, now); // the transaction may run this again: the last run counts
     return out;
   });
-  if (finished.length && deps.push) await notify(who.uid, finished, deps);
+  if (finished.length && deps.push) await notifyInTime(who.uid, finished, deps);
   return answer(result);
 }
 ```

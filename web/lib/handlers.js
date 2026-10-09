@@ -33,6 +33,7 @@ const pushRules = require('./push');
 // "Buddy couldn't answer" and the request is given back.
 const ASK_TIMEOUT_MS = 50_000;
 const MODELS_TIMEOUT_MS = 15_000;
+const NOTIFY_MS = 4_000; // the most a computer's report waits for its notifications (notifyInTime)
 // At most this many requests a day are given back to a person (an AI that failed, or a chat's first step). Each one
 // was still an AI call on the admin's key, so give-backs cannot be used to ask for free without end.
 const GIVE_BACKS_PER_DAY = 10;
@@ -262,6 +263,20 @@ async function notify(uid, finished, deps) {
 }
 
 /**
+ * notify, but never for longer than NOTIFY_MS (deps.notifyMs in the tests): the computer's report waits for it, and
+ * must not wait on a push service or Firestore that is slow. What is still going on then is left to finish, or not.
+ */
+async function notifyInTime(uid, finished, deps) {
+  let timer;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(true), deps.notifyMs ?? NOTIFY_MS);
+  });
+  const tooLong = await Promise.race([notify(uid, finished, deps).then(() => false), late]);
+  clearTimeout(timer);
+  if (tooLong) console.warn('[push] took too long');
+}
+
+/**
  * POST /api/remote/mac { device, sessions, feed?, done?, off? }: one of the person's computers shares its Claude Code
  * sessions (Claude mode from anywhere, web/lib/remote.js). Answers { watch, inbox }: its session being watched, and the
  * words sent to its sessions. A session that stopped working (done, or waiting for the person) is told to their phones
@@ -278,7 +293,7 @@ async function remoteMac(req, deps) {
     finished = remote.justFinished(doc, body, now); // the transaction may run this again: the last run counts
     return out;
   });
-  if (finished.length && deps.push) await notify(who.uid, finished, deps);
+  if (finished.length && deps.push) await notifyInTime(who.uid, finished, deps);
   return answer(result);
 }
 

@@ -165,13 +165,13 @@ function phoneStop(doc) {
 /**
  * The sessions of a computer's report that just stopped working: working in its last report, done or waiting in this
  * one. Each is { id, name, status }, for a notification on the person's phones (web/lib/push.js). The session a watcher
- * is looking at right now is left out: the person sees it already. A computer's first report, or one turning sharing
- * off, has none.
+ * is looking at right now is left out: the person sees it already. A computer's first report, one turning sharing
+ * off, or one back after it was offline (its last report older than ONLINE_MS: that news is old) has none.
  */
 function justFinished(doc, body, now) {
   if (body.off === true) return [];
   const before = devicesOf(doc)[checkDevice(body.device).id];
-  if (!before) return [];
+  if (!before || !(now - before.seenAt < ONLINE_MS)) return [];
   const watched = watching(doc, now);
   const wasWorking = (id) => before.sessions.some((s) => s.id === id && s.status === 'working');
   return cleanSessions(body.sessions)

@@ -65,7 +65,7 @@ test('the Android button downloads the APK of an Android release', () => {
 
 test('nothing released is still called coming soon', () => {
   const html = read('index.html');
-  for (const name of ['Mac', 'Windows', 'Android']) {
+  for (const name of ['Mac', 'Windows', 'Android', 'iPhone']) {
     const tile = html.split('<h3>').find((part) => part.startsWith(`${name}</h3>`));
     assert.ok(tile, `the ${name} tile`);
     assert.doesNotMatch(tile.split('</div>')[0], /Coming soon/i, `the ${name} tile`);
@@ -92,8 +92,14 @@ test('releaseFacts says when an installer is missing', () => {
   assert.strictEqual(site.releaseFacts({ message: 'Not Found' }), null);
 });
 
+test('the iPhone tile opens Buddy for iPhone, with the Add to Home Screen step', () => {
+  const tile = read('index.html').split('<h3>').find((part) => part.startsWith('iPhone</h3>')).split('</div>')[0];
+  assert.match(tile, /href="\/app"/);
+  assert.match(tile, /Add to Home Screen/);
+});
+
 test('deviceNote speaks only to iPhones', () => {
-  assert.match(site.deviceNote('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)'), /iPhone is coming soon/);
+  assert.match(site.deviceNote('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)'), /Add to Home Screen/);
   // Windows PCs and Android phones get their own download instead.
   assert.strictEqual(site.deviceNote('Mozilla/5.0 (Windows NT 10.0; Win64; x64)'), '');
   assert.strictEqual(site.deviceNote('Mozilla/5.0 (Linux; Android 15; Pixel 9)'), '');

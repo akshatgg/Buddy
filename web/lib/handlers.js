@@ -14,6 +14,9 @@
  *   adminEmail               who may use /api/admin/*
  *   now() -> Date
  *   fetchImpl                optional, for the providers and for Groq's Whisper (web/lib/transcribe.js)
+ *   push                     { publicKey, send(subscription, payload) } for Web Push with the server's VAPID keys, or
+ *                            null when they are not set (web/lib/deps.js); send rejects with the push service's
+ *                            `statusCode` when it turns a notification down
  * }
  */
 
@@ -24,11 +27,13 @@ const { dayKey } = require('./day');
 const { withDefaults, isFreeOn, applyPatch } = require('./free-config');
 const { transcribeWithGroq, readRecording } = require('./transcribe');
 const remote = require('./remote');
+const pushRules = require('./push');
 
 // The app gives up on an answer after 60 seconds; the server gives up on the AI before that, so the person hears
 // "Buddy couldn't answer" and the request is given back.
 const ASK_TIMEOUT_MS = 50_000;
 const MODELS_TIMEOUT_MS = 15_000;
+const NOTIFY_MS = 4_000; // the most a computer's report waits for its notifications (notifyInTime)
 // At most this many requests a day are given back to a person (an AI that failed, or a chat's first step). Each one
 // was still an AI call on the admin's key, so give-backs cannot be used to ask for free without end.
 const GIVE_BACKS_PER_DAY = 10;
@@ -50,6 +55,7 @@ const STATUS = {
   mac_offline: 409, // Claude mode on the phone: the person's computer is not sharing its sessions
   server: 503, // the server could not check a sign-in (any other failure of its own is a 500, with the same code)
   voice_off: 503, // no Groq key on the server
+  push_off: 503, // no VAPID keys on the server: notifications are not set up
 };
 
 // What firebase-admin says about a token that is no good: expired, garbled or forged, revoked, or of someone who was
@@ -127,6 +133,7 @@ async function config(req, deps) {
     blocked: user.blocked === true,
     isAdmin: isAdmin(who, deps),
     voiceOn: hasKey('groq'), // voice needs only the server's Groq key, whatever free mode is set to
+    ...(deps.push ? { pushKey: deps.push.publicKey } : {}), // notifications on the phone (POST /api/push)
   });
 }
 
@@ -233,15 +240,61 @@ async function transcribe(req, deps) {
 }
 
 /**
+ * Tell the person's phones that these sessions stopped working (remote.justFinished): one notification per session on
+ * each phone that switched them on. A subscription the push service says is gone (404, 410) is forgotten. Nothing
+ * here can fail the computer's report: a failure is logged by its kind, or the push service's status, only.
+ */
+async function notify(uid, finished, deps) {
+  try {
+    const subs = pushRules.subsOf(await deps.db.getPush(uid));
+    const gone = new Set();
+    await Promise.all(finished.flatMap((session) => subs.map(async (sub) => {
+      try {
+        await deps.push.send({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify(pushRules.message(session)));
+      } catch (err) {
+        if (err?.statusCode === 404 || err?.statusCode === 410) gone.add(sub.endpoint);
+        else console.warn(`[push] not sent: ${err?.statusCode || kindOf(err)}`);
+      }
+    })));
+    if (gone.size) await deps.db.updatePush(uid, (doc) => pushRules.removeEndpoints(doc, [...gone]));
+  } catch (err) {
+    console.error(`[push] could not notify: ${kindOf(err)}`);
+  }
+}
+
+/**
+ * notify, but never for longer than NOTIFY_MS (deps.notifyMs in the tests): the computer's report waits for it, and
+ * must not wait on a push service or Firestore that is slow. What is still going on then is left to finish, or not.
+ */
+async function notifyInTime(uid, finished, deps) {
+  let timer;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(true), deps.notifyMs ?? NOTIFY_MS);
+  });
+  const tooLong = await Promise.race([notify(uid, finished, deps).then(() => false), late]);
+  clearTimeout(timer);
+  if (tooLong) console.warn('[push] took too long');
+}
+
+/**
  * POST /api/remote/mac { device, sessions, feed?, done?, off? }: one of the person's computers shares its Claude Code
  * sessions (Claude mode from anywhere, web/lib/remote.js). Answers { watch, inbox }: its session being watched, and the
- * words sent to its sessions. Nothing in it is logged.
+ * words sent to its sessions. A session that stopped working (done, or waiting for the person) is told to their phones
+ * (notify). Nothing in it is logged.
  */
 async function remoteMac(req, deps) {
   allowMethods(req, 'POST');
   const who = await signedIn(req, deps);
   const body = isPlainObject(req.body) ? req.body : {};
-  return answer(await deps.db.updateRemote(who.uid, (doc) => remote.macReport(doc, body, deps.now().getTime())));
+  const now = deps.now().getTime();
+  let finished = [];
+  const result = await deps.db.updateRemote(who.uid, (doc) => {
+    const out = remote.macReport(doc, body, now); // checks the report first
+    finished = remote.justFinished(doc, body, now); // the transaction may run this again: the last run counts
+    return out;
+  });
+  if (finished.length && deps.push) await notifyInTime(who.uid, finished, deps);
+  return answer(result);
 }
 
 /**
@@ -265,6 +318,29 @@ async function remotePhone(req, deps) {
   const text = remote.checkText(body.text);
   const id = deps.newId ? deps.newId() : require('node:crypto').randomUUID();
   return answer(await deps.db.updateRemote(who.uid, (doc) => remote.phoneSend(doc, { sessionId, text, id }, now)));
+}
+
+/**
+ * POST /api/push: notifications on the person's phone. { action: 'on', subscription } keeps the browser's subscription
+ * (PushSubscription.toJSON()); { action: 'off', endpoint } forgets it. Answers { on }.
+ */
+async function pushRoute(req, deps) {
+  allowMethods(req, 'POST');
+  const who = await signedIn(req, deps);
+  const body = isPlainObject(req.body) ? req.body : {};
+  if (body.action === 'on') {
+    if (!deps.push) throw new BuddyError('push_off', "Notifications aren't set up yet.");
+    const sub = pushRules.checkSubscription(body.subscription);
+    const now = deps.now().getTime();
+    return answer(await deps.db.updatePush(who.uid, (doc) => pushRules.addSub(doc, sub, now)));
+  }
+  if (body.action === 'off') {
+    if (typeof body.endpoint !== 'string' || !body.endpoint || body.endpoint.length > pushRules.ENDPOINT_MAX) {
+      throw new BuddyError('bad_request', 'Not a notifications request.');
+    }
+    return answer(await deps.db.updatePush(who.uid, (doc) => pushRules.removeEndpoints(doc, [body.endpoint])));
+  }
+  throw new BuddyError('bad_request', 'Not a notifications request.');
 }
 
 function settingsView(cfg, hasKey) {
@@ -360,4 +436,4 @@ async function handle(handler, req, deps) {
   }
 }
 
-module.exports = { config, ask, transcribe, remoteMac, remotePhone, adminSettings, adminModels, adminUsers, handle, kindOf, STATUS, ASK_TIMEOUT_MS };
+module.exports = { config, ask, transcribe, remoteMac, remotePhone, pushRoute, adminSettings, adminModels, adminUsers, handle, kindOf, STATUS, ASK_TIMEOUT_MS };

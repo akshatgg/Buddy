@@ -23,6 +23,10 @@ const { BuddyError } = require('../shared/errors');
 const ONLINE_MS = 45_000; // a computer reports every few seconds; this long without a report, it is offline
 const FORGET_DEVICE_MS = 24 * 60 * 60_000; // a computer not seen for a day leaves the record
 const WATCH_MS = 30_000; // the phone looks every second or two while it watches
+// A notification leaves out only a session looked at just now. A look rewrites watch.at once it is WATCH_MS / 3 (10 s)
+// old and the phone looks every 2 s, so a phone still looking keeps it under about 12 s; 15 s leaves room for a slow
+// look. Shorter than WATCH_MS: a look still on its way when the phone locked can set the watch again after its stop.
+const NOTIFY_WATCH_MS = 15_000;
 const SEEN_EVERY_MS = 20_000; // a report that changes nothing is written this often, so the phone knows the Mac is on
 const INBOX_MAX = 20;
 const INBOX_KEEP_MS = 10 * 60_000; // words the Mac never picked up are dropped after this
@@ -70,7 +74,7 @@ function cleanItems(value) {
   return items.slice(from);
 }
 
-const watching = (doc, now) => (doc?.watch && now - doc.watch.at < WATCH_MS ? doc.watch.sessionId : null);
+const watching = (doc, now, within = WATCH_MS) => (doc?.watch && now - doc.watch.at < within ? doc.watch.sessionId : null);
 const devicesOf = (doc) => (isObject(doc?.devices) ? doc.devices : {});
 /** The computers online now, as [id, entry], but `exclude` (the watcher's own computer: its sessions are its own). */
 const onlineDevices = (doc, now, exclude = null) => Object.entries(devicesOf(doc)).filter(([id, d]) => id !== exclude && now - d.seenAt < ONLINE_MS);
@@ -166,6 +170,24 @@ function phoneStop(doc) {
   return { next: { ...doc, watch: null, feed: null }, result: {} };
 }
 
+/**
+ * The sessions of a computer's report that just stopped working: working in its last report, done or waiting in this
+ * one. Each is { id, name, title, status }, for a notification on the person's phones (web/lib/push.js). The session a watcher
+ * is looking at right now (within NOTIFY_WATCH_MS) is left out: the person sees it already. A computer's first report,
+ * one turning sharing off, or one back after it was offline (its last report older than ONLINE_MS: that news is old)
+ * has none.
+ */
+function justFinished(doc, body, now) {
+  if (body.off === true) return [];
+  const before = devicesOf(doc)[checkDevice(body.device).id];
+  if (!before || !(now - before.seenAt < ONLINE_MS)) return [];
+  const watched = watching(doc, now, NOTIFY_WATCH_MS);
+  const wasWorking = (id) => before.sessions.some((s) => s.id === id && s.status === 'working');
+  return cleanSessions(body.sessions)
+    .filter((s) => (s.status === 'done' || s.status === 'waiting') && s.id !== watched && wasWorking(s.id))
+    .map(({ id, name, title, status }) => ({ id, name, title, status }));
+}
+
 /** A device id from a request (the watcher's own computer, to leave out), or null for none. */
 function checkDeviceId(value) {
   return typeof value === 'string' && DEVICE_ID.test(value) ? value : null;
@@ -187,6 +209,6 @@ function checkSessionId(value, { required = false } = {}) {
 }
 
 module.exports = {
-  ONLINE_MS, WATCH_MS, SEEN_EVERY_MS, INBOX_MAX, INBOX_KEEP_MS, ITEMS_MAX, ITEM_CHARS, FEED_CHARS, TEXT_MAX, OFFLINE, NO_SESSION,
-  cleanSessions, cleanItems, macReport, phoneLook, phoneSend, phoneStop, checkText, checkSessionId, checkDeviceId,
+  ONLINE_MS, WATCH_MS, NOTIFY_WATCH_MS, SEEN_EVERY_MS, INBOX_MAX, INBOX_KEEP_MS, ITEMS_MAX, ITEM_CHARS, FEED_CHARS, TEXT_MAX, OFFLINE, NO_SESSION,
+  cleanSessions, cleanItems, macReport, justFinished, phoneLook, phoneSend, phoneStop, checkText, checkSessionId, checkDeviceId,
 };

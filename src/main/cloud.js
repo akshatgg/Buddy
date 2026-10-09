@@ -23,7 +23,7 @@ const UNREACHABLE = ['network', 'timeout', 'server']; // the server cannot be us
 // answer with any other code comes from something in front of the server, such as the hosting platform.
 const SERVER_CODES = [
   'bad_request', 'free_no_vision', 'unauthenticated', 'blocked', 'free_off', 'not_admin', 'not_found',
-  'method_not_allowed', 'free_limit', 'upstream', 'server', 'voice_off', 'voice_busy', 'mac_offline',
+  'method_not_allowed', 'free_limit', 'upstream', 'server', 'voice_off', 'voice_busy', 'mac_offline', 'push_off',
 ];
 const REMOTE_TIMEOUT_MS = 10_000; // Claude mode on the phone: a report that takes longer is tried again later
 // What a request may carry to the server (shared/prompts.js): the inputs of write, fix and check, then those of a chat.

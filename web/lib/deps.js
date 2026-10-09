@@ -7,8 +7,10 @@
  *   FIREBASE_SERVICE_ACCOUNT    the service account's JSON key
  *   ADMIN_EMAIL                 who may use /api/admin/*
  *   ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY   any of them
+ *   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT   Web Push's keys (npx web-push generate-vapid-keys) and a
+ *                               mailto: address for the push services: all three, or notifications are off
  *
- * Made once per warm instance. firebase-admin is loaded only here, so the tests never need it.
+ * Made once per warm instance. firebase-admin and web-push are loaded only here, so the tests never need them.
  *
  * A service account key that is missing or broken stops the server with an error that has a `code`
  * (no_service_account, bad_service_account) and a fixed message, never the value: the messages of JSON.parse and of
@@ -16,6 +18,9 @@
  */
 
 const { createFirestoreDb } = require('./firestore-db');
+
+const PUSH_TTL_S = 60 * 60; // a notification the phone cannot get within an hour is dropped: it is old news by then
+const PUSH_TIMEOUT_MS = 5_000; // the computer's report waits for its notifications: not for long
 
 const KEY_ENV = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', gemini: 'GEMINI_API_KEY', groq: 'GROQ_API_KEY' };
 
@@ -74,6 +79,24 @@ function whoFrom(decoded) {
   };
 }
 
+/**
+ * Web Push with the server's VAPID keys: { publicKey, send(subscription, payload) }, or null when the three are not all
+ * set. `load` gives the web-push module (a fake in the tests).
+ */
+function pushFrom(env, load = () => require('web-push')) {
+  const [publicKey, privateKey, subject] = ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT']
+    .map((name) => (typeof env[name] === 'string' ? env[name].trim() : ''));
+  if (!publicKey || !privateKey || !subject) return null;
+  const webpush = load();
+  const vapidDetails = { subject, publicKey, privateKey };
+  return {
+    publicKey,
+    send: (subscription, payload) => webpush.sendNotification(subscription, payload, {
+      vapidDetails, TTL: PUSH_TTL_S, urgency: 'high', timeout: PUSH_TIMEOUT_MS,
+    }),
+  };
+}
+
 let deps = null;
 
 function realDeps(env = process.env) {
@@ -90,9 +113,10 @@ function realDeps(env = process.env) {
     providers: require('../shared/providers'),
     adminKeys: adminKeysFrom(env),
     adminEmail: env.ADMIN_EMAIL || '',
+    push: pushFrom(env),
     now: () => new Date(),
   };
   return deps;
 }
 
-module.exports = { realDeps, adminKeysFrom, credentialFrom, whoFrom };
+module.exports = { realDeps, adminKeysFrom, credentialFrom, whoFrom, pushFrom };

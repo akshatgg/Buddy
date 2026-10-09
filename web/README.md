@@ -6,12 +6,20 @@ Vercel functions that give Buddy its free mode: the admin's switches and the use
 
 The Android app (`android/`) uses this same server, the same way as the Mac: the same routes and the same sign-in.
 
-`public/` is the download website (https://buddywrites.vercel.app); it is deployed with the functions.
+`public/` is the download website (https://buddywrites.vercel.app); it is deployed with the functions. `public/app/`
+is Buddy on iPhone, a web app at https://buddywrites.vercel.app/app that people add to their Home Screen (design:
+`docs/superpowers/specs/2026-10-09-buddy-iphone-web-app-design.md`, checks: `docs/manual-checklist-iphone.md`). It uses
+the same routes and the same sign-in as the Mac, with Firebase Auth's web SDK; `/__/auth/*` and `/__/firebase/*` are
+passed on to Firebase (`vercel.json`) so that sign-in by redirect works in a Home Screen app.
 
 | Route | Who | What |
 |---|---|---|
 | `GET /api/config` | signed in | what free mode means for this person |
 | `POST /api/ask` | signed in | one free answer |
+| `POST /api/transcribe` | signed in | what was said in a recording (voice), with the server's Groq key |
+| `POST /api/remote/mac` | signed in | a computer shares its Claude Code sessions; a session that finishes is told to the person's phones |
+| `GET, POST /api/remote/phone` | signed in | a phone (or another computer) watches a session and sends it words |
+| `POST /api/push` | signed in | notifications on the phone: keep or forget its Web Push subscription |
 | `GET, PUT /api/admin/settings` | admin | the switches |
 | `GET /api/admin/models?provider=` | admin | the models the server's key can use |
 | `GET, POST /api/admin/users` | admin | the users list; block or unblock |
@@ -19,11 +27,19 @@ The Android app (`android/`) uses this same server, the same way as the Mac: the
 `web/shared/` is a copy of the app's `shared/` (prompts, providers, errors). Change `shared/`, then run
 `npm run sync:web` at the repository root; `npm test` fails while the copy is stale.
 
+`public/app/shared/`, `public/app/buddies/` and `public/app/vendor/` are copies too, for Buddy on iPhone: the parts of
+`shared/`, `src/` and `assets/buddies/` it reuses, and three.js. Change those, then run `npm run sync:web-app`; `npm
+test` fails while they are stale. `npm run serve:web` serves `public/` on http://localhost:8787 the way Vercel does, to
+try the app in a browser (signed out: `/api` is not served there).
+
 ## Environment (Vercel → Settings → Environment Variables, Production)
 
 - `FIREBASE_SERVICE_ACCOUNT` — the JSON key of the project's `firebase-adminsdk` service account
 - `ADMIN_EMAIL` — `akshatg9636@gmail.com`
 - any of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` — the admin's AI keys
+- `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` — Web Push for the phone's notifications: the keys from
+  `npx web-push generate-vapid-keys` (in `web/`), and `mailto:akshatg9636@gmail.com`. Without all three, notifications
+  are off (`/api/push` answers `push_off`).
 
 ## Tests
 
@@ -32,7 +48,7 @@ The Android app (`android/`) uses this same server, the same way as the Mac: the
 
 ## Deploy
 
-    npm run deploy:server     # from the repository root: sync web/shared, then vercel deploy --prod
+    npm run deploy:server     # from the repository root: sync web/shared and public/app, then vercel deploy --prod
 
 The database rules (`web/firestore.rules`, deny everything to clients) are deployed with
 `firebase deploy --only firestore:rules`.
@@ -57,6 +73,10 @@ never what people write, a token or a key.
 - `[models] <provider> failed: <code>` — the Admin window could not load that provider's model list with the server's
   key, and shows the usual models.
 - `[api] failed: <kind>` — anything else that went wrong in a route (a Firestore error, say), answered 500.
+- `[push] not sent: <status>` — a push service turned a notification down (other than 404 or 410, which forget that
+  phone). The computer's report was answered as usual.
+- `[push] could not notify: <kind>` — the notifications for a report could not be sent at all (a Firestore error,
+  say). The computer's report was answered as usual.
 
 Before and after going live:
 

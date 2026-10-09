@@ -9,6 +9,7 @@
  *   users/{uid}     email, name, joined, lastActive, blocked, usedDay, usedCount, and once a request was given back,
  *                   refundDay, refundCount
  *   remote/{uid}    Claude mode on the phone: the sessions the person's computer shares (web/lib/remote.js)
+ *   push/{uid}      the person's phones that get notifications: their Web Push subscriptions (web/lib/push.js)
  */
 
 /**
@@ -24,9 +25,24 @@ function createFirestoreDb(firestore) {
   const configDoc = firestore.collection('config').doc('free');
   const users = firestore.collection('users');
   const remotes = firestore.collection('remote');
+  const pushes = firestore.collection('push');
 
   const toDate = (value) => (value && typeof value.toDate === 'function' ? value.toDate() : null);
   const fresh = ({ email, name, now }) => ({ email, name, joined: now, lastActive: null, blocked: false, usedDay: '', usedCount: 0 });
+
+  /**
+   * A record changed in a transaction: `change(doc)` is given the record (null when there is none) and answers
+   * { next, result }; `next` is written (null deletes it, undefined leaves it). Answers `result`.
+   */
+  function update(ref, change) {
+    return firestore.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const { next, result } = change(snap.exists ? snap.data() : null);
+      if (next === null) tx.delete(ref);
+      else if (next !== undefined) tx.set(ref, next);
+      return result;
+    });
+  }
 
   function fromData(uid, d) {
     return {
@@ -111,20 +127,20 @@ function createFirestoreDb(firestore) {
       return snap.docs.map((doc) => fromData(doc.id, doc.data()));
     },
 
-    /**
-     * Claude mode's record of a person (remote/{uid}), changed in a transaction: `change(doc)` is given the record
-     * (null when there is none) and answers { next, result }; `next` is written (null deletes it, undefined leaves it).
-     * Answers `result`.
-     */
+    /** Claude mode's record of a person (remote/{uid}), changed in a transaction (update). */
     async updateRemote(uid, change) {
-      const ref = remotes.doc(uid);
-      return firestore.runTransaction(async (tx) => {
-        const snap = await tx.get(ref);
-        const { next, result } = change(snap.exists ? snap.data() : null);
-        if (next === null) tx.delete(ref);
-        else if (next !== undefined) tx.set(ref, next);
-        return result;
-      });
+      return update(remotes.doc(uid), change);
+    },
+
+    /** The person's notifications record (push/{uid}), or null. */
+    async getPush(uid) {
+      const snap = await pushes.doc(uid).get();
+      return snap.exists ? snap.data() : null;
+    },
+
+    /** The person's notifications record, changed in a transaction (update). */
+    async updatePush(uid, change) {
+      return update(pushes.doc(uid), change);
     },
 
     /** Block or unblock a person; null when there is nobody with that uid, or no uid that Firestore could have. */

@@ -11,7 +11,8 @@ const rules = {
 };
 
 module.exports = [
-  { ignores: ['node_modules/', 'bin/', 'dist/', 'release/', 'assets/', 'art/', 'test/e2e/out/', '.*/**', 'web/node_modules/', 'web/.vercel/', 'android/**'] },
+  { ignores: ['node_modules/', 'bin/', 'dist/', 'release/', 'assets/', 'art/', 'test/e2e/out/', '.*/**', 'web/node_modules/', 'web/.vercel/', 'android/**',
+    'web/public/app/shared/', 'web/public/app/vendor/'] }, // Buddy on iPhone's copies, made by tools/sync-web-app.js
   js.configs.recommended,
   {
     // Main process, preloads, shared code, tools and tests: CommonJS on Node.
@@ -36,7 +37,21 @@ module.exports = [
   {
     // The website's one script: a plain browser script that also hands its helpers to the tests.
     files: ['web/public/**/*.js'],
+    ignores: ['web/public/app/**'],
     languageOptions: { ecmaVersion: 2024, sourceType: 'script', globals: { ...globals.browser, module: 'writable' } },
+    rules,
+  },
+  {
+    // Buddy on iPhone: a web app of ES modules in the browser.
+    files: ['web/public/app/**/*.js'],
+    ignores: ['web/public/app/sw.js'],
+    languageOptions: { ecmaVersion: 2024, sourceType: 'module', globals: { ...globals.browser } },
+    rules,
+  },
+  {
+    // Its service worker: a plain script.
+    files: ['web/public/app/sw.js'],
+    languageOptions: { ecmaVersion: 2024, sourceType: 'script', globals: { ...globals.serviceworker } },
     rules,
   },
 ];

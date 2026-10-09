@@ -15,7 +15,7 @@ const installed = fs.existsSync(path.join(WEB, 'node_modules', 'firebase-admin')
 
 test("the server's libraries load without require(esm), as on Vercel",
   { skip: !installed && "web/node_modules is not installed (run npm ci in web/)" }, () => {
-    const code = "require('firebase-admin/app'); require('firebase-admin/auth'); require('firebase-admin/firestore'); require('./lib/deps');";
+    const code = "require('firebase-admin/app'); require('firebase-admin/auth'); require('firebase-admin/firestore'); require('web-push'); require('./lib/deps');";
     const r = spawnSync(process.execPath, ['--no-experimental-require-module', '-e', code], { cwd: WEB, encoding: 'utf8' });
     assert.strictEqual(r.status, 0, r.stderr);
   });

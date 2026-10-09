@@ -2,22 +2,35 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'">
+  <!-- The hash is the import map's, below (the face loads three.js through it): change one, change both. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self' 'sha256-e1jkKQklzESc+klQOGSNAIZZwXyQiwkkxVpQrxB0Y+s='; img-src 'self' data: blob:">
   <link rel="stylesheet" href="notch.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../../../node_modules/three/build/three.module.js",
+        "three/addons/": "../../../node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
 </head>
-<body data-mood="idle">
+<body data-mood="idle" data-look="face">
   <div id="shape" hidden>
     <div id="left" class="wing">
-      <div id="eye-left" class="eye"><i class="ball"></i><i class="arch"></i><i class="curl"></i></div>
+      <canvas id="face"></canvas>
+      <div id="eye-left" class="eye"><i class="ball"></i><i class="arch"></i><i class="curl"></i><i class="heart">♥</i></div>
+      <span id="zz" aria-hidden="true"><i>z</i><i>z</i><i>z</i></span>
     </div>
     <div id="notch"></div>
     <div id="right" class="wing">
-      <div id="eye-right" class="eye"><i class="ball"></i><i class="arch"></i><i class="curl"></i><i class="dot"></i></div>
+      <div id="eye-right" class="eye"><i class="ball"></i><i class="arch"></i><i class="curl"></i><i class="heart">♥</i><i class="dot"></i></div>
+      <span id="icon" hidden><svg class="clawd" viewBox="0 -2 12 10" shape-rendering="crispEdges" aria-hidden="true"><g class="body"><rect x="2" y="0" width="8" height="6"/></g><g class="arm arm-l"><rect x="0" y="2" width="2" height="2"/></g><g class="arm arm-r"><rect x="10" y="2" width="2" height="2"/></g><g class="legs legs-stand"><rect x="2" y="6" width="1" height="2"/><rect x="4" y="6" width="1" height="2"/><rect x="7" y="6" width="1" height="2"/><rect x="9" y="6" width="1" height="2"/></g><g class="legs legs-a"><rect x="2" y="6" width="1" height="2"/><rect x="4" y="6" width="1" height="1"/><rect x="7" y="6" width="1" height="2"/><rect x="9" y="6" width="1" height="1"/></g><g class="legs legs-b"><rect x="2" y="6" width="1" height="1"/><rect x="4" y="6" width="1" height="2"/><rect x="7" y="6" width="1" height="1"/><rect x="9" y="6" width="1" height="2"/></g><g class="eyes eyes-open"><rect x="3" y="1" width="1" height="1"/><rect x="8" y="1" width="1" height="1"/></g><g class="eyes eyes-happy"><path d="M2.7 0.7 3.7 1.3 2.7 1.9M9.3 0.7 8.3 1.3 9.3 1.9"/></g><g class="eyes eyes-sad"><rect x="2.8" y="1.5" width="1.4" height="0.5"/><rect x="7.8" y="1.5" width="1.4" height="0.5"/></g></svg><i class="mark"></i></span>
       <span id="say" class="say-text" hidden></span>
     </div>
   </div>
   <span id="ruler" class="say-text" aria-hidden="true"></span>
   <script src="eyes.js"></script>
   <script src="notch.js"></script>
+  <script type="module" src="face.js"></script>
 </body>
 </html>

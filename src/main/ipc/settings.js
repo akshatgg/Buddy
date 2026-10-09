@@ -12,8 +12,9 @@ const { isTap, tapKeys } = require('../../renderer/common/shortcut-keys');
 const { cleanFact } = require('../../../shared/memory-rules');
 const { PROVIDER_ID: CLAUDE_ID, MODELS: CLAUDE_MODELS, MODEL_LABELS, GET_URL } = require('../claude/find');
 
-const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models', 'listenOnOpen', 'tagOn', 'home'];
+const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models', 'listenOnOpen', 'tagOn', 'home', 'notchLook'];
 const HOMES = ['notch', 'floating']; // where Buddy lives (src/main/home.js)
+const { LOOKS } = require('../notch-window'); // how Buddy shows in the notch
 const NAME_MAX = 24;
 const PERMISSION_PANES = {
   accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
@@ -162,6 +163,7 @@ function registerSettingsIpc({
     for (const key of SETTABLE) if (Object.hasOwn(patch, key)) changes[key] = patch[key];
     if (Object.hasOwn(changes, 'size') && !isOwnName(SIZES, changes.size)) throw new BuddyError('bad_request', 'Unknown size.');
     if (Object.hasOwn(changes, 'home') && !HOMES.includes(changes.home)) throw new BuddyError('bad_request', 'Unknown home.');
+    if (Object.hasOwn(changes, 'notchLook') && !LOOKS.includes(changes.notchLook)) throw new BuddyError('bad_request', 'Unknown look.');
     if (Object.hasOwn(changes, 'buddyId') && !characters.list.some((c) => c.id === changes.buddyId)) {
       throw new BuddyError('bad_request', 'Unknown buddy.');
     }
@@ -191,6 +193,7 @@ function registerSettingsIpc({
     if (changes.size && changes.size !== before.size) buddy.resize();
     if (changes.buddyId && changes.buddyId !== before.buddyId) buddy.reloadModel();
     if (changes.home && changes.home !== before.home && home) await home.refresh(); // Buddy moves house
+    if (changes.notchLook && changes.notchLook !== before.notchLook) home?.restyle();
     return snapshot();
   });
 

@@ -3,12 +3,13 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const {
-  createEyes, saying,
+  createEyes, ease,
   BLINK_MS, BLINK_SLOW_MS, BLINK_MIN_MS, BLINK_SPAN_MS, HAPPY_MS, CELEBRATE_MS, SAD_MS, WINK_MS, RAMP_MS, WIDE_MS,
-  LOOK_MAX, SAY_GROW_MS, SAY_HOLD_MS, SAY_SHRINK_MS,
+  LOOK_MAX, LOOK_MAX_X, YAWN_MS, WAKE_MS, LOVE_MS, Z_FOR_MS, FIDGET_MIN_MS, FIDGET_SPAN_MS, FIDGETS,
+  SAY_GROW_MS, SAY_HOLD_MS, SAY_SHRINK_MS,
 } = require('../src/renderer/notch/eyes.js');
 
-const open = { open: 1, arch: 0, curl: 0, droop: 0, tilt: 0 };
+const open = { open: 1, arch: 0, curl: 0, heart: 0, droop: 0, tilt: 0 };
 const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${msg ?? ''} ${a} should be ${b}`);
 
 test('the timings are the spec\'s', () => {
@@ -22,6 +23,12 @@ test('the timings are the spec\'s', () => {
   assert.strictEqual(WINK_MS, 300);
   assert.strictEqual(WIDE_MS, 180);
   assert.strictEqual(LOOK_MAX, 2);
+  assert.strictEqual(LOOK_MAX_X, 3);
+  assert.strictEqual(YAWN_MS, 1600);
+  assert.strictEqual(WAKE_MS, 900);
+  assert.strictEqual(LOVE_MS, 1600);
+  assert.strictEqual(Z_FOR_MS, 5 * 60 * 1000);
+  assert.deepStrictEqual([FIDGET_MIN_MS, FIDGET_SPAN_MS], [15_000, 10_000]);
   assert.strictEqual(SAY_GROW_MS, 220);
   assert.strictEqual(SAY_HOLD_MS, 2600);
   assert.strictEqual(SAY_SHRINK_MS, 220);
@@ -44,7 +51,7 @@ test('idle: both eyes open, nothing else going on, and the page can sleep until 
 
 test('blinks: 120 ms, 3 to 6 s apart, from the injected random', () => {
   const rolls = [0, 1, 0.5];
-  const eyes = createEyes({ random: () => rolls.shift() });
+  const eyes = createEyes({ random: () => rolls.shift(), wander: () => 0 });
   eyes.frame(0); // random() = 0: the first blink at 3000
   assert.strictEqual(eyes.frame(2999).left.open, 1);
   assert.strictEqual(eyes.frame(2999).active, false);
@@ -77,17 +84,17 @@ test('a blink never tears a closed eye: one due during happy is skipped', () => 
   assert.strictEqual(after.nextIn, BLINK_MIN_MS);
 });
 
-test('look: 1/200 of the pointer\'s distance, up to 2 pt either way', () => {
+test('look: 1/200 of the pointer\'s distance, up to 3 pt across and 2 pt up or down', () => {
   const eyes = createEyes({ random: () => 0 });
   assert.strictEqual(eyes.setLook(100, -50), true);
   assert.deepStrictEqual(eyes.frame(0).look, { x: 0.5, y: -0.25 });
   eyes.setLook(1000, -1000);
-  assert.deepStrictEqual(eyes.frame(0).look, { x: 2, y: -2 });
-  eyes.setLook(-401, 0);
-  assert.deepStrictEqual(eyes.frame(0).look, { x: -2, y: 0 });
+  assert.deepStrictEqual(eyes.frame(0).look, { x: 3, y: -2 });
+  eyes.setLook(-601, 0);
+  assert.deepStrictEqual(eyes.frame(0).look, { x: -3, y: 0 });
   // A pointer that is far away turns the eyes no further: nothing to wake for.
   assert.strictEqual(eyes.setLook(-900, 0), false);
-  assert.strictEqual(eyes.setLook(-400, 2), false);
+  assert.strictEqual(eyes.setLook(-600, 2), false);
   assert.strictEqual(eyes.setLook(0, 0), true);
 });
 
@@ -218,7 +225,7 @@ test('listening and hover open the eyes a little wider, over 180 ms', () => {
 
 test('a mood this page does not know looks like idle; a new mood replaces the old one', () => {
   const eyes = createEyes({ random: () => 0 });
-  eyes.setMood('love', 0);
+  eyes.setMood('dizzy', 0);
   const f = eyes.frame(500);
   assert.deepStrictEqual(f.left, open);
   assert.strictEqual(f.active, false);
@@ -230,26 +237,98 @@ test('a mood this page does not know looks like idle; a new mood replaces the ol
   assert.strictEqual(eyes.frame(1100 + HAPPY_MS).done, true);
 });
 
-test('saying: grows over 220 ms, holds 2.6 s, shrinks over 220 ms', () => {
-  assert.deepStrictEqual(saying(200, 0), { grow: 0, hold: false, done: false, width: 0 });
-  const growing = saying(200, 110);
-  assert.ok(growing.grow > 0 && growing.grow < 1, `grow ${growing.grow}`);
-  assert.strictEqual(growing.hold, false);
-  near(growing.width, 200 * growing.grow);
-  assert.deepStrictEqual(saying(200, 220), { grow: 1, hold: true, done: false, width: 200 });
-  assert.deepStrictEqual(saying(200, 2000), { grow: 1, hold: true, done: false, width: 200 });
-  assert.deepStrictEqual(saying(200, 2819), { grow: 1, hold: true, done: false, width: 200 });
-  const shrinking = saying(200, 2930);
-  assert.ok(shrinking.grow > 0 && shrinking.grow < 1, `shrink ${shrinking.grow}`);
-  assert.strictEqual(shrinking.hold, false);
-  assert.strictEqual(shrinking.done, false);
-  assert.deepStrictEqual(saying(200, 3040), { grow: 0, hold: false, done: true, width: 0 });
-  assert.deepStrictEqual(saying(200, 9000), { grow: 0, hold: false, done: true, width: 0 });
-  // Monotonic: the grow never steps back while growing.
-  let last = 0;
-  for (let ms = 0; ms <= 220; ms += 10) {
-    const { grow } = saying(100, ms);
-    assert.ok(grow >= last, `at ${ms}: ${grow} < ${last}`);
-    last = grow;
-  }
+test('ease: the words\' wing grows or shrinks most of the way in 220 ms, and is there once within half a point', () => {
+  let w = 0;
+  for (let t = 0; t < SAY_GROW_MS; t += 33) w = ease(w, 200, 33);
+  assert.ok(w > 190 && w <= 200, `grown ${w}`);
+  assert.strictEqual(ease(199.7, 200, 1), 200);
+  assert.strictEqual(ease(0.3, 0, 1), 0);
+  assert.strictEqual(ease(50, 50, 33), 50);
+  assert.strictEqual(ease(100, 0, 0), 100, 'no time: no change');
+  assert.ok(ease(100, 0, 33) < 100 && ease(100, 0, 33) > 0);
+  assert.strictEqual(SAY_HOLD_MS, 2600);
+  assert.strictEqual(SAY_SHRINK_MS, 220);
+});
+
+test('drowsy: a yawn (nearly shut, then half open) with slow blinks; woken: wide open, then idle', () => {
+  const eyes = createEyes({ random: () => 0 });
+  eyes.setMood('drowsy', 0);
+  const yawn = eyes.frame(YAWN_MS / 2);
+  assert.ok(yawn.left.open < 0.2, `squeezed ${yawn.left.open}`);
+  assert.strictEqual(yawn.active, true);
+  const after = eyes.frame(YAWN_MS + 10);
+  near(after.left.open, 0.5);
+  assert.strictEqual(after.active, false, 'half shut, nothing moving');
+  eyes.setMood('wake', 2000);
+  const woken = eyes.frame(2000);
+  assert.strictEqual(woken.wide, 1);
+  assert.strictEqual(woken.left.open, 1);
+  assert.ok(eyes.frame(2000 + WAKE_MS / 2).wide > 0.4);
+  assert.strictEqual(eyes.frame(2000 + WAKE_MS).done, true);
+});
+
+test('asleep: "z" letters for the first 5 minutes only', () => {
+  const eyes = createEyes({ random: () => 0 });
+  eyes.setMood('asleep', 0);
+  assert.strictEqual(eyes.frame(1000).z, true);
+  assert.strictEqual(eyes.frame(Z_FOR_MS - 1).z, true);
+  assert.strictEqual(eyes.frame(Z_FOR_MS).z, false);
+  eyes.setMood('asleep', Z_FOR_MS + 10);
+  assert.strictEqual(eyes.frame(Z_FOR_MS + 20).z, false, 'asleep again is the same sleep: not started over');
+  eyes.setMood('idle', Z_FOR_MS + 30);
+  assert.strictEqual(eyes.frame(Z_FOR_MS + 40).z, false);
+});
+
+test('love: hearts for 1.6 s with a little bounce, no blink on top, then idle', () => {
+  const eyes = createEyes({ random: () => 0 });
+  eyes.frame(0); // the blink at 3000
+  eyes.setMood('love', 2900);
+  const f = eyes.frame(3050);
+  assert.strictEqual(f.left.heart, 1);
+  assert.strictEqual(f.right.heart, 1);
+  assert.strictEqual(f.left.open, 0);
+  assert.ok(f.bounce > 0);
+  assert.strictEqual(f.active, true);
+  assert.strictEqual(eyes.frame(2900 + LOVE_MS).done, true);
+  assert.strictEqual(eyes.frame(2900 + LOVE_MS + 10).left.heart, 0);
+});
+
+test('idle and left alone, the eyes look around every 15 to 25 s; hover or a mood puts it off', () => {
+  const rolls = [0, 0]; // the wait (15 s), then the first look-around: a glance
+  const eyes = createEyes({ random: () => 0.99, wander: () => rolls.shift() ?? 0.5 });
+  const first = eyes.frame(0);
+  assert.strictEqual(first.nextIn, BLINK_MIN_MS + 0.99 * BLINK_SPAN_MS > FIDGET_MIN_MS ? FIDGET_MIN_MS : first.nextIn);
+  const quarter = eyes.frame(FIDGET_MIN_MS + FIDGETS.glance / 4);
+  assert.ok(quarter.look.x < -2.9, `looks left ${quarter.look.x}`);
+  assert.strictEqual(quarter.active, true);
+  const threeQuarters = eyes.frame(FIDGET_MIN_MS + (FIDGETS.glance * 3) / 4);
+  assert.ok(threeQuarters.look.x > 2.9, `then right ${threeQuarters.look.x}`);
+  const over = eyes.frame(FIDGET_MIN_MS + FIDGETS.glance);
+  assert.deepStrictEqual(over.look, { x: 0, y: 0 }, 'back to the pointer');
+  assert.strictEqual(over.active, false);
+
+  const busy = createEyes({ random: () => 0.99, wander: () => 0 });
+  busy.frame(0);
+  busy.setMood('thinking', 1);
+  assert.strictEqual(busy.frame(FIDGET_MIN_MS + 100).look.x, -LOOK_MAX, 'thinking looks its own way, no look-around');
+  busy.setMood('idle', FIDGET_MIN_MS + 200);
+  busy.setHover(true);
+  assert.deepStrictEqual(busy.frame(FIDGET_MIN_MS * 3).look, { x: 0, y: 0 }, 'hovered: none');
+  busy.setHover(false);
+  busy.setWander(false);
+  assert.deepStrictEqual(busy.frame(FIDGET_MIN_MS * 6).look, { x: 0, y: 0 }, 'the face shows instead: none');
+});
+
+test('a double blink shuts the eyes twice; a look up looks up and back', () => {
+  const double = createEyes({ random: () => 0.99, wander: (() => { const r = [0, 0.99]; return () => r.shift() ?? 0.5; })() });
+  double.frame(0);
+  const shut = double.frame(FIDGET_MIN_MS + FIDGETS.double * 0.21);
+  assert.ok(shut.left.open < 0.05, `shut ${shut.left.open}`);
+  const between = double.frame(FIDGET_MIN_MS + FIDGETS.double * 0.49);
+  assert.ok(between.left.open > 0.9);
+  const up = createEyes({ random: () => 0.99, wander: (() => { const r = [0, 0.5]; return () => r.shift() ?? 0.5; })() });
+  up.frame(0);
+  const top = up.frame(FIDGET_MIN_MS + FIDGETS.up / 2);
+  near(top.look.y, -LOOK_MAX);
+  assert.ok(top.look.x > 0);
 });

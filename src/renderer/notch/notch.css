@@ -1,7 +1,8 @@
 /*
  * The notch page: one black shape (the notch's rectangle plus a wing on each side) over a see-through window, with
- * an eye in each wing and, beside the right eye, what Buddy says. Every size and movement is set by notch.js from
- * the layout main sends and the eyes module's frames; this file only gives the pieces their look.
+ * Buddy's face in the left wing (face.js) or an eye in each wing, and in the right wing the status and what Buddy
+ * says. Every size and movement is set by notch.js and face.js from the layout main sends and the eyes module's
+ * frames; this file only gives the pieces their look, and shows the face or the eyes (body[data-look], .face-ready).
  */
 
 * { box-sizing: border-box; }
@@ -41,6 +42,12 @@ body { position: relative; user-select: none; -webkit-user-select: none; }
 .arch, .curl { position: absolute; left: 0; width: 10px; height: 6px; opacity: 0; }
 .arch { top: 3px; border-top: 2.5px solid #fff; border-radius: 5px 5px 0 0; }
 .curl { bottom: 3px; border-bottom: 2.5px solid #fff; border-radius: 0 0 5px 5px; }
+/* Love: a heart where the eye was. */
+.heart {
+  position: absolute; left: -2px; top: -1px; width: 14px; height: 16px;
+  font: 700 15px/16px -apple-system, BlinkMacSystemFont, system-ui, sans-serif; text-align: center;
+  color: #ff6b9a; opacity: 0;
+}
 /* The thinking dot, under the right eye. */
 .dot { position: absolute; top: 100%; left: 50%; width: 3px; height: 3px; margin: 3px 0 0 -1.5px; border-radius: 50%; background: #fff; opacity: 0; }
 
@@ -61,3 +68,79 @@ body { position: relative; user-select: none; -webkit-user-select: none; }
 }
 /* The ruler measures a text's width where nobody sees it. */
 #ruler { position: absolute; top: -100px; left: 0; visibility: hidden; }
+
+/* Buddy's face: drawn by face.js in the left wing, where the left eye is. Until it is drawn (or if it cannot be) the
+   eyes show. With the face, the right wing keeps the eye's place for the status. */
+#face { position: absolute; display: none; pointer-events: none; }
+body[data-look="face"].face-ready #face { display: block; }
+body[data-look="face"].face-ready .eye { display: none; }
+
+/* Asleep: "z" letters drift up from beside Buddy, one after another. */
+#zz { position: absolute; top: 0; height: 100%; width: 14px; display: none; pointer-events: none; }
+body.z #zz { display: block; }
+#zz i {
+  position: absolute; bottom: 30%; left: 0;
+  font: 700 8px/8px -apple-system, BlinkMacSystemFont, system-ui, sans-serif; font-style: normal; color: #fff;
+  opacity: 0; animation: z-up 3.6s linear infinite;
+}
+#zz i:nth-child(2) { animation-delay: 1.2s; }
+#zz i:nth-child(3) { animation-delay: 2.4s; }
+@keyframes z-up {
+  0% { transform: translate(0, 0) scale(0.7); opacity: 0; }
+  15% { opacity: 0.9; }
+  100% { transform: translate(6px, -16px) scale(1.1); opacity: 0; }
+}
+
+/* The status: Clawd, Claude Code's little orange pixel critter, and how it reacts. At work it walks (its legs take
+   turns) and bobs; needing the person it waves, with a "!"; done, it jumps with happy > < eyes and a green ✓; failed,
+   it droops with sad eyes and a red ×. Its eyes and the badge are drawn in the notch's black. */
+#icon {
+  position: absolute; top: 50%; width: 18px; height: 15px; margin: -8.5px 0 0 -9px;
+  display: flex; align-items: center; justify-content: center;
+}
+#icon .clawd { width: 18px; height: 15px; overflow: visible; }
+.clawd .body, .clawd .arm, .clawd .legs { fill: #d77757; }
+.clawd .eyes { display: none; fill: #000; }
+.clawd .eyes-happy path { fill: none; stroke: #000; stroke-width: 0.45; stroke-linecap: square; }
+.clawd .legs-a, .clawd .legs-b { display: none; }
+.clawd > g { transform-box: view-box; }
+
+/* Eyes: open, unless it is done (happy) or failed (sad). */
+#icon:not([data-kind="done"]):not([data-kind="failed"]) .eyes-open { display: inline; }
+#icon[data-kind="done"] .eyes-happy { display: inline; }
+#icon[data-kind="failed"] .eyes-sad { display: inline; }
+
+/* At work: walking and bobbing. */
+#icon[data-kind="working"] .clawd { animation: bob 0.5s steps(1, end) infinite; }
+#icon[data-kind="working"] .legs-stand { display: none; }
+#icon[data-kind="working"] .legs-a { display: inline; animation: step-a 0.5s steps(1, end) infinite; }
+#icon[data-kind="working"] .legs-b { display: inline; animation: step-b 0.5s steps(1, end) infinite; }
+@keyframes bob { 50% { transform: translateY(-1px); } }
+@keyframes step-a { 50% { visibility: hidden; } }
+@keyframes step-b { 0% { visibility: hidden; } 50% { visibility: visible; } }
+
+/* Needs you: the right arm waves. */
+#icon[data-kind="needsYou"] .arm-r { animation: wave 0.6s steps(1, end) infinite; }
+@keyframes wave { 50% { transform: translateY(-1.5px); } }
+
+/* Done: two happy jumps, then it stands there pleased. */
+#icon[data-kind="done"] .clawd { animation: jump 0.45s ease-out 2; }
+@keyframes jump { 40% { transform: translateY(-3px); } }
+
+/* Failed: it sinks a little and its arms drop. */
+#icon[data-kind="failed"] .clawd { transform: translateY(1px); }
+#icon[data-kind="failed"] .arm { transform: translateY(1px); }
+
+/* The badge on its top right: !, ✓ or ×. */
+#icon .mark {
+  position: absolute; right: -4px; top: -3px; display: none; width: 7px; height: 7px; border-radius: 50%;
+  font: 800 6px/7px -apple-system, BlinkMacSystemFont, system-ui, sans-serif; font-style: normal; text-align: center; color: #000;
+}
+#icon[data-kind="needsYou"] .mark, #icon[data-kind="done"] .mark, #icon[data-kind="failed"] .mark { display: block; }
+#icon[data-kind="needsYou"] .mark { background: #ffb340; animation: pulse 1.2s ease-in-out infinite; }
+#icon[data-kind="needsYou"] .mark::after { content: "!"; }
+#icon[data-kind="done"] .mark { background: #32d74b; }
+#icon[data-kind="done"] .mark::after { content: "✓"; }
+#icon[data-kind="failed"] .mark { background: #ff453a; color: #fff; }
+#icon[data-kind="failed"] .mark::after { content: "×"; }
+@keyframes pulse { 50% { transform: scale(0.8); opacity: 0.75; } }

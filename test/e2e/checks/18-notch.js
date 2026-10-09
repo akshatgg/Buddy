@@ -14,12 +14,20 @@ module.exports = async function notchCheck(ctx, { assert, waitFor }) {
   const cx = Math.round(display.bounds.x + display.bounds.width / 2);
   const notch = { x: cx - 90, y: display.bounds.y, width: 180, height: 32 };
   const homeBefore = ctx.store.get('home');
+  const lookBefore = ctx.store.get('notchLook');
   const rect = ({ x, y, width, height }) => ({ x, y, width, height });
   const floating = () => ctx.home.window(); // the floating buddy's window: home forwards it
   const notchWindow = () => ctx.home.notchWindow().window();
   const page = (script) => notchWindow().webContents.executeJavaScript(script);
   /** A panel that has just closed stays closed for a moment, so that the click that blurred it does not reopen it. */
   const settled = () => waitFor(() => !ctx.panel.justClosed(), 'the panel to be ready to open again');
+  /** With BUDDY_E2E_SHOTS set to a folder, a picture of the notch window there, to look at by eye. */
+  const shot = async (name) => {
+    const dir = process.env.BUDDY_E2E_SHOTS;
+    if (!dir) return;
+    const image = await notchWindow().webContents.capturePage();
+    require('node:fs').writeFileSync(require('node:path').join(dir, `notch-${name}.png`), image.toPNG());
+  };
 
   try {
     ctx.helper.replies.notch = { notches: [{ screen: display.bounds, notch }] };
@@ -42,6 +50,52 @@ module.exports = async function notchCheck(ctx, { assert, waitFor }) {
       return say.text === "Done! It's in Gmail ✅" && !say.hidden;
     }, 'the words beside the notch');
     assert.ok(!ctx.bubble.window()?.isVisible(), 'the notch says it, not the bubble');
+    ctx.home.say(''); // the words go back in
+
+    // The face (the default look): Buddy's head drawn in the left wing, and the eyes give way to it.
+    await waitFor(() => page("document.body.classList.contains('face-ready') && window.__notchFaceFrames > 0"), 'the face in the notch');
+    assert.strictEqual(await page("getComputedStyle(document.getElementById('eye-left')).display"), 'none', 'no eyes beside the face');
+    await shot('face');
+
+    // Claude Code at work: Clawd in the right wing and what it does beside it; then done, a ✓ for a moment.
+    const status = "(() => { const i = document.getElementById('icon'); return { hidden: i.hidden, kind: i.dataset.kind, say: document.getElementById('say').textContent }; })()";
+    ctx.home.status({ kind: 'working', text: 'Claude · editing code' });
+    await waitFor(async () => {
+      const s = await page(status);
+      return !s.hidden && s.kind === 'working' && s.say === 'Claude · editing code';
+    }, 'Claude Code at work beside the face');
+    await new Promise((r) => setTimeout(r, 400)); // the wing grows out
+    await shot('face-working');
+    ctx.home.status({ kind: 'needsYou', text: 'Claude needs you' });
+    await waitFor(async () => (await page(status)).kind === 'needsYou', 'Claude Code needs you');
+    await new Promise((r) => setTimeout(r, 400));
+    await shot('face-needs-you');
+    ctx.home.status({ kind: 'done', text: '' });
+    await waitFor(async () => (await page(status)).kind === 'done', 'done');
+    await new Promise((r) => setTimeout(r, 1200)); // after the jumps
+    await shot('face-done');
+    ctx.home.status({ kind: 'failed', text: '' });
+    await waitFor(async () => (await page(status)).kind === 'failed', 'failed');
+    await shot('face-failed');
+    ctx.home.status(null);
+    await waitFor(async () => (await page(status)).hidden, 'no status');
+
+    // Settings → Buddy → In the notch → Eyes: the eyes come back; Face again: the face.
+    ctx.store.set({ notchLook: 'eyes' });
+    ctx.home.restyle();
+    await waitFor(() => page("document.body.dataset.look === 'eyes' && getComputedStyle(document.getElementById('eye-left')).display !== 'none'"), 'the eyes');
+    ctx.home.status({ kind: 'needsYou', text: 'Claude needs you' });
+    await new Promise((r) => setTimeout(r, 500));
+    await shot('eyes-needs-you');
+    ctx.home.status(null);
+    ctx.home.mood('asleep');
+    await waitFor(() => page("document.body.classList.contains('z')"), 'the "z" letters while asleep');
+    await new Promise((r) => setTimeout(r, 1500));
+    await shot('eyes-asleep');
+    ctx.home.mood('idle');
+    ctx.store.set({ notchLook: 'face' });
+    ctx.home.restyle();
+    await waitFor(() => page("document.body.dataset.look === 'face' && document.body.classList.contains('face-ready')"), 'the face again');
 
     // A click on the shape opens the panel under the notch, as a click on the floating buddy opens it beside it.
     assert.strictEqual(ctx.panel.isVisible(), false, 'the panel starts closed');
@@ -66,7 +120,7 @@ module.exports = async function notchCheck(ctx, { assert, waitFor }) {
   } finally {
     ctx.panel.hide(); // a check that failed with the panel open must not leave it open for the next one
     delete ctx.helper.replies.notch;
-    ctx.store.set({ home: homeBefore });
+    ctx.store.set({ home: homeBefore, notchLook: lookBefore });
     await ctx.home.refresh(); // no notch any more: the floating buddy, for the checks that follow
     if (ctx.home.isVisible()) await waitFor(() => floating()?.isVisible(), 'the floating buddy to be back');
   }

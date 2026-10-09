@@ -23,13 +23,13 @@ module.exports = [
   {
     // Bubble, panel, settings and welcome pages: plain browser scripts.
     files: ['src/renderer/**/*.js'],
-    ignores: ['src/renderer/buddy/**'],
+    ignores: ['src/renderer/buddy/**', 'src/renderer/notch/face.js'],
     languageOptions: { ecmaVersion: 2024, sourceType: 'script', globals: { ...globals.browser } },
     rules,
   },
   {
     // The buddy page and its animation maths are ES modules; the .mjs tests import them.
-    files: ['src/renderer/buddy/**/*.js', 'test/**/*.mjs'],
+    files: ['src/renderer/buddy/**/*.js', 'src/renderer/notch/face.js', 'test/**/*.mjs'],
     languageOptions: { ecmaVersion: 2024, sourceType: 'module', globals: { ...globals.browser, ...globals.node } },
     rules,
   },

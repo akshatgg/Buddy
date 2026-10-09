@@ -60,10 +60,18 @@
             <label><input type="radio" name="home" value="floating"><span>Floating</span></label>
           </div>
         </div>
+        <div id="notch-look-row" class="group-row" hidden>
+          <span id="notch-look-label" class="row-title">In the notch</span>
+          <div id="notch-look" class="segmented" role="radiogroup" aria-labelledby="notch-look-label">
+            <label><input type="radio" name="notch-look" value="face"><span>Face</span></label>
+            <label><input type="radio" name="notch-look" value="eyes"><span>Eyes</span></label>
+          </div>
+        </div>
       </div>
       <p id="name-status" class="status small" aria-live="polite"></p>
       <p id="size-status" class="status small" aria-live="polite"></p>
       <p id="home-status" class="status small" aria-live="polite"></p>
+      <p id="notch-look-status" class="status small" aria-live="polite"></p>
     </section>
     <section id="section-shortcut" class="section" hidden>
       <h1>Shortcut</h1>

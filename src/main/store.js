@@ -30,6 +30,7 @@ const DEFAULTS = Object.freeze({
   listenOnOpen: false,
   tagOn: true, // Settings → General's "Fix where I type": "@buddy" after text, anywhere (src/main/tag.js) // Settings → General's "Listen when the panel opens": off, the panel listens only after 🎤
   home: 'notch', // Settings → Buddy's "Where Buddy lives": 'notch' (on a Mac with one) or 'floating' (src/main/home.js)
+  notchLook: 'face', // Settings → Buddy's "In the notch": Buddy's 'face' or two 'eyes' (src/main/notch-window.js)
   projects: [], // the folders Claude Code may work in, as [{ path, name }] (src/main/claude/projects.js)
   lastProject: null, // the path of the project the chat last worked in, or null
   panelSize: null, // the size the person made the panel (panel-window.js): null for the size it first opens at

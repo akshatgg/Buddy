@@ -162,3 +162,13 @@ test("the notifications record: written, read back the same, and deleted with it
   await db.updatePush('u1', (doc) => pushRules.removeEndpoints(doc, [SUB.endpoint]));
   assert.strictEqual(await db.getPush('u1'), null, 'deleted');
 });
+
+test("what Buddy knows about the person: written, read back the same, a forgotten fact not added again", async () => {
+  const sync = require('../../shared/memory-sync');
+  const add = { op: 'add', id: 'f1', text: 'Your boss is Mr. Sharma.', at: 1000 };
+  assert.deepStrictEqual(await db.updateMemory('u1', (doc) => sync.applyOps(doc, [])), { facts: [] });
+  assert.deepStrictEqual(await db.updateMemory('u1', (doc) => sync.applyOps(doc, [add])), { facts: [{ id: 'f1', text: add.text, at: 1000 }] });
+  assert.deepStrictEqual(await db.updateMemory('u1', (doc) => sync.applyOps(doc, [{ op: 'forget', id: 'f1' }])), { facts: [] });
+  assert.deepStrictEqual(await db.updateMemory('u1', (doc) => ({ next: undefined, result: doc })), { facts: [], gone: ['f1'] });
+  assert.deepStrictEqual(await db.updateMemory('u1', (doc) => sync.applyOps(doc, [add])), { facts: [] });
+});

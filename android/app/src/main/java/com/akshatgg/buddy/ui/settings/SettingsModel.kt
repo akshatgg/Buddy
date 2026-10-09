@@ -48,6 +48,22 @@ internal fun tagExplanation(name: String, characterId: String): String {
 /** Forget everything asks once more first, as the desktop does. */
 internal fun forgetAllQuestion(n: Int): String = if (n == 1) "Forget the 1 thing?" else "Forget all $n things?"
 
+/** Where the facts are kept, under What Buddy knows about you: with the account when signed in, else on this phone. */
+internal fun memoryWhere(signedIn: Boolean): String =
+    if (signedIn) {
+        "Buddy learns these from your chats. They're saved to your account, so your other devices with the same sign-in know them too."
+    } else {
+        "Buddy learns these from your chats. They stay on this phone."
+    }
+
+/** What Forget everything forgets: signed in, on the person's other devices too. */
+internal fun forgetAllWhat(signedIn: Boolean): String =
+    if (signedIn) {
+        "Buddy will forget everything it knows about you, on this phone and on your other devices with the same sign-in."
+    } else {
+        "Buddy will forget everything it knows about you on this phone."
+    }
+
 /**
  * What Settings shows besides the account and free mode (which come from their own flows). `name` is the name box as
  * typed: what is saved is trimmed, and a blank one is the buddy's own.
@@ -75,7 +91,8 @@ data class SettingsState(
  * Settings' state, as the Mac's settings.js: every change is saved at once and said on its card's line. A success
  * fades after a few seconds; anything else (an error, a wait) stays until the line is used again. `lookEnabled` says
  * whether Look where I type is on in Android's Accessibility settings, which only Android changes: it is read again
- * each time Settings comes back.
+ * each time Settings comes back. `syncMemory` syncs what Buddy knows with the account (MemorySyncer.request), out of
+ * the way, each time Settings is shown.
  */
 class SettingsModel(
     private val account: Account,
@@ -84,6 +101,7 @@ class SettingsModel(
     private val memory: Memory,
     private val scope: CoroutineScope,
     private val lookEnabled: () -> Boolean = { false },
+    private val syncMemory: () -> Unit = {},
 ) {
     val user: StateFlow<User?> = account.user
     val free: StateFlow<FreeSettings?> = cloud.free
@@ -216,6 +234,12 @@ class SettingsModel(
     }
 
     // ---- What Buddy knows about you ----
+
+    /**
+     * Settings is shown: what Buddy knows is synced with the account, so that a fact learnt on another device shows
+     * here (the list follows Memory.changes). Signed out, or with no internet, nothing changes.
+     */
+    fun memoryShown() = syncMemory()
 
     /** The add box, cut where a fact must end (the desktop's maxlength). */
     fun setNewFact(text: String) = current.update { it.copy(newFact = text.take(memory.rules.maxFactChars)) }

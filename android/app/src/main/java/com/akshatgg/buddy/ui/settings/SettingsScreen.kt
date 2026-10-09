@@ -144,6 +144,7 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
     LaunchedEffect(Unit) { model.refreshFree() }
     LifecycleResumeEffect(Unit) {
         if (model.resumed(canFloat = context.allowed().float)) on.powerChanged(true)
+        model.memoryShown()
         onPauseOrDispose {}
     }
     LaunchedEffect(section) {
@@ -237,7 +238,7 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
                 StatusLine(state.lines[Line.BUDDY])
 
                 Title("What Buddy knows about you", Modifier.section("memory"))
-                MemorySection(model, state, facts)
+                MemorySection(model, state, facts, signedIn = user != null)
 
                 Title("AI", Modifier.section("ai"))
                 val freeMode = aiSection(free)
@@ -254,7 +255,7 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
                 }
 
                 if (state.forgetAsked && facts.isNotEmpty()) {
-                    ForgetAllDialog(facts.size, forget = model::forgetAll, cancel = model::cancelForgetAll)
+                    ForgetAllDialog(facts.size, signedIn = user != null, forget = model::forgetAll, cancel = model::cancelForgetAll)
                 }
 
                 if (disclosing) {
@@ -447,12 +448,13 @@ private fun PermissionRow(title: String, what: String, granted: Boolean, allow: 
 
 /**
  * What Buddy knows about you, as the desktop's Settings → Memory: the facts, each with ✕, a box to add one, the
- * switch "Learn about me from chats", and Forget everything, which asks first.
+ * switch "Learn about me from chats", and Forget everything, which asks first. Signed in, the facts are kept with the
+ * account, and the line above them says so.
  */
 @Composable
-private fun MemorySection(model: SettingsModel, state: SettingsState, facts: List<Fact>) {
+private fun MemorySection(model: SettingsModel, state: SettingsState, facts: List<Fact>, signedIn: Boolean) {
     val colors = Buddy.colors
-    Text("Buddy learns these from your chats. They stay on this phone.", color = colors.muted, style = MaterialTheme.typography.bodyMedium)
+    Text(memoryWhere(signedIn), color = colors.muted, style = MaterialTheme.typography.bodyMedium)
     Group {
         if (facts.isEmpty()) {
             Text(
@@ -512,11 +514,11 @@ private fun MemorySection(model: SettingsModel, state: SettingsState, facts: Lis
 
 /** Forget everything, once more: "Forget all N things?" with Cancel and Forget. */
 @Composable
-private fun ForgetAllDialog(count: Int, forget: () -> Unit, cancel: () -> Unit) {
+private fun ForgetAllDialog(count: Int, signedIn: Boolean, forget: () -> Unit, cancel: () -> Unit) {
     AlertDialog(
         onDismissRequest = cancel,
         title = { Text(forgetAllQuestion(count)) },
-        text = { Text("Buddy will forget everything it knows about you on this phone.") },
+        text = { Text(forgetAllWhat(signedIn)) },
         confirmButton = {
             TextButton(forget, shape = ROUNDED, colors = ButtonDefaults.textButtonColors(contentColor = Buddy.colors.error)) { Text("Forget") }
         },

@@ -11,11 +11,15 @@ import com.akshatgg.buddy.core.BuddyError
 import com.akshatgg.buddy.net.Http
 import com.akshatgg.buddy.net.HttpRequest
 import com.akshatgg.buddy.store.AppSettings
+import com.akshatgg.buddy.store.Fact
+import com.akshatgg.buddy.store.MemoryOp
+import com.akshatgg.buddy.store.readFact
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
@@ -36,6 +40,8 @@ private const val TRANSCRIBE_TIMEOUT_MS = 45_000
 // For Claude mode's calls: a look comes every 1.5 s while the phone watches a session, so one that hangs is given up
 // on sooner than other calls, and the next look tries again.
 private const val REMOTE_TIMEOUT_MS = 10_000
+// For a memory sync, which runs out of sight: one that hangs is given up on, and the next sync sends the same changes.
+private const val MEMORY_TIMEOUT_MS = 15_000
 private const val AUDIO_MAX_BYTES = 2_000_000 // about 2 MB: the most Buddy's server takes (the Mac's panel stops there too)
 private val UNREACHABLE = listOf("network", "timeout", "server") // the server cannot be used now: fall back to what is kept
 // The codes Buddy's server answers errors with: the keys of STATUS in web/lib/handlers.js, and `server` (which its
@@ -218,6 +224,17 @@ class CloudClient(
         }
         val j = call("/api/transcribe", "POST", body, timeoutMs = TRANSCRIBE_TIMEOUT_MS)
         return j.string("text") ?: throw serverProblem()
+    }
+
+    /**
+     * What Buddy knows about the person, kept with their account (shared/memory-sync.js): `ops`, the changes made on
+     * this phone, go to the server, which answers the account's facts with them applied, oldest first. No changes only
+     * reads them. A fact in the answer that is broken is left out.
+     */
+    suspend fun memory(ops: List<MemoryOp>): List<Fact> {
+        val j = call("/api/memory", "POST", buildJsonObject { put("ops", MemoryOp.toJson(ops)) }, timeoutMs = MEMORY_TIMEOUT_MS)
+        val facts = j["facts"] as? JsonArray ?: throw serverProblem()
+        return facts.mapNotNull(::readFact)
     }
 
     // ---- Claude mode: the Claude Code sessions on the person's computer (web/lib/remote.js) ----

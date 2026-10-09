@@ -48,7 +48,7 @@ class PanelActivity : ComponentActivity(), ChatHost {
         super.onCreate(savedInstanceState)
         kept.host = this
         // A turn of the phone makes the activity again on the same chat; only a new panel starts one.
-        if (savedInstanceState == null) model.open()
+        if (savedInstanceState == null) opened()
         val buddyName = settings.buddyName
         // The Claude button only for a person signed in: Claude mode reaches their computers through Buddy's server.
         fun callbacks(signedIn: Boolean) = PanelCallbacks(
@@ -113,7 +113,16 @@ class PanelActivity : ComponentActivity(), ChatHost {
     /** The buddy tapped while the panel was behind the app: the same chat if it is recent, else a new one. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        opened()
+    }
+
+    /**
+     * The panel opens: the chat starts (or goes on), and what Buddy knows is synced with the account if the last sync
+     * is over two minutes old, so that a fact learnt on another device is known here too.
+     */
+    private fun opened() {
         model.open()
+        AppGraph.instance.memorySyncer.requestIfStale()
     }
 
     /** Behind the app the panel was opened over: its task goes to the back, and the chat stays. */

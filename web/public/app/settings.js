@@ -101,7 +101,7 @@ export function startSettings({ store, memory, buddies, onBuddy, account, onSign
     }
   });
   $('forget-all').addEventListener('click', () => {
-    if (!window.confirm('Forget everything Buddy knows about you?')) return;
+    if (!window.confirm(account() ? 'Forget everything Buddy knows about you, on all your devices?' : 'Forget everything Buddy knows about you?')) return;
     memory.clear();
     drawMemory();
   });

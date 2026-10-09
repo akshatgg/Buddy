@@ -464,7 +464,8 @@ function factRow(fact) {
   return row;
 }
 
-const forgetAllQuestion = (n) => (n === 1 ? 'Forget the 1 thing?' : `Forget all ${n} things?`);
+// Signed in, forgetting reaches the person's other devices too (src/main/memory-sync.js).
+const forgetAllQuestion = (n) => `${n === 1 ? 'Forget the 1 thing' : `Forget all ${n} things`}${snap?.account?.signedIn ? ' on all your devices' : ''}?`;
 
 async function forgetFact(id) {
   const rows = [...$('memory-list').children];

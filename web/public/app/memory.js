@@ -78,8 +78,9 @@ export function createMemory({ store, now = Date.now, newId = () => crypto.rando
       return true;
     },
 
+    /** Forget them all; with none here, nothing is sent (an empty list must not wipe facts this phone never showed). */
     clear() {
-      change([], { op: 'clear' });
+      if (list().length) change([], { op: 'clear' });
     },
 
     /**

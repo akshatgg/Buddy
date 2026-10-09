@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import { startAuth, firstNameOf, signInMessage, personOf, SIGN_IN_FAILED, SIGN_IN_OFFLINE } from '../web/public/app/auth.js';
-import { FIREBASE, FIREBASE_SDK } from '../web/public/app/config.js';
+import { FIREBASE, FIREBASE_SDK, firebaseFor } from '../web/public/app/config.js';
 
 const vercel = JSON.parse(fs.readFileSync(new URL('../web/vercel.json', import.meta.url), 'utf8'));
 
@@ -15,6 +15,15 @@ test("the config is the real \"Buddy iPhone\" web app's, with Buddy's own domain
   assert.match(FIREBASE.appId, /^1:128703624181:web:[0-9a-f]+$/);
   assert.notStrictEqual(FIREBASE.appId, '1:128703624181:web:9adb3ae202fab7ec5766bc', 'its own app, not "Buddy Mac"');
   assert.match(FIREBASE_SDK, /^https:\/\/www\.gstatic\.com\/firebasejs\/\d+\.\d+\.\d+$/, 'a pinned version');
+});
+
+test('sign-in comes back to the domain the app was opened on, so iOS keeps it (any other host: the default one)', () => {
+  assert.strictEqual(firebaseFor('buddy.akshatgg.in').authDomain, 'buddy.akshatgg.in');
+  assert.strictEqual(firebaseFor('buddywrites.vercel.app').authDomain, 'buddywrites.vercel.app');
+  assert.strictEqual(firebaseFor('localhost:3000').authDomain, 'buddywrites.vercel.app');
+  assert.strictEqual(firebaseFor('evil.example').authDomain, 'buddywrites.vercel.app');
+  assert.strictEqual(firebaseFor(undefined).authDomain, 'buddywrites.vercel.app');
+  assert.deepStrictEqual({ ...firebaseFor('buddy.akshatgg.in'), authDomain: FIREBASE.authDomain }, FIREBASE, 'only the domain changes');
 });
 
 test("sign-in's pages on Buddy's domain are Firebase's: /__/auth and /__/firebase go on to the project", () => {
@@ -83,6 +92,12 @@ test('auth starts the SDK with the config, keeps the person signed in, and says 
   assert.strictEqual(await auth.token(), 'tok');
   assert.strictEqual(await auth.token(true), 'new');
   assert.deepStrictEqual(sdk.seen.tokens, [false, true]);
+});
+
+test("auth starts with the domain of the page it is on", async () => {
+  const sdk = fakeSdk();
+  await startAuth({ onUser: () => {}, load: sdk.load, host: 'buddy.akshatgg.in' });
+  assert.strictEqual(sdk.seen.init.app.config.authDomain, 'buddy.akshatgg.in');
 });
 
 test('sign-in goes to Google by redirect, asking which account; sign-out signs out', async () => {

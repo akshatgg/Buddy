@@ -8,18 +8,21 @@ sessions on my other devices" on.
 ## Once, before the first try (the owner)
 
 These are set up once; the app's code cannot do them. Buddy iPhone is the Firebase web app "Buddy iPhone" (appId
-`1:128703624181:web:93b7f60d93003e655766bc`) of project `buddy-7f8c2`; its sign-in domain is `buddywrites.vercel.app`.
+`1:128703624181:web:93b7f60d93003e655766bc`) of project `buddy-7f8c2`. Sign-in comes back to the domain the app was
+opened on: `buddy.akshatgg.in` or `buddywrites.vercel.app` (`SIGN_IN_DOMAINS` in `web/public/app/config.js`). Do steps
+1 and 2 for both.
 
 1. **Google sign-in comes back to Buddy's domain.** Google Cloud console (https://console.cloud.google.com), project
    `buddy-7f8c2` → APIs & Services → Credentials → under "OAuth 2.0 Client IDs", open **"Web client (auto created by
    Google Service)"**:
-   - **Authorized redirect URIs** → **Add URI** → `https://buddywrites.vercel.app/__/auth/handler`.
-   - **Authorized JavaScript origins** → **Add URI** → `https://buddywrites.vercel.app`.
+   - **Authorized redirect URIs** → **Add URI** → `https://buddy.akshatgg.in/__/auth/handler`, and again for
+     `https://buddywrites.vercel.app/__/auth/handler`.
+   - **Authorized JavaScript origins** → **Add URI** → `https://buddy.akshatgg.in`, and `https://buddywrites.vercel.app`.
    - Save. (Leave what is there already, such as `https://buddy-7f8c2.firebaseapp.com/__/auth/handler`.) It can take
      a few minutes to work.
 2. **Firebase allows Buddy's domain.** Firebase console (https://console.firebase.google.com) → project `buddy-7f8c2`
-   → Authentication → Settings → Authorized domains: `buddywrites.vercel.app` must be in the list. If it is not:
-   **Add domain** → `buddywrites.vercel.app` → Add.
+   → Authentication → Settings → Authorized domains: `buddy.akshatgg.in` and `buddywrites.vercel.app` must be in the
+   list. For each one that is not: **Add domain** → the domain → Add. (Without it, sign-in says "Sign-in didn't work".)
 3. **Google sign-in is on.** Same console → Authentication → Sign-in method → Google must be Enabled (it already is
    for the Mac and Android apps).
 4. **Notification keys on the server.** In `web/` (after `npm ci` there): `npx web-push generate-vapid-keys`. It prints
@@ -37,7 +40,7 @@ These are set up once; the app's code cannot do them. Buddy iPhone is the Fireba
 5. If sign-in still fails after 1 to 3: the site sends the header `Referrer-Policy: no-referrer` on every page
    (`web/vercel.json`), so Google sees no referrer. Google Cloud console → APIs & Services → Credentials → API keys →
    the key in `web/public/app/config.js` (`apiKey`). If its "Application restrictions" is set to "Websites", add
-   `https://buddywrites.vercel.app/*` (and `https://buddy-7f8c2.firebaseapp.com/*`); if that still fails, set it to
+   `https://buddy.akshatgg.in/*`, `https://buddywrites.vercel.app/*` (and `https://buddy-7f8c2.firebaseapp.com/*`); if that still fails, set it to
    "None" (the key is public by design; "API restrictions" still limit what it can do). Only if it is still
    refused, change the header for `/app` and `/__/` in `web/vercel.json` to `strict-origin-when-cross-origin`, and
    deploy.

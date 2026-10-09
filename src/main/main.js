@@ -125,7 +125,8 @@ async function start(options = {}) {
   });
   const bubble = createBubbleWindow();
   // Buddy as the rest of main sees it: in the notch (on a Mac with one) or the floating buddy, whichever is in use.
-  const buddy = createHome({ floating, notch: createNotchWindow({ screen }), bubble, store, helper, screen });
+  const notch = createNotchWindow({ screen, look: () => store.get('notchLook') }); // the face or the eyes (Settings)
+  const buddy = createHome({ floating, notch, bubble, store, helper, screen });
   helper.on('started', () => buddy.refresh()); // a helper that was down or slow at launch: ask again
   // The buddy's sleep (sleep.js): drowsy after a minute without use, asleep after two. Its own moods go straight to the
   // buddy, as they are not uses. The end-to-end test passes its own timer (options.sleep), to make the count quick.
@@ -184,6 +185,7 @@ async function start(options = {}) {
     panelWindowHandle: () => windowHandle(panel.window()), // for the helper on Windows (actions.js)
     openSettings,
     bubble: (text) => buddy.say(text),
+    status: (value) => buddy.status(value), // Claude Code's status beside Buddy in the notch (claude/watch.js)
     mood: (name) => feelings.mood(name), // a use: it wakes a sleeping buddy, and the sleep countdown starts again
     // For the buddy's feelings, which have their own design: when the panel listens (listening(on), from its page; and
     // false when main hides the panel or its page is gone) and how loud the person speaks (voiceLevel(0..1), about 10
@@ -334,7 +336,7 @@ async function start(options = {}) {
     // An open panel moves with the buddy as it is dragged, and to the edge it snaps to.
     ipcMain, buddy, characters, store, onClick: onCall, sleep, onMove: () => panel.follow(buddy.panelAt()),
   });
-  registerNotchIpc({ ipcMain, notch: buddy.notchWindow(), onClick: onCall });
+  registerNotchIpc({ ipcMain, notch: buddy.notchWindow(), onClick: onCall, sleep, characters, store });
   registerPanelIpc({
     ipcMain, panel, actions, openSettings, microphone, ui, shell, askAccessibility: () => helper.call('requestAccessibility'), claudeMode,
   });

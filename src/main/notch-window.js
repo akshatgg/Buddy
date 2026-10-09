@@ -6,6 +6,10 @@
  * through it except over the black shape: the page reports when the pointer is over it (notch:hover), as the
  * floating buddy's does. The window is one fixed size, reaching far past the notch on both sides, so it never
  * resizes: the page draws the smaller shape inside it. home.js shows it only on a Mac with a notch.
+ *
+ * The page shows Buddy one of two ways (Settings → Buddy → "In the notch", `look`): Buddy's own 3D face in the left wing,
+ * or an eye in each wing. Either way the right wing has the status (Claude Code at work, done, needing the person) and
+ * what Buddy says.
  */
 
 const path = require('node:path');
@@ -13,12 +17,16 @@ const { REACH, DROP, WING, WING_HOVER, SAY_MAX, CORNER, notchWindowBounds } = re
 
 const CURSOR_MS = 66; // as the floating buddy's: about 15 updates a second
 const RELOAD_MS = 60_000; // a page that crashed or did not load is reloaded, but no more often than this
+const LOOKS = ['face', 'eyes']; // how Buddy shows in the notch; anything else is the face
+// The statuses that stay until another replaces them; done and failed show for a moment only, so a page that loads
+// later is not told them.
+const LASTING_STATUS = ['working', 'needsYou'];
 
 // The error code of a load that was cancelled rather than one that failed.
 const ERR_ABORTED = -3;
 
 // BrowserWindow can be passed in so tests can run without Electron; the real one is loaded only when none is.
-function createNotchWindow({ screen, BrowserWindow = require('electron').BrowserWindow }) {
+function createNotchWindow({ screen, look = () => 'face', BrowserWindow = require('electron').BrowserWindow }) {
   let win = null;
   let loaded = false; // the page has finished loading, so it can take messages
   let pendingMood = null; // the latest mood sent while the page was not loaded
@@ -28,10 +36,17 @@ function createNotchWindow({ screen, BrowserWindow = require('electron').Browser
   let reloadTimer = null;
   let cursorTimer = null;
   let lastCursor = null;
+  // What a freshly loaded page is told again, as the floating buddy's window does: a sleep that lasts (drowsy, asleep),
+  // whether the panel is open and the microphone on, and a status that lasts.
+  let sleepy = null;
+  let panelOpen = false;
+  let micOn = false;
+  let status = null;
 
   /** What the page needs to draw the shape: the notch's size, and the design's measures. */
   const layout = (notch) => ({
     notchWidth: notch.width, notchHeight: notch.height, reach: REACH, drop: DROP, wing: WING, wingHover: WING_HOVER, sayMax: SAY_MAX, corner: CORNER,
+    look: LOOKS.includes(look()) ? look() : 'face',
   });
 
   /** Forget a window that is gone, so that the next show() builds a new one. */
@@ -107,9 +122,14 @@ function createNotchWindow({ screen, BrowserWindow = require('electron').Browser
     win.setIgnoreMouseEvents(true, { forward: true }); // a fresh page starts without hover
     if (shown) send('notch:layout', layout(shown.notch));
     send('notch:pause', paused);
+    send('notch:panel-open', panelOpen);
+    send('notch:mic-on', micOn);
+    if (status) send('notch:status', status);
     if (pendingMood !== null) {
       send('notch:mood', pendingMood);
       pendingMood = null;
+    } else if (sleepy) {
+      send('notch:mood', sleepy);
     }
   }
 
@@ -194,7 +214,36 @@ function createNotchWindow({ screen, BrowserWindow = require('electron').Browser
       if (!w.isDestroyed()) w.destroy(); // its 'closed' forgets it; if that does not come, forget it here
       forget(w);
     },
-    mood: (name) => send('notch:mood', name),
+    /** A mood for the page. Drowsy and asleep are kept for a page that loads meanwhile, as in buddy-window.js. */
+    mood(name) {
+      sleepy = name === 'drowsy' || name === 'asleep' ? name : null;
+      send('notch:mood', name);
+    },
+    /** Claude Code's status beside Buddy: { kind: working | needsYou | done | failed, text }, or null for none. */
+    status(next) {
+      const ok = next && typeof next === 'object' && typeof next.kind === 'string';
+      const value = ok ? { kind: next.kind, text: typeof next.text === 'string' ? next.text : '' } : null;
+      status = value && LASTING_STATUS.includes(value.kind) ? value : null;
+      send('notch:status', value);
+    },
+    /** As the floating buddy's: the face listens while the microphone is on, and does not fidget while the panel is open. */
+    panelOpen(open) {
+      panelOpen = Boolean(open);
+      send('notch:panel-open', panelOpen);
+    },
+    micOn(on) {
+      micOn = Boolean(on);
+      send('notch:mic-on', micOn);
+    },
+    voiceLevel(level) {
+      send('notch:voice-level', typeof level === 'number' ? Math.min(1, Math.max(0, level)) || 0 : 0);
+    },
+    /** The character changed (Settings): the face loads it again. */
+    reloadModel: () => send('notch:reload'),
+    /** The look changed (Settings → Buddy → "In the notch"): the page draws the shape again for it. */
+    relayout() {
+      if (shown) send('notch:layout', layout(shown.notch));
+    },
     say: (text) => send('notch:say', text),
     pause(value) {
       paused = value;
@@ -208,4 +257,4 @@ function createNotchWindow({ screen, BrowserWindow = require('electron').Browser
   };
 }
 
-module.exports = { createNotchWindow };
+module.exports = { createNotchWindow, LOOKS };

@@ -28,6 +28,9 @@ function setup({ notches = [ENTRY], displays = [PRIMARY], home = 'notch', platfo
     mood: (name) => calls.push(['floating.mood', name]),
     pause: (value) => calls.push(['floating.pause', value]),
     reloadModel: () => calls.push(['floating.reloadModel']),
+    panelOpen: (open) => calls.push(['floating.panelOpen', open]),
+    micOn: (on) => calls.push(['floating.micOn', on]),
+    voiceLevel: (level) => calls.push(['floating.voiceLevel', level]),
     setHover: (over) => calls.push(['floating.setHover', over]),
     beginDrag: (p) => calls.push(['floating.beginDrag', p]),
     dragTo: (p) => calls.push(['floating.dragTo', p]),
@@ -47,6 +50,12 @@ function setup({ notches = [ENTRY], displays = [PRIMARY], home = 'notch', platfo
     say: (text) => calls.push(['notch.say', text]),
     pause: (value) => calls.push(['notch.pause', value]),
     setHover: (over) => calls.push(['notch.setHover', over]),
+    reloadModel: () => calls.push(['notch.reloadModel']),
+    panelOpen: (open) => calls.push(['notch.panelOpen', open]),
+    micOn: (on) => calls.push(['notch.micOn', on]),
+    voiceLevel: (level) => calls.push(['notch.voiceLevel', level]),
+    status: (value) => calls.push(['notch.status', value]),
+    relayout: () => calls.push(['notch.relayout']),
     notch: () => shownAt,
     window: () => 'the notch window',
   };
@@ -261,9 +270,8 @@ test('the Settings switch: Floating hides the notch and shows the floating buddy
 });
 
 test('everything else the floating buddy does is reached through home as it is, including what is added to it later', async () => {
-  const s = setup({ extra: { extra: (a, b) => ['extra', a, b], panelOpen: (open) => ['panelOpen', open] } });
+  const s = setup({ extra: { extra: (a, b) => ['extra', a, b] } });
   await s.home.refresh(); // in the notch: these still go to the floating buddy
-  s.home.reloadModel();
   s.home.setHover(true);
   s.home.beginDrag({ x: 1, y: 2 });
   s.home.dragTo({ x: 3, y: 4 });
@@ -271,15 +279,34 @@ test('everything else the floating buddy does is reached through home as it is, 
   s.home.resize();
   s.home.reclamp();
   assert.deepStrictEqual(s.calls.slice(1), [
-    ['floating.reloadModel'], ['floating.setHover', true], ['floating.beginDrag', { x: 1, y: 2 }], ['floating.dragTo', { x: 3, y: 4 }],
+    ['floating.setHover', true], ['floating.beginDrag', { x: 1, y: 2 }], ['floating.dragTo', { x: 3, y: 4 }],
     ['floating.endDrag'], ['floating.resize'], ['floating.reclamp'],
   ]);
   assert.deepStrictEqual(s.home.bounds(), BUDDY);
   assert.strictEqual(s.home.display(), PRIMARY);
   assert.strictEqual(s.home.window(), 'the floating window');
   assert.deepStrictEqual(s.home.extra(1, 2), ['extra', 1, 2]);
-  assert.deepStrictEqual(s.home.panelOpen(true), ['panelOpen', true]);
   assert.strictEqual(s.home.notchWindow(), s.notch);
+});
+
+test('the character, the panel and the microphone reach both, so the one Buddy moves into knows them; the voice and the status go where Buddy is', async () => {
+  const s = setup();
+  s.home.reloadModel();
+  s.home.panelOpen(true);
+  s.home.micOn(true);
+  s.home.voiceLevel(0.5); // floating still: no refresh yet
+  await s.home.refresh();
+  const after = s.calls.length;
+  s.home.voiceLevel(0.25);
+  s.home.status({ kind: 'working', text: 'Claude · planning' });
+  s.home.restyle();
+  assert.deepStrictEqual(s.calls.slice(0, 7), [
+    ['floating.reloadModel'], ['notch.reloadModel'], ['floating.panelOpen', true], ['notch.panelOpen', true],
+    ['floating.micOn', true], ['notch.micOn', true], ['floating.voiceLevel', 0.5],
+  ]);
+  assert.deepStrictEqual(s.calls.slice(after), [
+    ['notch.voiceLevel', 0.25], ['notch.status', { kind: 'working', text: 'Claude · planning' }], ['notch.relayout'],
+  ]);
 });
 
 test('a helper that fails is logged by kind, and Buddy floats', async (t) => {

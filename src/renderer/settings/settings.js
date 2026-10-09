@@ -354,6 +354,9 @@ function render({ fields = true } = {}) {
   // Where Buddy lives is a choice only on a Mac with a notch screen on now.
   $('home-row').hidden = !snap.hasNotch;
   for (const radio of $('home').querySelectorAll('input')) radio.checked = radio.value === snap.settings.home;
+  // How Buddy shows in the notch: only while it lives there.
+  $('notch-look-row').hidden = !snap.hasNotch || snap.settings.home !== 'notch';
+  for (const radio of $('notch-look').querySelectorAll('input')) radio.checked = radio.value === snap.settings.notchLook;
   if (!recording) showKeys(snap.settings.shortcut);
   $('power').checked = snap.buddyOn;
   $('power-status').textContent = snap.buddyOn
@@ -678,6 +681,9 @@ $('sign-out').addEventListener('click', async () => {
 $('name').addEventListener('change', () => save({ buddyName: $('name').value }, 'name-status'));
 for (const radio of $('size').querySelectorAll('input')) {
   radio.addEventListener('change', () => save({ size: radio.value }, 'size-status'));
+}
+for (const radio of $('notch-look').querySelectorAll('input')) {
+  radio.addEventListener('change', () => save({ notchLook: radio.value }, 'notch-look-status'));
 }
 for (const radio of $('home').querySelectorAll('input')) {
   radio.addEventListener('change', () => save({ home: radio.value }, 'home-status'));

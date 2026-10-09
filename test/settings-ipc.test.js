@@ -193,7 +193,9 @@ function setup({
     canSignIn: true,
     version: '0.1.0',
     platform,
-    home: withHome ? { hasNotch: () => hasNotch, refresh: async () => calls.push(['homeRefresh']) } : undefined,
+    home: withHome ? {
+      hasNotch: () => hasNotch, refresh: async () => calls.push(['homeRefresh']), restyle: () => calls.push(['homeRestyle']),
+    } : undefined,
   });
   const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
   const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
@@ -729,6 +731,22 @@ test('set: a home that is neither is refused, and nothing in the patch is saved'
   }
   assert.deepStrictEqual(s.store.all(), before);
   assert.deepStrictEqual(s.calls, []);
+});
+
+test('set: how Buddy shows in the notch is its face (the default) or its eyes; a change redraws the notch', async () => {
+  const s = setup({ hasNotch: true });
+  assert.strictEqual((await s.call('settings:get')).settings.notchLook, 'face');
+  const r = await s.call('settings:set', { notchLook: 'eyes' });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(s.store.get('notchLook'), 'eyes');
+  assert.deepStrictEqual(s.calls, [['homeRestyle']]);
+  await s.call('settings:set', { notchLook: 'eyes' });
+  assert.deepStrictEqual(s.calls, [['homeRestyle']], 'the same look again');
+  for (const notchLook of ['mouth', '__proto__', '', null, 1, ['face']]) {
+    assert.deepStrictEqual(await s.call('settings:set', { notchLook, size: 'large' }), refused('bad_request', 'Unknown look.'), JSON.stringify(notchLook));
+  }
+  assert.strictEqual(s.store.get('notchLook'), 'eyes');
+  assert.strictEqual((await setup({ withHome: false }).call('settings:set', { notchLook: 'eyes' })).ok, true, 'no home: saved, nothing breaks');
 });
 
 test('set: with no home given (an older main.js), the setting is still saved and nothing breaks', async () => {

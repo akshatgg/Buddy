@@ -1,7 +1,7 @@
 # Buddy
 
 A small 3D buddy that floats on top of every app on your Mac or Windows PC and
-helps you write in English. It writes emails and messages for you, fixes your English and
+helps you write in English. It is on Android and iPhone too. It writes emails and messages for you, fixes your English and
 checks what you wrote, then pastes the answer straight back into Gmail,
 WhatsApp or wherever you were typing. Type to it in English, Hindi or Hinglish.
 
@@ -104,6 +104,18 @@ Tip: on some Macs Java needs `-Djava.net.preferIPv4Stack=true`. The npm scripts
 already pass it.
 
 `docs/manual-checklist-android.md` covers what only a real phone can check.
+
+## iPhone
+
+Buddy on iPhone is a free web app: open https://buddywrites.vercel.app/app in Safari, tap Share →
+**Add to Home Screen**, then open Buddy from its new icon. It updates by itself, with no App Store or Apple account.
+It has the 3D head, chat (with Copy and Share), memory on the phone, voice, Claude mode, and notifications when a
+Claude Code session finishes (iOS 16.4 or later). iPhone doesn't let it float over other apps.
+
+The app lives in `web/public/app/` and is deployed with the server (`npm run deploy:server`). `npm run sync:web-app`
+copies what it reuses from the desktop; `npm run serve:web` serves the site locally. Design:
+`docs/superpowers/specs/2026-10-09-buddy-iphone-web-app-design.md`. The one-time setup and what only a real iPhone
+can check are in `docs/manual-checklist-iphone.md`.
 
 ## Sign-in and free mode
 

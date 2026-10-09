@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- "Update now" (update/ApkInstaller.kt): Buddy installs its own new version, once the person allows it. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -26,6 +28,8 @@
         android:allowBackup="false"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <!-- Android's installer's answers about an update (update/ApkInstaller.kt). -->
+        <receiver android:name=".update.InstallResult" android:exported="false" />
         <!-- One instance: "Open Settings" in the panel or a Fix sheet reaches the Settings already open, which scrolls to
              the part it names. -->
         <activity

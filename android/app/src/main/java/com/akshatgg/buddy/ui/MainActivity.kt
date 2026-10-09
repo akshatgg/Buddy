@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -28,6 +29,8 @@ import com.akshatgg.buddy.ui.theme.BuddyTheme
 import com.akshatgg.buddy.ui.welcome.WelcomeCallbacks
 import com.akshatgg.buddy.ui.welcome.WelcomeModel
 import com.akshatgg.buddy.ui.welcome.WelcomeScreen
+import com.akshatgg.buddy.update.ApkInstaller
+import com.akshatgg.buddy.update.UpdateState
 import kotlinx.coroutines.launch
 
 // The panel's and the Fix sheet's "Open Settings" name the part of Settings that fixes the error: "ai", "account" or
@@ -81,11 +84,20 @@ class MainActivity : ComponentActivity() {
             lookChanged = { BubbleService.lookChanged(this) },
             powerChanged = { on -> if (on) BubbleService.start(this) else BubbleService.stop(this) },
             askNotifications = askNotifications,
+            checkUpdate = { kept.graph.updater.check(asked = true) },
+            updateNow = {
+                val updater = kept.graph.updater
+                // Allowed already, or not yet asked: the update goes on (the updater asks first when it must). Asked
+                // and still not allowed: Android's switch, after which onResume carries on.
+                if (updater.state.value is UpdateState.NeedsPermission) startActivity(ApkInstaller.permissionIntent(this)) else updater.updateNow()
+            },
         )
+        kept.graph.updater.check() // on its own: at most every few hours
         setContent {
             BuddyTheme {
                 if (onboarded) {
-                    SettingsScreen(kept.settings, kept.ai, section, settingsCallbacks)
+                    val update by kept.graph.updater.state.collectAsState()
+                    SettingsScreen(kept.settings, kept.ai, section, settingsCallbacks, update)
                 } else {
                     WelcomeScreen(kept.welcome, kept.graph.cloud.free, kept.ai, welcome)
                 }
@@ -105,6 +117,7 @@ class MainActivity : ComponentActivity() {
         // stopped it). Opening the app brings it back, as the Mac's buddy comes back when Buddy starts.
         val settings = kept.graph.settings
         if (settings.onboarded && settings.buddyOn && Settings.canDrawOverlays(this)) BubbleService.start(this)
+        kept.graph.updater.resumed() // back from Android's "Install unknown apps": the update goes on
     }
 
     /**

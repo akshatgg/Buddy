@@ -39,11 +39,11 @@ test('parseEvent reads what the hook sends, and refuses what is not an event', (
     hook_event_name: 'StopFailure', session_id: 'abc', cwd: '/x/my-app', matcher: 'rate_limit', error: 'Rate limit reached', transcript_path: '/h/.claude/projects/p/abc.jsonl',
   });
   assert.deepStrictEqual(parseEvent(text), {
-    name: 'StopFailure', sessionId: 'abc', folder: 'my-app', matcher: 'rate_limit', error: 'Rate limit reached', cwd: '/x/my-app', transcript: '/h/.claude/projects/p/abc.jsonl', tool: '',
+    name: 'StopFailure', sessionId: 'abc', folder: 'my-app', matcher: 'rate_limit', error: 'Rate limit reached', cwd: '/x/my-app', transcript: '/h/.claude/projects/p/abc.jsonl', tool: '', notificationType: '',
   });
   assert.strictEqual(parseEvent(JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'abc', tool_name: 'Edit' })).tool, 'Edit');
   assert.deepStrictEqual(parseEvent(JSON.stringify({ hook_event_name: 'Stop', session_id: 'abc', transcript_path: 7 })),
-    { name: 'Stop', sessionId: 'abc', folder: 'your project', matcher: '', error: '', cwd: '', transcript: '', tool: '' });
+    { name: 'Stop', sessionId: 'abc', folder: 'your project', matcher: '', error: '', cwd: '', transcript: '', tool: '', notificationType: '' });
   assert.strictEqual(parseEvent('not json'), null);
   assert.strictEqual(parseEvent('[]'), null);
   assert.strictEqual(parseEvent(JSON.stringify({ hook_event_name: 'SubagentStop', session_id: 'abc' })), null);
@@ -246,4 +246,17 @@ test('the notch status: a need beats work, several sessions are counted, a failu
     { kind: 'failed', text: '', session: null },
   ]);
   assert.strictEqual(statuses([ev('SessionEnd')])[0], null, 'nothing going on: no status');
+});
+
+test('an idle session is not one that needs you: only a permission, an agent\'s question or a dialog are', () => {
+  assert.strictEqual(parseEvent(JSON.stringify({ hook_event_name: 'Notification', session_id: 'a', notification_type: 'idle_prompt' })).notificationType, 'idle_prompt');
+  const note = (type) => ev('Notification', 's1', { notificationType: type });
+  const { state, out } = run([ev('UserPromptSubmit'), ev('Stop'), note('idle_prompt')]);
+  assert.deepStrictEqual(out[2], none, 'no wave, no bubble');
+  assert.strictEqual(state.overall, 'done', 'still done, not needing you');
+  assert.strictEqual(state.sessions.s1.needsYou, false);
+  for (const type of ['permission_prompt', 'agent_needs_input', 'elicitation_dialog', '']) {
+    assert.strictEqual(run([ev('UserPromptSubmit'), note(type)]).state.overall, 'needsYou', type || 'no kind (an older Claude Code)');
+  }
+  assert.strictEqual(run([note('auth_success')]).state.overall, 'idle');
 });

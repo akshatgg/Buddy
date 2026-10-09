@@ -13,6 +13,7 @@
 const http = require('node:http');
 const crypto = require('node:crypto');
 const { BuddyError } = require('../../../shared/errors');
+const { needsYou } = require('./hooks');
 
 const MOODS = Object.freeze({ working: 'thinking', done: 'celebrate', needsYou: 'wave', failed: 'sad', idle: 'idle' });
 const EVENTS = ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop', 'StopFailure', 'SessionEnd', 'PermissionRequest', 'Notification'];
@@ -61,6 +62,7 @@ function parseEvent(text) {
     name: json.hook_event_name, sessionId: json.session_id, folder: folderName(str(json.cwd)), matcher: str(json.matcher), error: str(json.error),
     cwd: str(json.cwd), transcript: str(json.transcript_path), // for Claude mode (live.js)
     tool: str(json.tool_name), // PreToolUse and PostToolUse: what Claude Code is doing, for the notch's status
+    notificationType: str(json.notification_type), // a Notification's kind: whether it needs the person (hooks.js)
   };
 }
 
@@ -159,6 +161,12 @@ function apply(state, event, now) {
       break;
     case 'PermissionRequest':
     case 'Notification':
+      // A notification that needs nothing (a session idle a while after it finished, from a hook installed before
+      // Buddy stopped asking for those) leaves the session as it was.
+      if (!needsYou(event)) {
+        sessions[id] = s;
+        break;
+      }
       sessions[id] = { ...s, working: false, needsYou: true, needTold: true };
       if (!before.needTold) {
         moment = MOODS.needsYou;

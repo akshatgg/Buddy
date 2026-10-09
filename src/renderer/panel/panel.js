@@ -19,7 +19,7 @@
 const $ = (id) => document.getElementById(id);
 const { canSend, itemParts, selectionPreview, speaker, spokenLine, thinkingLine } = ChatView;
 const { exampleLine, jobHeading } = ChatView; // a Claude Code job in the chat
-const { rows: cliRows, inline: cliInline, workingVerb } = ClaudeCli; // Claude mode, drawn as the terminal draws it
+const { rows: cliRows, inline: cliInline, blocks: cliBlocks, tableLines, workingVerb } = ClaudeCli; // Claude mode, as the terminal draws it
 const { createVoiceTiming, levelOf, recordingMime, listensOnOpen } = VoiceTiming;
 
 let state = null; // the chat as the main process sent it last
@@ -678,15 +678,56 @@ function claudeReopen() {
   else claudeList();
 }
 
-/** Words with Claude's **bold** and `code`, one paragraph a line (ClaudeCli.inline). */
+/** A line's words with Claude's **bold** and `code` (ClaudeCli.inline), into `p`. */
+function cliSpans(p, line) {
+  for (const part of cliInline(line)) {
+    p.append(part.bold ? make('strong', '', part.s) : part.code ? make('code', '', part.s) : document.createTextNode(part.s));
+  }
+  return p;
+}
+
+/** How many characters of the session's font fit across where a reply's words go (for a table's width). */
+function cliColumns() {
+  const list = $('claude-items');
+  const probe = make('span', 'cl-probe', '0000000000');
+  list.append(probe);
+  const char = probe.getBoundingClientRect().width / 10 || 7;
+  probe.remove();
+  // The list's width, less its padding and the ● column beside a reply.
+  const room = list.clientWidth - 24 - char * 2 - 8;
+  return Math.max(20, Math.floor(room / char));
+}
+
+/**
+ * Claude's markdown as the terminal shows it (ClaudeCli.blocks): lines with their bold and code, headings, lists, code,
+ * and tables drawn with box lines that fit the panel's width.
+ */
 function cliText(text, className = '') {
   const body = make('div', `cl-text ${className}`.trim());
-  for (const line of String(text).split('\n')) {
-    const p = make('p', line.trim() ? '' : 'blank');
-    for (const part of cliInline(line)) {
-      p.append(part.bold ? make('strong', '', part.s) : part.code ? make('code', '', part.s) : document.createTextNode(part.s));
+  for (const block of cliBlocks(text)) {
+    switch (block.type) {
+      case 'heading':
+        body.append(make('p', 'cl-heading', block.text));
+        break;
+      case 'bullet': {
+        const p = make('p', 'cl-bullet');
+        p.style.paddingLeft = `${block.depth * 2}ch`;
+        p.append(make('span', 'cl-marker', `${block.marker} `));
+        body.append(cliSpans(p, block.text));
+        break;
+      }
+      case 'code':
+        body.append(make('pre', 'cl-code', block.lines.join('\n')));
+        break;
+      case 'table':
+        body.append(make('pre', 'cl-table', tableLines(block.header, block.rows, cliColumns()).join('\n')));
+        break;
+      case 'blank':
+        body.append(make('p', 'blank'));
+        break;
+      default:
+        body.append(cliSpans(make('p'), block.text));
     }
-    body.append(p);
   }
   return body;
 }

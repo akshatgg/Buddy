@@ -33,6 +33,7 @@ import com.akshatgg.buddy.ui.panel.ClaudeView
 import com.akshatgg.buddy.ui.panel.InputRow
 import com.akshatgg.buddy.ui.panel.Primary
 import com.akshatgg.buddy.ui.theme.Buddy
+import com.akshatgg.buddy.ui.theme.ClaudeCliTheme
 
 /** What the box says before a session is picked: its words would have nowhere to go. */
 const val CLAUDE_PICK_FIRST = "Pick a session first…"
@@ -50,7 +51,7 @@ private val BackArrow = ImageVector.Builder("back", 20.dp, 20.dp, 20f, 20f, auto
 ).build()
 
 /**
- * Claude Code, Buddy's own screen for Claude mode: a bar with the way back, then the sessions to pick from (or the one
+ * Claude Code, Buddy's own screen for Claude mode, drawn as Claude Code's terminal (black, white, monospace): a bar with the way back, then the sessions to pick from (or the one
  * picked, live) and the box that types into it, with `micButton` in it. Signed out, it says to sign in first, and
  * `signIn` opens where that is done.
  */
@@ -62,6 +63,17 @@ fun ClaudeScreen(
     back: () -> Unit,
     signIn: () -> Unit,
     micButton: @Composable () -> Unit = {},
+) = ClaudeCliTheme { ClaudeScreenBody(state, signedIn, on, back, signIn, micButton) }
+
+/** The screen in Claude Code's own look (ClaudeCliTheme): black, white, monospace, as the terminal and the Mac panel. */
+@Composable
+private fun ClaudeScreenBody(
+    state: ClaudeState,
+    signedIn: Boolean,
+    on: ClaudeCallbacks,
+    back: () -> Unit,
+    signIn: () -> Unit,
+    micButton: @Composable () -> Unit,
 ) {
     val colors = Buddy.colors
     // A Surface, so that every word on the screen is in the text colour, in light and dark.

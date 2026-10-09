@@ -29,6 +29,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -89,6 +90,7 @@ import com.akshatgg.buddy.ui.panel.Secondary
 import com.akshatgg.buddy.ui.panel.Segmented
 import com.akshatgg.buddy.ui.theme.Buddy
 import com.akshatgg.buddy.ui.theme.BuddyRadius
+import com.akshatgg.buddy.update.UpdateState
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterNotNull
@@ -106,6 +108,9 @@ class SettingsCallbacks(
     /** Buddy was turned on or off: the floating one comes or goes. */
     val powerChanged: (Boolean) -> Unit = {},
     val askNotifications: () -> Unit = {},
+    /** "Check for updates", "Update now" (or "Allow", for Android's "Install unknown apps" first): Updater. */
+    val checkUpdate: () -> Unit = {},
+    val updateNow: () -> Unit = {},
 )
 
 private val SIZES = listOf(BuddySize.SMALL to "Small", BuddySize.MEDIUM to "Medium", BuddySize.LARGE to "Large")
@@ -125,7 +130,7 @@ internal fun initials(name: String, email: String): String {
  * `section` scrolls the page to one of them: the panel's and the Fix sheet's "Open Settings" ask for it.
  */
 @Composable
-fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionRequest?, on: SettingsCallbacks) {
+fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionRequest?, on: SettingsCallbacks, update: UpdateState = UpdateState.Unknown) {
     val state by model.state.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
     val user by model.user.collectAsStateWithLifecycle()
     val free by model.free.collectAsStateWithLifecycle()
@@ -262,13 +267,7 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
                     )
                 }
 
-                Text(
-                    "Buddy ${BuildConfig.VERSION_NAME}",
-                    Modifier.fillMaxWidth().padding(top = 12.dp),
-                    color = Buddy.colors.muted,
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                UpdateRow(update, on)
             }
         }
     }
@@ -526,4 +525,43 @@ private fun ForgetAllDialog(count: Int, forget: () -> Unit, cancel: () -> Unit) 
         titleContentColor = Buddy.colors.fg,
         textContentColor = Buddy.colors.fg,
     )
+}
+
+/**
+ * The version, and "Update now" when a newer Buddy for Android is out (update/Updater.kt), as the Mac's Settings: up to
+ * date, checking, ready (Update now), Android's "Install unknown apps" to allow once, downloading, installing (Android
+ * asks), or why it did not work (Try again).
+ */
+@Composable
+private fun UpdateRow(update: UpdateState, on: SettingsCallbacks) {
+    val colors = Buddy.colors
+    val small = MaterialTheme.typography.bodySmall
+    Column(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        when (update) {
+            UpdateState.Unknown, UpdateState.UpToDate -> {
+                val upToDate = if (update == UpdateState.UpToDate) " · up to date" else ""
+                Text("Buddy ${BuildConfig.VERSION_NAME}$upToDate", color = colors.muted, style = small, textAlign = TextAlign.Center)
+                TextButton(on.checkUpdate) { Text("Check for updates", style = small) }
+            }
+            UpdateState.Checking -> Text("Checking for updates…", color = colors.muted, style = small)
+            is UpdateState.Available -> {
+                Text("Buddy ${update.release.version} is ready (you have ${BuildConfig.VERSION_NAME})", fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                Primary("Update now", onClick = on.updateNow)
+            }
+            is UpdateState.NeedsPermission -> {
+                Text("To update, allow Buddy to install apps. Android asks this once.", color = colors.muted, style = small, textAlign = TextAlign.Center)
+                Primary("Allow", onClick = on.updateNow)
+            }
+            is UpdateState.Downloading -> {
+                val percent = (update.fraction * 100).toInt()
+                Text("Downloading Buddy ${update.release.version}… $percent%", color = colors.muted, style = small)
+                LinearProgressIndicator({ update.fraction }, Modifier.fillMaxWidth(0.7f), color = colors.accent, trackColor = colors.track)
+            }
+            is UpdateState.Installing -> Text("Installing Buddy ${update.release.version}. Android asks you to confirm.", color = colors.muted, style = small, textAlign = TextAlign.Center)
+            is UpdateState.Failed -> {
+                Text(update.message, color = colors.error, style = small, textAlign = TextAlign.Center)
+                Secondary("Try again", onClick = if (update.release != null) on.updateNow else on.checkUpdate)
+            }
+        }
+    }
 }

@@ -22,6 +22,7 @@ export function modelList(models, chosen) {
 
 /** own is own-ai.js's; config() GET /api/config's answer (null when there is none yet). Answers { draw }. */
 export function startAiSettings({ own, config }) {
+  let drawnFor = null; // provider + saved key's end the form was last drawn for (null: not drawn)
   let asked = 0; // one more for each list of models asked for: only the newest is shown
 
   function showError(message) {
@@ -60,8 +61,11 @@ export function startAiSettings({ own, config }) {
     }
   }
 
+  const formState = () => `${own.provider()}:${own.keyEnd() || ''}`;
+
   /** The form for the AI picked: its key line, its Get a key link, its models. */
   function drawForm(switchedTo = '') {
+    drawnFor = formState();
     const { label, keyUrl } = PROVIDERS[own.provider()];
     $('ai-provider').value = own.provider();
     $('ai-get-key').href = keyUrl;
@@ -102,14 +106,21 @@ export function startAiSettings({ own, config }) {
   $('ai-model').addEventListener('change', (e) => own.setModel(own.provider(), e.target.value));
 
   return {
-    /** Draws the section again: when the Settings tab opens, and when the config comes. */
-    draw() {
+    /**
+     * Draws the section again: when the Settings tab opens, and (`fromConfig`) when the config comes. Then a shown error
+     * stays, and the models are not asked for again unless the AI or the saved key changed.
+     */
+    draw({ fromConfig = false } = {}) {
       const { note, showForm } = aiSection(config());
       $('ai-note').textContent = note;
       $('ai-note').hidden = !note;
       $('ai-form').hidden = !showForm;
-      if (!showForm) return; // a saved key stays saved
-      showError('');
+      if (!showForm) {
+        drawnFor = null;
+        return; // a saved key stays saved
+      }
+      if (fromConfig && drawnFor === formState()) return; // nothing changed: keep what is shown, error too
+      if (!fromConfig) showError('');
       drawForm();
     },
   };

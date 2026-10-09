@@ -313,7 +313,7 @@ function loadConfig(who) {
     chatView.setVoice(config?.voiceOn === true);
     claudeView.setVoice(config?.voiceOn === true);
     if (tab === 'settings') {
-      aiSettings.draw();
+      aiSettings.draw({ fromConfig: true });
       admin.update();
     }
     return got;

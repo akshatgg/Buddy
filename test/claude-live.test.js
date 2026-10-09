@@ -207,3 +207,54 @@ test("the session's title, as its terminal tab shows it: the newest one Claude C
   await live.refresh(home.id);
   assert.strictEqual(live.view(home.id).title, 'Body display in notch area', 'renamed as the work goes on');
 });
+
+// A message sent while Claude works, as Claude Code writes it (seen in real transcripts): queued, then either dequeued
+// and written as the person's message when the turn ends, or taken into the turn under way as an attachment, with no
+// message of the person's at all.
+const enqueue = (content) => ({ type: 'queue-operation', operation: 'enqueue', sessionId: 'x', content });
+const absorbed = (prompt, origin = 'human') => ({
+  type: 'attachment', isSidechain: false,
+  attachment: { type: 'queued_command', prompt, commandMode: 'prompt', origin: { kind: origin } },
+});
+
+test('a message sent while Claude works: seen once queued, as the terminal shows it, and once only', () => {
+  const { queueOf } = require('../src/main/claude/live');
+  assert.deepStrictEqual(queueOf(enqueue('  and the tests  ')), { queued: 'and the tests' });
+  assert.deepStrictEqual(queueOf(absorbed('and the tests')), { delivered: 'and the tests' });
+  for (const line of [
+    absorbed('<task-notification>done</task-notification>', 'task'), absorbed('x', 'system'), enqueue(''), enqueue('<command-name>x'),
+    { type: 'queue-operation', operation: 'dequeue', sessionId: 'x' }, { type: 'queue-operation', operation: 'remove', content: 'x' },
+    { ...absorbed('x'), isSidechain: true }, user('hi'), null,
+  ]) {
+    assert.strictEqual(queueOf(line), null, JSON.stringify(line));
+  }
+});
+
+test('the session shows a message sent while Claude worked at once, and not again when it reaches Claude', async (t) => {
+  const home = claudeHome(t, [user('fix the cart'), assistant([{ type: 'text', text: 'On it.' }])]);
+  const live = createLive({ configDirs: () => [home.dir], ttys: async () => ({}) });
+  await live.discover();
+  await live.refresh(home.id);
+  const add = (...lines) => fs.appendFileSync(home.transcript, lines.map((l) => `${JSON.stringify(l)}\n`).join(''));
+  const texts = () => live.view(home.id).items.map((i) => `${i.kind}: ${i.text}`);
+
+  add(enqueue('and the tests'));
+  await live.refresh(home.id);
+  assert.deepStrictEqual(texts().slice(2), ['you: and the tests'], 'shown the moment it is sent');
+
+  // It waited for the turn to end: dequeued, then written as the person's message, which is not shown twice.
+  add(assistant([{ type: 'text', text: 'Cart fixed.' }]), { type: 'queue-operation', operation: 'dequeue', sessionId: 'x' }, user('and the tests'));
+  await live.refresh(home.id);
+  assert.deepStrictEqual(texts().slice(2), ['you: and the tests', 'claude: Cart fixed.']);
+
+  // Taken into the turn under way: only an attachment says so.
+  add(enqueue('use vitest'), { type: 'queue-operation', operation: 'remove', content: 'use vitest', reason: 'absorbed_mid_turn' }, absorbed('use vitest'));
+  await live.refresh(home.id);
+  assert.deepStrictEqual(texts().slice(4), ['you: use vitest']);
+
+  // One whose queuing came before what was read (a long file read from its middle) still shows when it is delivered,
+  // and the same words typed again later are a new message.
+  add(absorbed('also the docs'), user('use vitest'));
+  await live.refresh(home.id);
+  assert.deepStrictEqual(texts().slice(5), ['you: also the docs', 'you: use vitest']);
+});

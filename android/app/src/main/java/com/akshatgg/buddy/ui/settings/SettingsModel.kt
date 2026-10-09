@@ -10,6 +10,7 @@ import com.akshatgg.buddy.store.AppSettings
 import com.akshatgg.buddy.store.BuddySize
 import com.akshatgg.buddy.store.Fact
 import com.akshatgg.buddy.store.Memory
+import com.akshatgg.buddy.typing.Tag
 import com.akshatgg.buddy.ui.common.Status
 import com.akshatgg.buddy.ui.common.Tone
 import com.akshatgg.buddy.ui.common.failure
@@ -33,6 +34,17 @@ private const val KNOWN_ALREADY = "I already know that."
 /** Where a status line is: under the account, under the Buddy card, or under What Buddy knows about you. */
 enum class Line { ACCOUNT, BUDDY, MEMORY }
 
+/**
+ * What Fix where I type says under its switch: the tags the person can type, which are "@buddy" and their buddy's own
+ * name when it is one word (Tag.tagNames). `name` is the name box as typed; blank, it is the buddy's own.
+ */
+internal fun tagExplanation(name: String, characterId: String): String {
+    val own = name.trim().ifEmpty { AppSettings.CHARACTERS.firstOrNull { it.first == characterId }?.second.orEmpty() }
+    val names = Tag.tagNames(own)
+    val tags = if (names.size > 1) "@buddy (or @${names[1]})" else "@buddy"
+    return "Type $tags after your text, and Buddy rewrites it in place. Add what you want: @buddy formal, @buddy shorter."
+}
+
 /** Forget everything asks once more first, as the desktop does. */
 internal fun forgetAllQuestion(n: Int): String = if (n == 1) "Forget the 1 thing?" else "Forget all $n things?"
 
@@ -47,6 +59,8 @@ data class SettingsState(
     val buddyOn: Boolean,
     /** Look where I type: whether its Accessibility service is on in Android's settings. */
     val lookOn: Boolean = false,
+    /** Fix where I type (@buddy). */
+    val tagOn: Boolean = true,
     val signingIn: Boolean = false,
     /** Learn about me from chats. */
     val learning: Boolean = true,
@@ -90,6 +104,7 @@ class SettingsModel(
         size = settings.size,
         buddyOn = settings.buddyOn,
         lookOn = lookEnabled(),
+        tagOn = settings.tagOn,
         learning = memory.learning,
     )
 
@@ -146,6 +161,13 @@ class SettingsModel(
         account.signOut()
         cloud.forget()
         say(Line.ACCOUNT, Status("Signed out."))
+    }
+
+    /** Fix where I type: "@buddy" after some text, in any app, has Buddy rewrite it there. */
+    fun setTagOn(on: Boolean) {
+        settings.tagOn = on
+        current.update { it.copy(tagOn = on) }
+        say(Line.BUDDY, Status("Saved ✓", Tone.GOOD))
     }
 
     /** Another buddy; false when it is the one already chosen. */

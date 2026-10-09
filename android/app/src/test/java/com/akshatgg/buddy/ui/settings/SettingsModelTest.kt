@@ -221,4 +221,21 @@ class SettingsModelTest {
         assertTrue(m.state.value.learning)
         assertEquals("what is being typed stays", "half typed", m.state.value.newFact)
     }
+
+    @Test fun fixWhereITypeIsOnByDefaultAndSaved() = runTest {
+        val m = model()
+        assertTrue(m.state.value.tagOn)
+        m.setTagOn(false)
+        assertFalse(m.state.value.tagOn)
+        assertFalse(settings.tagOn)
+        assertEquals(Status("Saved ✓", Tone.GOOD), m.state.value.lines[Line.BUDDY])
+        assertFalse("a new Settings shows it off", model().state.value.tagOn)
+    }
+
+    @Test fun fixWhereITypeNamesTheTagsThePersonCanType() {
+        val rest = " after your text, and Buddy rewrites it in place. Add what you want: @buddy formal, @buddy shorter."
+        assertEquals("Type @buddy (or @mira)$rest", tagExplanation("Mira", "boy-1"))
+        assertEquals("a blank name is the buddy's own", "Type @buddy (or @anaya)$rest", tagExplanation("  ", "girl-1"))
+        assertEquals("a name of two words is no tag", "Type @buddy$rest", tagExplanation("Mr Bean", "boy-1"))
+    }
 }

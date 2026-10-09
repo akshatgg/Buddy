@@ -40,7 +40,10 @@ function createClaudeMode({ live, terminal, clipboard, send, remote = null, ever
   /** The view of a session on another computer, from the server's answer: its items once that computer sent them. */
   function remoteView(session, feed) {
     const view = feed ?? { ...session, items: [] };
-    return { id: session.id, name: view.name, status: view.status, canTalk: view.canTalk, device: session.device, remote: true, waiting: !feed, items: view.items };
+    return {
+      id: session.id, name: view.name, title: view.title ?? session.title ?? null, status: view.status, canTalk: view.canTalk,
+      device: session.device, remote: true, waiting: !feed, items: view.items,
+    };
   }
 
   async function lookAt(id) {

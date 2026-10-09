@@ -365,6 +365,11 @@ function render({ fields = true } = {}) {
   $('version').textContent = snap.version ? `Buddy ${snap.version}` : '';
   $('update-auto').checked = snap.settings.checkForUpdates !== false;
   $('listen-on-open').checked = snap.settings.listenOnOpen !== false;
+  $('tag-on').checked = snap.settings.tagOn !== false;
+  // The tag also answers to the buddy's own name, when it is one word.
+  const name = (snap.settings.buddyName || '').trim();
+  const also = /^[\p{L}\p{N}_]{2,24}$/u.test(name) && name.toLowerCase() !== 'buddy' ? ` (or @${name.toLowerCase()})` : '';
+  $('tag-line').textContent = `Type @buddy${also} after your text in any app, then pause: Buddy rewrites it in place. Say how: @buddy formal, @buddy shorter, @buddy translate to Hindi.`;
   const { symbols, defaultShortcut, canTap } = shortcutKeys();
   $('shortcut-reset').textContent = `Reset to ${symbols(defaultShortcut).join(' ')}`;
   // Only the Mac hears a key tapped on its own.
@@ -716,6 +721,7 @@ $('perm-microphone-btn').addEventListener('click', async () => {
   if (!r.ok) showStatus('perm-status', r.error.message, 'error');
 });
 $('listen-on-open').addEventListener('change', () => save({ listenOnOpen: $('listen-on-open').checked }, 'listen-status'));
+$('tag-on').addEventListener('change', () => save({ tagOn: $('tag-on').checked }, 'listen-status'));
 $('update-check').addEventListener('click', () => updateCall(window.buddy.checkUpdates));
 $('update-now').addEventListener('click', () => updateCall(window.buddy.installUpdate));
 $('update-notes').addEventListener('click', () => updateCall(window.buddy.openReleaseNotes));

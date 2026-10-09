@@ -11,7 +11,8 @@ import kotlinx.coroutines.flow.asStateFlow
 /** What the rest of the app asks of the floating buddy. */
 sealed interface BubbleEvent {
     data class SetMood(val mood: Mood) : BubbleEvent
-    data class Say(val text: String) : BubbleEvent
+    /** `onTap`, when given, is done by a tap on the words (Fix where I type's Undo); without it taps go through them. */
+    data class Say(val text: String, val onTap: (() -> Unit)? = null) : BubbleEvent
     data class HideFor(val ms: Long) : BubbleEvent
 
     /** Look at this place on the screen (pixels): where the person types, from LookService. */
@@ -60,8 +61,11 @@ object BubbleBus {
 
     fun mood(m: Mood) = send(BubbleEvent.SetMood(m))
 
-    /** A few words in a speech bubble beside the head ("Copied — …"). */
-    fun say(text: String) = send(BubbleEvent.Say(text))
+    /**
+     * A few words in a speech bubble beside the head ("Copied — …"). With `onTap` the bubble can be tapped, which does
+     * it and closes the bubble, and it stays up longer for it.
+     */
+    fun say(text: String, onTap: (() -> Unit)? = null) = send(BubbleEvent.Say(text, onTap))
 
     /** Hide the head for `ms`, so that it is not in a picture of the screen. */
     fun hideFor(ms: Long) = send(BubbleEvent.HideFor(ms))

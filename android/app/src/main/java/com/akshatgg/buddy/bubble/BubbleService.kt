@@ -118,7 +118,7 @@ class BubbleService : LifecycleService() {
             BubbleBus.events.collect { event ->
                 when (event) {
                     is BubbleEvent.SetMood -> mood(event.mood)
-                    is BubbleEvent.Say -> say(event.text)
+                    is BubbleEvent.Say -> say(event.text, event.onTap)
                     is BubbleEvent.HideFor -> hideFor(event.ms)
                     is BubbleEvent.LookAt -> lookAt(LookPoint(event.x, event.y))
                     BubbleEvent.LookAway -> lookAway()
@@ -440,11 +440,12 @@ class BubbleService : LifecycleService() {
         head?.look(Turn.FRONT)
     }
 
-    private fun say(text: String) {
+    private fun say(text: String, onTap: (() -> Unit)? = null) {
         val view = head ?: return
         if (view.visibility != View.VISIBLE) {
             // Out of a sheet's way, and nothing else: kept until the last sheet goes, since Copy says "Copied — …"
             // just before it closes its sheet. Otherwise nobody would see it, or it would be in a picture of the screen.
+            // A tap is not kept: the words alone are said then.
             if (!screenOff && hideTimer?.isActive != true && BubbleBus.sheetOpen.value) {
                 heldWords = text
                 heldAt = SystemClock.elapsedRealtime()
@@ -452,7 +453,7 @@ class BubbleService : LifecycleService() {
             return
         }
         if (!Settings.canDrawOverlays(this)) return // taken away a moment ago: the watcher is about to stop the service
-        speech?.say(text, headBounds(), area())
+        speech?.say(text, headBounds(), area(), onTap)
     }
 
     private fun hideFor(ms: Long) {

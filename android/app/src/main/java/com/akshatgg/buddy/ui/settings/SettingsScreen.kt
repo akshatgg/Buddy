@@ -200,6 +200,8 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
                     Hairline()
                     LookRow(state.lookOn, turnOn = { disclosing = true }, turnOff = { context.openAccessibilitySettings() })
                     Hairline()
+                    TagRow(state, onChange = model::setTagOn)
+                    Hairline()
                     Row(Modifier.rowPadding(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f)) {
                             Text("Buddy on")
@@ -356,8 +358,8 @@ private fun Avatar(user: User?) {
 
 /**
  * Buddy can type for you: an Accessibility service that only Android's settings turn on or off, through which Buddy
- * puts its text into the box the person types in, reads that box when they ask, and looks at it. Turn on shows the
- * disclosure first; Turn off opens those settings.
+ * puts its text into the box the person types in, reads that box when they ask, looks at it, and looks for "@buddy" in
+ * it as they type (Fix where I type). Turn on shows the disclosure first; Turn off opens those settings.
  */
 @Composable
 private fun LookRow(on: Boolean, turnOn: () -> Unit, turnOff: () -> Unit) {
@@ -366,15 +368,38 @@ private fun LookRow(on: Boolean, turnOn: () -> Unit, turnOff: () -> Unit) {
             Text("Buddy can type for you")
             Text(
                 if (on) {
-                    "On. Buddy reads or writes only the box you ask it about, and only when you ask."
+                    "On. Buddy reads or writes only the box you ask it about, or the one you type @buddy in."
                 } else {
-                    "Lets Buddy put its text into the box you are typing in, read that box when you ask, and look at it."
+                    "Lets Buddy put its text into the box you are typing in, read that box when you ask or type @buddy, and look at it."
                 },
                 color = Buddy.colors.muted,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
         if (on) Secondary("Turn off", onClick = turnOff) else Secondary("Turn on", onClick = turnOn)
+    }
+}
+
+/**
+ * Fix where I type: "@buddy" after some text in any app, and Buddy rewrites it there. It works through Buddy can type
+ * for you, which the row says while that is off.
+ */
+@Composable
+private fun TagRow(state: SettingsState, onChange: (Boolean) -> Unit) {
+    val colors = Buddy.colors
+    Row(Modifier.rowPadding(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text("Fix where I type (@buddy)")
+            Text(tagExplanation(state.name, state.characterId), color = colors.muted, style = MaterialTheme.typography.bodySmall)
+            if (state.tagOn && !state.lookOn) {
+                Text("It needs Buddy can type for you, above.", color = colors.muted, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        Switch(
+            checked = state.tagOn,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.accentFg),
+        )
     }
 }
 
@@ -388,8 +413,10 @@ private fun LookDisclosure(proceed: () -> Unit, dismiss: () -> Unit) {
             Text(
                 "Buddy uses Android's Accessibility to see where the box you are typing in is, so that the head can look " +
                     "at it; to read the text in that box only when you ask Buddy to fix it; and to put Buddy's text into it " +
-                    "when you ask. It reads nothing else, and nothing is kept or sent anywhere except with your question " +
-                    "to the AI.",
+                    "when you ask. With Fix where I type on, it also looks at what you type in a box (never a password " +
+                    "box), only to spot @buddy; when you type it, Buddy sends only that paragraph to the AI and puts the " +
+                    "new text in its place. It reads nothing else, and nothing is kept or sent anywhere except with your " +
+                    "question, or the paragraph you tagged, to the AI.",
             )
         },
         confirmButton = { TextButton(proceed, shape = ROUNDED) { Text("Continue") } },

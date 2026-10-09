@@ -9,9 +9,9 @@ const { fakeDb } = require('./helpers/fake-db');
 const { macReport, phoneLook, phoneSend, phoneStop, cleanItems, cleanSessions, ONLINE_MS, WATCH_MS, SEEN_EVERY_MS, INBOX_KEEP_MS, OFFLINE, NO_SESSION } = remote;
 
 const T = 1_800_000_000_000;
-const S1 = { id: 'aaaa-1111', name: 'shop', status: 'working', canTalk: true };
-const S2 = { id: 'bbbb-2222', name: 'blog', status: 'done', canTalk: false };
-const S3 = { id: 'cccc-3333', name: 'api', status: 'waiting', canTalk: true };
+const S1 = { id: 'aaaa-1111', name: 'shop', title: 'Fix the cart total', status: 'working', canTalk: true };
+const S2 = { id: 'bbbb-2222', name: 'blog', title: null, status: 'done', canTalk: false };
+const S3 = { id: 'cccc-3333', name: 'api', title: null, status: 'waiting', canTalk: true };
 const MAC = { id: 'mac-11111111', name: "Akshat's MacBook Air" };
 const PC = { id: 'pc-222222222', name: 'Office PC' };
 const ITEMS = [{ id: 1, kind: 'you', text: 'fix it' }, { id: 2, kind: 'claude', text: 'Done.' }];
@@ -42,7 +42,7 @@ test('two computers share at once: each keeps its own entry, and a watcher sees 
 
 test('the sessions and items are cleaned: unknown fields, bad ids, too many, too long', () => {
   assert.deepStrictEqual(cleanSessions([{ ...S1, extra: 1 }, { id: '../x' }, { id: 'ok', status: 'nope', name: ' ' }, 'x', null]), [
-    S1, { id: 'ok', name: 'Claude Code', status: 'idle', canTalk: false },
+    S1, { id: 'ok', name: 'Claude Code', title: null, status: 'idle', canTalk: false },
   ]);
   assert.strictEqual(cleanSessions(Array.from({ length: 30 }, (_, i) => ({ id: `s${i}` }))).length, 20);
   assert.deepStrictEqual(cleanItems([{ id: 1, kind: 'result', text: 'x', error: true, more: 1 }, { id: 'a', kind: 'you', text: 'x' }, { id: 2, kind: 'html', text: 'x' }]),
@@ -72,9 +72,9 @@ test('a watcher looks: the sessions while a computer is on; looking at one watch
 test("the computer sends the watched session's items; the watcher gets them; looking again soon writes nothing", () => {
   const watched = record({ watch: { sessionId: S1.id, at: T } });
   const { next } = report(watched, { feed: { ...S1, items: ITEMS } }, T + 1000);
-  assert.deepStrictEqual(next.feed, { sessionId: S1.id, device: MAC.name, name: 'shop', status: 'working', canTalk: true, items: ITEMS, at: T + 1000 });
+  assert.deepStrictEqual(next.feed, { sessionId: S1.id, device: MAC.name, name: 'shop', title: 'Fix the cart total', status: 'working', canTalk: true, items: ITEMS, at: T + 1000 });
   const look = phoneLook(next, S1.id, T + 2000);
-  assert.deepStrictEqual(look.result.feed, { id: S1.id, device: MAC.name, name: 'shop', status: 'working', canTalk: true, items: ITEMS });
+  assert.deepStrictEqual(look.result.feed, { id: S1.id, device: MAC.name, name: 'shop', title: 'Fix the cart total', status: 'working', canTalk: true, items: ITEMS });
   assert.strictEqual(look.next, undefined, 'watched a moment ago: no write');
   assert.ok(phoneLook(next, S1.id, T + WATCH_MS / 3).next, 'a while later the watch is kept fresh');
   assert.strictEqual(report(record(), { feed: { ...S1, items: ITEMS } }, T + 1000).next, undefined, 'a feed nobody watches is not kept');

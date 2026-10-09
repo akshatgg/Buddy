@@ -18,6 +18,13 @@ class AppSettingsTest {
         assertNull(s.model("openai")); assertNull(s.cloud)
         assertFalse(s.notificationsAsked)
         assertFalse("the panel opens as a card", s.panelFull)
+        assertTrue("Fix where I type is on", s.tagOn)
+    }
+
+    @Test fun fixWhereITypeTurnedOffStaysOff() {
+        val kv = MemoryKeyValue()
+        AppSettings(kv).tagOn = false
+        assertFalse(AppSettings(kv).tagOn)
     }
 
     @Test fun namesAreTrimmedCutAndFallBackToTheCharacters() {

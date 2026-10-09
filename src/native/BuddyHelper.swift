@@ -7,6 +7,7 @@
 //   event    {"event": "frontApp", "pid": 123, "bundleId": "...", "name": "..."}
 //            {"event": "keys", "kind": "flags", "keyCode": 61, "flags": 524608, "t": 81234567}   (while watchKeys is on)
 //            {"event": "keys", "kind": "other"}
+//            {"event": "tag", "pid": 123}   (while watchTyping is on: "@buddy …" was typed there, then a pause)
 //
 // Commands run one at a time on a background queue; the main thread only runs
 // the run loop, so NSWorkspace notifications keep arriving while a command
@@ -63,6 +64,8 @@ func noteFront(_ app: NSRunningApplication?) {
     frontLock.lock()
     currentFront = app.processIdentifier
     frontLock.unlock()
+    // Another app in front: what was typed before belongs to a different place (Buddy where you type).
+    DispatchQueue.main.async { resetTyping() }
     // Buddy itself is never the app the user is writing in.
     if app.processIdentifier == ownerPid || app.processIdentifier == getpid() { return }
     var event = appInfo(app)
@@ -108,6 +111,7 @@ enum Key: CGKeyCode {
     case z = 0x06
     case returnKey = 0x24
     case rightArrow = 0x7C // 124
+    case upArrow = 0x7E // 126
 
     /// The letter the key types; nil for ↩ and →, which are in the same place on every keyboard.
     var letter: String? {
@@ -117,7 +121,7 @@ enum Key: CGKeyCode {
         case .d: return "d"
         case .v: return "v"
         case .z: return "z"
-        case .returnKey, .rightArrow: return nil
+        case .returnKey, .rightArrow, .upArrow: return nil
         }
     }
 }
@@ -306,8 +310,14 @@ func captureSelection(_ args: [String: Any]) throws -> [String: Any] {
     let before = pb.changeCount
     let saved = saveClipboard()
     let selectAll = args["selectAll"] as? Bool == true
+    // "paragraph": from the cursor back to the start of its paragraph (⌥⇧↑), for Buddy where you type. That
+    // selection is left in place, so that the paste which follows replaces just it.
+    let paragraph = args["select"] as? String == "paragraph"
     if selectAll {
         pressCommand(.a)
+        usleep(80_000)
+    } else if paragraph {
+        pressKeys(.upArrow, [.maskAlternate, .maskShift])
         usleep(80_000)
     }
     pressCommand(.c)
@@ -359,7 +369,8 @@ func paste(_ args: [String: Any]) throws -> [String: Any] {
 
 // The keys `press` may send and the modifiers it may hold, by the names Buddy uses (src/main/send-keys.js): ↩ sends,
 // ⌘Z undoes, and ⌘⇧D sends in Mail. Nothing else, so that Buddy can never be made to press just any key.
-let pressableKeys: [String: Key] = ["return": .returnKey, "z": .z, "d": .d]
+// "right" collapses a selection Buddy made and then let go of (Buddy where you type, src/main/tag.js).
+let pressableKeys: [String: Key] = ["return": .returnKey, "z": .z, "d": .d, "right": .rightArrow]
 let modifierFlags: [String: CGEventFlags] = ["cmd": .maskCommand, "ctrl": .maskControl, "shift": .maskShift, "alt": .maskAlternate]
 
 func modifiersArg(_ args: [String: Any]) throws -> CGEventFlags {
@@ -383,7 +394,7 @@ func modifiersArg(_ args: [String: Any]) throws -> CGEventFlags {
 func press(_ args: [String: Any]) throws -> [String: Any] {
     let pid = try pidArg(args)
     guard let name = args["key"] as? String, let key = pressableKeys[name] else {
-        throw HelperError(code: "bad_request", message: "key must be return, z or d")
+        throw HelperError(code: "bad_request", message: "key must be return, z, d or right")
     }
     let flags = try modifiersArg(args)
     try needAccessibility()
@@ -612,6 +623,123 @@ func watchKeys(_ args: [String: Any]) throws -> [String: Any] {
     return ["watching": on]
 }
 
+// MARK: Buddy where you type
+
+// The person ends what they wrote with "@buddy" (or their buddy's name) and what to do, and pauses: Buddy is told
+// which app, and reads the paragraph from there itself (src/main/tag.js). For that this watches the keys typed, into a
+// short rolling buffer that lives only here, in memory: it is never sent, saved or logged. Only "a tag was typed in
+// this app" leaves the helper. The buffer is emptied whenever the place being typed in may have changed.
+
+var typingTap: CFMachPort?
+var typingTapSource: CFRunLoopSource?
+var typingNames: [String] = []
+var typingBuffer = ""
+var typingTimer: Timer?
+let typingBufferMax = 120
+let typingPause: TimeInterval = 1.2
+// Keys that move the cursor or end what is being typed: ↩, ⌅, ⎋, ⇥, the arrows, Home, End, Page Up and Page Down.
+let typingResetKeys: Set<Int64> = [36, 76, 53, 48, 123, 124, 125, 126, 115, 119, 116, 121]
+
+/// Whether `text` holds a tag: "@" and one of the names, not inside a word or an email address.
+func hasTag(_ text: String) -> Bool {
+    guard !typingNames.isEmpty else { return false }
+    let names = typingNames.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")
+    guard let pattern = try? NSRegularExpression(pattern: "(^|[^\\p{L}\\p{N}_@])@(\(names))(?![\\p{L}\\p{N}_])", options: [.caseInsensitive]) else { return false }
+    return pattern.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+}
+
+func resetTyping() {
+    typingBuffer = ""
+    typingTimer?.invalidate()
+    typingTimer = nil
+}
+
+/// The person paused after a tag: say so, for the app in front, unless it is a password field (or Buddy itself).
+func typingPaused() {
+    typingTimer = nil
+    guard hasTag(typingBuffer) else { return }
+    typingBuffer = ""
+    let pid = frontPid()
+    if pid <= 0 || pid == ownerPid || pid == getpid() || focusedIsSecure(pid) { return }
+    send(["event": "tag", "pid": Int(pid)])
+}
+
+func onTypingEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
+    switch type {
+    case .tapDisabledByTimeout, .tapDisabledByUserInput:
+        if let tap = typingTap { CGEvent.tapEnable(tap: tap, enable: true) }
+    case .keyDown:
+        // Keys Buddy itself sends (⌘C, ⌘V, ⌥⇧↑) are not the person typing.
+        if event.getIntegerValueField(.eventSourceUnixProcessID) == Int64(getpid()) { break }
+        let code = event.getIntegerValueField(.keyboardEventKeycode)
+        let held = event.flags.intersection([.maskCommand, .maskControl])
+        if typingResetKeys.contains(code) || !held.isEmpty {
+            resetTyping()
+            break
+        }
+        if code == 51 { // ⌫
+            if !typingBuffer.isEmpty { typingBuffer.removeLast() }
+        } else if let chars = NSEvent(cgEvent: event)?.characters {
+            typingBuffer += chars.filter { !$0.isNewline && $0.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) } }
+            if typingBuffer.count > typingBufferMax { typingBuffer = String(typingBuffer.suffix(typingBufferMax)) }
+        }
+        typingTimer?.invalidate()
+        typingTimer = nil
+        if hasTag(typingBuffer) {
+            let timer = Timer(timeInterval: typingPause, repeats: false) { _ in typingPaused() }
+            RunLoop.main.add(timer, forMode: .common)
+            typingTimer = timer
+        }
+    default:
+        resetTyping() // a click: the cursor may be somewhere else now
+    }
+    return Unmanaged.passUnretained(event)
+}
+
+/// Start or stop watching for the tag. Runs on the main thread, where the tap lives.
+func setTypingTap(_ on: Bool) throws {
+    resetTyping()
+    if !on {
+        guard let tap = typingTap else { return }
+        CGEvent.tapEnable(tap: tap, enable: false)
+        if let source = typingTapSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+        CFMachPortInvalidate(tap)
+        typingTap = nil
+        typingTapSource = nil
+        return
+    }
+    if typingTap != nil { return }
+    let noAccess = HelperError(code: "no_accessibility", message: "Buddy needs Accessibility permission to fix where you type.")
+    guard accessibilityTrusted(prompt: false) else { throw noAccess }
+    let types: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+    let mask = types.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
+    guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
+                                      eventsOfInterest: mask, callback: onTypingEvent, userInfo: nil) else { throw noAccess }
+    let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+    CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+    CGEvent.tapEnable(tap: tap, enable: true)
+    typingTap = tap
+    typingTapSource = source
+}
+
+/// watchTyping { on, names }: watch for "@" and one of `names` (lower-case words) typed anywhere.
+func watchTyping(_ args: [String: Any]) throws -> [String: Any] {
+    let on = args["on"] as? Bool ?? false
+    let names = (args["names"] as? [String] ?? []).map { $0.lowercased() }
+    let wordPattern = try NSRegularExpression(pattern: "^[\\p{L}\\p{N}_]{2,24}$")
+    let good = names.filter { wordPattern.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }
+    if on && (good.isEmpty || good.count != names.count || names.count > 4) {
+        throw HelperError(code: "bad_request", message: "names must be 1 to 4 words")
+    }
+    var failure: Error?
+    DispatchQueue.main.sync {
+        typingNames = good
+        do { try setTypingTap(on) } catch { failure = error }
+    }
+    if let failure { throw failure }
+    return ["watching": on]
+}
+
 func handle(_ msg: [String: Any]) {
     let id = msg["id"] ?? NSNull()
     let args = msg["args"] as? [String: Any] ?? [:]
@@ -644,6 +772,8 @@ func handle(_ msg: [String: Any]) {
             result = notchInfo()
         case "watchKeys":
             result = try watchKeys(args)
+        case "watchTyping":
+            result = try watchTyping(args)
         default:
             throw HelperError(code: "bad_request", message: "unknown command")
         }

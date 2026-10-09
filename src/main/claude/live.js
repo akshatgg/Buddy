@@ -16,6 +16,7 @@ const path = require('node:path');
 const { needsYou } = require('./hooks');
 
 const KEEP = 500; // the items kept for a session: the newest
+const QUEUED_MAX = 20; // messages sent while Claude worked that are waiting for it, kept to know them when they reach it
 const TITLE_READ = 512 * 1024; // a session's title is looked for in this much of the end of its file
 const TITLE_EVERY_MS = 30_000; // and looked for again this often, as Claude Code renames a session as the work goes on
 const TITLE_CHARS = 120;
@@ -157,6 +158,26 @@ function itemsOf(entry) {
     });
   }
   return [];
+}
+
+/**
+ * What one line says of a message the person sent while Claude worked. Claude Code queues it ("Press up to edit queued
+ * messages") and writes no message of the person's then: { queued: text } when it was queued; later, either a message
+ * of theirs with the same words (it waited for the turn to end) or { delivered: text } (an attachment: it went into the
+ * turn under way, and no message of theirs is ever written for it). Null for any other line.
+ */
+function queueOf(entry) {
+  if (!isObject(entry) || entry.isSidechain === true) return null;
+  if (entry.type === 'queue-operation' && entry.operation === 'enqueue' && typeof entry.content === 'string') {
+    const text = typedText(entry.content);
+    return text ? { queued: text } : null;
+  }
+  const a = entry.type === 'attachment' && isObject(entry.attachment) ? entry.attachment : null;
+  if (a?.type === 'queued_command' && typeof a.prompt === 'string' && a.origin?.kind === 'human' && (a.commandMode ?? 'prompt') === 'prompt') {
+    const text = typedText(a.prompt);
+    return text ? { delivered: text } : null;
+  }
+  return null;
 }
 
 /**
@@ -332,6 +353,7 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
         s.rest = '';
         s.skipFirst = s.offset > 0;
         s.items = [];
+        s.queued = [];
       }
       if (size === s.offset) return false;
       const length = Math.min(size - s.offset, READ_MAX);
@@ -355,7 +377,19 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
         } catch {
           continue;
         }
-        for (const item of itemsOf(entry)) {
+        // A message sent while Claude worked shows the moment it is queued, as the terminal shows it; when it reaches
+        // Claude later, it is not shown again.
+        const queue = queueOf(entry);
+        const delivered = (text) => {
+          const at = s.queued.indexOf(text);
+          if (at >= 0) s.queued.splice(at, 1);
+          return at >= 0;
+        };
+        if (queue?.queued) s.queued = [...s.queued, queue.queued].slice(-QUEUED_MAX);
+        const items = queue?.queued ? [{ kind: 'you', text: queue.queued }]
+          : queue?.delivered ? (delivered(queue.delivered) ? [] : [{ kind: 'you', text: queue.delivered }])
+            : itemsOf(entry).filter((item) => item.kind !== 'you' || !delivered(item.text));
+        for (const item of items) {
           s.items.push({ id: s.nextId++, ...item });
           added += 1;
         }
@@ -407,4 +441,4 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
   };
 }
 
-module.exports = { KEEP, FIRST_READ, TTY, STATUS_AFTER, shortPath, toolLine, resultText, typedText, itemsOf, checkTranscript, projectFolder, titleIn, createLive };
+module.exports = { KEEP, FIRST_READ, TTY, STATUS_AFTER, QUEUED_MAX, shortPath, toolLine, resultText, typedText, itemsOf, queueOf, checkTranscript, projectFolder, titleIn, createLive };

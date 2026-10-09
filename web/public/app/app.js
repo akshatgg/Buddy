@@ -1,13 +1,16 @@
 // Buddy on iPhone: starts everything. Signed out, the head and the sign-in button; signed in, three tabs under the
-// head: Chat, Claude (Claude Code on the person's computers) and Settings. Each part is its own file; this one hands
-// them what they need from each other, and tells the buddy what happens (its feelings, as src/main/feelings.js does on
-// the Mac).
+// head: Chat (answered by Buddy's server or the person's own key: route.js), Claude (Claude Code on the person's
+// computers) and Settings. Each part is its own file; this one hands them what they need from each other, and tells
+// the buddy what happens (its feelings, as src/main/feelings.js does on the Mac).
 
 import { createStore, localStorageOf } from './store.js';
 import { createApi, TIMEOUTS } from './api.js';
 import { startAuth, signInMessage, SIGN_IN_OFFLINE } from './auth.js';
 import { createMemory } from './memory.js';
 import { createChat } from './chat-core.js';
+import { createAsk } from './route.js';
+import { createOwnAi } from './own-ai.js';
+import { startAiSettings } from './ai-settings.js';
 import { startChatView } from './chat.js';
 import { startSettings } from './settings.js';
 import { createHead } from './head.js';
@@ -21,6 +24,7 @@ import { $ } from './dom.js';
 const app = $('app');
 const store = createStore(localStorageOf(window));
 const memory = createMemory({ store });
+const own = createOwnAi({ store }); // the person's own AI key, on this phone only
 const TABS = ['chat', 'claude', 'settings'];
 const BUBBLE_MS = 2500;
 const LINK = /^#claude\/([\w-]{1,100})$/; // a notification's session: /app#claude/<session id>
@@ -128,7 +132,13 @@ const buddyName = () => (buddies.find((b) => b.id === store.read('buddy', null))
 // ---- the chat ----
 
 const chat = createChat({
-  ask: (body) => api.post('/api/ask', body, { timeoutMs: TIMEOUTS.ask }),
+  ask: createAsk({
+    config: currentConfig,
+    freshConfig: () => (person ? loadConfig(person) : Promise.resolve(null)),
+    hasKey: () => own.hasKey(),
+    askOwn: (body) => own.ask(body),
+    askServer: (body) => api.post('/api/ask', body, { timeoutMs: TIMEOUTS.ask }),
+  }),
   memory,
   userName: () => person?.firstName || '',
   onMood: feel,
@@ -202,6 +212,7 @@ const settings = startSettings({
   push,
   support: () => supportHere(window),
 });
+const aiSettings = startAiSettings({ own, config: () => config });
 
 // ---- the tabs ----
 
@@ -216,7 +227,10 @@ function showTab(next, { open = null } = {}) {
   $('settings-pane').hidden = next !== 'settings';
   sleep.poke();
   if (next === 'claude') claudeView.show(open);
-  if (next === 'settings') settings.draw();
+  if (next === 'settings') {
+    settings.draw();
+    aiSettings.draw();
+  }
 }
 
 for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => showTab(b.dataset.tab));
@@ -256,18 +270,31 @@ async function showSignedIn(who) {
   await loadConfig(who);
 }
 
-let configAsk = null; // the GET /api/config under way
+let configAsk = null; // the GET /api/config under way: loadConfig's answer
 
-/** GET /api/config for `who`, and what hangs on it (voice). Offline it stays null, and is asked again (configAgain). */
-async function loadConfig(who) {
-  const ask = api.get('/api/config', { timeoutMs: TIMEOUTS.config }).catch(() => null);
+/**
+ * GET /api/config for `who`, and what hangs on it (voice, Settings → AI). Answers what came, or null. Offline the
+ * config stays what it was (null at first: it is asked for again, configAgain).
+ */
+function loadConfig(who) {
+  const ask = (async () => {
+    const got = await api.get('/api/config', { timeoutMs: TIMEOUTS.config }).catch(() => null);
+    if (configAsk === ask) configAsk = null;
+    if (person !== who) return null; // signed out meanwhile
+    if (got) config = got;
+    chatView.setVoice(config?.voiceOn === true);
+    claudeView.setVoice(config?.voiceOn === true);
+    if (tab === 'settings') aiSettings.draw();
+    return got;
+  })();
   configAsk = ask;
-  const got = await ask;
-  if (configAsk === ask) configAsk = null;
-  if (person !== who) return; // signed out meanwhile
-  config = got;
-  chatView.setVoice(config?.voiceOn === true);
-  claudeView.setVoice(config?.voiceOn === true);
+  return ask;
+}
+
+/** The config a message goes by: the one there is, else the one on its way, else one more try. */
+async function currentConfig() {
+  if (!config && person) await (configAsk ?? loadConfig(person));
+  return config;
 }
 
 /** Back online, or back in view: the config that could not be had at sign-in is asked for again. */

@@ -14,7 +14,6 @@ export const TOO_LONG = `That message is too long (over ${LIMITS.instruction} ch
 export const CANT_SEE = "I can't see other apps on iPhone. Paste the text here.";
 export const CANT_SEND = "I can't send it from your iPhone. Copy it, then send it there.";
 export const NO_ANSWER = "I couldn't answer that. Try again.";
-export const FREE_OFF = 'Free AI is off right now. Try again later.';
 export const FAILED = 'Something went wrong. Try again.';
 export const FORGOT = 'Okay, I forgot that.';
 
@@ -55,15 +54,18 @@ export function canSend({ busy, text }) {
   return !busy && String(text ?? '').trim() !== '';
 }
 
-/** The words for a failed answer: the server's (free mode's limits, a block), or plain ones. */
+/**
+ * The words for a failed answer: the server's (free mode's limits, a block), route.js's, or the AI provider's (a key
+ * that was refused), as they are; else plain ones.
+ */
 export function failureText(err) {
-  if (err?.code === 'free_off') return FREE_OFF; // the server's words send the person to an own key, which the phone has not
   return typeof err?.code === 'string' && typeof err.message === 'string' && err.message ? err.message : FAILED;
 }
 
 /**
- * One chat. ask(body) is POST /api/ask; memory is memory.js; userName() the person's first name; onMood(name) tells
- * the buddy (thinking, happy, sad, idle); onChange() after every change. `state` is { items, busy }.
+ * One chat. ask(body) answers a message: route.js's createAsk (Buddy's server, or the person's own key). memory is
+ * memory.js; userName() the person's first name; onMood(name) tells the buddy (thinking, happy, sad, idle); onChange()
+ * after every change. `state` is { items, busy }.
  */
 export function createChat({ ask, memory, userName = () => '', onMood = () => {}, onChange = () => {} }) {
   const state = { items: [], busy: false };

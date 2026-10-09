@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert';
 import {
   createChat, chatRequest, historyBefore, answerItem, canSend, failureText,
-  EMPTY, TOO_LONG, CANT_SEE, CANT_SEND, NO_ANSWER, FREE_OFF, FAILED, FORGOT,
+  EMPTY, TOO_LONG, CANT_SEE, CANT_SEND, NO_ANSWER, FAILED, FORGOT,
 } from '../web/public/app/chat-core.js';
 import { ApiError } from '../web/public/app/api.js';
 import { createMemory } from '../web/public/app/memory.js';
@@ -134,9 +134,11 @@ test('a failure shows in the chat with Try again, the buddy is sad, and Try agai
   assert.deepStrictEqual(s.asked[1].history, [], 'the message is not its own history');
 });
 
-test("the server's words for free mode's limits are shown; free off and unknown failures get the phone's own", () => {
+test("the server's and the AI's words are shown as they are; unknown failures get the phone's own", () => {
   assert.strictEqual(failureText(new ApiError('free_limit', "You've used today's 30 free requests.")), "You've used today's 30 free requests.");
-  assert.strictEqual(failureText(new ApiError('free_off', 'Free AI is off. Add your own key in Settings.')), FREE_OFF);
+  assert.strictEqual(failureText(new ApiError('free_off', 'Free AI is off. Add your own key in Settings.')), 'Free AI is off. Add your own key in Settings.');
+  const refused = Object.assign(new Error('Your Claude key was rejected. Check it in Settings.'), { name: 'BuddyError', code: 'bad_key' });
+  assert.strictEqual(failureText(refused), 'Your Claude key was rejected. Check it in Settings.');
   assert.strictEqual(failureText(new Error('boom')), FAILED);
   assert.strictEqual(failureText(null), FAILED);
 });

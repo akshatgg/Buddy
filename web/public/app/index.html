@@ -84,6 +84,23 @@
     <h2>Your buddy</h2>
     <div class="buddies" id="buddy-choice"></div>
 
+    <h2>AI</h2>
+    <p class="muted" id="ai-note" hidden></p>
+    <div class="part" id="ai-form" hidden>
+      <label class="label" for="ai-provider">Provider</label>
+      <select class="field" id="ai-provider"></select>
+      <label class="label" for="ai-key">API key</label>
+      <form class="row" id="ai-key-form">
+        <input class="field" id="ai-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <button class="btn btn--ghost btn--sm" type="submit">Save</button>
+      </form>
+      <p class="row"><span class="grow muted" id="ai-key-status" aria-live="polite"></span><a id="ai-get-key" target="_blank" rel="noopener">Get a key</a></p>
+      <button class="btn btn--ghost btn--sm" id="ai-remove" type="button" hidden>Remove</button>
+      <label class="label" for="ai-model">Model</label>
+      <select class="field" id="ai-model"></select>
+      <p class="error" id="ai-error" role="alert" hidden></p>
+    </div>
+
     <h2>Memory</h2>
     <label class="switch"><span>Learn about me from chats</span><input type="checkbox" id="learn"></label>
     <ul class="facts" id="facts"></ul>

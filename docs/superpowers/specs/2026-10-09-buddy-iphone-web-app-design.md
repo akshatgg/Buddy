@@ -36,7 +36,7 @@ renderer.
 ```
 web/public/app/
   index.html          the one page: head on top, chat under it, tabs Chat | Claude | Settings
-  manifest.webmanifest  name Buddy, display standalone, start_url /app, icons
+  manifest.webmanifest  name Buddy, display standalone, start_url and scope /app (not /app/: cleanUrls redirects it), icons
   sw.js               service worker: shell cache (network first, so updates show), push → notification
   app.js              starts everything, switches tabs
   auth.js             Google sign-in → Firebase ID token, refreshed before it expires
@@ -54,7 +54,7 @@ web/public/app/
 
 `tools/sync-web-app.js` (run by `npm run sync:web-app`, and by `deploy:server`) copies what the app reuses from the
 desktop: `blend.js`, `moods.js`, `gestures.js`, `symbols.js`/`.css` from `src/renderer/buddy/`, the head `.glb` files
-and `buddies.json`, `shared/memory-rules.js` and `shared/errors.js`, and three.js from `node_modules`. A test fails when
+and `buddies.json` and preview images, `src/main/sleep.js` and `src/main/feelings.js`, the panel's `voice-timing.js`, `shared/memory-rules.js` and `shared/errors.js`, and three.js from `node_modules`. A test fails when
 the copy is stale, like `sync:web`. Modules copied but written for Electron (anything that calls `window.buddy`) are
 not copied; the app gets its own thin versions.
 
@@ -77,7 +77,7 @@ A new Firebase web app "Buddy iPhone" is registered in project `buddy-7f8c2`; it
 `head.js` draws the buddy's `Head` node only (like Android), filling the top part of the screen, with the same blend of
 poses as the Mac (`blend.js`, `moods.js`). Touch: stroking the head is "pet" (`gestures.js`' pet detector fed with
 touch points). Shake: `DeviceMotionEvent`; iOS asks permission, so the first tap on the head asks for it once. Sleep
-after the same idle time as the Mac, wake on touch, listening while recording, celebrate on a good answer, sad on an
+after the same idle time as the Mac, wake on touch, listening while recording, happy on a good answer, celebrate when an answer is copied or shared, sad on an
 error. The page pauses drawing when hidden (`visibilitychange`) to save battery.
 
 ### Chat
@@ -85,13 +85,14 @@ error. The page pauses drawing when hidden (`visibilitychange`) to save battery.
 Same request as the desktop panel's first step (`action: 'chat'`, step 1, the conversation and the facts, exactly as `src/renderer/panel` builds it). The phone never
 sends a box or a screenshot, so a `box` or `screen` answer is shown as "I can't see other apps on iPhone. Paste the text
 here." Answers' `remember` items go to memory. `doIt` / `send` are ignored; text answers show Copy and Share
-(`navigator.share`). Free-mode errors (limit, blocked, free off) show the server's words. No own-key mode on the phone.
+(`navigator.share`). Free-mode errors (limit, blocked) show the server's words; `free_off` shows the phone's own line, since the
+server's says to add your own key. No own-key mode on the phone.
 
 ### Claude mode
 
 The Android flow on the web: poll `GET /api/remote/phone?session=` every 2 s while the Claude tab is open and the app
-is visible, stop otherwise and `POST {action:'stop'}` on leaving. Sessions list grouped by computer, offline computers
-greyed. The feed uses the same item kinds as the desktop panel's Claude view; a full screen button (PR #28's phone full
+is visible, stop otherwise and `POST {action:'stop'}` on leaving. Sessions list grouped by computer (only computers seen in the last 45 s are listed, so offline ones simply don't
+show). 🎤 also works in the Claude box, like Android. The feed uses the same item kinds as the desktop panel's Claude view; a full screen button (PR #28's phone full
 screen). Send box: `POST {action:'send', session, text}`.
 
 ### Notifications
@@ -99,7 +100,9 @@ screen). Send box: `POST {action:'send', session, text}`.
 Web Push works on iOS 16.4+ only for a home-screen web app and only after the person allows it from a tap.
 
 - Server: new route `POST /api/push` `{ action: 'on', subscription }` / `{ action: 'off', endpoint }` saves or removes
-  the browser's push subscription in `remote/{uid}.push` (at most 5, newest kept). `web-push` package, keys in
+  the browser's push subscription in its own `push/{uid}` doc (at most 5, newest kept; not in `remote/{uid}`, which
+  `macReport` rebuilds and deletes when the last computer stops sharing). New error code `push_off` is added to
+  `shared/errors.js` and `SERVER_CODES` in `src/main/cloud.js`. `web-push` package, keys in
   `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` (+ `VAPID_SUBJECT` mailto) env vars. `GET /api/config` adds `pushKey`
   (the public key) when set.
 - Trigger: in `remoteMac`, after the update, a session whose status changed from `working` to `done` or `waiting`
@@ -118,9 +121,10 @@ available (not added to home screen, or iOS older than 16.4): the switch explain
 ## Testing
 
 - `node --test`: the sync check; the server's push route and the push trigger with fakes (like the other handler
-  tests); the app's pure modules (memory, chat request building, Claude polling state, auth token refresh timing) with
+  tests); the app's pure modules (memory, chat request building, Claude polling state, the 401 retry with a fresh token;
+the Firebase SDK renews tokens itself) with
   `node --test` in `test/web-app-*.test.mjs`.
-- Browser: run the site locally (`vercel dev` or a static server with the API pointed at production) and check the app
+- Browser (signed out only: localhost can't sign in; chat, Claude, voice and push are checked on the iPhone): run the site locally (`vercel dev` or a static server with the API pointed at production) and check the app
   in Chrome's iPhone size with Chrome DevTools: head draws, chat round trip, Claude list, no console errors.
 - The owner checks on the real iPhone with `docs/manual-checklist-iphone.md`: add to home screen, sign in, chat, voice,
   pet, shake, Claude mode, a notification while closed, and an update after a deploy.

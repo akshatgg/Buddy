@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');
 const net = require('node:net');
-const { createWatch, MOODS, OFF_LINE, FORGET_AFTER_MS, BODY_LIMIT, PORT_MIN, PORT_MAX } = require('../src/main/claude/watch');
+const { createWatch, ttyOf, MOODS, OFF_LINE, FORGET_AFTER_MS, BODY_LIMIT, PORT_MIN, PORT_MAX } = require('../src/main/claude/watch');
 const { BuddyError } = require('../shared/errors');
 
 const TOKEN = 'f'.repeat(32);
@@ -30,7 +30,7 @@ function hold(t, port) {
 }
 
 /** createWatch with a fake store, hooks, buddy and clock; the port comes from `ports`, in order. */
-function setup(t, { stored = {}, ports, busy = () => false, hooksError = null, active } = {}) {
+function setup(t, { stored = {}, ports, busy = () => false, hooksError = null, active, onEvent } = {}) {
   const saved = { watchClaudeCode: false, claudeHookPort: null, claudeHookToken: null, ...stored };
   const store = { get: (key) => saved[key], set: (patch) => Object.assign(saved, patch) };
   const ui = { moods: [], bubbles: [], mood(name) { this.moods.push(name); }, bubble(text) { this.bubbles.push(text); } };
@@ -45,7 +45,7 @@ function setup(t, { stored = {}, ports, busy = () => false, hooksError = null, a
   const laters = [];
   const queue = [...ports];
   const watch = createWatch({
-    store, find: {}, hooks, ui, chatBusy: busy, ...(active ? { active } : {}),
+    store, find: {}, hooks, ui, chatBusy: busy, ...(active ? { active } : {}), ...(onEvent ? { onEvent } : {}),
     now: () => clock,
     later: (fn, ms) => { const timer = { fn, ms }; laters.push(timer); return timer; },
     cancel: (timer) => { const i = laters.indexOf(timer); if (i >= 0) laters.splice(i, 1); },
@@ -62,8 +62,8 @@ function setup(t, { stored = {}, ports, busy = () => false, hooksError = null, a
  * connection open and reuse it, and after the watcher stops (which cuts it) the next request could take that dead
  * connection before Node has noticed, and fail with "fetch failed" on a busy machine.
  */
-const post = (port, path, body) => new Promise((resolve, reject) => {
-  const req = http.request({ host: '127.0.0.1', port, path, method: 'POST', agent: false, headers: { connection: 'close' } }, (res) => {
+const post = (port, path, body, headers = {}) => new Promise((resolve, reject) => {
+  const req = http.request({ host: '127.0.0.1', port, path, method: 'POST', agent: false, headers: { connection: 'close', ...headers } }, (res) => {
     res.resume();
     res.on('end', () => resolve({ status: res.statusCode }));
   });
@@ -163,6 +163,43 @@ test('while the chat is thinking, moods wait; the picture is sent once the chat 
   assert.deepStrictEqual(ui.moods, ['wave'], 'the current picture, once');
   fire();
   assert.deepStrictEqual(ui.moods, ['wave']);
+});
+
+test('every event goes on to Claude mode with its transcript, its folder and the terminal its hook named', async (t) => {
+  const port = await freePort();
+  const heard = [];
+  const { watch, ui } = setup(t, { ports: [port], onEvent: (e) => heard.push(e) });
+  await watch.start();
+  const url = `/claude-code/${TOKEN}`;
+  await post(port, url, event('UserPromptSubmit', { transcript_path: '/h/.claude/projects/p/s1.jsonl' }), { 'x-buddy-tty': 'ttys004  ' });
+  await post(port, url, event('Stop'), { 'x-buddy-tty': '$(rm -rf ~)' });
+  await post(port, url, 'not json', { 'x-buddy-tty': 'ttys004' });
+  await tick();
+  assert.deepStrictEqual(heard.map((e) => [e.name, e.tty, e.transcript, e.cwd, e.folder]), [
+    ['UserPromptSubmit', 'ttys004', '/h/.claude/projects/p/s1.jsonl', '/x/my-app', 'my-app'],
+    ['Stop', '', '', '/x/my-app', 'my-app'],
+  ]);
+  assert.deepStrictEqual(ui.moods, ['thinking', 'celebrate'], 'and the buddy moves as before');
+});
+
+test('an onEvent that throws does not stop the watcher', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const port = await freePort();
+  const { watch, ui } = setup(t, { ports: [port], onEvent: () => { throw new Error('oops'); } });
+  await watch.start();
+  await post(port, `/claude-code/${TOKEN}`, event('UserPromptSubmit'));
+  await post(port, `/claude-code/${TOKEN}`, event('Stop'));
+  await tick();
+  assert.deepStrictEqual(ui.moods, ['thinking', 'celebrate']);
+});
+
+test("the terminal's name, as ps prints it, or '' for anything else", () => {
+  assert.strictEqual(ttyOf({ 'x-buddy-tty': 'ttys012' }), 'ttys012');
+  assert.strictEqual(ttyOf({ 'x-buddy-tty': ' pts/3 ' }), 'pts/3');
+  for (const value of ['??', '', 'tty', 'ttys12345', '/dev/ttys001', 'ttys001; ls', undefined, ['ttys001']]) {
+    assert.strictEqual(ttyOf({ 'x-buddy-tty': value }), '', String(value));
+  }
+  assert.strictEqual(ttyOf(undefined), '');
 });
 
 test('a session quiet for 30 minutes is forgotten by the minute timer', async (t) => {

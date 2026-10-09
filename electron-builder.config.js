@@ -119,6 +119,8 @@ module.exports = {
       // What macOS shows when it asks for the microphone (the panel's voice). Without it, macOS ends the app the
       // moment it uses the microphone.
       NSMicrophoneUsageDescription: 'Buddy listens when you talk to it, to write down what you say.',
+      // Claude mode types what you send into your Claude Code terminal (iTerm2 or Terminal), through AppleScript.
+      NSAppleEventsUsageDescription: 'Buddy types what you send in Claude mode into your Claude Code terminal.',
     },
     // The Swift helper (src/native/BuddyHelper.swift, built by `npm run build:native`).
     // main.js's helperPath() looks for it at process.resourcesPath/bin/buddy-helper.

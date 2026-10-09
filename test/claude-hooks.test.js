@@ -25,7 +25,7 @@ const OWNER = Object.freeze({
 test('the Mac command sends the event to Buddy, skips Buddy\'s own runs, and always exits 0', () => {
   assert.strictEqual(
     hookCommand(MAC),
-    `[ -n "$BUDDY_CLAUDE_CODE" ] || curl -s -m 2 -X POST --data-binary @- ${URL} >/dev/null 2>&1; exit 0`,
+    `[ -n "$BUDDY_CLAUDE_CODE" ] || curl -s -m 2 -X POST -H "X-Buddy-Tty: $(ps -o tty= -p $PPID 2>/dev/null)" --data-binary @- ${URL} >/dev/null 2>&1; exit 0`,
   );
 });
 

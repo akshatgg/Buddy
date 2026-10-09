@@ -9,8 +9,11 @@
  * The list is drawn anew on every change, so it is not a live region (a screen reader would read the whole chat out
  * again each time): what is new in it is read out through #announce instead.
  *
- * The panel also listens (the end of this file): it records what is said, works out when the person has finished
- * (voice-timing.js), has it written down through Buddy's server, and sends the words as if they had been typed.
+ * The panel also listens: it records what is said, works out when the person has finished (voice-timing.js), has it
+ * written down through Buddy's server, and sends the words as if they had been typed.
+ *
+ * Claude mode (the end of this file) shows a Claude Code session from the person's terminal instead of the chat: the
+ * sessions running now to pick from, then the one picked as it goes on. The box then types into that terminal.
  */
 
 const $ = (id) => document.getElementById(id);
@@ -28,6 +31,10 @@ let fixIn = ''; // where Open Settings on the line under the box goes ('' when t
 let voice = 'idle'; // the listening: 'idle', 'starting' (opening the microphone), 'listening' or 'writing' (writing it down)
 let listen = null; // what a listening holds while it records: the microphone, the recorder, the meter, the timing
 let voiceTurn = 0; // counts the listenings; what comes back for one that was stopped meanwhile is dropped
+let mode = 'chat'; // what the panel shows: 'chat' (the buddy's chat), or 'claude' (Claude mode, the end of this file)
+// Claude mode: the session shown (null while the sessions are listed), the id the last open asked for, whether words
+// are on their way to its terminal, and the newest item drawn.
+const claude = { session: null, asked: null, talking: false, newest: 0 };
 
 function show(el, visible) {
   el.hidden = !visible;
@@ -136,6 +143,10 @@ function focusBoxIfLost() {
 }
 
 function updateSend() {
+  if (mode === 'claude') {
+    $('send').disabled = !(claude.session && !claude.talking && voice !== 'writing' && $('box').value.trim());
+    return;
+  }
   const ready = Boolean(state) && voice !== 'writing' && canSend({ busy: state.busy || sending, text: $('box').value, selection: state.selection });
   $('send').disabled = !ready;
 }
@@ -154,7 +165,7 @@ function scrollToNewest() {
 function render({ scroll = false } = {}) {
   const s = state;
   $('who').textContent = s.buddyName || 'Buddy';
-  $('where').textContent = s.appName ? `· ${s.appName}` : '';
+  $('where').textContent = mode === 'claude' ? '· Claude Code' : s.appName ? `· ${s.appName}` : '';
   $('greeting').textContent = s.greeting || 'Hi! What should we do?';
   const example = exampleLine(s.exampleProject); // a job in their project, when they have one (Claude Code)
   $('example-code').textContent = example;
@@ -184,10 +195,12 @@ function render({ scroll = false } = {}) {
   const now = { id: parts.length ? parts[parts.length - 1].id : null, busy: Boolean(s.busy) };
   if (scroll || !newest || now.id !== newest.id || (now.busy && !newest.busy)) scrollToNewest();
   newest = now;
+  if (mode === 'claude') applyMode(); // the chat changed behind Claude mode: what it shows stays hidden
 }
 
 async function send() {
   cancelListening(); // ↩ or the send button while listening: what was typed goes, and nothing of the listening
+  if (mode === 'claude') return talkToClaude();
   if (!state || !canSend({ busy: state.busy || sending, text: $('box').value, selection: state.selection })) return;
   const mine = generation;
   const message = $('box').value.trim();
@@ -287,6 +300,7 @@ window.buddy.onOpen((s) => {
   state = s;
   render({ scroll: true });
   box.focus();
+  if (mode === 'claude') claudeReopen();
   if (listensOnOpen(s.voice, { busy: s.busy })) startListening({ byItself: true });
 });
 
@@ -334,7 +348,8 @@ function setVoice(next) {
   const on = next === 'starting' || next === 'listening';
   $('box-frame').classList.toggle('listening', next === 'listening');
   $('box-frame').classList.toggle('writing', next === 'writing');
-  $('box').placeholder = PLACEHOLDERS[next];
+  const talkingToClaude = mode === 'claude' && claude.session && (next === 'idle' || next === 'starting');
+  $('box').placeholder = talkingToClaude ? CLAUDE_WORDS.placeholder(claude.session.name) : PLACEHOLDERS[next];
   $('mic').setAttribute('aria-pressed', String(on));
   $('mic').title = MIC_TITLES[next];
   show($('voice-bars'), next === 'listening' || next === 'writing');
@@ -572,6 +587,7 @@ $('mic').addEventListener('click', () => {
 // again at once, the page may still be hidden from the close by then, while this opening listens.)
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) return;
+  window.buddy.claudeClose(); // Claude mode stops reading while the panel is away, and opens its session again after
   const opening = generation;
   setTimeout(() => {
     if (document.hidden && opening === generation) cancelListening();
@@ -579,3 +595,148 @@ document.addEventListener('visibilitychange', () => {
 });
 // The page going away.
 window.addEventListener('pagehide', cancelListening);
+
+/* ---- Claude mode: a Claude Code session from the terminal, and the box typing into it ---- */
+
+const CLAUDE_STATUS = { working: 'working…', waiting: 'waiting for you', done: 'done', failed: 'hit a problem', idle: 'idle' };
+const CLAUDE_WORDS = {
+  placeholder: (name) => `Message Claude in ${name}…`,
+  noTalk: "Buddy can't type into this terminal: what you send is copied, to paste there.",
+  typed: '✅ Sent to the terminal',
+};
+
+/** Shows the chat or Claude mode: the Claude button, the views, the box's words and the header. */
+function applyMode() {
+  const on = mode === 'claude';
+  $('claude-mode').setAttribute('aria-pressed', String(on));
+  show($('chat'), !on);
+  show($('claude-view'), on);
+  show($('notice'), !on && Boolean(state?.notice));
+  show($('selection'), !on && Boolean(state?.selection));
+  show($('claude-pick'), on && !claude.session);
+  show($('claude-session'), on && Boolean(claude.session));
+  $('box').placeholder = on && claude.session ? CLAUDE_WORDS.placeholder(claude.session.name) : PLACEHOLDERS[voice];
+  if (state) $('where').textContent = on ? '· Claude Code' : state.appName ? `· ${state.appName}` : '';
+  updateSend();
+}
+
+/** The sessions running now, to pick one. */
+async function claudeList() {
+  claude.session = null;
+  claude.asked = null;
+  window.buddy.claudeClose();
+  applyMode();
+  show($('claude-pick-error'), false);
+  const r = await window.buddy.claudeSessions();
+  if (mode !== 'claude' || claude.session) return; // left, or a session opened meanwhile
+  const list = r.ok ? r.sessions : [];
+  $('claude-sessions').replaceChildren(...list.map((s) => {
+    const li = make('li');
+    const b = make('button');
+    b.type = 'button';
+    b.append(make('span', 'name', s.name), make('span', `status-chip ${s.status}`, CLAUDE_STATUS[s.status] || s.status));
+    b.addEventListener('click', () => claudeOpen(s.id));
+    li.append(b);
+    return li;
+  }));
+  show($('claude-none'), r.ok && list.length === 0);
+  if (!r.ok) {
+    $('claude-pick-error').textContent = r.error.message;
+    show($('claude-pick-error'), true);
+  }
+}
+
+/** Open a session: it shows as it is now, and claude-state brings what changes. */
+async function claudeOpen(id) {
+  claude.asked = id;
+  const r = await window.buddy.claudeOpen(id);
+  if (mode !== 'claude' || claude.asked !== id) return;
+  if (!r.ok) {
+    await claudeList();
+    $('claude-pick-error').textContent = r.error.message;
+    show($('claude-pick-error'), true);
+    return;
+  }
+  claude.newest = 0;
+  drawClaude(r.session, { scroll: true });
+  box.focus();
+}
+
+/** The panel opened again in Claude mode: the session shown before opens again, or the list. */
+function claudeReopen() {
+  if (claude.session) claudeOpen(claude.session.id);
+  else claudeList();
+}
+
+/** One item of the session, as the terminal shows it. */
+function drawClaudeItem(item) {
+  const kind = ['you', 'claude', 'tool', 'result', 'event'].includes(item.kind) ? item.kind : 'event';
+  const li = make('li', kind + (item.error ? ' error' : ''));
+  li.append(make('p', '', item.text));
+  return li;
+}
+
+/** The session: its bar and its items. The list stays where the person reads, unless they were at the bottom. */
+function drawClaude(session, { scroll = false } = {}) {
+  if (!session) return;
+  claude.session = session;
+  applyMode();
+  $('claude-name').textContent = session.name;
+  const chip = $('claude-status');
+  chip.className = `status-chip ${session.status}`;
+  chip.textContent = CLAUDE_STATUS[session.status] || session.status;
+  const list = $('claude-items');
+  const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+  const items = Array.isArray(session.items) ? session.items : [];
+  const rows = items.map(drawClaudeItem);
+  if (!session.canTalk) rows.push(make('li', 'older', CLAUDE_WORDS.noTalk));
+  list.replaceChildren(...rows);
+  const newest = items.length ? items[items.length - 1].id : 0;
+  if (scroll || (atBottom && newest !== claude.newest)) list.scrollTop = list.scrollHeight;
+  claude.newest = newest;
+}
+
+/** The box's words go to the session's terminal, with Enter. Where Buddy cannot type there, they are copied. */
+async function talkToClaude() {
+  const text = $('box').value.trim();
+  if (!claude.session || claude.talking || !text) return;
+  showSendError('');
+  claude.talking = true;
+  $('box').value = '';
+  updateSend();
+  let r;
+  try {
+    r = await window.buddy.claudeTalk(claude.session.id, text);
+  } finally {
+    claude.talking = false;
+    updateSend();
+  }
+  if (!r.ok) {
+    if (!$('box').value) $('box').value = text;
+    showSendError(r.error.message);
+  } else if (!r.typed) {
+    showSendError(r.message);
+  }
+  updateSend();
+}
+
+$('claude-mode').addEventListener('click', () => {
+  cancelListening();
+  showSendError('');
+  if (mode === 'claude') {
+    mode = 'chat';
+    claude.session = null;
+    window.buddy.claudeClose();
+    applyMode();
+    if (state) render({ scroll: true });
+  } else {
+    mode = 'claude';
+    claudeList();
+  }
+  box.focus();
+});
+$('claude-back').addEventListener('click', () => claudeList());
+$('claude-again').addEventListener('click', () => claudeList());
+window.buddy.onClaudeState((session) => {
+  if (mode === 'claude' && session && claude.session && session.id === claude.session.id) drawClaude(session);
+});

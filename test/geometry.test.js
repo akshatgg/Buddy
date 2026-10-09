@@ -79,6 +79,18 @@ test('clampToArea keeps the window inside the work area', () => {
   );
 });
 
+test('clampBuddy keeps the buddy on the screen, not its room above: that may go under the menu bar', () => {
+  const win = { x: 600, y: -500, ...g.buddyWindowSize('medium') }; // 96 × 150: the box 112, the room 38
+  const top = g.clampBuddy(win, AREA);
+  const box = g.buddyBox(top);
+  assert.strictEqual(box.y, AREA.y - Math.round(112 * g.TOP_TUCK), 'the box a little past the top, where its head has room');
+  assert.strictEqual(top.y, box.y - 38);
+  assert.deepStrictEqual(g.clampBuddy({ x: -50, y: 2000, width: 96, height: 150 }, AREA), { x: 8, y: AREA.y + AREA.height - 150 - 8, width: 96, height: 150 }, 'the other edges as before');
+  const old = g.clampBuddy({ x: 600, y: -500, width: 96, height: 112 }, AREA); // a window with no room above
+  assert.strictEqual(old.y, AREA.y - Math.round(112 * g.TOP_TUCK));
+  assert.strictEqual(g.snapToEdge(win, AREA).y, top.y, 'snapping keeps it at the top');
+});
+
 test('snapToEdge goes to the nearer side', () => {
   assert.strictEqual(g.snapToEdge({ x: 300, y: 400, width: 96, height: 112 }, AREA).x, 8);
   assert.strictEqual(g.snapToEdge({ x: 1000, y: 400, width: 96, height: 112 }, AREA).x, 1336);

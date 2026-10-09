@@ -12,6 +12,10 @@ const PANEL_MIN = { width: 320, height: 380 }; // the smallest the person can ma
 const PANEL_BIG = { width: 560, height: 760 }; // the header's ⤢: as big as this, or as the screen allows
 const BUBBLE = { width: 230, height: 54 };
 const ROOM_ABOVE = 0.6; // room above the buddy for its symbols (src/renderer/buddy/symbols.js), times its size
+// How far the buddy's box may go above the work area's top, times its height: the box has room above the head for the
+// float (the camera frames the character with about an eighth of the box empty above it, layout.js), so the head
+// itself can sit right under the menu bar.
+const TOP_TUCK = 0.08;
 
 /**
  * The buddy window: the buddy's own box, 1.5 × its size wide and 1.75 × tall (room around the character for floating
@@ -50,6 +54,21 @@ function clampToArea(b, area, margin = MARGIN) {
   };
 }
 
+/**
+ * The buddy window kept on the screen by the buddy itself, not by the whole window: its box stays inside the work area
+ * (the top a little past it, TOP_TUCK, as the head has room above it in the box), while the room above the box for
+ * the symbols may go past the top, under the menu bar. So the buddy can go right to the top of the screen.
+ */
+function clampBuddy(b, area, margin = MARGIN) {
+  const box = buddyBox(b);
+  const above = box.y - b.y + Math.round(box.height * TOP_TUCK);
+  return {
+    ...b,
+    x: clamp(b.x, area.x + margin, area.x + area.width - b.width - margin),
+    y: clamp(b.y, area.y - above, area.y + area.height - b.height - margin),
+  };
+}
+
 /** Bottom-right corner of the work area: where a new buddy first appears. */
 function defaultBounds(area, size, margin = MARGIN) {
   return {
@@ -59,11 +78,11 @@ function defaultBounds(area, size, margin = MARGIN) {
   };
 }
 
-/** Glide to the nearer left or right edge, staying inside the work area. */
+/** Glide to the nearer left or right edge, the buddy staying inside the work area (clampBuddy). */
 function snapToEdge(b, area, margin = MARGIN) {
   const left = b.x + b.width / 2 < area.x + area.width / 2;
   const x = left ? area.x + margin : area.x + area.width - b.width - margin;
-  return clampToArea({ ...b, x }, area, margin);
+  return clampBuddy({ ...b, x }, area, margin);
 }
 
 /** A box beside the buddy, on the side away from the screen edge it sits on. */
@@ -110,11 +129,11 @@ const bubbleBounds = (buddy, area) => besideBuddy(buddy, area, BUBBLE, true);
 function resizeAround(b, size, area) {
   const cx = b.x + b.width / 2;
   const bottom = b.y + b.height;
-  return clampToArea({ x: Math.round(cx - size.width / 2), y: Math.round(bottom - size.height), ...size }, area);
+  return clampBuddy({ x: Math.round(cx - size.width / 2), y: Math.round(bottom - size.height), ...size }, area);
 }
 
 module.exports = {
   SIZES, MARGIN, PANEL, PANEL_MIN, PANEL_BIG, BUBBLE,
-  buddyWindowSize, buddyBox, windowAtBox, clampToArea, defaultBounds, snapToEdge, panelBounds, bubbleBounds, resizeAround,
+  TOP_TUCK, buddyWindowSize, buddyBox, windowAtBox, clampToArea, clampBuddy, defaultBounds, snapToEdge, panelBounds, bubbleBounds, resizeAround,
   panelSize, panelGrip, resizedPanel,
 };

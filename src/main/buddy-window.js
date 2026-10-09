@@ -11,7 +11,7 @@
  */
 
 const path = require('node:path');
-const { buddyWindowSize, buddyBox, windowAtBox, clampToArea, defaultBounds, snapToEdge, resizeAround } = require('./geometry');
+const { buddyWindowSize, buddyBox, windowAtBox, clampBuddy, defaultBounds, snapToEdge, resizeAround } = require('./geometry');
 const { floatingType } = require('./platform');
 
 const CURSOR_MS = 66; // about 15 updates a second is plenty for a head turn
@@ -44,7 +44,7 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
       || screen.getPrimaryDisplay();
     const saved = store.get('positions')[String(display.id)];
     const bounds = saved ? windowAtBox(saved, size) : defaultBounds(display.workArea, size);
-    return clampToArea(bounds, display.workArea);
+    return clampBuddy(bounds, display.workArea);
   }
 
   function create() {
@@ -60,6 +60,9 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
       alwaysOnTop: true,
       skipTaskbar: true,
       show: false,
+      // The room above the buddy for its symbols may go under the menu bar (geometry.js clampBuddy), so the buddy can sit
+      // right at the top: macOS keeps every window below the menu bar unless told the window may go past the screen.
+      enableLargerThanScreen: true,
       backgroundColor: '#00000000',
       webPreferences: {
         preload: path.join(__dirname, '..', 'preload', 'buddy.js'),
@@ -282,7 +285,7 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
     reclamp() {
       if (!win) return;
       const b = win.getBounds();
-      const next = clampToArea(b, screen.getDisplayMatching(b).workArea);
+      const next = clampBuddy(b, screen.getDisplayMatching(b).workArea);
       if (next.x !== b.x || next.y !== b.y) win.setBounds(next);
     },
   };

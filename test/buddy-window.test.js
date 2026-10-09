@@ -16,6 +16,7 @@ function setup(stored = {}) {
   const made = [];
   class FakeWindow {
     constructor(options) {
+      this.options = options;
       this.bounds = { x: options.x, y: options.y, width: options.width, height: options.height };
       this.visible = false;
       this.destroyed = false;
@@ -213,15 +214,21 @@ test("a drag moves and snaps the real window, and the place remembered is the bo
   assert.deepStrictEqual(win().getBounds(), { x: 8, y: 442, width: 96, height: 150 });
 });
 
-test('the room above the buddy stays on the screen: a drag to the top is clamped by the whole window', (t) => {
+test('the buddy goes right to the top: the room above it for its symbols goes under the menu bar', (t) => {
   t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
   const { buddy, win, settings } = setup();
   buddy.show();
+  assert.strictEqual(win().options.enableLargerThanScreen, true, 'or macOS keeps the window below the menu bar');
   buddy.beginDrag({ x: 1400, y: 800 });
-  buddy.dragTo({ x: 300, y: 20 });
+  buddy.dragTo({ x: 300, y: -400 });
   buddy.endDrag();
-  assert.deepStrictEqual(win().getBounds(), { x: 8, y: 8, width: 96, height: 150 });
-  assert.deepStrictEqual(settings.positions, { 1: { x: 8, y: 46 } });
+  // The box (112 tall) a little past the top, 9 (TOP_TUCK) where the head has room above it; the room (38) above that.
+  assert.deepStrictEqual(win().getBounds(), { x: 8, y: -47, width: 96, height: 150 });
+  assert.deepStrictEqual(buddy.bounds(), { x: 8, y: -9, width: 96, height: 112 });
+  assert.deepStrictEqual(settings.positions, { 1: { x: 8, y: -9 } });
+  const next = setup({ positions: settings.positions });
+  next.buddy.show();
+  assert.deepStrictEqual(next.win().getBounds(), { x: 8, y: -47, width: 96, height: 150 }, 'and comes back there at the next launch');
 });
 
 test("a new size keeps the box's bottom centre, and remembers the new box's corner", (t) => {

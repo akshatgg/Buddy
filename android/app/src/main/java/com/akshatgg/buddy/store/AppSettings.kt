@@ -69,6 +69,11 @@ class AppSettings(private val kv: KeyValue) {
         get() = flag("tagOn", true)
         set(v) = kv.putString("tagOn", v.toString())
 
+    /** Buddy can type for you was asked for (off to Android's Accessibility settings) and is not on yet. */
+    var lookAsked: Boolean
+        get() = flag("lookAsked", false)
+        set(v) = kv.putString("lookAsked", v.toString())
+
     /** The server's last answer about free mode, null when there is none. */
     var cloud: FreeSettings?
         get() = FreeSettings.fromJson(kv.getString("cloud"))

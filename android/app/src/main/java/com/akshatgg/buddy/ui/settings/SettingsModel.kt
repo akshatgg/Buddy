@@ -46,6 +46,27 @@ internal fun tagExplanation(name: String, characterId: String): String {
 }
 
 /** Forget everything asks once more first, as the desktop does. */
+/**
+ * Whether Android may block Buddy can type for you ("Restricted setting"): from Android 13 it does for an app that did
+ * not come from an app store, until the person allows restricted settings on the app's App info page, once.
+ */
+internal fun mayBeRestricted(sdk: Int, installer: String?): Boolean = sdk >= 33 && installer != PLAY_STORE
+
+private const val PLAY_STORE = "com.android.vending"
+
+/** What to do in Android's Accessibility settings, said before they open; with what to do if Android blocks it. */
+internal fun lookSteps(mayBeBlocked: Boolean): String {
+    val steps = "Next: tap Downloaded apps (or Installed apps), then Buddy can type for you, and turn it on."
+    return if (mayBeBlocked) "$steps If Android says \"Restricted setting\", come back here: Buddy shows you how to unlock it, once." else steps
+}
+
+/** How to unlock Buddy can type for you once Android has blocked it ("Restricted setting"), on Buddy's App info page. */
+internal val UNLOCK_STEPS = listOf(
+    "Tap Open App info below.",
+    "Tap ⋮ at the top right, then Allow restricted settings, and confirm. (Not there? Tap Buddy once in Accessibility first.)",
+    "Come back here, tap Turn on, and switch Buddy on.",
+)
+
 internal fun forgetAllQuestion(n: Int): String = if (n == 1) "Forget the 1 thing?" else "Forget all $n things?"
 
 /** Where the facts are kept, under What Buddy knows about you: with the account when signed in, else on this phone. */
@@ -75,6 +96,10 @@ data class SettingsState(
     val buddyOn: Boolean,
     /** Look where I type: whether its Accessibility service is on in Android's settings. */
     val lookOn: Boolean = false,
+    /** Turn on was asked for and it is still off, on a phone where Android may block it: how to unlock it shows. */
+    val lookBlocked: Boolean = false,
+    /** Android may block it on this phone (mayBeRestricted): Turn on says what to do if it does. */
+    val lookMayBeBlocked: Boolean = false,
     /** Fix where I type (@buddy). */
     val tagOn: Boolean = true,
     val signingIn: Boolean = false,
@@ -102,6 +127,7 @@ class SettingsModel(
     private val scope: CoroutineScope,
     private val lookEnabled: () -> Boolean = { false },
     private val syncMemory: () -> Unit = {},
+    private val lookMayBeBlocked: Boolean = false,
 ) {
     val user: StateFlow<User?> = account.user
     val free: StateFlow<FreeSettings?> = cloud.free
@@ -116,15 +142,26 @@ class SettingsModel(
     // Buddy on was asked for while it could not float: it comes on once "Display over other apps" is allowed.
     private var waitingToFloat = false
 
-    private fun read(name: String) = SettingsState(
-        characterId = settings.characterId,
-        name = name,
-        size = settings.size,
-        buddyOn = settings.buddyOn,
-        lookOn = lookEnabled(),
-        tagOn = settings.tagOn,
-        learning = memory.learning,
-    )
+    private fun read(name: String): SettingsState {
+        val lookOn = lookEnabled()
+        if (lookOn && settings.lookAsked) settings.lookAsked = false
+        return SettingsState(
+            characterId = settings.characterId,
+            name = name,
+            size = settings.size,
+            buddyOn = settings.buddyOn,
+            lookOn = lookOn,
+            lookBlocked = !lookOn && lookMayBeBlocked && settings.lookAsked,
+            lookMayBeBlocked = lookMayBeBlocked,
+            tagOn = settings.tagOn,
+            learning = memory.learning,
+        )
+    }
+
+    /** Turn on's Continue: off to Android's Accessibility settings. Back with it still off, how to unlock it shows. */
+    fun lookAsked() {
+        settings.lookAsked = true
+    }
 
     fun say(line: Line, status: Status?) {
         fading.remove(line)?.cancel()

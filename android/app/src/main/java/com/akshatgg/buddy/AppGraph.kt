@@ -1,6 +1,7 @@
 package com.akshatgg.buddy
 
 import android.content.Context
+import android.os.Build
 import com.akshatgg.buddy.account.Account
 import com.akshatgg.buddy.account.CredentialManagerGoogle
 import com.akshatgg.buddy.account.FirebaseAuthApi
@@ -29,6 +30,8 @@ import com.akshatgg.buddy.store.Secrets
 import com.akshatgg.buddy.store.SharedPrefsKeyValue
 import com.akshatgg.buddy.typing.ServiceTypeIn
 import com.akshatgg.buddy.typing.TypeIn
+import com.akshatgg.buddy.ui.common.installer
+import com.akshatgg.buddy.ui.settings.mayBeRestricted
 import com.akshatgg.buddy.update.ApkInstaller
 import com.akshatgg.buddy.update.Updater
 import com.akshatgg.buddy.voice.MediaRecorderRecorder
@@ -78,6 +81,9 @@ class AppGraph(
 
     /** Whether Buddy can type for you (LookService) is on in Android's Accessibility settings. */
     val lookEnabled: () -> Boolean = { LookService.isEnabled(context) }
+
+    /** Whether Android may block Buddy can type for you until restricted settings are allowed (mayBeRestricted). */
+    val lookMayBeBlocked: Boolean by lazy { mayBeRestricted(Build.VERSION.SDK_INT, context.installer()) }
 
     /** A Voice for a screen with a 🎤: the microphone recorded into the app's cache, written down by Buddy's server. */
     val voiceFactory: (Context) -> Voice = { c ->

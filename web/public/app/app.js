@@ -3,6 +3,7 @@
 // computers) and Settings. Each part is its own file; this one hands them what they need from each other, and tells
 // the buddy what happens (its feelings, as src/main/feelings.js does on the Mac).
 
+import { configStale } from './config-age.js';
 import { createStore, localStorageOf } from './store.js';
 import { createApi, TIMEOUTS } from './api.js';
 import { startAuth, signInMessage, SIGN_IN_OFFLINE } from './auth.js';
@@ -32,6 +33,7 @@ const LINK = /^#claude\/([\w-]{1,100})$/; // a notification's session: /app#clau
 
 let person = null; // who is signed in: { uid, email, name, firstName }, or null
 let config = null; // GET /api/config for them: voiceOn, pushKey, …
+let configAt = 0; // when it was fetched (Date.now())
 let tab = 'chat';
 let buddies = []; // buddies.json
 let bubbleTimer = null;
@@ -269,6 +271,7 @@ window.addEventListener('hashchange', followLink);
 function showSignedOut() {
   person = null;
   config = null;
+  configAt = 0;
   tab = 'chat'; // the next sign-in opens on Chat
   app.dataset.signed = 'out';
   $('signin').hidden = false;
@@ -303,7 +306,10 @@ function loadConfig(who) {
     const got = await api.get('/api/config', { timeoutMs: TIMEOUTS.config }).catch(() => null);
     if (configAsk === ask) configAsk = null;
     if (person !== who) return null; // signed out meanwhile
-    if (got) config = got;
+    if (got) {
+      config = got;
+      configAt = Date.now();
+    }
     chatView.setVoice(config?.voiceOn === true);
     claudeView.setVoice(config?.voiceOn === true);
     if (tab === 'settings') {
@@ -316,15 +322,15 @@ function loadConfig(who) {
   return ask;
 }
 
-/** The config a message goes by: the one there is, else the one on its way, else one more try. */
+/** The config a message goes by: a fresh one, else the one on its way, else one more try (the old one stays if it fails). */
 async function currentConfig() {
-  if (!config && person) await (configAsk ?? loadConfig(person));
+  if (person && configStale(config, configAt)) await (configAsk ?? loadConfig(person));
   return config;
 }
 
-/** Back online, or back in view: the config that could not be had at sign-in is asked for again. */
+/** Back online, or back in view: a config that could not be had, or has got old, is asked for again. */
 function configAgain() {
-  if (person && !config && !configAsk) loadConfig(person);
+  if (person && configStale(config, configAt) && !configAsk) loadConfig(person);
 }
 window.addEventListener('online', configAgain);
 

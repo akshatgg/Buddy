@@ -98,3 +98,36 @@ test('an error that is not a free-mode refusal is the server\'s, and no config i
   await assert.rejects(none.ask({ message: 'hi' }), (err) => err.code === 'network' && err.message === NO_INTERNET);
   assert.deepStrictEqual(none.calls, []);
 });
+
+test('a stale config is asked for again: free mode switched back on is noticed', async () => {
+  const { configStale, CONFIG_FRESH_MS } = await import('../web/public/app/config-age.js');
+  assert.strictEqual(configStale(null, 0, 5), true, 'no config');
+  assert.strictEqual(configStale(cfg(), 1000, 1000 + CONFIG_FRESH_MS - 1), false, 'fresh');
+  assert.strictEqual(configStale(cfg(), 1000, 1000 + CONFIG_FRESH_MS), true, 'a minute old');
+  // The app's currentConfig: re-fetch when stale, keep the old one if the fetch fails.
+  let config = cfg({ freeOn: false });
+  let at = 0;
+  let now = 10 * CONFIG_FRESH_MS;
+  let serverSays = cfg({ freeOn: true });
+  let fetches = 0;
+  const current = async () => {
+    if (configStale(config, at, now)) {
+      fetches++;
+      if (serverSays) { config = serverSays; at = now; }
+    }
+    return config;
+  };
+  const asked = [];
+  const ask = createAsk({ config: current, freshConfig: async () => null, hasKey: () => false, askOwn: async () => ({}), askServer: async (b) => { asked.push(b); return { chat: 'hi' }; } });
+  await ask({ text: 'hello' });
+  assert.strictEqual(fetches, 1);
+  assert.strictEqual(asked.length, 1, 'the server route is used once free mode is on');
+  now += 10_000;
+  await ask({ text: 'again' });
+  assert.strictEqual(fetches, 1, 'fresh: not fetched again');
+  now += CONFIG_FRESH_MS;
+  serverSays = null; // offline
+  await current();
+  assert.strictEqual(fetches, 2);
+  assert.strictEqual(config.freeOn, true, 'the old config stays when the fetch fails');
+});

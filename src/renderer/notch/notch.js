@@ -219,7 +219,11 @@ window.addEventListener('mousemove', (e) => {
   if (layout) setHover(overShape(e.clientX, e.clientY));
 });
 document.addEventListener('mouseleave', () => setHover(false));
-shape.addEventListener('click', () => window.notch.click());
+// A click on Clawd (Claude Code's status) opens Claude mode; anywhere else on the shape, the panel as usual.
+shape.addEventListener('click', (e) => {
+  if (work && !icon.hidden && e.target.closest('#icon')) window.notch.claude();
+  else window.notch.click();
+});
 
 window.notch.onLayout((next) => {
   layout = next;

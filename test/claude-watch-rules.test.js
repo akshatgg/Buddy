@@ -227,23 +227,23 @@ test('the notch status: what the one session does, kept between tools, then done
   assert.deepStrictEqual(statuses([
     ev('UserPromptSubmit'), tool('PreToolUse', 'Read'), tool('PostToolUse', 'Read'), tool('PreToolUse', 'Edit'), ev('Stop'), ev('SessionEnd'),
   ]), [
-    { kind: 'working', text: 'Claude · thinking' },
-    { kind: 'working', text: 'Claude · reading code' },
-    { kind: 'working', text: 'Claude · reading code' },
-    { kind: 'working', text: 'Claude · editing code' },
-    { kind: 'done', text: '' },
-    { kind: 'done', text: '' },
+    { kind: 'working', text: 'Claude · thinking', session: 's1' },
+    { kind: 'working', text: 'Claude · reading code', session: 's1' },
+    { kind: 'working', text: 'Claude · reading code', session: 's1' },
+    { kind: 'working', text: 'Claude · editing code', session: 's1' },
+    { kind: 'done', text: '', session: null },
+    { kind: 'done', text: '', session: null },
   ]);
 });
 
-test('the notch status: a need beats work, several sessions are counted, a failure has no words', () => {
+test('the notch status: a need beats work, several sessions are counted, a failure has no words; a click opens the one session', () => {
   assert.deepStrictEqual(statuses([ev('UserPromptSubmit', 'a'), ev('UserPromptSubmit', 'b'), ev('PermissionRequest', 'a'), ev('PreToolUse', 'a'), ev('StopFailure', 'a'), ev('StopFailure', 'b')]), [
-    { kind: 'working', text: 'Claude · thinking' },
-    { kind: 'working', text: '2 Claudes working' },
-    { kind: 'needsYou', text: 'Claude needs you' },
-    { kind: 'working', text: '2 Claudes working' },
-    { kind: 'working', text: 'Claude · thinking' },
-    { kind: 'failed', text: '' },
+    { kind: 'working', text: 'Claude · thinking', session: 'a' },
+    { kind: 'working', text: '2 Claudes working', session: null },
+    { kind: 'needsYou', text: 'Claude needs you', session: 'a' },
+    { kind: 'working', text: '2 Claudes working', session: null },
+    { kind: 'working', text: 'Claude · thinking', session: 'b' },
+    { kind: 'failed', text: '', session: null },
   ]);
   assert.strictEqual(statuses([ev('SessionEnd')])[0], null, 'nothing going on: no status');
 });

@@ -116,8 +116,9 @@ function typedText(text) {
 
 /**
  * The items one line of the transcript makes: { kind, text } with kind 'you' (they typed it), 'claude' (Claude's
- * reply), 'tool' (a tool it ran), 'result' (what that gave back; `error` when it failed) or 'event' (stopped by the
- * person). A subagent's lines, Claude Code's own notes and its thinking make none.
+ * reply), 'thinking' (Claude's thinking before it, as the terminal shows it folded), 'tool' (a tool it ran), 'result' (what
+ * that gave back; `error` when it failed) or 'event' (stopped by the person). A subagent's lines and Claude Code's own
+ * notes make none, nor does a thinking with no words (Claude Code keeps only its signature at times).
  */
 function itemsOf(entry) {
   if (!isObject(entry) || entry.isSidechain === true || entry.isMeta === true) return [];
@@ -146,6 +147,9 @@ function itemsOf(entry) {
     return content.flatMap((block) => {
       if (block?.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
         return [{ kind: 'claude', text: cut(block.text.trim(), TEXT_CHARS) }];
+      }
+      if (block?.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.trim()) {
+        return [{ kind: 'thinking', text: cut(block.thinking.trim(), TEXT_CHARS) }];
       }
       if (block?.type === 'tool_use') return [{ kind: 'tool', text: toolLine(block.name, block.input) }];
       return [];

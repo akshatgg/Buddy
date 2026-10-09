@@ -178,3 +178,21 @@ test('a Windows package without a valid cloud.json fails the build, as a Mac one
   const refused = await windowsPackage(t, { ...PACKED, contents: { 'cloud.json': '{ not json' }, helper: true });
   await assert.rejects(afterPack.default(refused), { message: NOT_VALID });
 });
+
+test("the Mac app is signed with Buddy's own certificate when the release has it, else ad-hoc", () => {
+  const id = 'c37aa722ff904c1b4f9839a49d761c87a76b487d';
+  assert.deepStrictEqual(afterPack.signingIdentity({ MAC_SIGN_IDENTITY: id, MAC_SIGN_KEYCHAIN: '/tmp/k.keychain-db' }),
+    { identity: id.toUpperCase(), keychain: '/tmp/k.keychain-db' });
+  assert.deepStrictEqual(afterPack.signingIdentity({ MAC_SIGN_IDENTITY: ` ${id}\n` }), { identity: id.toUpperCase(), keychain: null });
+  for (const env of [{}, { MAC_SIGN_IDENTITY: '' }, { MAC_SIGN_IDENTITY: 'Buddy Code Signing' }, { MAC_SIGN_IDENTITY: id.slice(1) }]) {
+    assert.deepStrictEqual(afterPack.signingIdentity(env), { identity: '-', keychain: null }, JSON.stringify(env));
+  }
+});
+
+test('the permissions stay across updates only when the identity macOS keeps them for names the certificate', () => {
+  const id = 'C37AA722FF904C1B4F9839A49D761C87A76B487D';
+  assert.strictEqual(afterPack.keepsPermissions(`designated => identifier "com.akshatgg.buddy" and certificate root = H"${id.toLowerCase()}"`, id), true);
+  assert.strictEqual(afterPack.keepsPermissions(`designated => identifier "com.akshatgg.buddy" and certificate leaf = H"${id.toLowerCase()}"`, id), true);
+  assert.strictEqual(afterPack.keepsPermissions('designated => cdhash H"a79cdb53ba63a78dbce082452cc893be7cc60039"', id), false, 'ad-hoc: tied to the build');
+  assert.strictEqual(afterPack.keepsPermissions('designated => identifier "x" and certificate root = H"0000000000000000000000000000000000000000"', id), false);
+});

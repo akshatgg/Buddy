@@ -104,9 +104,20 @@ function checkWindowsPackage(appOutDir) {
  * None of this replaces notarisation. It makes the app installable; a Developer
  * ID would make it open without ceremony.
  *
+ * Buddy's own certificate: an ad-hoc signature is tied to the exact build, so to
+ * macOS every update is a new app, and it forgets the permissions Buddy was given
+ * (Accessibility, Screen Recording, the microphone). When the release has Buddy's
+ * own self-signed certificate (MAC_SIGN_IDENTITY, its SHA-1, in the keychain
+ * MAC_SIGN_KEYCHAIN: the release workflow sets both from the MAC_SIGN_P12
+ * secret), the bundle and the helper are signed with it instead. Their identity
+ * is then the bundle id and that certificate, the same in every version, so the
+ * permissions stay across updates. Gatekeeper still asks once (Open Anyway), as
+ * for an ad-hoc app: only a Developer ID changes that.
+ *
  * The Swift helper (Contents/Resources/bin/buddy-helper) is not "nested code"
  * to codesign: it sits in Resources, so the seal records it as a file and it
- * keeps the ad-hoc signature the Swift linker gave it, which arm64 accepts. It
+ * keeps the ad-hoc signature the Swift linker gave it, which arm64 accepts (with
+ * Buddy's own certificate it is signed with that first, before the seal). It
  * is checked below, because a bundle without it still verifies, and Buddy would
  * then run with no way to copy, paste or see the screen.
  *
@@ -132,13 +143,23 @@ exports.default = async function afterPack(context) {
   if (context.packager.platformSpecificBuildOptions.identity !== null) return;
 
   const bundleId = context.packager.appInfo.id;
+  const helper = path.join(appPath, 'Contents', 'Resources', 'bin', 'buddy-helper');
+  const { identity, keychain } = signingIdentity(process.env);
+  const from = keychain ? ['--keychain', keychain] : [];
 
-  console.log(`  • ad-hoc signing  ${appName} as ${bundleId}`);
+  if (identity === '-') {
+    console.log(`  • ad-hoc signing  ${appName} as ${bundleId} (macOS asks for Buddy's permissions again after an update)`);
+  } else {
+    console.log(`  • signing  ${appName} as ${bundleId} with Buddy's own certificate`);
+    // The helper first: the bundle's seal records it as a file, so it must not change after.
+    execFileSync('codesign', ['--force', ...from, '--sign', identity, helper], { stdio: 'inherit' });
+  }
 
   execFileSync('codesign', [
     '--force',
     '--deep',
-    '--sign', '-',
+    ...from,
+    '--sign', identity,
     '--identifier', bundleId,
     appPath,
   ], { stdio: 'inherit' });
@@ -147,15 +168,42 @@ exports.default = async function afterPack(context) {
   execFileSync('codesign', ['--verify', '--strict', '--deep', appPath], { stdio: 'inherit' });
 
   // Fails when the helper is missing (run `npm run build:native` first) or was changed after sealing.
-  const helper = path.join(appPath, 'Contents', 'Resources', 'bin', 'buddy-helper');
   execFileSync('codesign', ['--verify', '--strict', helper], { stdio: 'inherit' });
+
+  // With Buddy's own certificate, the identity macOS keeps the permissions for must name it: else they would go again.
+  if (identity !== '-') {
+    const requirement = spawnSync('codesign', ['-d', '-r-', appPath], { encoding: 'utf8' });
+    if (!keepsPermissions(`${requirement.stdout}${requirement.stderr}`, identity)) {
+      throw new Error(`${appName} is not signed with Buddy's own certificate (${identity}): macOS would ask for its permissions again after an update.`);
+    }
+  }
 
   // codesign describes a signature on stderr.
   const info = spawnSync('codesign', ['-dv', appPath], { encoding: 'utf8' }).stderr;
   console.log(`  • signature verified (${(info.match(/Identifier=(\S+)/) || [])[1]})`);
 };
 
+/**
+ * What the Mac bundle is signed with: Buddy's own certificate when MAC_SIGN_IDENTITY names one (its SHA-1, 40 hex
+ * digits; MAC_SIGN_KEYCHAIN is the keychain it is in, if not the default), else '-' (ad-hoc).
+ */
+function signingIdentity(env) {
+  const id = String(env.MAC_SIGN_IDENTITY || '').trim();
+  if (!/^[0-9A-Fa-f]{40}$/.test(id)) return { identity: '-', keychain: null };
+  return { identity: id.toUpperCase(), keychain: env.MAC_SIGN_KEYCHAIN || null };
+}
+
+/**
+ * Whether a designated requirement (codesign -d -r-) ties the app to the certificate `identity` (its SHA-1): then an
+ * update signed with the same one is the same app to macOS, and keeps its permissions.
+ */
+function keepsPermissions(requirement, identity) {
+  return new RegExp(`certificate (root|leaf) = H"${identity}"`, 'i').test(requirement);
+}
+
 exports.REQUIRED_IN_ASAR = REQUIRED_IN_ASAR;
+exports.signingIdentity = signingIdentity;
+exports.keepsPermissions = keepsPermissions;
 exports.missingFromAsar = missingFromAsar;
 exports.cloudConfigProblem = cloudConfigProblem;
 exports.checkWindowsPackage = checkWindowsPackage;

@@ -53,7 +53,7 @@ const { createTerminal } = require('./claude/terminal');
 const { createClaudeMode } = require('./claude/mode');
 const { createShare, thisDevice } = require('./claude/share');
 const { createTagWatch } = require('./tag');
-const { createUpdater, installTarget, firstLaunchOfNewVersion } = require('./updates');
+const { createUpdater, installTarget, firstLaunchOfNewVersion, resetMacPermissions } = require('./updates');
 const { helperFile, windows: onWindows } = require('./platform');
 
 // Buddy's own version, from the app's package.json (which is packed into the built app). Not app.getVersion(): when
@@ -435,11 +435,16 @@ async function start(options = {}) {
   }
   tray.refresh();
 
-  // After an update on the Mac, macOS has forgotten Buddy's permissions (an ad-hoc signed app is a new app to it, and
-  // the update cleared its old entries): Settings opens on them and says why.
+  // After an update on the Mac, Buddy keeps its permissions when both versions are signed with its own certificate
+  // (build/afterPack.js). When they are gone (the update came from a build signed otherwise, an ad-hoc one: to macOS a
+  // new app), their old entries are cleared, as they would show as on and do nothing, and Settings opens on them and
+  // says why.
   if (justUpdated && process.platform === 'darwin' && store.get('onboarded')) {
-    helper.call('permissions').then((granted) => {
-      if (!granted?.accessibility) openSettings('permissions');
+    helper.call('permissions').then(async (granted) => {
+      if (granted?.accessibility) return;
+      const run = require('node:util').promisify(require('node:child_process').execFile);
+      await resetMacPermissions(run).catch((err) => console.warn('[buddy] could not clear the old permissions:', err.code || err.name));
+      openSettings('permissions');
     }).catch((err) => console.warn('[buddy] could not check the permissions after the update:', err.code || err.name));
   }
   if (target.platform !== 'development') updatesIpc.launchCheck();

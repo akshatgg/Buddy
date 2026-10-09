@@ -11,6 +11,7 @@ import { createChat } from './chat-core.js';
 import { createAsk } from './route.js';
 import { createOwnAi } from './own-ai.js';
 import { startAiSettings } from './ai-settings.js';
+import { startAdmin } from './admin.js';
 import { startChatView } from './chat.js';
 import { startSettings } from './settings.js';
 import { createHead } from './head.js';
@@ -213,6 +214,13 @@ const settings = startSettings({
   support: () => supportHere(window),
 });
 const aiSettings = startAiSettings({ own, config: () => config });
+const admin = startAdmin({
+  api,
+  isAdmin: () => config?.isAdmin === true,
+  onSaved: () => {
+    if (person) loadConfig(person); // the admin's own phone follows the new switches at once
+  },
+});
 
 // ---- the tabs ----
 
@@ -230,6 +238,7 @@ function showTab(next, { open = null } = {}) {
   if (next === 'settings') {
     settings.draw();
     aiSettings.draw();
+    admin.draw();
   }
 }
 
@@ -257,6 +266,7 @@ function showSignedOut() {
   voice.cancel();
   claudeView.leave();
   chat.clear();
+  admin.update(); // hidden, and forgotten
 }
 
 async function showSignedIn(who) {
@@ -284,7 +294,10 @@ function loadConfig(who) {
     if (got) config = got;
     chatView.setVoice(config?.voiceOn === true);
     claudeView.setVoice(config?.voiceOn === true);
-    if (tab === 'settings') aiSettings.draw();
+    if (tab === 'settings') {
+      aiSettings.draw();
+      admin.update();
+    }
     return got;
   })();
   configAsk = ask;

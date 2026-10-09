@@ -57,6 +57,14 @@ test('a call carries the ID token and a deadline; a POST sends JSON; the answer 
   assert.deepStrictEqual(s.tokens, [false, false], 'the token as it is: the sign-in SDK renews it before it expires');
 });
 
+test('a PUT sends JSON too (the admin\'s settings)', async () => {
+  const s = setup([reply(200, { config: { enabled: true } })]);
+  assert.deepStrictEqual(await s.api.put('/api/admin/settings', { enabled: true }), { config: { enabled: true } });
+  assert.strictEqual(s.calls[0].method, 'PUT');
+  assert.deepStrictEqual(s.calls[0].headers, { authorization: 'Bearer t1', 'content-type': 'application/json' });
+  assert.strictEqual(s.calls[0].body, '{"enabled":true}');
+});
+
 test('a token turned down is renewed and the call made once more', async () => {
   const s = setup([reply(401, { error: { code: 'unauthenticated', message: 'x' } }), reply(200, { ok: 1 })]);
   assert.deepStrictEqual(await s.api.get('/api/config'), { ok: 1 });

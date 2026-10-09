@@ -42,6 +42,8 @@ function createNotchWindow({ screen, look = () => 'face', BrowserWindow = requir
   let panelOpen = false;
   let micOn = false;
   let status = null;
+  let hovered = false; // the page said the pointer is on the shape, and has not said it left
+  const hoverLost = []; // told when the pointer can no longer be said to leave: the window hid, went or reloads
 
   /** What the page needs to draw the shape: the notch's size, and the design's measures. */
   const layout = (notch) => ({
@@ -50,8 +52,16 @@ function createNotchWindow({ screen, look = () => 'face', BrowserWindow = requir
   });
 
   /** Forget a window that is gone, so that the next show() builds a new one. */
+  /** The page can no longer say the pointer left (hidden, gone, reloading): say it for it. */
+  function loseHover() {
+    if (!hovered) return;
+    hovered = false;
+    for (const fn of hoverLost) fn();
+  }
+
   function forget(w) {
     if (win !== w) return;
+    loseHover();
     stopCursor();
     clearTimeout(reloadTimer);
     reloadTimer = null;
@@ -138,6 +148,7 @@ function createNotchWindow({ screen, look = () => 'face', BrowserWindow = requir
     if (!win || win.isDestroyed()) return;
     loaded = false;
     win.setIgnoreMouseEvents(true, { forward: true }); // a dead page cannot report that the pointer left
+    loseHover();
     const reload = () => {
       reloadTimer = null;
       if (!win || win.isDestroyed()) return;
@@ -202,6 +213,7 @@ function createNotchWindow({ screen, look = () => 'face', BrowserWindow = requir
     },
     hide() {
       paused = true;
+      loseHover();
       if (win) win.hide();
       send('notch:pause', true);
       stopCursor();
@@ -250,7 +262,12 @@ function createNotchWindow({ screen, look = () => 'face', BrowserWindow = requir
       send('notch:pause', value);
     },
     setHover(over) {
+      hovered = Boolean(over);
       if (win) win.setIgnoreMouseEvents(!over, { forward: true });
+    },
+    /** `fn` is told when the pointer is taken off the shape for the page: the window hid, went or reloads. */
+    onHoverLost(fn) {
+      hoverLost.push(fn);
     },
     /** The notch the window is shown over, or null. */
     notch: () => (shown ? shown.notch : null),

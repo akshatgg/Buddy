@@ -12,6 +12,7 @@ function setup({ hasWindow = true } = {}) {
   const notch = {
     window: () => (hasWindow ? { webContents: page } : null),
     setHover: (over) => calls.push(['setHover', over]),
+    onHoverLost: (fn) => { notch.lose = fn; },
   };
   registerNotchIpc({
     ipcMain: { on: (channel, fn) => { handlers[channel] = fn; }, handle: (channel, fn) => { invokes[channel] = fn; } },
@@ -21,7 +22,7 @@ function setup({ hasWindow = true } = {}) {
     characters: { modelBytes: (id) => `bytes of ${id}`, get: (id) => ({ accent: `${id} glow` }) },
     store: { get: (key) => (key === 'buddyId' ? 'boy-1' : undefined) },
   });
-  return { handlers, invokes, calls, fromPage: { sender: page }, fromElsewhere: { sender: {} } };
+  return { handlers, invokes, calls, notch, fromPage: { sender: page }, fromElsewhere: { sender: {} } };
 }
 
 test('the notch page tells main two things: whether the pointer is over the shape, and a click', () => {
@@ -61,4 +62,10 @@ test('only the notch page may send these; with no notch window nobody may', () =
   none.handlers['notch:hover'](none.fromPage, true);
   none.handlers['notch:click'](none.fromPage);
   assert.deepStrictEqual(none.calls, []);
+});
+
+test('a notch that hid or went with the pointer on it lets go of the sleep hold', () => {
+  const { calls, notch } = setup();
+  notch.lose();
+  assert.deepStrictEqual(calls, [['hold', 'hover', false]]);
 });

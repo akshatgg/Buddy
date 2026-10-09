@@ -28,6 +28,7 @@ let rig = null;
 let wanted = false; // the layout says Face
 let paused = false;
 let loading = null;
+let loadAgain = false; // the character changed while a load was under way: load once more after it
 let mood = { name: 'idle', since: now() };
 let shown = null; // the pose drawn last: a new mood eases in from it
 let blend = null;
@@ -136,7 +137,10 @@ function disposeModel(object) {
   object.traverse((o) => {
     if (!o.isMesh) return;
     o.geometry.dispose();
-    for (const material of Array.isArray(o.material) ? o.material : [o.material]) material.dispose();
+    for (const material of Array.isArray(o.material) ? o.material : [o.material]) {
+      for (const value of Object.values(material)) if (value?.isTexture) value.dispose();
+      material.dispose();
+    }
   });
 }
 
@@ -177,11 +181,25 @@ async function load() {
   ready(wanted);
 }
 
+/**
+ * Load the head, one load at a time; a reload asked for meanwhile runs after it, with the newest character. A face that
+ * cannot be drawn stops the loop (the eyes stay) until the next reload or layout.
+ */
 function loadOnce() {
-  loading ??= load().catch((err) => {
+  if (loading) {
+    loadAgain = true;
+    return loading;
+  }
+  loading = load().catch((err) => {
     console.error('[buddy] the notch face failed to load:', err?.message ?? err);
   }).finally(() => {
     loading = null;
+    if (loadAgain) {
+      loadAgain = false;
+      loadOnce();
+    } else if (!rig) {
+      stopLoop();
+    }
   });
   return loading;
 }
@@ -329,7 +347,9 @@ window.notch.onPause((value) => {
   }
 });
 window.notch.onReload(() => {
-  if (renderer) loadOnce();
+  if (!renderer) return;
+  loadOnce();
+  startLoop();
 });
 
 // What notch.js tells the face: the pointer on the shape (no fidgets meanwhile), and resting there a while (love).

@@ -451,3 +451,33 @@ test('the status goes to the page; one that lasts is told again to a page that l
   notch.status('nonsense');
   assert.deepStrictEqual(win().sent.at(-1), ['notch:status', null]);
 });
+
+test('a pointer left on the shape is taken off when the window hides, reloads after a crash or goes', (t) => {
+  t.mock.method(console, 'error', () => {});
+  const { notch, win } = setup(t);
+  let lost = 0;
+  notch.onHoverLost(() => { lost += 1; });
+  notch.show(NOTCH, DISPLAY);
+  win().load();
+  notch.hide();
+  assert.strictEqual(lost, 0, 'no pointer on it: nothing to take off');
+  notch.show(NOTCH, DISPLAY);
+  notch.setHover(true);
+  notch.hide();
+  assert.strictEqual(lost, 1);
+  notch.hide();
+  assert.strictEqual(lost, 1, 'once');
+  notch.show(NOTCH, DISPLAY);
+  notch.setHover(true);
+  win().handlers['render-process-gone']({}, { reason: 'crashed' });
+  assert.strictEqual(lost, 2);
+  win().load();
+  notch.setHover(true);
+  notch.setHover(false);
+  notch.destroy();
+  assert.strictEqual(lost, 2, 'the page said the pointer left');
+  notch.show(NOTCH, DISPLAY);
+  notch.setHover(true);
+  notch.destroy();
+  assert.strictEqual(lost, 3);
+});

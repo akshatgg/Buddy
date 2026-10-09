@@ -12,6 +12,8 @@ const NO_SLEEP = { hold() {} };
  */
 function registerNotchIpc({ ipcMain, notch, onClick, sleep = NO_SLEEP, characters = null, store = null }) {
   const fromNotch = (event) => Boolean(notch.window()) && event.sender === notch.window().webContents;
+  // A notch that hid, went or reloads with the pointer on it never says the pointer left: it lets go of the hold then.
+  notch.onHoverLost?.(() => sleep.hold('hover', false));
 
   ipcMain.handle('notch:model', (event) => {
     if (!fromNotch(event) || !characters || !store) throw new Error('not allowed');

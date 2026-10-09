@@ -58,6 +58,7 @@ let line = NO_LINE; // the words being shown, and the width their wing is growin
 let sayWidth = 0; // the words' wing as last drawn
 let lastDraw = null; // when the last frame was drawn, for the wing's easing
 let box = { left: 0, width: 0, height: 0 }; // the shape as last drawn, for the hover test
+let lastWide = 0; // how wide the eyes were last drawn: the wings follow it, with the face too
 
 /** The face is showing (not the eyes): chosen, and drawn at least once (face.js). */
 const faceOn = () => layout?.look === 'face' && document.body.classList.contains('face-ready');
@@ -65,7 +66,8 @@ const faceOn = () => layout?.look === 'face' && document.body.classList.contains
 /** The width the words take in the wing, after the eye (and the icon before them, with the eyes), up to sayMax. */
 function lineWidth(text, withIcon) {
   ruler.textContent = text;
-  return Math.min(Math.ceil(ruler.offsetWidth) - SAY_IN + SAY_PAD + (withIcon ? ICON_ROOM : 0), layout.sayMax);
+  const words = text ? Math.ceil(ruler.offsetWidth) - SAY_IN + SAY_PAD : 0;
+  return Math.min(words + (withIcon ? ICON_ROOM + (text ? 0 : SAY_PAD - SAY_IN) : 0), layout.sayMax);
 }
 
 /** What the right wing should say at `t`: what Buddy says while it holds, else the status's words, else nothing. */
@@ -73,7 +75,9 @@ function wanted(t) {
   if (talk && t >= talk.until) talk = null;
   if (work && t >= work.until) work = null;
   if (talk) return { text: talk.text, icon: false };
-  if (work?.text) return { text: work.text, icon: !faceOn() };
+  // Beside the eyes the icon needs room in the wing even with no words (done, failed); beside the face it has the
+  // right eye's place.
+  if (work && (work.text || !faceOn())) return { text: work.text, icon: !faceOn() };
   return null;
 }
 
@@ -153,7 +157,12 @@ function draw(t) {
 
   // Next due: the end of what Buddy says, or of a status that flashes.
   const due = Math.min(talk ? talk.until - t : Infinity, work ? work.until - t : Infinity);
-  return { active: f.active || easing, nextIn: Math.min(f.nextIn, due) };
+  // With the face, the hidden eyes' own moves (a blink, thinking) need no frames: only the shape's (the wings
+  // widening, the bounce) and the words' do. The face draws itself (face.js).
+  const shapeMoves = f.wide !== lastWide || f.bounce > 0;
+  lastWide = f.wide;
+  const active = withFace ? shapeMoves || easing : f.active || easing;
+  return { active, nextIn: withFace ? due : Math.min(f.nextIn, due) };
 }
 
 function tick() {
@@ -256,6 +265,7 @@ window.notch.onCursor(({ dx, dy }) => {
 
 window.notch.onPause((on) => {
   paused = on;
+  if (on) setHover(false); // hidden: the pointer is not on it any more
   if (on) stopLoop();
   else startLoop();
 });

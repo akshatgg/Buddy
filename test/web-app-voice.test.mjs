@@ -30,6 +30,7 @@ function fakeBrowser({ level = 0.3, mimeType = 'audio/mp4', denied = false, supp
     }
     start(slice) {
       seen.recorderStarted = { slice, options: this.options };
+      seen.recorder = this;
       this.state = 'recording';
     }
     stop() {
@@ -222,4 +223,21 @@ test('cancel and a new tap while the phone is still asking: only the new one lis
   assert.strictEqual(voice.state, 'listening');
   assert.strictEqual(browser.seen.tracksStopped, 1, "the first tap's microphone is let go");
   assert.strictEqual(browser.seen.asked, 2);
+});
+
+test('a recorder that fails while listening lets the microphone go and says so', async () => {
+  const browser = fakeBrowser();
+  const { voice, seen } = setup(browser);
+  await voice.start();
+  await browser.tick(100);
+  browser.seen.recorder.state = 'inactive'; // a recorder that fails stops by itself
+  browser.seen.recorder.dispatchEvent(new Event('error'));
+  await settle();
+  assert.strictEqual(browser.seen.tracksStopped, 1, 'the microphone is let go');
+  assert.strictEqual(browser.seen.closed, 1, 'and the sound');
+  assert.strictEqual(voice.state, 'idle');
+  assert.deepStrictEqual(seen.errors, [NOT_WRITTEN]);
+  assert.deepStrictEqual(seen.sent, [], 'nothing is sent');
+  await browser.tick(100);
+  assert.deepStrictEqual(seen.states, ['listening', 'idle'], 'no look after it');
 });

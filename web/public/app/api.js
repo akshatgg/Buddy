@@ -30,7 +30,12 @@ export function createApi({ getToken, onSignedOut = () => {}, fetchImpl = (...ar
   }
 
   async function call(path, { method, body, timeoutMs = 30_000 }, retried = false) {
-    const token = await getToken(retried);
+    let token;
+    try {
+      token = await getToken(retried);
+    } catch {
+      throw new ApiError('network', NO_INTERNET); // a new token comes from Google: offline, that fails
+    }
     if (!token) throw signedOut();
     const headers = { authorization: `Bearer ${token}` };
     if (body !== undefined) headers['content-type'] = 'application/json';

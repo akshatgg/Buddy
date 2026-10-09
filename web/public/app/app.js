@@ -54,7 +54,9 @@ const api = createApi({
     await authStarted;
     return auth ? auth.token(force) : null;
   },
-  onSignedOut: () => auth?.signOut(),
+  onSignedOut: () => {
+    if (person) signOut(); // turned down twice: signed out as from Settings, notifications and all
+  },
 });
 
 function showSignInError(message) {
@@ -165,13 +167,19 @@ const push = createPush({ api, pushKey: () => config?.pushKey || null });
 const PUSH_OFF_MS = 5000;
 let signingOut = false;
 
+/** Sign out: from Settings, or when the server turned the person's sign-in down twice (api.js). */
 async function signOut() {
   if (signingOut) return;
   signingOut = true;
   let timer;
   try {
-    // This phone stops getting the person's notifications; if that hangs, signing out goes on without it.
+    // Voice and Claude mode stop first, while there is still a token for telling the computer to stop.
+    voice.cancel();
+    claudeView.leave();
+    // This phone stops getting the person's notifications. The server forgets it (if that hangs, signing out goes on
+    // without it), and the browser forgets it whatever the server did.
     await Promise.race([push.off().catch(() => null), new Promise((resolve) => (timer = setTimeout(resolve, PUSH_OFF_MS)))]);
+    await push.forget();
     await auth?.signOut();
   } catch (err) {
     console.error('[buddy] sign out failed', err);
@@ -245,11 +253,28 @@ async function showSignedIn(who) {
   $('tabs').hidden = false;
   showTab(tab);
   followLink();
-  config = await api.get('/api/config', { timeoutMs: TIMEOUTS.config }).catch(() => null);
+  await loadConfig(who);
+}
+
+let configAsk = null; // the GET /api/config under way
+
+/** GET /api/config for `who`, and what hangs on it (voice). Offline it stays null, and is asked again (configAgain). */
+async function loadConfig(who) {
+  const ask = api.get('/api/config', { timeoutMs: TIMEOUTS.config }).catch(() => null);
+  configAsk = ask;
+  const got = await ask;
+  if (configAsk === ask) configAsk = null;
   if (person !== who) return; // signed out meanwhile
+  config = got;
   chatView.setVoice(config?.voiceOn === true);
   claudeView.setVoice(config?.voiceOn === true);
 }
+
+/** Back online, or back in view: the config that could not be had at sign-in is asked for again. */
+function configAgain() {
+  if (person && !config && !configAsk) loadConfig(person);
+}
+window.addEventListener('online', configAgain);
 
 let authStarting = null;
 
@@ -292,8 +317,9 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     voice.cancel();
     claudeView.hidden();
-  } else if (tab === 'claude' && person) {
-    claudeView.show();
+  } else {
+    configAgain();
+    if (tab === 'claude' && person) claudeView.show();
   }
 });
 

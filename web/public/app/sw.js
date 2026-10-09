@@ -28,7 +28,8 @@ self.addEventListener('fetch', (event) => {
     const cache = await caches.open(CACHE);
     try {
       const response = await fetch(event.request);
-      if (response.ok) await cache.put(event.request, response.clone());
+      // Keeping a copy is on the side: if it fails (storage full), the good answer still goes to the page.
+      if (response.ok) cache.put(event.request, response.clone()).catch(() => {});
       return response;
     } catch (err) {
       const copy = await cache.match(event.request, { ignoreSearch: true });

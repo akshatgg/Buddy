@@ -81,6 +81,14 @@ test('the session being watched right now is left out: the person sees it alread
   assert.deepStrictEqual(remote.justFinished(watched, body, T + remote.WATCH_MS).map((s) => s.id), [S1.id, S2.id], 'a watch that lapsed');
 });
 
+test("a watch not refreshed lately is not \"right now\": a look in flight as the phone locked must not keep its notification away", () => {
+  const body = { device: MAC, sessions: [{ ...S1, status: 'done' }] };
+  const at = (ago) => record([S1], { watch: { sessionId: S1.id, at: T - ago } });
+  assert.deepStrictEqual(remote.justFinished(at(5_000), body, T), [], 'watched 5 s ago: still looking');
+  assert.deepStrictEqual(remote.justFinished(at(20_000), body, T).map((s) => s.id), [S1.id], 'watched 20 s ago: a push');
+  assert.ok(remote.NOTIFY_WATCH_MS < remote.WATCH_MS);
+});
+
 test('a subscription is checked: a push service of Apple, Google, Mozilla or Microsoft, over https, with its keys', () => {
   assert.deepStrictEqual(pushRules.checkSubscription({ ...sub(), expirationTime: null }), sub());
   for (const endpoint of [GOOGLE, 'https://updates.push.services.mozilla.com/wpush/v2/x', 'https://wns2-par02p.notify.windows.com/w/?token=x']) {

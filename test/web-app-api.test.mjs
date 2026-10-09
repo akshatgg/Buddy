@@ -90,3 +90,13 @@ test('anything else is said in plain words: no internet, too slow, or a server p
   const odd = setup([reply(200, 'null')]);
   await assert.rejects(odd.api.get('/api/config'), { code: 'server', message: SERVER_PROBLEM });
 });
+
+test('a new token that cannot be had offline is "No internet.", not the sign-in SDK\'s words', async () => {
+  const api = createApi({
+    getToken: async () => {
+      throw Object.assign(new Error('Firebase: Error (auth/network-request-failed).'), { code: 'auth/network-request-failed' });
+    },
+    fetchImpl: async () => assert.fail('nothing is sent without a token'),
+  });
+  await assert.rejects(api.get('/api/config'), { name: 'ApiError', code: 'network', message: NO_INTERNET });
+});

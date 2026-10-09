@@ -71,4 +71,6 @@ test('the service worker keeps only the app\'s own files, from the network first
   assert.match(sw, /const CACHE = 'buddy-app-\d+';/);
   assert.match(sw, /await fetch\(event\.request\)/, 'network first');
   assert.match(sw, /\/\^\\\/app\(\\\/\|\$\)\//, 'only /app');
+  assert.match(sw, /if \(response\.ok\) cache\.put\(event\.request, response\.clone\(\)\)\.catch\(\(\) => \{\}\);/,
+    'keeping a copy neither holds up nor throws away a good answer from the network');
 });

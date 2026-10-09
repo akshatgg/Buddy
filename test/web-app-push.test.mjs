@@ -109,3 +109,35 @@ test('the key is read from base64url', () => {
   assert.deepStrictEqual([...keyBytes('AQID_-8')], [1, 2, 3, 255, 239]);
   assert.strictEqual(keyBytes(KEY).length, 65);
 });
+
+test('forget unsubscribes on the phone only (signing out, when the server may be out of reach)', async () => {
+  const { push, seen } = setup({ subscribed: true });
+  await push.forget();
+  assert.strictEqual(seen.unsubscribes, 1);
+  assert.strictEqual(seen.posts.length, 0, 'the server is not asked');
+  assert.strictEqual(await push.isOn(), false);
+  await push.forget(); // nothing to forget: fine
+  assert.strictEqual(seen.unsubscribes, 1);
+});
+
+test('a service worker that never gets ready: switching on fails, isOn is false, forget gives up; nothing hangs', async () => {
+  const push = createPush({
+    api: { post: async () => assert.fail('nothing is sent') },
+    pushKey: () => KEY,
+    ready: () => new Promise(() => {}), // never
+    permission: () => 'granted',
+    requestPermission: async () => 'granted',
+    readyMs: 20,
+  });
+  assert.deepStrictEqual(await push.on(), { ok: false, error: FAILED });
+  assert.strictEqual(await push.isOn(), false);
+  await push.forget();
+  const broken = createPush({
+    api: {},
+    pushKey: () => KEY,
+    ready: async () => ({ pushManager: { getSubscription: async () => { throw new Error('no'); } } }),
+    permission: () => 'granted',
+  });
+  await broken.forget();
+  assert.strictEqual(await broken.isOn(), false);
+});

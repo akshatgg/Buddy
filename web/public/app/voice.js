@@ -154,6 +154,14 @@ export function createVoice({ transcribe, onState = () => {}, onLevel = () => {}
           mine.chunks.push(e.data);
           mine.size += e.data.size;
         });
+        // The recorder broke while listening: the microphone must not stay on, and the person hears why.
+        recorder.addEventListener('error', () => {
+          if (rec !== mine) return;
+          release();
+          onLevel(0);
+          set('idle');
+          onError(voiceFailure(null));
+        });
         recorder.start(SLICE_MS);
         rec.timer = env.setTimeout(look, LEVEL_EVERY_MS);
       } catch {

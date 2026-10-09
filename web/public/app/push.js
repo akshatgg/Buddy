@@ -11,6 +11,7 @@ export const NOT_SUPPORTED = 'Notifications need iOS 16.4 or later.';
 export const DENIED = 'Notifications are off for Buddy. Turn them on in the Settings app → Notifications → Buddy.';
 export const NOT_SET_UP = "Notifications aren't set up yet.";
 export const FAILED = "Notifications couldn't be switched on. Try again.";
+export const READY_MS = 5_000; // the service worker not ready by then: it may never be (it failed to install)
 
 /**
  * Whether this browser can have notifications: 'ok'; 'not-installed' (an iPhone's Safari, not the Home Screen app,
@@ -38,9 +39,19 @@ export function keyBytes(key) {
   return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
 }
 
+/** `promise`, or a rejection after `ms`. */
+function inTime(promise, ms) {
+  let timer;
+  const late = new Promise((resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('timed out')), ms);
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+
 /**
  * api is api.js's; pushKey() the server's public key (null when notifications are not set up on the server); ready()
- * answers the service worker's registration; permission() and requestPermission() are the Notification API's.
+ * answers the service worker's registration (given up on after readyMs); permission() and requestPermission() are the
+ * Notification API's.
  */
 export function createPush({
   api,
@@ -48,13 +59,19 @@ export function createPush({
   ready = () => navigator.serviceWorker.ready,
   permission = () => Notification.permission,
   requestPermission = () => Notification.requestPermission(),
+  readyMs = READY_MS,
 }) {
-  const subscription = async () => (await ready()).pushManager.getSubscription();
+  const registration = () => inTime(ready(), readyMs);
+  const subscription = async () => (await registration()).pushManager.getSubscription();
 
   return {
     /** Whether this phone gets notifications now. */
     async isOn() {
-      return permission() === 'granted' && Boolean(await subscription());
+      try {
+        return permission() === 'granted' && Boolean(await subscription());
+      } catch {
+        return false;
+      }
     },
 
     /** Switch on, from a tap. Answers { ok: true }, or { ok: false, error }. */
@@ -62,13 +79,13 @@ export function createPush({
       const key = pushKey();
       if (!key) return { ok: false, error: NOT_SET_UP };
       if ((await requestPermission()) !== 'granted') return { ok: false, error: DENIED };
-      const registration = await ready();
       let sub;
       try {
+        const { pushManager } = await registration();
         // A subscription made with another key (the server's keys were changed) cannot be used: a new one is made.
-        const old = await registration.pushManager.getSubscription();
+        const old = await pushManager.getSubscription();
         if (old) await old.unsubscribe();
-        sub = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
+        sub = await pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
       } catch {
         return { ok: false, error: FAILED };
       }
@@ -92,6 +109,15 @@ export function createPush({
       }
       await sub.unsubscribe().catch(() => {});
       return { ok: true };
+    },
+
+    /** Signing out: the browser forgets this phone's subscription, whatever the server did, so no notification comes. */
+    async forget() {
+      try {
+        await (await subscription())?.unsubscribe();
+      } catch {
+        // no service worker, or the browser refused: nothing more can be done here
+      }
     },
   };
 }

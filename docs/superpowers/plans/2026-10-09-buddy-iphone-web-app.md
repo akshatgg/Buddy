@@ -436,6 +436,8 @@ test('the service worker keeps only the app\'s own files, from the network first
   assert.match(sw, /const CACHE = 'buddy-app-\d+';/);
   assert.match(sw, /await fetch\(event\.request\)/, 'network first');
   assert.match(sw, /\/\^\\\/app\(\\\/\|\$\)\//, 'only /app');
+  assert.match(sw, /if \(response\.ok\) cache\.put\(event\.request, response\.clone\(\)\)\.catch\(\(\) => \{\}\);/,
+    'keeping a copy neither holds up nor throws away a good answer from the network');
 });
 ```
 
@@ -829,7 +831,8 @@ self.addEventListener('fetch', (event) => {
     const cache = await caches.open(CACHE);
     try {
       const response = await fetch(event.request);
-      if (response.ok) await cache.put(event.request, response.clone());
+      // Keeping a copy is on the side: if it fails (storage full), the good answer still goes to the page.
+      if (response.ok) cache.put(event.request, response.clone()).catch(() => {});
       return response;
     } catch (err) {
       const copy = await cache.match(event.request, { ignoreSearch: true });
@@ -1181,6 +1184,16 @@ test('anything else is said in plain words: no internet, too slow, or a server p
   const odd = setup([reply(200, 'null')]);
   await assert.rejects(odd.api.get('/api/config'), { code: 'server', message: SERVER_PROBLEM });
 });
+
+test('a new token that cannot be had offline is "No internet.", not the sign-in SDK\'s words', async () => {
+  const api = createApi({
+    getToken: async () => {
+      throw Object.assign(new Error('Firebase: Error (auth/network-request-failed).'), { code: 'auth/network-request-failed' });
+    },
+    fetchImpl: async () => assert.fail('nothing is sent without a token'),
+  });
+  await assert.rejects(api.get('/api/config'), { name: 'ApiError', code: 'network', message: NO_INTERNET });
+});
 ```
 
 - [ ] **Step 2: Run them to see them fail**
@@ -1336,7 +1349,12 @@ export function createApi({ getToken, onSignedOut = () => {}, fetchImpl = (...ar
   }
 
   async function call(path, { method, body, timeoutMs = 30_000 }, retried = false) {
-    const token = await getToken(retried);
+    let token;
+    try {
+      token = await getToken(retried);
+    } catch {
+      throw new ApiError('network', NO_INTERNET); // a new token comes from Google: offline, that fails
+    }
     if (!token) throw signedOut();
     const headers = { authorization: `Bearer ${token}` };
     if (body !== undefined) headers['content-type'] = 'application/json';
@@ -3120,6 +3138,7 @@ function fakeBrowser({ level = 0.3, mimeType = 'audio/mp4', denied = false, supp
     }
     start(slice) {
       seen.recorderStarted = { slice, options: this.options };
+      seen.recorder = this;
       this.state = 'recording';
     }
     stop() {
@@ -3313,6 +3332,23 @@ test('cancel and a new tap while the phone is still asking: only the new one lis
   assert.strictEqual(browser.seen.tracksStopped, 1, "the first tap's microphone is let go");
   assert.strictEqual(browser.seen.asked, 2);
 });
+
+test('a recorder that fails while listening lets the microphone go and says so', async () => {
+  const browser = fakeBrowser();
+  const { voice, seen } = setup(browser);
+  await voice.start();
+  await browser.tick(100);
+  browser.seen.recorder.state = 'inactive'; // a recorder that fails stops by itself
+  browser.seen.recorder.dispatchEvent(new Event('error'));
+  await settle();
+  assert.strictEqual(browser.seen.tracksStopped, 1, 'the microphone is let go');
+  assert.strictEqual(browser.seen.closed, 1, 'and the sound');
+  assert.strictEqual(voice.state, 'idle');
+  assert.deepStrictEqual(seen.errors, [NOT_WRITTEN]);
+  assert.deepStrictEqual(seen.sent, [], 'nothing is sent');
+  await browser.tick(100);
+  assert.deepStrictEqual(seen.states, ['listening', 'idle'], 'no look after it');
+});
 ```
 
 - [ ] **Step 2: Run it to see it fail**
@@ -3481,6 +3517,14 @@ export function createVoice({ transcribe, onState = () => {}, onLevel = () => {}
           mine.chunks.push(e.data);
           mine.size += e.data.size;
         });
+        // The recorder broke while listening: the microphone must not stay on, and the person hears why.
+        recorder.addEventListener('error', () => {
+          if (rec !== mine) return;
+          release();
+          onLevel(0);
+          set('idle');
+          onError(voiceFailure(null));
+        });
         recorder.start(SLICE_MS);
         rec.timer = env.setTimeout(look, LEVEL_EVERY_MS);
       } catch {
@@ -3626,6 +3670,14 @@ test('the session being watched right now is left out: the person sees it alread
   const body = { device: MAC, sessions: [{ ...S1, status: 'done' }, { ...S2, status: 'done' }] };
   assert.deepStrictEqual(remote.justFinished(watched, body, T).map((s) => s.id), [S2.id]);
   assert.deepStrictEqual(remote.justFinished(watched, body, T + remote.WATCH_MS).map((s) => s.id), [S1.id, S2.id], 'a watch that lapsed');
+});
+
+test("a watch not refreshed lately is not \"right now\": a look in flight as the phone locked must not keep its notification away", () => {
+  const body = { device: MAC, sessions: [{ ...S1, status: 'done' }] };
+  const at = (ago) => record([S1], { watch: { sessionId: S1.id, at: T - ago } });
+  assert.deepStrictEqual(remote.justFinished(at(5_000), body, T), [], 'watched 5 s ago: still looking');
+  assert.deepStrictEqual(remote.justFinished(at(20_000), body, T).map((s) => s.id), [S1.id], 'watched 20 s ago: a push');
+  assert.ok(remote.NOTIFY_WATCH_MS < remote.WATCH_MS);
 });
 
 test('a subscription is checked: a push service of Apple, Google, Mozilla or Microsoft, over https, with its keys', () => {
@@ -3903,14 +3955,15 @@ Replace with:
 /**
  * The sessions of a computer's report that just stopped working: working in its last report, done or waiting in this
  * one. Each is { id, name, status }, for a notification on the person's phones (web/lib/push.js). The session a watcher
- * is looking at right now is left out: the person sees it already. A computer's first report, one turning sharing
- * off, or one back after it was offline (its last report older than ONLINE_MS: that news is old) has none.
+ * is looking at right now (within NOTIFY_WATCH_MS) is left out: the person sees it already. A computer's first report,
+ * one turning sharing off, or one back after it was offline (its last report older than ONLINE_MS: that news is old)
+ * has none.
  */
 function justFinished(doc, body, now) {
   if (body.off === true) return [];
   const before = devicesOf(doc)[checkDevice(body.device).id];
   if (!before || !(now - before.seenAt < ONLINE_MS)) return [];
-  const watched = watching(doc, now);
+  const watched = watching(doc, now, NOTIFY_WATCH_MS);
   const wasWorking = (id) => before.sessions.some((s) => s.id === id && s.status === 'working');
   return cleanSessions(body.sessions)
     .filter((s) => (s.status === 'done' || s.status === 'waiting') && s.id !== watched && wasWorking(s.id))
@@ -3932,6 +3985,48 @@ Replace with:
 
 ```js
 cleanSessions, cleanItems, macReport, justFinished, phoneLook, phoneSend, phoneStop, checkText, checkSessionId, checkDeviceId,
+```
+
+A notification leaves out only a session looked at just now (a shorter window than WATCH_MS):
+
+Find:
+
+```js
+const WATCH_MS = 30_000; // the phone looks every second or two while it watches
+```
+
+Replace with:
+
+```js
+const WATCH_MS = 30_000; // the phone looks every second or two while it watches
+// A notification leaves out only a session looked at just now. A look rewrites watch.at once it is WATCH_MS / 3 (10 s)
+// old and the phone looks every 2 s, so a phone still looking keeps it under about 12 s; 15 s leaves room for a slow
+// look. Shorter than WATCH_MS: a look still on its way when the phone locked can set the watch again after its stop.
+const NOTIFY_WATCH_MS = 15_000;
+```
+
+Find:
+
+```js
+const watching = (doc, now) => (doc?.watch && now - doc.watch.at < WATCH_MS ? doc.watch.sessionId : null);
+```
+
+Replace with:
+
+```js
+const watching = (doc, now, within = WATCH_MS) => (doc?.watch && now - doc.watch.at < within ? doc.watch.sessionId : null);
+```
+
+Find:
+
+```js
+  ONLINE_MS, WATCH_MS, SEEN_EVERY_MS,
+```
+
+Replace with:
+
+```js
+  ONLINE_MS, WATCH_MS, NOTIFY_WATCH_MS, SEEN_EVERY_MS,
 ```
 
 - [ ] **Step 6: The handlers**
@@ -4626,6 +4721,38 @@ test('the key is read from base64url', () => {
   assert.deepStrictEqual([...keyBytes('AQID_-8')], [1, 2, 3, 255, 239]);
   assert.strictEqual(keyBytes(KEY).length, 65);
 });
+
+test('forget unsubscribes on the phone only (signing out, when the server may be out of reach)', async () => {
+  const { push, seen } = setup({ subscribed: true });
+  await push.forget();
+  assert.strictEqual(seen.unsubscribes, 1);
+  assert.strictEqual(seen.posts.length, 0, 'the server is not asked');
+  assert.strictEqual(await push.isOn(), false);
+  await push.forget(); // nothing to forget: fine
+  assert.strictEqual(seen.unsubscribes, 1);
+});
+
+test('a service worker that never gets ready: switching on fails, isOn is false, forget gives up; nothing hangs', async () => {
+  const push = createPush({
+    api: { post: async () => assert.fail('nothing is sent') },
+    pushKey: () => KEY,
+    ready: () => new Promise(() => {}), // never
+    permission: () => 'granted',
+    requestPermission: async () => 'granted',
+    readyMs: 20,
+  });
+  assert.deepStrictEqual(await push.on(), { ok: false, error: FAILED });
+  assert.strictEqual(await push.isOn(), false);
+  await push.forget();
+  const broken = createPush({
+    api: {},
+    pushKey: () => KEY,
+    ready: async () => ({ pushManager: { getSubscription: async () => { throw new Error('no'); } } }),
+    permission: () => 'granted',
+  });
+  await broken.forget();
+  assert.strictEqual(await broken.isOn(), false);
+});
 ```
 
 - [ ] **Step 2: Run it to see it fail**
@@ -4651,6 +4778,7 @@ export const NOT_SUPPORTED = 'Notifications need iOS 16.4 or later.';
 export const DENIED = 'Notifications are off for Buddy. Turn them on in the Settings app → Notifications → Buddy.';
 export const NOT_SET_UP = "Notifications aren't set up yet.";
 export const FAILED = "Notifications couldn't be switched on. Try again.";
+export const READY_MS = 5_000; // the service worker not ready by then: it may never be (it failed to install)
 
 /**
  * Whether this browser can have notifications: 'ok'; 'not-installed' (an iPhone's Safari, not the Home Screen app,
@@ -4678,9 +4806,19 @@ export function keyBytes(key) {
   return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
 }
 
+/** `promise`, or a rejection after `ms`. */
+function inTime(promise, ms) {
+  let timer;
+  const late = new Promise((resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('timed out')), ms);
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+
 /**
  * api is api.js's; pushKey() the server's public key (null when notifications are not set up on the server); ready()
- * answers the service worker's registration; permission() and requestPermission() are the Notification API's.
+ * answers the service worker's registration (given up on after readyMs); permission() and requestPermission() are the
+ * Notification API's.
  */
 export function createPush({
   api,
@@ -4688,13 +4826,19 @@ export function createPush({
   ready = () => navigator.serviceWorker.ready,
   permission = () => Notification.permission,
   requestPermission = () => Notification.requestPermission(),
+  readyMs = READY_MS,
 }) {
-  const subscription = async () => (await ready()).pushManager.getSubscription();
+  const registration = () => inTime(ready(), readyMs);
+  const subscription = async () => (await registration()).pushManager.getSubscription();
 
   return {
     /** Whether this phone gets notifications now. */
     async isOn() {
-      return permission() === 'granted' && Boolean(await subscription());
+      try {
+        return permission() === 'granted' && Boolean(await subscription());
+      } catch {
+        return false;
+      }
     },
 
     /** Switch on, from a tap. Answers { ok: true }, or { ok: false, error }. */
@@ -4702,13 +4846,13 @@ export function createPush({
       const key = pushKey();
       if (!key) return { ok: false, error: NOT_SET_UP };
       if ((await requestPermission()) !== 'granted') return { ok: false, error: DENIED };
-      const registration = await ready();
       let sub;
       try {
+        const { pushManager } = await registration();
         // A subscription made with another key (the server's keys were changed) cannot be used: a new one is made.
-        const old = await registration.pushManager.getSubscription();
+        const old = await pushManager.getSubscription();
         if (old) await old.unsubscribe();
-        sub = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
+        sub = await pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
       } catch {
         return { ok: false, error: FAILED };
       }
@@ -4732,6 +4876,15 @@ export function createPush({
       }
       await sub.unsubscribe().catch(() => {});
       return { ok: true };
+    },
+
+    /** Signing out: the browser forgets this phone's subscription, whatever the server did, so no notification comes. */
+    async forget() {
+      try {
+        await (await subscription())?.unsubscribe();
+      } catch {
+        // no service worker, or the browser refused: nothing more can be done here
+      }
     },
   };
 }
@@ -5370,7 +5523,9 @@ const api = createApi({
     await authStarted;
     return auth ? auth.token(force) : null;
   },
-  onSignedOut: () => auth?.signOut(),
+  onSignedOut: () => {
+    if (person) signOut(); // turned down twice: signed out as from Settings, notifications and all
+  },
 });
 
 function showSignInError(message) {
@@ -5481,13 +5636,19 @@ const push = createPush({ api, pushKey: () => config?.pushKey || null });
 const PUSH_OFF_MS = 5000;
 let signingOut = false;
 
+/** Sign out: from Settings, or when the server turned the person's sign-in down twice (api.js). */
 async function signOut() {
   if (signingOut) return;
   signingOut = true;
   let timer;
   try {
-    // This phone stops getting the person's notifications; if that hangs, signing out goes on without it.
+    // Voice and Claude mode stop first, while there is still a token for telling the computer to stop.
+    voice.cancel();
+    claudeView.leave();
+    // This phone stops getting the person's notifications. The server forgets it (if that hangs, signing out goes on
+    // without it), and the browser forgets it whatever the server did.
     await Promise.race([push.off().catch(() => null), new Promise((resolve) => (timer = setTimeout(resolve, PUSH_OFF_MS)))]);
+    await push.forget();
     await auth?.signOut();
   } catch (err) {
     console.error('[buddy] sign out failed', err);
@@ -5561,11 +5722,28 @@ async function showSignedIn(who) {
   $('tabs').hidden = false;
   showTab(tab);
   followLink();
-  config = await api.get('/api/config', { timeoutMs: TIMEOUTS.config }).catch(() => null);
+  await loadConfig(who);
+}
+
+let configAsk = null; // the GET /api/config under way
+
+/** GET /api/config for `who`, and what hangs on it (voice). Offline it stays null, and is asked again (configAgain). */
+async function loadConfig(who) {
+  const ask = api.get('/api/config', { timeoutMs: TIMEOUTS.config }).catch(() => null);
+  configAsk = ask;
+  const got = await ask;
+  if (configAsk === ask) configAsk = null;
   if (person !== who) return; // signed out meanwhile
+  config = got;
   chatView.setVoice(config?.voiceOn === true);
   claudeView.setVoice(config?.voiceOn === true);
 }
+
+/** Back online, or back in view: the config that could not be had at sign-in is asked for again. */
+function configAgain() {
+  if (person && !config && !configAsk) loadConfig(person);
+}
+window.addEventListener('online', configAgain);
 
 let authStarting = null;
 
@@ -5608,8 +5786,9 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     voice.cancel();
     claudeView.hidden();
-  } else if (tab === 'claude' && person) {
-    claudeView.show();
+  } else {
+    configAgain();
+    if (tab === 'claude' && person) claudeView.show();
   }
 });
 
@@ -6150,3 +6329,14 @@ Stop the background `npm run serve:web`. If anything above did not match, fix it
 1. Google Cloud console: add `https://buddywrites.vercel.app/__/auth/handler` to the "Web client (auto created by Google Service)" redirect URIs; Firebase console: `buddywrites.vercel.app` in Authentication → Settings → Authorized domains (`docs/manual-checklist-iphone.md`, "Once, before the first try").
 2. `cd web && npx web-push generate-vapid-keys`, then `vercel env add VAPID_PUBLIC_KEY production --cwd web`, the same for `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (`mailto:akshatg9636@gmail.com`).
 3. `npm run deploy:server`, then go through `docs/manual-checklist-iphone.md` on the iPhone.
+
+## Changed after the final review
+
+The code blocks above already show these; listed here so the changes are easy to find:
+
+- `api.js`: a token that cannot be renewed offline is "No internet." (not the sign-in SDK's error text).
+- `push.js`: `forget()` unsubscribes on the phone only; waiting for the service worker gives up after `READY_MS` (5 s), so `on()` fails with `FAILED` and `isOn()` answers false instead of hanging.
+- `app.js`: signing out (from Settings, and after a second 401) stops voice and Claude mode first (the stop still has a token), tries `push.off()` (bounded as before), then always `push.forget()`; `/api/config` that failed at sign-in is asked again on `online` and when the app is visible again (`loadConfig` / `configAgain`).
+- `sw.js`: keeping a copy is `cache.put(...).catch(() => {})`, not awaited, so a failed write never replaces a good network answer with the old copy.
+- `voice.js`: a MediaRecorder `error` lets the microphone go, goes idle and says `NOT_WRITTEN`.
+- `web/lib/remote.js`: notifications leave out a session watched within `NOTIFY_WATCH_MS` (15 s), not `WATCH_MS` (30 s).

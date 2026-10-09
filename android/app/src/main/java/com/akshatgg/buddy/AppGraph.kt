@@ -14,6 +14,7 @@ import com.akshatgg.buddy.ai.Prompts
 import com.akshatgg.buddy.ai.Router
 import com.akshatgg.buddy.ai.providers.Providers
 import com.akshatgg.buddy.bubble.BubbleBus
+import com.akshatgg.buddy.bubble.LookService
 import com.akshatgg.buddy.cloud.CloudClient
 import com.akshatgg.buddy.core.Shared
 import com.akshatgg.buddy.net.Http
@@ -27,10 +28,12 @@ import com.akshatgg.buddy.store.Secrets
 import com.akshatgg.buddy.store.SharedPrefsKeyValue
 import com.akshatgg.buddy.typing.ServiceTypeIn
 import com.akshatgg.buddy.typing.TypeIn
+import com.akshatgg.buddy.update.ApkInstaller
+import com.akshatgg.buddy.update.Updater
 import com.akshatgg.buddy.voice.MediaRecorderRecorder
 import com.akshatgg.buddy.voice.Voice
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
-import com.akshatgg.buddy.bubble.LookService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -57,6 +60,17 @@ class AppGraph(
     val prompts = Prompts(shared)
     val account = Account(kv, secrets, BuildConfig.FIREBASE_API_KEY.ifEmpty { null }?.let { FirebaseAuthApi(http, it) })
     val cloud = CloudClient(http, BuildConfig.SERVER_URL, account, settings)
+
+    /** "Update now" (update/Updater.kt): the newest Android release on GitHub, downloaded and installed over this one. */
+    val updater: Updater by lazy {
+        Updater(
+            http, BuildConfig.VERSION_NAME, File(appContext.cacheDir, "updates"), kv,
+            CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            download = ApkInstaller::download,
+            canInstall = { ApkInstaller.canInstall(appContext) },
+            install = { apk -> ApkInstaller.install(appContext, apk) },
+        )
+    }
     val router = Router(account, cloud, settings, secrets, providers, prompts)
     val keySaver = KeySaver(settings, secrets, providers)
     val memory = Memory(kv, MemoryRules(shared))

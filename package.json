@@ -1,7 +1,7 @@
 {
   "name": "buddy",
   "productName": "Buddy",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "A small floating buddy that writes and fixes English in any app",
   "main": "src/main/index.js",
   "type": "commonjs",

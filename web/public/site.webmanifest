@@ -1,7 +1,7 @@
 {
   "name": "Buddy",
   "short_name": "Buddy",
-  "description": "Your English buddy on every screen.",
+  "description": "A tiny buddy that writes, listens and works beside you.",
   "start_url": "/",
   "display": "browser",
   "background_color": "#FFF5E9",

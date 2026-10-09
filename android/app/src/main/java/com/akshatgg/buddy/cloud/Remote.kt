@@ -14,9 +14,20 @@ private val SESSION_ID = Regex("^[\\w-]{1,100}$")
 /**
  * A Claude Code session running on one of the person's computers, as it shares it: `status` is working, waiting, done,
  * failed or idle; `canTalk` whether Buddy there can type into its terminal (otherwise what the phone sends is copied
- * there); `device` the computer's name, null when it did not say (several computers can share at once).
+ * there); `device` the computer's name, null when it did not say (several computers can share at once); `title` the
+ * title Claude Code gave it, as its terminal tab shows it ("Fix the login bug"), null when it has none yet.
  */
-data class RemoteSession(val id: String, val name: String, val status: String, val canTalk: Boolean, val device: String? = null)
+data class RemoteSession(
+    val id: String,
+    val name: String,
+    val status: String,
+    val canTalk: Boolean,
+    val device: String? = null,
+    val title: String? = null,
+) {
+    /** What the person reads it by: its title when it has one, else its short name. */
+    val shown: String get() = title ?: name
+}
 
 /** One item of a session, as the terminal shows it. `error`: a tool's result that failed. */
 data class RemoteItem(val id: Int, val kind: String, val text: String, val error: Boolean = false)
@@ -45,7 +56,11 @@ data class RemoteLook(val online: Boolean, val sessions: List<RemoteSession>, va
         private fun session(j: JsonObject?): RemoteSession? {
             val id = string(j, "id")?.takeIf { SESSION_ID.matches(it) } ?: return null
             val name = string(j, "name")?.trim()?.ifEmpty { null } ?: "Claude Code"
-            return RemoteSession(id, name, string(j, "status") ?: "idle", flag(j, "canTalk"), string(j, "device")?.trim()?.ifEmpty { null })
+            return RemoteSession(
+                id, name, string(j, "status") ?: "idle", flag(j, "canTalk"),
+                device = string(j, "device")?.trim()?.ifEmpty { null },
+                title = string(j, "title")?.trim()?.ifEmpty { null },
+            )
         }
 
         // A kind the phone does not know shows as a note, as on the Mac.

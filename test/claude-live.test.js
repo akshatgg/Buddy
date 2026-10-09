@@ -111,7 +111,7 @@ test('the sessions running now are found, with their terminal, and read from the
   const home = claudeHome(t, [user('hi'), assistant([{ type: 'text', text: 'Hello!' }])]);
   const live = createLive({ configDirs: () => [home.dir], now: () => 2000, ttys: async (pids) => ({ [pids[0]]: 'ttys004' }) });
   await live.discover();
-  assert.deepStrictEqual(live.list(), [{ id: home.id, name: 'shop-x', status: 'working', canTalk: true }]);
+  assert.deepStrictEqual(live.list(), [{ id: home.id, name: 'shop-x', title: null, status: 'working', canTalk: true }]);
   assert.deepStrictEqual(live.target(home.id), { tty: 'ttys004', name: 'shop-x' });
 
   const changed = [];
@@ -151,7 +151,7 @@ test('hook events add a session and move its status; the terminal comes from the
   const live = createLive({ configDirs: () => [home.dir], now: () => clock });
   const event = (name, extra = {}) => ({ name, sessionId: home.id, folder: 'shop', cwd: home.cwd, transcript: home.transcript, tty: '', ...extra });
   live.hear(event('UserPromptSubmit', { tty: 'ttys002' }));
-  assert.deepStrictEqual(live.list(), [{ id: home.id, name: 'shop', status: 'working', canTalk: true }]);
+  assert.deepStrictEqual(live.list(), [{ id: home.id, name: 'shop', title: null, status: 'working', canTalk: true }]);
   for (const [name, status] of [['PermissionRequest', 'waiting'], ['PreToolUse', 'working'], ['Stop', 'done'], ['StopFailure', 'failed']]) {
     live.hear(event(name, { tty: 'not a tty' }));
     assert.strictEqual(live.list()[0].status, status, name);
@@ -181,4 +181,21 @@ test('a session read the first time from the middle of a long file starts at a w
   const items = live.view(home.id).items;
   assert.deepStrictEqual(items[items.length - 1].text, 'the newest');
   assert.ok(items.every((item) => item.kind === 'you'), 'no half line was read');
+});
+
+test("the session's title, as its terminal tab shows it: the newest one Claude Code gave it, read from the end of its file", async (t) => {
+  const { titleIn } = require('../src/main/claude/live');
+  assert.strictEqual(titleIn('{"type":"ai-title","aiTitle":"First"}\n{"type":"ai-title","aiTitle":"Fix the login bug"}'), 'Fix the login bug');
+  assert.strictEqual(titleIn('{"type":"ai-title","aiTitle":"Say \\"hi\\""}'), 'Say "hi"');
+  assert.strictEqual(titleIn('{"type":"user"}'), null);
+  assert.strictEqual(titleIn('{"type":"ai-title","aiTitle":"   "}'), null);
+  assert.strictEqual(titleIn('{"type":"ai-title","aiTitle":"' + 'x'.repeat(300) + '"}').length, 121, 'a long one is cut');
+
+  const home = claudeHome(t, [user('hi'), { type: 'ai-title', aiTitle: 'Link automatic settings page', sessionId: 'x' }]);
+  const live = createLive({ configDirs: () => [home.dir], ttys: async () => ({}) });
+  await live.discover();
+  assert.strictEqual(live.list()[0].title, 'Link automatic settings page', 'listed with it, before it is opened');
+  fs.appendFileSync(home.transcript, `${JSON.stringify({ type: 'ai-title', aiTitle: 'Body display in notch area' })}\n`);
+  await live.refresh(home.id);
+  assert.strictEqual(live.view(home.id).title, 'Body display in notch area', 'renamed as the work goes on');
 });

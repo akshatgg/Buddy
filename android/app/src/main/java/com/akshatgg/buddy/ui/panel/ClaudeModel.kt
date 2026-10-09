@@ -44,7 +44,7 @@ data class ClaudeState(
     val boxError: String? = null,
 ) {
     /** What the box says: where its words go, once a session is open. */
-    val placeholder: String? get() = session?.let { "Message Claude in ${it.name}…" }
+    val placeholder: String? get() = session?.let { "Message Claude in ${it.shown}…" }
 
     /** Whether the send button (and ↩) sends: to an open session, one message at a time, with words in the box. */
     val canSend: Boolean get() = session != null && !sending && draft.isNotBlank()

@@ -129,9 +129,11 @@ private fun SessionRow(session: RemoteSession, onClick: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Column(Modifier.weight(1f)) {
-            Text(session.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            // Which computer it runs on, as several can share at once.
-            session.device?.let { Text("on $it", color = Buddy.colors.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            // Its title, as its terminal tab shows it; under it, its short name and which computer it runs on (several
+            // can share at once).
+            Text(session.shown, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val under = listOfNotNull(session.title?.let { session.name }, session.device?.let { "on $it" }).joinToString(" · ")
+            if (under.isNotEmpty()) Text(under, color = Buddy.colors.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         StatusChip(session.status)
     }
@@ -165,7 +167,7 @@ private fun ClaudeSession(state: ClaudeState, session: RemoteSession, on: Claude
             // The name first; the computer's after it, cut short when there is no room for both.
             Text(
                 buildAnnotatedString {
-                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(session.name) }
+                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(session.shown) }
                     session.device?.let { withStyle(SpanStyle(color = colors.muted)) { append(" · on $it") } }
                 },
                 Modifier.weight(1f),

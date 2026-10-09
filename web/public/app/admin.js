@@ -19,9 +19,12 @@ export function startAdmin({ api, isAdmin, onSaved = () => {} }) {
   let view = null; // { config, providers, voiceOn }, as the server last answered
   let loading = null; // load() under way
 
+  const STATUS_KINDS = ['muted', 'error', 'good', 'note'];
+
   function showStatus(id, text, kind = 'muted') {
     $(id).textContent = text;
-    $(id).className = kind;
+    $(id).classList.remove(...STATUS_KINDS); // only the colour changes: classes like `grow` stay
+    $(id).classList.add(kind);
     $(id).hidden = !text;
   }
 

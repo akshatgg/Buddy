@@ -105,11 +105,23 @@ already pass it.
 
 `docs/manual-checklist-android.md` covers what only a real phone can check.
 
+## iPhone
+
+Buddy on iPhone is a web app: open https://buddywrites.vercel.app/app in Safari,
+then Share → Add to Home Screen. It has the same chat (with voice), shows your
+Claude Code sessions, and tells you when one finishes. **Settings → AI** takes
+your own AI key (Claude, OpenAI, Gemini or Groq) for when free mode is off or
+used up: the key stays on the phone and goes only to that AI. The admin also
+gets **Settings → Admin** there, with the same switches and users as the Mac's
+Admin window. The code is in `web/public/app/` (see `web/README.md`); what only
+a real iPhone can check is in `docs/manual-checklist-iphone.md`.
+
 ## Sign-in and free mode
 
 Everyone signs in with Google. The admin (akshatg9636@gmail.com) gets
-**Admin…** in the menu bar, to make Buddy free for everyone with the server's AI
-key — unlimited or a number of requests a day — and to block people.
+**Admin…** in the menu bar (and **Settings → Admin** in the iPhone app), to make
+Buddy free for everyone with the server's AI key — unlimited or a number of
+requests a day — and to block people.
 
 The server is in `web/` (Vercel + Firestore, project `buddy-7f8c2`); see
 `web/README.md`. The app finds it, and signs in, with `cloud.json` at the

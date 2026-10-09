@@ -104,6 +104,37 @@ opened on: `buddy.akshatgg.in` or `buddywrites.vercel.app` (`SIGN_IN_DOMAINS` in
 - [ ] While you watch a session in Buddy, its own finishing sends no notification.
 - [ ] Turn the switch off: no more notifications.
 
+## Your own AI key
+- [ ] Free mode on and Unlimited (Settings → Admin, or the Mac's Admin window): Settings → AI says "Free AI is on. No
+      key needed." and shows no form.
+- [ ] Free mode off: Settings → AI shows Provider, API key and Model. Chat with no key saved: "Free AI is off. Add your
+      own key in Settings."
+- [ ] Provider Claude (Anthropic), "Get a key": Anthropic's key page opens. Paste a key, Save: "Key saved ✓ (ends in
+      …)" with its last 4 characters, the box is empty again, and Model lists your key's models.
+- [ ] Chat `boss ko mail likho`: the answer comes, from your key.
+- [ ] With Claude picked, paste a Groq key (`gsk_…`) and Save: "That key is for Groq, so I switched to Groq. Key saved
+      ✓ …", and Provider shows Groq. Chat: Groq answers. Do the same with an OpenAI key and a Gemini key.
+- [ ] Pick another model, close Buddy fully and open it again: the same model is picked.
+- [ ] A wrong key (change one character): chat says "Your Claude key was rejected. Check it in Settings."
+- [ ] Sign out and sign in again: the key is still saved. Remove: "No key yet.", and chat says "Free AI is off. Add
+      your own key in Settings." again.
+- [ ] Daily limit 1 with "Also let users add their own key" on: with a key saved, the second message of the day is
+      answered by your key; with none, it says "You've used today's 1 free requests. Add your own key in Settings to
+      keep going, or wait until midnight."
+
+## Admin
+- [ ] Signed in as the admin: Settings → Admin shows after Notifications, with Free AI, Claude Code and Users. Signed in
+      with any other account: there is no Admin section.
+- [ ] Turn free mode off, Save: "Saved ✓ Every Buddy app uses it the next time it is opened.", and Settings → AI on
+      this phone shows the key form at once.
+- [ ] Daily limit shows "Requests per user per day" and "Also let users add their own key"; Unlimited hides them. A
+      limit of 0 is refused with the server's words.
+- [ ] AI provider lists only the providers with a key on the server; Refresh loads that provider's models.
+- [ ] Clawd walks → "Under Buddy's eyes": "Saved ✓ Every Buddy app uses it the next time it checks.", and the Claude
+      Code look on the Mac follows.
+- [ ] Users: everyone, busiest today first, with today's count and when they were last active. Block someone: the row
+      turns red with Unblock, and their chat says "Your free access is paused.". Unblock them.
+
 ## Updates
 - [ ] Deploy a small change (`npm run deploy:server`). Close Buddy fully and open it again: the change is there.
 - [ ] Airplane mode, open Buddy: it still opens (with the head), and says "No internet." when you send.

@@ -39,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -73,6 +74,7 @@ import com.akshatgg.buddy.account.User
 import com.akshatgg.buddy.ai.aiSection
 import com.akshatgg.buddy.store.BuddySize
 import com.akshatgg.buddy.store.Fact
+import com.akshatgg.buddy.typing.TagTrace
 import com.akshatgg.buddy.ui.common.AiForm
 import com.akshatgg.buddy.ui.common.AiFormModel
 import com.akshatgg.buddy.ui.common.BuddyPicker
@@ -392,6 +394,11 @@ private fun TagRow(state: SettingsState, onChange: (Boolean) -> Unit) {
             Text(tagExplanation(state.name, state.characterId), color = colors.muted, style = MaterialTheme.typography.bodySmall)
             if (state.tagOn && !state.lookOn) {
                 Text("It needs Buddy can type for you, above.", color = colors.muted, style = MaterialTheme.typography.bodySmall)
+            }
+            // Where it got to last time: when @buddy does nothing in an app, this says where it stopped there.
+            val last by TagTrace.last.collectAsState()
+            if (state.tagOn && state.lookOn) last?.let {
+                Text("Last: $it", color = colors.muted, style = MaterialTheme.typography.bodySmall)
             }
         }
         Switch(

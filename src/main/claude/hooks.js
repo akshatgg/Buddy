@@ -15,8 +15,24 @@ const { ENV_MARK } = require('./find'); // in every Buddy command: Buddy's own r
  * Buddy's entries are known by their exact shape (isBuddyHook). createHooks is the thin file layer around them.
  */
 
+// The kinds of Notification (its notification_type) that mean Claude Code needs the person now: a permission to give,
+// a question from an agent, or a dialog asking for input. Not idle_prompt: that is a session that finished and has sat
+// waiting for the next message for a while, which needs nothing, and would show "Claude needs you" for good.
+const NEEDS_YOU = Object.freeze(['permission_prompt', 'agent_needs_input', 'elicitation_dialog']);
+
+/**
+ * Whether a hook's event means Claude Code needs the person (event as watch.js parseEvent gives it): every permission
+ * request, and a Notification of a NEEDS_YOU kind. A Notification with no kind (from an older Claude Code) counts too,
+ * as Buddy's hook only ever asked for those kinds.
+ */
+function needsYou(event) {
+  if (event?.name === 'PermissionRequest') return true;
+  if (event?.name !== 'Notification') return false;
+  return !event.notificationType || NEEDS_YOU.includes(event.notificationType);
+}
+
 // The events Buddy listens for, and the matcher each entry carries (null: none, which Claude Code reads as every
-// tool, every error). Notification is narrowed to the kinds that mean "Claude Code is waiting for you".
+// tool, every error). Notification is narrowed to the kinds that mean "Claude Code is waiting for you" (NEEDS_YOU).
 const HOOK_EVENTS = Object.freeze([
   ['UserPromptSubmit', null],
   ['PreToolUse', null],
@@ -25,7 +41,7 @@ const HOOK_EVENTS = Object.freeze([
   ['StopFailure', null],
   ['SessionEnd', null],
   ['PermissionRequest', null],
-  ['Notification', 'permission_prompt|idle_prompt|agent_needs_input'],
+  ['Notification', NEEDS_YOU.join('|')],
 ]);
 const MARK = '/claude-code/'; // the path of Buddy's local URL
 // With ENV_MARK, how Buddy's entries are told from the person's own: any port and token, so old entries are replaced.
@@ -158,4 +174,4 @@ function createHooks({ find, home, file = null, fs = require('node:fs'), write =
   };
 }
 
-module.exports = { HOOK_EVENTS, CANT_READ, hookCommand, isBuddyHook, withHooks, withoutHooks, createHooks };
+module.exports = { HOOK_EVENTS, NEEDS_YOU, needsYou, CANT_READ, hookCommand, isBuddyHook, withHooks, withoutHooks, createHooks };

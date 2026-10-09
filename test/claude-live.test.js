@@ -157,6 +157,13 @@ test('hook events add a session and move its status; the terminal comes from the
     live.hear(event(name, { tty: 'not a tty' }));
     assert.strictEqual(live.list()[0].status, status, name);
   }
+  // A session idle a while after it finished needs nothing: it stays as it was, not "waiting for you".
+  live.hear(event('Stop'));
+  live.hear(event('Notification', { notificationType: 'idle_prompt' }));
+  assert.strictEqual(live.list()[0].status, 'done', 'idle_prompt: still done');
+  live.hear(event('Notification', { notificationType: 'permission_prompt' }));
+  assert.strictEqual(live.list()[0].status, 'waiting', 'a permission to give: waiting');
+  live.hear(event('StopFailure'));
   assert.strictEqual(live.target(home.id).tty, 'ttys002', 'a bad tty does not replace a good one');
   await live.refresh(home.id);
   assert.deepStrictEqual(live.view(home.id).items, [{ id: 1, kind: 'you', text: 'go' }]);

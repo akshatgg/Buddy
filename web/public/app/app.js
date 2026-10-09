@@ -3,7 +3,7 @@
 
 import { createStore, localStorageOf } from './store.js';
 import { createHead } from './head.js';
-import { createMotionShake, motionNeedsAsking } from './motion.js';
+import { createMotionShake, askForMotion } from './motion.js';
 import { createSleep } from './shared/sleep.js';
 
 const store = createStore(localStorageOf(window));
@@ -19,25 +19,27 @@ try {
 const sleep = createSleep({ onMood: (name) => head?.mood(name) });
 
 const shake = createMotionShake();
-let motionAsked = false;
+let motionAnswered = false; // granted or denied: stop asking
+let motionListening = false;
 
-/** The head was touched: a use. The first touch asks iOS for the phone's motion, for shaking, once. */
+/** The head was touched: a use. */
 function touched() {
   sleep.poke();
-  if (motionAsked) return;
-  motionAsked = true;
-  if (!motionNeedsAsking(window.DeviceMotionEvent)) {
-    listenForShakes();
-    return;
-  }
-  window.DeviceMotionEvent.requestPermission()
-    .then((answer) => {
-      if (answer === 'granted') listenForShakes();
-    })
-    .catch(() => {});
 }
 
+/** A tap on the head asks iOS for the phone's motion, for shaking. iOS takes a click for that, not a pointerdown; if it
+ * refuses ('later') the next tap asks again. */
+document.getElementById('head').addEventListener('click', async () => {
+  if (motionAnswered) return;
+  const answer = await askForMotion(window.DeviceMotionEvent);
+  if (answer === 'later') return;
+  motionAnswered = true;
+  if (answer === 'granted') listenForShakes();
+});
+
 function listenForShakes() {
+  if (motionListening) return;
+  motionListening = true;
   window.addEventListener('devicemotion', (e) => {
     const a = e.acceleration;
     if (a && shake.feed(a.x, a.y, a.z, e.timeStamp)) {

@@ -93,6 +93,7 @@ export function createHead({ canvas, symbolsRoot, onTouch = () => {} }) {
   function buildEnvironment() {
     const pmrem = new THREE.PMREMGenerator(renderer);
     const room = new RoomEnvironment();
+    scene.environment?.dispose(); // the lighting from before the lost context
     scene.environment = pmrem.fromScene(room, 0.04).texture;
     scene.environmentRotation.x = -0.3;
     room.dispose();

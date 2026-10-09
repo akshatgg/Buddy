@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert';
-import { createMotionShake, motionNeedsAsking, JOLT } from '../web/public/app/motion.js';
+import { createMotionShake, motionNeedsAsking, askForMotion, JOLT } from '../web/public/app/motion.js';
 
 test('four jolts within 1.2 s are a shake, once; then it counts afresh', () => {
   const shake = createMotionShake();
@@ -32,4 +32,19 @@ test('iOS asks before it tells the motion; other browsers do not', () => {
   assert.strictEqual(motionNeedsAsking({ requestPermission: async () => 'granted' }), true);
   assert.strictEqual(motionNeedsAsking(function DeviceMotionEvent() {}), false);
   assert.strictEqual(motionNeedsAsking(undefined), false);
+});
+
+test('askForMotion: nothing to ask is granted; the answer is passed on; a refused ask is "later"', async () => {
+  assert.strictEqual(await askForMotion({}), 'granted', 'no requestPermission');
+  assert.strictEqual(await askForMotion(undefined), 'granted', 'no DeviceMotionEvent');
+  assert.strictEqual(await askForMotion({ requestPermission: async () => 'granted' }), 'granted');
+  assert.strictEqual(await askForMotion({ requestPermission: async () => 'denied' }), 'denied');
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const refused = Promise.reject(Object.assign(new Error('no tap'), { name: 'NotAllowedError' }));
+    assert.strictEqual(await askForMotion({ requestPermission: () => refused }), 'later', 'not from a tap iOS accepts');
+  } finally {
+    console.warn = warn;
+  }
 });

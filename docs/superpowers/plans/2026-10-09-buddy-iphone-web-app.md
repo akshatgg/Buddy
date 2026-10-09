@@ -2514,7 +2514,7 @@ git commit -m "feat(iphone): Google sign-in by redirect, through Buddy's own dom
 
 **Interfaces:**
 - Consumes: `./shared/moods.js`, `./shared/blend.js`, `./shared/layout.js`, `./shared/gestures.js`, `./shared/symbols.js`, `./shared/sleep.js` (Task 1); `three` and `three/addons/...` through the page's import map; `createStore`, `localStorageOf` (Task 2).
-- Produces: `motion.js`: `JOLT = 15`, `createMotionShake({ jolt?, jolts?, withinMs?, gapMs? }?) -> { feed(x, y, z, t) -> boolean, reset() }`, `motionNeedsAsking(DeviceMotionEvent) -> boolean`.
+- Produces: `motion.js`: `JOLT = 15`, `createMotionShake({ jolt?, jolts?, withinMs?, gapMs? }?) -> { feed(x, y, z, t) -> boolean, reset() }`, `motionNeedsAsking(DeviceMotionEvent) -> boolean`, `askForMotion(DeviceMotionEvent) -> Promise<'granted'|'denied'|'later'>` (asks iOS; 'later' when iOS refuses the ask itself).
 - Produces: `head.js`: `createHead({ canvas, symbolsRoot, onTouch? }) -> { load({ url, accent }) -> Promise, mood(name), micOn(on), level(value 0..1), pause(on) }`; sets `window.__buddyMood` and `window.__buddyFrames` (for the browser check). Throws when WebGL is not there.
 
 - [ ] **Step 1: Write the failing test**
@@ -2526,7 +2526,7 @@ Create `test/web-app-motion.test.mjs`:
 
 import test from 'node:test';
 import assert from 'node:assert';
-import { createMotionShake, motionNeedsAsking, JOLT } from '../web/public/app/motion.js';
+import { createMotionShake, motionNeedsAsking, askForMotion, JOLT } from '../web/public/app/motion.js';
 
 test('four jolts within 1.2 s are a shake, once; then it counts afresh', () => {
   const shake = createMotionShake();
@@ -2556,6 +2556,21 @@ test('iOS asks before it tells the motion; other browsers do not', () => {
   assert.strictEqual(motionNeedsAsking({ requestPermission: async () => 'granted' }), true);
   assert.strictEqual(motionNeedsAsking(function DeviceMotionEvent() {}), false);
   assert.strictEqual(motionNeedsAsking(undefined), false);
+});
+
+test('askForMotion: nothing to ask is granted; the answer is passed on; a refused ask is "later"', async () => {
+  assert.strictEqual(await askForMotion({}), 'granted', 'no requestPermission');
+  assert.strictEqual(await askForMotion(undefined), 'granted', 'no DeviceMotionEvent');
+  assert.strictEqual(await askForMotion({ requestPermission: async () => 'granted' }), 'granted');
+  assert.strictEqual(await askForMotion({ requestPermission: async () => 'denied' }), 'denied');
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const refused = Promise.reject(Object.assign(new Error('no tap'), { name: 'NotAllowedError' }));
+    assert.strictEqual(await askForMotion({ requestPermission: () => refused }), 'later', 'not from a tap iOS accepts');
+  } finally {
+    console.warn = warn;
+  }
 });
 ```
 
@@ -2601,10 +2616,25 @@ export function createMotionShake({ jolt = JOLT, jolts = 4, withinMs = 1200, gap
 export function motionNeedsAsking(DeviceMotion) {
   return typeof DeviceMotion?.requestPermission === 'function';
 }
+
+/**
+ * Asks iOS for the phone's motion (it must come from a tap iOS counts as the person's: a click, not a pointerdown).
+ * Answers 'granted' (also when nothing needs asking), 'denied' (the person said no: stop asking), or 'later' (iOS
+ * refused the ask itself, e.g. NotAllowedError: ask again at the next tap).
+ */
+export async function askForMotion(DeviceMotion) {
+  if (!motionNeedsAsking(DeviceMotion)) return 'granted';
+  try {
+    return (await DeviceMotion.requestPermission()) === 'granted' ? 'granted' : 'denied';
+  } catch (err) {
+    console.warn('[buddy] motion not allowed yet', err?.name);
+    return 'later';
+  }
+}
 ```
 
 Run: `node --test test/web-app-motion.test.mjs`
-Expected: `# pass 4`, `# fail 0`.
+Expected: `# pass 5`, `# fail 0`.
 
 - [ ] **Step 4: Write head.js**
 
@@ -2706,6 +2736,7 @@ export function createHead({ canvas, symbolsRoot, onTouch = () => {} }) {
   function buildEnvironment() {
     const pmrem = new THREE.PMREMGenerator(renderer);
     const room = new RoomEnvironment();
+    scene.environment?.dispose(); // the lighting from before the lost context
     scene.environment = pmrem.fromScene(room, 0.04).texture;
     scene.environmentRotation.x = -0.3;
     room.dispose();
@@ -2965,7 +2996,7 @@ Replace `web/public/app/app.js` with:
 
 import { createStore, localStorageOf } from './store.js';
 import { createHead } from './head.js';
-import { createMotionShake, motionNeedsAsking } from './motion.js';
+import { createMotionShake, askForMotion } from './motion.js';
 import { createSleep } from './shared/sleep.js';
 
 const store = createStore(localStorageOf(window));
@@ -2981,25 +3012,27 @@ try {
 const sleep = createSleep({ onMood: (name) => head?.mood(name) });
 
 const shake = createMotionShake();
-let motionAsked = false;
+let motionAnswered = false; // granted or denied: stop asking
+let motionListening = false;
 
-/** The head was touched: a use. The first touch asks iOS for the phone's motion, for shaking, once. */
+/** The head was touched: a use. */
 function touched() {
   sleep.poke();
-  if (motionAsked) return;
-  motionAsked = true;
-  if (!motionNeedsAsking(window.DeviceMotionEvent)) {
-    listenForShakes();
-    return;
-  }
-  window.DeviceMotionEvent.requestPermission()
-    .then((answer) => {
-      if (answer === 'granted') listenForShakes();
-    })
-    .catch(() => {});
 }
 
+/** A tap on the head asks iOS for the phone's motion, for shaking. iOS takes a click for that, not a pointerdown; if it
+ * refuses ('later') the next tap asks again. */
+document.getElementById('head').addEventListener('click', async () => {
+  if (motionAnswered) return;
+  const answer = await askForMotion(window.DeviceMotionEvent);
+  if (answer === 'later') return;
+  motionAnswered = true;
+  if (answer === 'granted') listenForShakes();
+});
+
 function listenForShakes() {
+  if (motionListening) return;
+  motionListening = true;
   window.addEventListener('devicemotion', (e) => {
     const a = e.acceleration;
     if (a && shake.feed(a.x, a.y, a.z, e.timeStamp)) {
@@ -5155,7 +5188,7 @@ import { createChat } from './chat-core.js';
 import { startChatView } from './chat.js';
 import { startSettings } from './settings.js';
 import { createHead } from './head.js';
-import { createMotionShake, motionNeedsAsking } from './motion.js';
+import { createMotionShake, askForMotion } from './motion.js';
 import { createVoice } from './voice.js';
 import { startClaudeView } from './claude.js';
 import { createPush, supportHere } from './push.js';
@@ -5225,25 +5258,27 @@ function feel(name) {
 }
 
 const shake = createMotionShake();
-let motionAsked = false;
+let motionAnswered = false; // granted or denied: stop asking
+let motionListening = false;
 
-/** The head was touched: a use. The first touch asks iOS for the phone's motion, for shaking, once. */
+/** The head was touched: a use. */
 function touched() {
   sleep.poke();
-  if (motionAsked) return;
-  motionAsked = true;
-  if (!motionNeedsAsking(window.DeviceMotionEvent)) {
-    listenForShakes();
-    return;
-  }
-  window.DeviceMotionEvent.requestPermission()
-    .then((answer) => {
-      if (answer === 'granted') listenForShakes();
-    })
-    .catch(() => {});
 }
 
+/** A tap on the head asks iOS for the phone's motion, for shaking. iOS takes a click for that, not a pointerdown; if it
+ * refuses ('later') the next tap asks again. */
+document.getElementById('head').addEventListener('click', async () => {
+  if (motionAnswered) return;
+  const answer = await askForMotion(window.DeviceMotionEvent);
+  if (answer === 'later') return;
+  motionAnswered = true;
+  if (answer === 'granted') listenForShakes();
+});
+
 function listenForShakes() {
+  if (motionListening) return;
+  motionListening = true;
   window.addEventListener('devicemotion', (e) => {
     const a = e.acceleration;
     if (a && shake.feed(a.x, a.y, a.z, e.timeStamp)) feel('dizzy');

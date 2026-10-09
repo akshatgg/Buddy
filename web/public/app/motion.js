@@ -30,3 +30,18 @@ export function createMotionShake({ jolt = JOLT, jolts = 4, withinMs = 1200, gap
 export function motionNeedsAsking(DeviceMotion) {
   return typeof DeviceMotion?.requestPermission === 'function';
 }
+
+/**
+ * Asks iOS for the phone's motion (it must come from a tap iOS counts as the person's: a click, not a pointerdown).
+ * Answers 'granted' (also when nothing needs asking), 'denied' (the person said no: stop asking), or 'later' (iOS
+ * refused the ask itself, e.g. NotAllowedError: ask again at the next tap).
+ */
+export async function askForMotion(DeviceMotion) {
+  if (!motionNeedsAsking(DeviceMotion)) return 'granted';
+  try {
+    return (await DeviceMotion.requestPermission()) === 'granted' ? 'granted' : 'denied';
+  } catch (err) {
+    console.warn('[buddy] motion not allowed yet', err?.name);
+    return 'later';
+  }
+}

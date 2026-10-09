@@ -6,14 +6,14 @@ const { withDefaults, isFreeOn, applyPatch, DEFAULT_LIMIT, MAX_LIMIT } = require
 
 /** hasKey for a server that has keys for these providers only. */
 const keys = (...ids) => (id) => ids.includes(id);
-const SAVED = { enabled: true, limitMode: 'daily', dailyRequests: 5, allowOwnKey: true, provider: 'anthropic', model: 'claude-x' };
+const SAVED = { enabled: true, limitMode: 'daily', dailyRequests: 5, allowOwnKey: true, provider: 'anthropic', model: 'claude-x', clawdLook: 'face' };
 const refused = (message) => ({ code: 'bad_request', message });
 
 test('nothing saved: free mode off, 30 a day, own keys not allowed, the first provider with a key', () => {
   assert.strictEqual(DEFAULT_LIMIT, 30);
   assert.strictEqual(MAX_LIMIT, 10_000);
   assert.deepStrictEqual(withDefaults(null, keys('groq')), {
-    enabled: false, limitMode: 'daily', dailyRequests: 30, allowOwnKey: false, provider: 'groq', model: 'llama-3.3-70b-versatile',
+    enabled: false, limitMode: 'daily', dailyRequests: 30, allowOwnKey: false, provider: 'groq', model: 'llama-3.3-70b-versatile', clawdLook: 'head',
   });
   assert.strictEqual(withDefaults(undefined, keys()).provider, 'anthropic', 'with no key at all, the first provider');
   assert.strictEqual(withDefaults(undefined, keys()).model, 'claude-haiku-4-5-20251001');
@@ -25,9 +25,9 @@ test('saved switches read back as saved', () => {
 });
 
 test('a value that is not valid falls back to its default, field by field', () => {
-  const odd = { enabled: 'yes', limitMode: 'weekly', dailyRequests: 0, allowOwnKey: 1, provider: 'constructor', model: '  ' };
+  const odd = { enabled: 'yes', limitMode: 'weekly', dailyRequests: 0, allowOwnKey: 1, provider: 'constructor', model: '  ', clawdLook: 'nose' };
   assert.deepStrictEqual(withDefaults(odd, keys('openai')), {
-    enabled: false, limitMode: 'daily', dailyRequests: 30, allowOwnKey: false, provider: 'openai', model: 'gpt-4.1-mini',
+    enabled: false, limitMode: 'daily', dailyRequests: 30, allowOwnKey: false, provider: 'openai', model: 'gpt-4.1-mini', clawdLook: 'head',
   });
   assert.strictEqual(withDefaults({ dailyRequests: 2.5 }, keys()).dailyRequests, 30);
   assert.strictEqual(withDefaults({ dailyRequests: 10_001 }, keys()).dailyRequests, 30);
@@ -85,4 +85,14 @@ test('free mode cannot be on for a provider the server has no key for', () => {
     'openai',
     'switched off, any provider may be picked',
   );
+});
+
+test("where Clawd walks: the head unless the admin picks the face; anything else is refused", () => {
+  const k = keys('anthropic');
+  assert.strictEqual(withDefaults({}, k).clawdLook, 'head');
+  assert.strictEqual(applyPatch(SAVED, { clawdLook: 'head' }, k).clawdLook, 'head');
+  assert.deepStrictEqual(applyPatch({ ...SAVED, clawdLook: 'head' }, { clawdLook: 'face' }, k), SAVED, 'only it changes');
+  for (const clawdLook of ['eyes', '', null, 1, ['face']]) {
+    assert.throws(() => applyPatch(SAVED, { clawdLook }, k), (err) => err.code === 'bad_request' && /head or on the face/.test(err.message), JSON.stringify(clawdLook));
+  }
 });

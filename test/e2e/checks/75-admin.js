@@ -48,6 +48,14 @@ module.exports = async function adminCheck(ctx, { assert, waitFor }) {
       assert.deepStrictEqual(await page("[...document.getElementById('provider').options].map((o) => o.value)"), ['anthropic'],
         'only a provider that has a key on the server is offered');
       assert.strictEqual(await page("document.getElementById('users').textContent.includes('rahul@example.com')"), true);
+      // Where Clawd walks with the buddy: on the head (the default), and Under the eyes saves at once, on its own.
+      assert.strictEqual(await page("document.getElementById('clawd-card').hidden"), false);
+      assert.strictEqual(await page("document.querySelector('input[name=\"clawdLook\"]:checked').value"), 'head');
+      await page("document.querySelector('input[name=\"clawdLook\"][value=\"face\"]').click()");
+      await waitFor(() => page("document.getElementById('clawd-status').textContent.startsWith('Saved')"), 'where Clawd walks to be saved');
+      assert.strictEqual(ctx.cloud.adminConfig.clawdLook, 'face');
+      await page("document.querySelector('input[name=\"clawdLook\"][value=\"head\"]').click()");
+      await waitFor(() => ctx.cloud.adminConfig.clawdLook === 'head', 'back on the head');
       assert.strictEqual(await page("getComputedStyle(document.getElementById('own-row')).marginLeft"), '26px',
         'the own-key box is indented under the daily limit');
 
@@ -62,6 +70,7 @@ module.exports = async function adminCheck(ctx, { assert, waitFor }) {
       assert.strictEqual(await page("document.getElementById('save-status').textContent"), 'Saved ✓ Every Buddy app uses it the next time it is opened.');
       assert.deepStrictEqual({ ...ctx.cloud.adminConfig }, {
         enabled: true, limitMode: 'daily', dailyRequests: 10, allowOwnKey: true, provider: 'anthropic', model: 'claude-haiku-4-5-20251001',
+        clawdLook: 'head', // the Free AI form leaves where Clawd walks as it was
       });
 
       // "Saved ✓" is about what was saved: it goes as soon as a field is changed.
@@ -78,6 +87,7 @@ module.exports = async function adminCheck(ctx, { assert, waitFor }) {
       assert.strictEqual(await page("document.getElementById('save-status').textContent"), 'Saved ✓ Every Buddy app uses it the next time it is opened.');
       assert.deepStrictEqual({ ...ctx.cloud.adminConfig }, {
         enabled: true, limitMode: 'unlimited', dailyRequests: 10, allowOwnKey: true, provider: 'anthropic', model: 'claude-haiku-4-5-20251001',
+        clawdLook: 'head',
       }, 'only the mode changed: the hidden boxes were left as saved');
 
       // Back to a daily limit: both boxes are there again, as they were saved.

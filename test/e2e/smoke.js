@@ -206,7 +206,7 @@ const cloud = {
   free: { ...SERVER_SETTINGS }, // what the app kept the last time it asked, which is what last() gives back
   forgets: 0, // how often the app forgot the kept settings, as it does when someone signs out
   asks: [],
-  adminConfig: { enabled: false, limitMode: 'daily', dailyRequests: 30, allowOwnKey: false, provider: 'anthropic', model: 'claude-haiku-4-5-20251001' },
+  adminConfig: { enabled: false, limitMode: 'daily', dailyRequests: 30, allowOwnKey: false, provider: 'anthropic', model: 'claude-haiku-4-5-20251001', clawdLook: 'head' },
   adminUsers: [{
     uid: 'u1', email: 'rahul@example.com', name: 'Rahul', joined: '2026-10-01T10:00:00.000Z',
     lastActive: '2026-10-07T06:00:00.000Z', blocked: false, usedToday: 3,

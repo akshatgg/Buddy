@@ -30,6 +30,7 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
   let panelOpen = false; // whether the panel is open, which a freshly loaded page is told too
   let micOn = false; // whether the microphone is on, which it is told too
   let claude = null; // Claude Code at work or needing the person ({ kind }), which a freshly loaded page is told too
+  let clawdLook = 'head'; // where Clawd walks with the buddy (the admin's choice), which every page that loads is told
   let crashes = []; // when the page crashed, within the last CRASH_WINDOW_MS
   let drag = { dx: 0, dy: 0 };
   let cursorTimer = null;
@@ -101,7 +102,8 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
     send('buddy:pause', paused);
     if (panelOpen) send('buddy:panel-open', true); // a new page starts with the panel closed
     if (micOn) send('buddy:mic-on', true); // and with the microphone off
-    if (claude) send('buddy:claude', claude); // and with no Clawd in its eye
+    if (clawdLook !== 'head') send('buddy:clawd-look', clawdLook); // and with Clawd on the head
+    if (claude) send('buddy:claude', claude); // and with no Clawd
     if (pendingMood !== null) {
       send('buddy:mood', pendingMood);
       pendingMood = null;
@@ -252,6 +254,13 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
       const kind = value && typeof value === 'object' && CLAUDE_KINDS.includes(value.kind) ? value.kind : null;
       claude = kind === 'working' || kind === 'needsYou' ? { kind } : null;
       send('buddy:claude', kind ? { kind } : null);
+    },
+    /** Where Clawd walks with the buddy: 'face' (its face screen) or anything else, 'head' (on top of its head). */
+    clawdLook(name) {
+      const next = name === 'face' ? 'face' : 'head';
+      if (next === clawdLook) return;
+      clawdLook = next;
+      send('buddy:clawd-look', clawdLook);
     },
     pause(value) {
       paused = value;

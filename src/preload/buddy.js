@@ -16,5 +16,6 @@ contextBridge.exposeInMainWorld('buddy', {
   onMicOn: (fn) => ipcRenderer.on('buddy:mic-on', (_event, on) => fn(on)),
   onPause: (fn) => ipcRenderer.on('buddy:pause', (_event, paused) => fn(paused)),
   onReload: (fn) => ipcRenderer.on('buddy:reload', () => fn()),
-  onClaude: (fn) => ipcRenderer.on('buddy:claude', (_event, status) => fn(status)), // Clawd in one eye (clawd.js)
+  onClaude: (fn) => ipcRenderer.on('buddy:claude', (_event, status) => fn(status)), // Clawd with the buddy (clawd.js)
+  onClawdLook: (fn) => ipcRenderer.on('buddy:clawd-look', (_event, name) => fn(name)), // where it walks: head or face
 });

@@ -445,3 +445,22 @@ test("Claude Code's status goes to the page as Clawd's kind; a lasting one is to
     assert.deepStrictEqual(win().sent.at(-1), ['buddy:claude', null], JSON.stringify(value));
   }
 });
+
+test('where Clawd walks goes to the page when it changes, and to a page that loads when it is not the head', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  const { buddy, win } = setup();
+  buddy.show();
+  win().load();
+  let before = win().sent.length;
+  buddy.clawdLook('head');
+  assert.deepStrictEqual(win().sent.slice(before), [], 'the head is where a page starts');
+  buddy.clawdLook('face');
+  buddy.clawdLook('face');
+  assert.deepStrictEqual(win().sent.slice(before), [['buddy:clawd-look', 'face']], 'once');
+  win().handlers['did-navigate']();
+  before = win().sent.length;
+  win().handlers['did-finish-load']();
+  assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false], ['buddy:clawd-look', 'face']]);
+  buddy.clawdLook('nonsense');
+  assert.deepStrictEqual(win().sent.at(-1), ['buddy:clawd-look', 'head'], 'anything else is the head');
+});

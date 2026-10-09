@@ -80,13 +80,13 @@ class HeadRenderer(context: Context, textureView: TextureView, characterId: Stri
     private val frameCentre = FloatArray(3)
     private val frameSize = FloatArray(3)
 
-    // Where the right eye is on the view, for Clawd (eyeOnScreen): the view's size, and room for the sums.
+    // Where Clawd is on the view (spotOnScreen): the view's size, and room for the sums.
     private var viewWidth = 0
     private var viewHeight = 0
     private val faceWorld = FloatArray(16)
     private val viewMatrix = DoubleArray(16)
     private val projection = DoubleArray(16)
-    private val onScreen = FloatArray(6) // the eye's centre, a step across and a step up from it, in view pixels
+    private val onScreen = FloatArray(6) // the spot, a step across and a step up from it, in view pixels
 
     init {
         // The model first, so that a file that is not a buddy leaves nothing behind.
@@ -281,17 +281,16 @@ class HeadRenderer(context: Context, textureView: TextureView, characterId: Stri
     }
 
     /**
-     * Where the right eye is on the view as the head is posed now, for Clawd (ClawdEyeView): into `out`, its centre (x,
-     * y in view pixels), the pixels one unit of the face takes across and up, and the head's tilt in degrees. False when
-     * there is no face or the view is not laid out.
+     * Where the point (x, y, z) of the head (its own space; the face's is the same) is on the view as the head is posed
+     * now, for Clawd (ClawdView): into `out`, the spot (x, y in view pixels), the pixels one unit of the head takes
+     * across and up there, and the head's tilt in degrees. False when there is no face or the view is not laid out.
      */
-    fun eyeOnScreen(out: FloatArray): Boolean {
+    fun spotOnScreen(x: Float, y: Float, z: Float, out: FloatArray): Boolean {
         if (face == 0 || viewWidth == 0 || viewHeight == 0) return false
         val tm = engine.transformManager
         tm.getWorldTransform(tm.getInstance(face), faceWorld)
         camera.getViewMatrix(viewMatrix)
         camera.getProjectionMatrix(projection)
-        val (x, y, z) = Clawd.EYE_CENTRE.toList()
         val step = 0.1f
         if (!project(x, y, z, 0) || !project(x + step, y, z, 2) || !project(x, y + step, z, 4)) return false
         out[0] = onScreen[0]

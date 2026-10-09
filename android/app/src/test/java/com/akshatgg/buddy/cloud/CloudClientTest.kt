@@ -16,6 +16,7 @@ import com.akshatgg.buddy.store.AppSettings
 import com.akshatgg.buddy.store.MemoryKeyValue
 import com.akshatgg.buddy.store.MemorySecrets
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.serialization.json.jsonObject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
@@ -262,6 +263,14 @@ class CloudClientTest {
         }
         assertEquals(emptyList<HttpRequest>(), http.requests)
     }
+    @Test fun whereClawdWalksIsTheAdminsChoiceKeptWithTheSettings() {
+        assertEquals("face", FreeSettings.read(Json.parseToJsonElement("""{"clawdLook":"face"}""").jsonObject).clawdLook)
+        assertEquals("head", FreeSettings.read(Json.parseToJsonElement("""{"clawdLook":"eyes"}""").jsonObject).clawdLook)
+        assertEquals("head", FreeSettings.read(null).clawdLook)
+        val face = FreeSettings.read(Json.parseToJsonElement("""{"clawdLook":"face"}""").jsonObject)
+        assertEquals("and read back", "face", FreeSettings.fromJson(face.toJson())!!.clawdLook)
+    }
+
     @Test fun voiceOnIsReadFromTheSettingsAndAnythingOddReadsAsOff() = runTest {
         signIn()
         val cloud = client()

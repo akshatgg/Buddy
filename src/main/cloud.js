@@ -53,6 +53,7 @@ function readSettings(j) {
     blocked: j?.blocked === true,
     isAdmin: j?.isAdmin === true,
     voiceOn: j?.voiceOn === true, // the server can write down what is said (it has a Groq key)
+    clawdLook: j?.clawdLook === 'face' ? 'face' : 'head', // where Clawd walks with the buddy (the admin's choice)
   };
 }
 

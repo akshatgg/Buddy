@@ -1,0 +1,132 @@
+/* Buddy on iPhone: the website's warm look (web/public/style.css, look A), made for a phone in one hand. The head on
+   top, the chat (or Claude Code, or Settings) under it, the tabs at the bottom. The notch and the home bar are left
+   clear (the safe-area insets: the page runs under them, as viewport-fit=cover asks). */
+:root {
+  --cream: #FFF5E9;
+  --paper: #FFFFFF;
+  --ink: #2A1E17;
+  --ink-2: #6B5848;
+  --line: #F0DCC5;
+  --orange: #FFB54C;
+  --orange-tint: #FFE6C2;
+  --ok-bg: #EAF7EC;
+  --ok-ink: #23663A;
+  --bad-bg: #FDE8E1;
+  --bad-ink: #B0472A;
+  --display: "Baloo 2", "Arial Rounded MT Bold", system-ui, sans-serif;
+  --body: "Mukta", system-ui, -apple-system, sans-serif;
+  --top: env(safe-area-inset-top, 0px);
+  --bottom: env(safe-area-inset-bottom, 0px);
+  --left: env(safe-area-inset-left, 0px);
+  --right: env(safe-area-inset-right, 0px);
+  color-scheme: light;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--cream); color: var(--ink); font: 400 17px/1.45 var(--body); -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+[hidden] { display: none !important; }
+
+.app { display: flex; flex-direction: column; height: 100dvh; padding: var(--top) var(--right) 0 var(--left); }
+
+/* the head */
+.stage { position: relative; flex: none; height: 32dvh; min-height: 170px; }
+.app[data-signed="out"] .stage { height: 50dvh; }
+.stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.bubble { position: absolute; left: 50%; bottom: 6px; margin: 0; padding: 5px 14px; border-radius: 999px; background: var(--ink); color: var(--cream); font-size: 15px; font-weight: 500; white-space: nowrap; transform: translateX(-50%); }
+
+/* signed out */
+.signin { display: grid; gap: 14px; justify-items: center; padding: 0 24px calc(24px + var(--bottom)); text-align: center; }
+.signin h1 { margin: 0; font: 800 34px/1.05 var(--display); }
+.signin p { margin: 0; max-width: 30ch; color: var(--ink-2); }
+
+/* shared parts */
+.pane { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 14px 24px; border: 2px solid transparent; border-radius: 999px; font-weight: 600; }
+.btn--ink { background: var(--ink); color: var(--cream); }
+.btn--ghost { border-color: var(--ink); background: transparent; }
+.btn--sm { padding: 8px 16px; font-size: 15px; }
+.icon { display: grid; flex: none; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; font-size: 20px; }
+.icon:disabled { opacity: .35; }
+.send { background: var(--ink); color: var(--cream); font-weight: 700; }
+.mic[aria-pressed="true"] { background: var(--orange); }
+.muted { margin: 0; color: var(--ink-2); font-size: 15px; }
+.error { margin: 0 12px 8px; padding: 8px 12px; border-radius: 12px; background: var(--bad-bg); color: var(--bad-ink); font-size: 15px; }
+.box { display: flex; flex: none; align-items: flex-end; gap: 6px; margin: 0 12px 10px; padding: 5px; border-radius: 26px; background: var(--paper); box-shadow: 0 0 0 1px var(--line); }
+/* 17px: iOS zooms in on a box whose text is under 16px */
+.box textarea { flex: 1; min-height: 44px; max-height: 30dvh; padding: 10px 8px; border: 0; outline: none; background: transparent; font-size: 17px; resize: none; }
+
+/* the chat */
+.items { display: flex; flex: 1; flex-direction: column; gap: 10px; margin: 0; padding: 8px 14px; overflow-y: auto; list-style: none; }
+.items:empty { flex: 0; padding: 0; }
+.item { max-width: 88%; padding: 9px 13px; border-radius: 18px; overflow-wrap: anywhere; }
+.item p { margin: 0; white-space: pre-wrap; }
+.item.you { align-self: flex-end; border-bottom-right-radius: 6px; background: var(--ink); color: var(--cream); }
+.item.buddy { align-self: flex-start; border-bottom-left-radius: 6px; background: var(--paper); box-shadow: 0 0 0 1px var(--line); }
+.item.buddy .text { padding: 8px 10px; border-radius: 12px; background: var(--cream); }
+.item.buddy .say + .text { margin-top: 6px; }
+.item .notes { margin: 6px 0 0; padding-left: 18px; color: var(--ink-2); font-size: 15px; }
+.item.event { align-self: center; max-width: 100%; padding: 2px 8px; color: var(--ink-2); font-size: 14px; text-align: center; }
+.item.error { align-self: flex-start; background: var(--bad-bg); color: var(--bad-ink); }
+.item.thinking { align-self: flex-start; padding: 2px 4px; color: var(--ink-2); font-size: 15px; }
+.buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.item.event .buttons { justify-content: center; margin-top: 2px; }
+.chip { padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); font-size: 15px; font-weight: 600; }
+.empty { margin: auto 24px; color: var(--ink-2); text-align: center; }
+
+/* Claude Code */
+.claude-pick { display: flex; flex: 1; flex-direction: column; gap: 12px; padding: 0 14px 12px; overflow-y: auto; }
+.claude-pick h2, .settings h2 { margin: 6px 0 0; font: 700 22px/1.1 var(--display); }
+.claude-pick .btn { align-self: center; }
+.groups { display: grid; gap: 14px; }
+.group h3 { margin: 0 0 6px; color: var(--ink-2); font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.sessions { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.sessions button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 12px 14px; border: 0; border-radius: 16px; background: var(--paper); box-shadow: 0 0 0 1px var(--line); text-align: left; }
+.sessions .name { min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.status-chip { flex: none; padding: 1px 10px; border-radius: 999px; background: var(--line); color: var(--ink-2); font-size: 13px; }
+.status-chip.working { background: var(--orange-tint); color: var(--ink); }
+.status-chip.waiting { background: var(--bad-bg); color: var(--bad-ink); }
+.status-chip.done { background: var(--ok-bg); color: var(--ok-ink); }
+.claude-session { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.claude-bar { display: flex; flex: none; align-items: center; gap: 6px; padding: 0 6px 4px; border-bottom: 1px solid var(--line); }
+.claude-bar .grow { flex: 1; min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.claude-items { display: flex; flex: 1; flex-direction: column; gap: 8px; margin: 0; padding: 10px 12px; overflow-y: auto; font-size: 15px; list-style: none; }
+.claude-items > li { flex: none; min-width: 0; }
+.claude-items p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.claude-items .cl-you { align-self: flex-end; max-width: 86%; padding: 7px 11px; border-radius: 14px; border-bottom-right-radius: 5px; background: var(--orange-tint); }
+.claude-items .cl-claude { align-self: flex-start; max-width: 96%; padding: 7px 11px; border-radius: 14px; border-bottom-left-radius: 5px; background: var(--paper); box-shadow: 0 0 0 1px var(--line); }
+.claude-items .cl-tool, .claude-items .cl-result { font: 13px/1.4 ui-monospace, Menlo, monospace; }
+.claude-items .cl-tool::before { content: "⏺ "; color: var(--orange); }
+.claude-items .cl-result { margin-top: -3px; padding: 4px 8px; border-left: 2px solid var(--line); color: var(--ink-2); }
+.claude-items .cl-result.error { border-left-color: var(--bad-ink); color: var(--bad-ink); }
+.claude-items .cl-event, .claude-items .cl-note { align-self: center; color: var(--ink-2); font-size: 13px; text-align: center; }
+/* full screen: the head and the tabs make room, and the box keeps clear of the home bar */
+.app.full .stage, .app.full .tabs { display: none; }
+.app.full .claude-session { padding-bottom: var(--bottom); }
+
+/* settings */
+.settings { gap: 10px; padding: 0 14px 16px; overflow-y: auto; }
+.buddies { display: flex; gap: 12px; }
+.buddies button { display: grid; flex: 1; justify-items: center; gap: 2px; padding: 10px; border: 2px solid var(--line); border-radius: 18px; background: var(--paper); font-weight: 600; }
+.buddies button[aria-pressed="true"] { border-color: var(--ink); }
+.buddies img { width: 88px; height: 88px; object-fit: contain; }
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 16px; background: var(--paper); box-shadow: 0 0 0 1px var(--line); }
+.switch input { flex: none; width: 24px; height: 24px; accent-color: var(--ink); }
+.facts { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.facts li { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; border-radius: 14px; background: var(--paper); box-shadow: 0 0 0 1px var(--line); }
+.facts li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.row { display: flex; align-items: center; gap: 8px; }
+.field { flex: 1; min-width: 0; padding: 9px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); font-size: 17px; }
+.settings > .btn { align-self: flex-start; }
+.settings .error { margin: 0; }
+
+/* the tabs */
+.tabs { display: flex; flex: none; padding-bottom: var(--bottom); border-top: 1px solid var(--line); background: var(--cream); }
+.tabs button { flex: 1; min-height: 52px; border: 0; background: transparent; color: var(--ink-2); font-weight: 600; }
+.tabs button[aria-pressed="true"] { color: var(--ink); box-shadow: inset 0 3px 0 var(--orange); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { scroll-behavior: auto !important; }
+}

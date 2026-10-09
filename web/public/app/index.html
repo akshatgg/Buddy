@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Buddy</title>
+<meta name="description" content="Buddy on your iPhone: chat in English, Hindi or Hinglish, and watch your Claude Code sessions.">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#FFF5E9">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Buddy">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="/app/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Mukta:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/app/app.css">
+<link rel="stylesheet" href="/app/shared/symbols.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "/app/vendor/three/build/three.module.js",
+    "three/addons/": "/app/vendor/three/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="/app/app.js"></script>
+</head>
+<body>
+<div class="app" id="app" data-signed="unknown">
+  <section class="stage" id="stage" aria-label="Your buddy">
+    <canvas id="head"></canvas>
+    <div id="symbols"></div>
+    <p class="bubble" id="bubble" role="status" hidden></p>
+  </section>
+
+  <section class="signin" id="signin" hidden>
+    <h1>Hi! I'm Buddy.</h1>
+    <p>Sign in with the same Google account as on your computer.</p>
+    <button class="btn btn--ink" id="signin-button" type="button">Sign in with Google</button>
+    <p class="error" id="signin-error" role="alert" hidden></p>
+  </section>
+
+  <section class="pane" id="chat-pane" aria-label="Chat" hidden>
+    <ol class="items" id="chat-items" aria-live="polite"></ol>
+    <p class="empty" id="chat-empty">Ask me anything, in English, Hindi or Hinglish.<br>“boss ko mail likho, kal chutti chahiye”</p>
+    <p class="error" id="chat-error" role="alert" hidden></p>
+    <form class="box" id="chat-form">
+      <button class="icon mic" id="chat-mic" type="button" aria-label="Speak" aria-pressed="false" hidden>🎤</button>
+      <textarea id="chat-input" rows="1" placeholder="Ask Buddy…" enterkeyhint="send" aria-label="Your message"></textarea>
+      <button class="icon send" id="chat-send" type="submit" aria-label="Send" disabled>↑</button>
+    </form>
+  </section>
+
+  <section class="pane" id="claude-pane" aria-label="Claude Code" hidden>
+    <div class="claude-pick" id="claude-pick">
+      <h2>Your Claude Code sessions</h2>
+      <div class="groups" id="claude-groups"></div>
+      <p class="muted" id="claude-note" hidden></p>
+      <button class="btn btn--ghost btn--sm" id="claude-again" type="button">Look again</button>
+    </div>
+    <div class="claude-session" id="claude-session" hidden>
+      <div class="claude-bar">
+        <button class="icon" id="claude-back" type="button" aria-label="Back to the sessions">‹</button>
+        <span class="grow" id="claude-name"></span>
+        <span class="status-chip" id="claude-status"></span>
+        <button class="icon" id="claude-full" type="button" aria-label="Full screen">⤢</button>
+      </div>
+      <ol class="claude-items" id="claude-items" aria-live="polite"></ol>
+      <p class="error" id="claude-problem" role="alert" hidden></p>
+      <p class="error" id="claude-error" role="alert" hidden></p>
+      <form class="box" id="claude-form">
+        <button class="icon mic" id="claude-mic" type="button" aria-label="Speak" aria-pressed="false" hidden>🎤</button>
+        <textarea id="claude-input" rows="1" enterkeyhint="send" aria-label="Message Claude"></textarea>
+        <button class="icon send" id="claude-send" type="submit" aria-label="Send" disabled>↑</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="pane settings" id="settings-pane" aria-label="Settings" hidden>
+    <h2>Your buddy</h2>
+    <div class="buddies" id="buddy-choice"></div>
+
+    <h2>Memory</h2>
+    <label class="switch"><span>Learn about me from chats</span><input type="checkbox" id="learn"></label>
+    <ul class="facts" id="facts"></ul>
+    <p class="muted" id="facts-empty">Buddy doesn't know anything about you yet.</p>
+    <form class="row" id="fact-form">
+      <input class="field" id="fact-input" type="text" placeholder="Something Buddy should know" aria-label="Something Buddy should know">
+      <button class="btn btn--ghost btn--sm" type="submit">Add</button>
+    </form>
+    <p class="error" id="fact-error" role="alert" hidden></p>
+    <button class="btn btn--ghost btn--sm" id="forget-all" type="button">Forget everything</button>
+
+    <h2>Notifications</h2>
+    <label class="switch"><span>Tell me when Claude Code finishes or needs me</span><input type="checkbox" id="push-switch"></label>
+    <p class="muted" id="push-note" hidden></p>
+
+    <h2>Account</h2>
+    <p class="muted" id="account-email"></p>
+    <button class="btn btn--ghost btn--sm" id="signout" type="button">Sign out</button>
+  </section>
+
+  <nav class="tabs" id="tabs" aria-label="Buddy" hidden>
+    <button type="button" data-tab="chat" aria-pressed="true">Chat</button>
+    <button type="button" data-tab="claude" aria-pressed="false">Claude</button>
+    <button type="button" data-tab="settings" aria-pressed="false">Settings</button>
+  </nav>
+</div>
+</body>
+</html>

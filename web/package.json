@@ -8,6 +8,7 @@
     "node": "22.x"
   },
   "dependencies": {
-    "firebase-admin": "^13.10.0"
+    "firebase-admin": "^13.10.0",
+    "web-push": "^3.6.7"
   }
 }

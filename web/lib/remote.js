@@ -162,6 +162,23 @@ function phoneStop(doc) {
   return { next: { ...doc, watch: null, feed: null }, result: {} };
 }
 
+/**
+ * The sessions of a computer's report that just stopped working: working in its last report, done or waiting in this
+ * one. Each is { id, name, status }, for a notification on the person's phones (web/lib/push.js). The session a watcher
+ * is looking at right now is left out: the person sees it already. A computer's first report, or one turning sharing
+ * off, has none.
+ */
+function justFinished(doc, body, now) {
+  if (body.off === true) return [];
+  const before = devicesOf(doc)[checkDevice(body.device).id];
+  if (!before) return [];
+  const watched = watching(doc, now);
+  const wasWorking = (id) => before.sessions.some((s) => s.id === id && s.status === 'working');
+  return cleanSessions(body.sessions)
+    .filter((s) => (s.status === 'done' || s.status === 'waiting') && s.id !== watched && wasWorking(s.id))
+    .map(({ id, name, status }) => ({ id, name, status }));
+}
+
 /** A device id from a request (the watcher's own computer, to leave out), or null for none. */
 function checkDeviceId(value) {
   return typeof value === 'string' && DEVICE_ID.test(value) ? value : null;
@@ -184,5 +201,5 @@ function checkSessionId(value, { required = false } = {}) {
 
 module.exports = {
   ONLINE_MS, WATCH_MS, SEEN_EVERY_MS, INBOX_MAX, INBOX_KEEP_MS, ITEMS_MAX, ITEM_CHARS, FEED_CHARS, TEXT_MAX, OFFLINE, NO_SESSION,
-  cleanSessions, cleanItems, macReport, phoneLook, phoneSend, phoneStop, checkText, checkSessionId, checkDeviceId,
+  cleanSessions, cleanItems, macReport, justFinished, phoneLook, phoneSend, phoneStop, checkText, checkSessionId, checkDeviceId,
 };

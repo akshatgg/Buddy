@@ -135,7 +135,7 @@ test('the server keys come from the environment, trimmed, and only the ones that
 });
 
 test('every API route is a function', () => {
-  for (const file of ['config', 'ask', 'admin/settings', 'admin/models', 'admin/users']) {
+  for (const file of ['config', 'ask', 'transcribe', 'remote/mac', 'remote/phone', 'push', 'admin/settings', 'admin/models', 'admin/users']) {
     assert.strictEqual(typeof require(`../web/api/${file}`), 'function', file);
   }
 });

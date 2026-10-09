@@ -147,3 +147,18 @@ test("Claude mode's record: written, read back the same, left alone, and deleted
   await db.updateRemote('u1', (doc) => remote.macReport(doc, { device: MAC, off: true }, T + 6000));
   assert.deepStrictEqual(await db.updateRemote('u1', (doc) => ({ next: undefined, result: doc })), null, 'deleted');
 });
+
+test("the notifications record: written, read back the same, and deleted with its last phone", async () => {
+  const pushRules = require('../../web/lib/push');
+  const SUB = {
+    endpoint: 'https://web.push.apple.com/QGuQyavXutnMHabc',
+    keys: { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' },
+  };
+  assert.strictEqual(await db.getPush('u1'), null);
+  assert.deepStrictEqual(await db.updatePush('u1', (doc) => pushRules.addSub(doc, SUB, 1000)), { on: true });
+  assert.deepStrictEqual(await db.getPush('u1'), { subs: [{ ...SUB, at: 1000 }] });
+  assert.deepStrictEqual(await db.updatePush('u1', (doc) => pushRules.removeEndpoints(doc, ['https://web.push.apple.com/other'])), { on: false });
+  assert.deepStrictEqual(await db.getPush('u1'), { subs: [{ ...SUB, at: 1000 }] }, 'left alone');
+  await db.updatePush('u1', (doc) => pushRules.removeEndpoints(doc, [SUB.endpoint]));
+  assert.strictEqual(await db.getPush('u1'), null, 'deleted');
+});

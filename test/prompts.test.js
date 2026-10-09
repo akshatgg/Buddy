@@ -86,8 +86,8 @@ test('answers are capped at 1024 tokens, on the own-key route and the free one a
 
 // ---- chat: the panel's one request ----
 
-test('chat is one of the actions, and the old ones stay', () => {
-  assert.deepStrictEqual(ACTIONS, ['write', 'fix', 'check', 'chat']);
+test('chat and tag (Buddy where you type) are actions, and the old ones stay', () => {
+  assert.deepStrictEqual(ACTIONS, ['write', 'fix', 'check', 'chat', 'tag']);
 });
 
 test('chat: the message is the user turn, trimmed, with no image unless one is given', () => {

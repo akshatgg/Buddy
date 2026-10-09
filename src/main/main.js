@@ -52,6 +52,7 @@ const { createLive } = require('./claude/live');
 const { createTerminal } = require('./claude/terminal');
 const { createClaudeMode } = require('./claude/mode');
 const { createShare, thisDevice } = require('./claude/share');
+const { createTagWatch } = require('./tag');
 const { createUpdater, installTarget, firstLaunchOfNewVersion } = require('./updates');
 const { helperFile, windows: onWindows } = require('./platform');
 
@@ -248,8 +249,11 @@ async function start(options = {}) {
   const share = createShare({
     store, cloud, live, terminal, device, signedIn: () => account.isSignedIn(), active: () => power.isOn(),
   });
+  // Buddy where you type (tag.js): "@buddy" after text in any app, rewritten in place, while Buddy is on.
+  const tagWatch = createTagWatch({ helper, ai, store, ui, active: () => power.isOn() });
   const startWatch = () => {
     share.start();
+    tagWatch.refresh();
     if (store.get('watchClaudeCode') !== true) return;
     watch.start().catch((err) => console.warn('[buddy] could not watch Claude Code:', err.message));
   };
@@ -284,6 +288,7 @@ async function start(options = {}) {
         actions.dismiss().catch((err) => console.error('[buddy] could not close the panel', err));
         watch.stop(); // the buddy goes idle if Claude Code had moved it
         share.stop();
+        tagWatch.stop();
         buddy.hide();
       }
       tray.refresh();
@@ -339,7 +344,7 @@ async function start(options = {}) {
     ipcMain, panel, actions, openSettings, microphone, ui, shell, askAccessibility: () => helper.call('requestAccessibility'), claudeMode,
   });
   const settingsIpc = registerSettingsIpc({
-    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch,
+    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch, tagWatch,
     account, cloud, memory, microphone, canSignIn: Boolean(cloudConfig),
     home: buddy, // Settings → Buddy → Where Buddy lives: whether there is a notch, and moving Buddy when it changes
     find, // Claude Code on this computer: the fifth AI choice, with no key

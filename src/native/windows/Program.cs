@@ -6,6 +6,7 @@
 //   reply    {"id": 1, "ok": true, "result": {...}}
 //            {"id": 1, "ok": false, "error": {"code": "...", "message": "..."}}
 //   event    {"event": "frontApp", "pid": 123, "bundleId": "chrome.exe", "name": "Google Chrome"}
+//            {"event": "tag", "pid": 123}   (while watchTyping is on: the person paused after "@buddy fix", TypeWatch.cs)
 //
 // Commands run one at a time on a worker thread, and lines go out through a writer thread. The main thread only
 // runs the message loop: it receives the events that say which app is in front, and it owns the window that
@@ -171,6 +172,9 @@ namespace BuddyHelper
                         break;
                     case "focusWindow":
                         result = Commands.FocusWindow(args);
+                        break;
+                    case "watchTyping":
+                        result = TypeWatch.Watch(args);
                         break;
                     default:
                         throw new HelperError("bad_request", "unknown command");

@@ -13,10 +13,13 @@ import kotlinx.serialization.json.JsonPrimitive
 // turn against what the JavaScript builds (chat-cases.json, made by tools/sync-android-shared.js).
 
 // JavaScript's \s and trim(): a few more spaces than Kotlin's own trim knows (U+FEFF), and none of its control ones.
-private const val JS_SPACES = "\t\n\u000B\u000C\r                  　﻿"
+internal const val JS_SPACES = "\t\n\u000B\u000C\r                  　﻿"
 private val JS_SPACE_RUN = Regex("[$JS_SPACES]+")
 
 internal fun jsTrim(text: String): String = text.trim { it in JS_SPACES }
+
+/** JavaScript's trimEnd(). */
+internal fun jsTrimEnd(text: String): String = text.trimEnd { it in JS_SPACES }
 
 /** A name or a fact on one line (runs of spaces become one space), cut to `max` characters. */
 internal fun oneLine(value: String?, max: Int): String = value?.let { jsTrim(jsTrim(it.replace(JS_SPACE_RUN, " ")).take(max)) }.orEmpty()

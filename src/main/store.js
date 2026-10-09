@@ -27,7 +27,8 @@ const DEFAULTS = Object.freeze({
   lastRunVersion: null, // the version that ran last, so the first launch after an update is known
   memory: [], // what Buddy knows about the person, as [{ id, text, at }] oldest first (src/main/memory.js)
   learnFromChats: true, // Settings → Memory's "Learn about me from chats": off, a chat saves nothing new
-  listenOnOpen: false, // Settings → General's "Listen when the panel opens": off, the panel listens only after 🎤
+  listenOnOpen: false,
+  tagOn: true, // Settings → General's "Fix where I type": "@buddy" after text, anywhere (src/main/tag.js) // Settings → General's "Listen when the panel opens": off, the panel listens only after 🎤
   home: 'notch', // Settings → Buddy's "Where Buddy lives": 'notch' (on a Mac with one) or 'floating' (src/main/home.js)
   projects: [], // the folders Claude Code may work in, as [{ path, name }] (src/main/claude/projects.js)
   lastProject: null, // the path of the project the chat last worked in, or null

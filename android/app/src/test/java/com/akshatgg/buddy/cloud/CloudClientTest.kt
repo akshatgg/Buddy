@@ -246,6 +246,14 @@ class CloudClientTest {
         assertEquals(Json.parseToJsonElement(body), Json.parseToJsonElement(toServer().single().body!!))
     }
 
+    @Test fun aTagSendsItsTextAndInstruction() = runTest {
+        signIn()
+        val cloud = client()
+        serve(HttpResponse(200, """{"text":"I am not coming.","model":"m"}"""))
+        assertEquals(Answer("I am not coming.", "m"), cloud.ask(Action.TAG, AskInput(text = "i not coming", instruction = "formal")))
+        assertEquals(Json.parseToJsonElement("""{"action":"tag","instruction":"formal","text":"i not coming"}"""), Json.parseToJsonElement(toServer().single().body!!))
+    }
+
     @Test fun aCopyWithNoServerCallsNothing() = runTest {
         settings.cloud = kept
         val cloud = client(serverUrl = "")

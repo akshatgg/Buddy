@@ -12,7 +12,7 @@ const { isTap, tapKeys } = require('../../renderer/common/shortcut-keys');
 const { cleanFact } = require('../../../shared/memory-rules');
 const { PROVIDER_ID: CLAUDE_ID, MODELS: CLAUDE_MODELS, MODEL_LABELS, GET_URL } = require('../claude/find');
 
-const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models', 'listenOnOpen', 'home'];
+const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models', 'listenOnOpen', 'tagOn', 'home'];
 const HOMES = ['notch', 'floating']; // where Buddy lives (src/main/home.js)
 const NAME_MAX = 24;
 const PERMISSION_PANES = {
@@ -74,6 +74,8 @@ function registerSettingsIpc({
   platform = process.platform,
   // Where Buddy lives (home.js), for Settings → Buddy's "Where Buddy lives": without it, no notch is offered.
   home,
+  // Buddy where you type (tag.js): told when its switch or the buddy's name changes.
+  tagWatch = null,
 }) {
   // The Settings and Welcome windows only: the Admin window has calls of its own (ipc/admin.js).
   const handle = guarded(ipcMain, (webContents) => windows.owns(webContents, 'settings') || windows.owns(webContents, 'onboarding'));
@@ -168,6 +170,9 @@ function registerSettingsIpc({
     if (Object.hasOwn(changes, 'listenOnOpen') && typeof changes.listenOnOpen !== 'boolean') {
       throw new BuddyError('bad_request', 'Listen when the panel opens must be on or off.');
     }
+    if (Object.hasOwn(changes, 'tagOn') && typeof changes.tagOn !== 'boolean') {
+      throw new BuddyError('bad_request', 'Fix where I type must be on or off.');
+    }
     if (Object.hasOwn(changes, 'buddyName')) {
       const name = String(changes.buddyName || '').trim().slice(0, NAME_MAX);
       changes.buddyName = name || characters.get(changes.buddyId ?? store.get('buddyId')).defaultName;
@@ -182,6 +187,7 @@ function registerSettingsIpc({
     }
     const before = store.all();
     store.set(changes);
+    tagWatch?.refresh(); // "Fix where I type" turned on or off, or the buddy renamed: the tag's names follow
     if (changes.size && changes.size !== before.size) buddy.resize();
     if (changes.buddyId && changes.buddyId !== before.buddyId) buddy.reloadModel();
     if (changes.home && changes.home !== before.home && home) await home.refresh(); // Buddy moves house

@@ -2,8 +2,10 @@ package com.akshatgg.buddy.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -12,7 +14,10 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
  * Buddy's look, the Mac's tokens from src/renderer/common/base.css: the window grey, the card, the text, hairlines,
@@ -75,6 +80,28 @@ val DarkBuddyColors = BuddyColors(
     control = Color(0xFF4A4A4E),
 )
 
+/**
+ * Claude Code's own terminal colours, for Claude mode (the Mac panel's .cli look, panel.css): black, white text, grey
+ * for what is quiet, Claude's orange for its work, green and red for a tool that worked or failed.
+ */
+val ClaudeCliColors = BuddyColors(
+    bg = Color(0xFF000000),
+    card = Color(0xFF000000),
+    fg = Color(0xFFF2F2F2),
+    muted = Color(0xFF8C8C8C),
+    line = Color(0xFF3A3A3A),
+    lineSoft = Color(0xFF2C2C2C),
+    accent = Color(0xFFD77757),
+    accentSoft = Color(0x33D77757),
+    accentFg = Color(0xFF1A0F0A),
+    good = Color(0xFF4EBA65),
+    error = Color(0xFFFF6B80),
+    goodSoft = Color(0x294EBA65),
+    errorSoft = Color(0x2EFF6B80),
+    track = Color(0xFF2C2C2C), // what the person typed: the terminal's grey bar
+    control = Color(0xFF3A3A3A),
+)
+
 /** The Mac's --radius. */
 val BuddyRadius = 10.dp
 
@@ -100,6 +127,26 @@ private fun scheme(c: BuddyColors, dark: Boolean) = if (dark) {
         surfaceContainer = c.card, surfaceContainerHigh = c.card, surfaceContainerHighest = c.card,
         outline = c.line, outlineVariant = c.line, error = c.error, onError = c.card,
     )
+}
+
+/**
+ * Claude mode as Claude Code's terminal looks, whatever the phone's light or dark: ClaudeCliColors, and every word in
+ * the monospace font.
+ */
+@Composable
+fun ClaudeCliTheme(content: @Composable () -> Unit) {
+    val mono = Typography().let { t ->
+        fun TextStyle.mono() = copy(fontFamily = FontFamily.Monospace)
+        t.copy(
+            bodyLarge = t.bodyLarge.mono().copy(fontSize = 13.sp, lineHeight = 19.sp), bodyMedium = t.bodyMedium.mono(),
+            bodySmall = t.bodySmall.mono(), titleMedium = t.titleMedium.mono(), titleLarge = t.titleLarge.mono(),
+            labelLarge = t.labelLarge.mono(), labelMedium = t.labelMedium.mono(),
+        )
+    }
+    val round = RoundedCornerShape(BuddyRadius)
+    CompositionLocalProvider(LocalBuddyColors provides ClaudeCliColors, LocalTextStyle provides mono.bodyLarge) {
+        MaterialTheme(colorScheme = scheme(ClaudeCliColors, dark = true), typography = mono, shapes = Shapes(small = round, medium = round), content = content)
+    }
 }
 
 /** Buddy's colours in light and dark, as Material 3's, and its rounded corners. */

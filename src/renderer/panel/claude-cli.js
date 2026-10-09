@@ -134,7 +134,100 @@ const ClaudeCli = (() => {
     return `${VERBS[n % VERBS.length]}…`;
   }
 
-  return { toolCall, summaryText, rows, inline, workingVerb, VERBS };
+  const FENCE = /^\s*```/;
+  const HEADING = /^#{1,6}\s+(.*)$/;
+  const BULLET = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+  const TABLE_RULE = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
+  const MIN_COLUMN = 6;
+
+  /** The words of a line without its **bold** and `code` marks. */
+  const plain = (text) => inline(text).map((p) => p.s).join('');
+  /** A table row's cells: between the pipes, trimmed, with their marks taken off. */
+  const cells = (line) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => plain(c.trim()));
+
+  /**
+   * Claude's markdown, block by block, as the terminal shows it: { type: 'line' | 'heading' | 'bullet' | 'code' |
+   * 'table' | 'blank', … }. The phone's ClaudeCli.kt reads it the same way.
+   */
+  function blocks(text) {
+    const lines = String(text ?? '').replace(/\r\n/g, '\n').split('\n');
+    const out = [];
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (FENCE.test(line)) {
+        const code = [];
+        for (i += 1; i < lines.length && !FENCE.test(lines[i]); i += 1) code.push(lines[i]);
+        out.push({ type: 'code', lines: code });
+      } else if (line.trimStart().startsWith('|') && i + 1 < lines.length && TABLE_RULE.test(lines[i + 1])) {
+        const header = cells(line);
+        const rows = [];
+        for (i += 2; i < lines.length && lines[i].trimStart().startsWith('|'); i += 1) rows.push(cells(lines[i]));
+        i -= 1;
+        out.push({ type: 'table', header, rows });
+      } else if (!line.trim()) {
+        out.push({ type: 'blank' });
+      } else if (HEADING.test(line)) {
+        out.push({ type: 'heading', text: HEADING.exec(line)[1] });
+      } else if (BULLET.test(line)) {
+        const [, indent, marker, rest] = BULLET.exec(line);
+        out.push({ type: 'bullet', depth: Math.floor(indent.length / 2), marker: /^\d/.test(marker) ? marker : '•', text: rest });
+      } else {
+        out.push({ type: 'line', text: line });
+      }
+    }
+    return out;
+  }
+
+  /** `text` in lines of at most `width` characters, broken between words (inside a word only when it is longer). */
+  function wrap(text, width) {
+    if (text.length <= width) return [text];
+    const out = [];
+    let line = '';
+    for (let word of text.split(' ').filter(Boolean)) {
+      while (word.length > width) {
+        if (line) { out.push(line); line = ''; }
+        out.push(word.slice(0, width));
+        word = word.slice(width);
+      }
+      if (!line) line = word;
+      else if (line.length + 1 + word.length <= width) line = `${line} ${word}`;
+      else { out.push(line); line = word; }
+    }
+    if (line) out.push(line);
+    return out.length ? out : [''];
+  }
+
+  /**
+   * A table drawn with box lines, as the terminal draws it, no wider than `maxWidth` characters: the widest columns give
+   * way first (down to MIN_COLUMN), a cell's words wrap within its column, and a line goes between every row.
+   */
+  function tableLines(header, rows, maxWidth) {
+    const all = [header, ...rows];
+    const columns = Math.max(...all.map((r) => r.length), 0);
+    if (!columns) return [];
+    const widths = Array.from({ length: columns }, (_, c) => Math.max(1, ...all.map((r) => (r[c] ?? '').length)));
+    const frame = 3 * columns + 1;
+    while (widths.reduce((a, b) => a + b, 0) + frame > maxWidth) {
+      const widest = widths.indexOf(Math.max(...widths));
+      if (widths[widest] <= MIN_COLUMN) break;
+      widths[widest] -= 1;
+    }
+    const rule = (left, mid, right) => left + widths.map((w) => '─'.repeat(w + 2)).join(mid) + right;
+    const row = (cellsOf) => {
+      const wrapped = widths.map((w, c) => wrap(cellsOf[c] ?? '', w));
+      const height = Math.max(...wrapped.map((w) => w.length));
+      return Array.from({ length: height }, (_, l) => `│${wrapped.map((w, c) => ` ${(w[l] ?? '').padEnd(widths[c])} │`).join('')}`);
+    };
+    const out = [rule('┌', '┬', '┐')];
+    all.forEach((cellsOf, i) => {
+      if (i > 0) out.push(rule('├', '┼', '┤'));
+      out.push(...row(cellsOf));
+    });
+    out.push(rule('└', '┴', '┘'));
+    return out;
+  }
+
+  return { toolCall, summaryText, rows, inline, blocks, tableLines, wrap, workingVerb, VERBS };
 })();
 
 if (typeof module !== 'undefined') module.exports = ClaudeCli;

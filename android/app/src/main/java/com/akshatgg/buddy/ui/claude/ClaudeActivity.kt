@@ -2,8 +2,10 @@ package com.akshatgg.buddy.ui.claude
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -52,7 +54,8 @@ class ClaudeActivity : ComponentActivity() {
     private val claude: ClaudeModel get() = kept.claude
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
+        // Black like Claude Code's terminal, whatever the phone's light or dark: light icons in the bars over it.
+        enableEdgeToEdge(SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT))
         super.onCreate(savedInstanceState)
         val on = ClaudeCallbacks(
             open = claude::open,

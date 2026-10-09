@@ -57,6 +57,11 @@ module.exports = async function claudeModeCheck(ctx, { assert, waitFor }) {
   assert.ok(unfolded.includes('Bash(npm test)') && unfolded.includes('⎿'), 'the command as the terminal writes it, with what it gave back');
   await page("document.querySelector('.cl-thinking .cl-fold').click()");
   await shows('The tax is added in two places.', 'the thinking, unfolded');
+  // A table in a reply is drawn with box lines, as the terminal draws it.
+  fs.appendFileSync(transcript, line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '| File | Change |\n|---|---|\n| cart.js | **tax once** |' }] } }));
+  await waitFor(() => page("Boolean(document.querySelector('.cl-table'))"), 'the table');
+  const table = await page("document.querySelector('.cl-table').textContent");
+  assert.ok(table.startsWith('┌') && table.includes('│ cart.js │ tax once │') && table.trimEnd().endsWith('┘'), table);
   if (process.env.BUDDY_E2E_SHOTS) { // a picture to look at by eye (as 18-notch.js)
     await new Promise((r) => setTimeout(r, 300)); // the window paints what was unfolded
     fs.writeFileSync(path.join(process.env.BUDDY_E2E_SHOTS, 'claude-mode.png'), (await panel.webContents.capturePage()).toPNG());

@@ -168,11 +168,15 @@ let signingOut = false;
 async function signOut() {
   if (signingOut) return;
   signingOut = true;
+  let timer;
   try {
     // This phone stops getting the person's notifications; if that hangs, signing out goes on without it.
-    await Promise.race([push.off().catch(() => null), new Promise((resolve) => setTimeout(resolve, PUSH_OFF_MS))]);
+    await Promise.race([push.off().catch(() => null), new Promise((resolve) => (timer = setTimeout(resolve, PUSH_OFF_MS)))]);
     await auth?.signOut();
+  } catch (err) {
+    console.error('[buddy] sign out failed', err);
   } finally {
+    clearTimeout(timer);
     signingOut = false;
   }
 }
@@ -247,27 +251,34 @@ async function showSignedIn(who) {
   claudeView.setVoice(config?.voiceOn === true);
 }
 
-/** Starts sign-in; on the first try or a later one. True when it is running. Opening the sign-in page is a navigation,
- * so it may come after an await. */
-async function beginAuth() {
-  try {
-    auth = await startAuth({ onUser: (who) => (who ? showSignedIn(who) : showSignedOut()), onError: showSignInError });
-  } catch (err) {
-    console.error('[buddy] sign-in could not start', err);
-    if (!authSettled) showSignedOut();
-    showSignInError(SIGN_IN_OFFLINE);
-    return false;
-  } finally {
-    if (!authSettled) {
-      authSettled = true;
-      authReady();
+let authStarting = null;
+
+/** Starts sign-in, once at a time: a second call while one is loading gets the same answer. After a failure a later
+ * call tries again. True when it is running. Opening the sign-in page is a navigation, so it may come after an await. */
+function beginAuth() {
+  authStarting ??= (async () => {
+    try {
+      auth = await startAuth({ onUser: (who) => (who ? showSignedIn(who) : showSignedOut()), onError: showSignInError });
+      return true;
+    } catch (err) {
+      console.error('[buddy] sign-in could not start', err);
+      authStarting = null;
+      if (!authSettled) showSignedOut();
+      showSignInError(SIGN_IN_OFFLINE);
+      return false;
+    } finally {
+      if (!authSettled) {
+        authSettled = true;
+        authReady();
+      }
     }
-  }
-  return true;
+  })();
+  return authStarting;
 }
 
 $('signin-button').addEventListener('click', async () => {
   if (!auth && !(await beginAuth())) return;
+  if (person) return; // a signed-in person was restored while it loaded
   showSignInError('');
   auth.signIn().catch((err) => showSignInError(signInMessage(err)));
 });

@@ -77,6 +77,7 @@ export function startClaudeView({ api, onMic, onFull }) {
     if (!session.canTalk) rows.push(make('li', 'cl-note', NO_TALK));
     list.replaceChildren(...rows);
     const last = items.length ? items[items.length - 1].id : 0;
+    if (shownId !== session.id) voiceError = null; // another session: the old voice error does not follow
     if (shownId !== session.id || (atBottom && last !== newest)) list.scrollTop = list.scrollHeight;
     shownId = session.id;
     newest = last;
@@ -159,6 +160,7 @@ export function startClaudeView({ api, onMic, onFull }) {
     /** Signed out: Claude mode ends. */
     leave() {
       if (full) setFull(false);
+      voiceError = null;
       core.leave();
     },
     setVoice(on) {

@@ -2,7 +2,7 @@
 // notifications for Claude Code (push.js), and the account. Each part draws itself again when it changes; draw() draws it all when the tab opens.
 
 import { $, make, button } from './dom.js';
-import { NOT_INSTALLED, NOT_SUPPORTED } from './push.js';
+import { FAILED, NOT_INSTALLED, NOT_SUPPORTED } from './push.js';
 
 const NOT_KEPT = "I didn't keep that. It may be known already, too long, or something secret like a password.";
 
@@ -78,7 +78,7 @@ export function startSettings({ store, memory, buddies, onBuddy, account, onSign
     try {
       r = toggle.checked ? await push.on() : await push.off();
     } catch {
-      r = { ok: false, error: 'That did not work. Try again.' };
+      r = { ok: false, error: FAILED };
     } finally {
       toggle.disabled = false;
     }

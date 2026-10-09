@@ -355,17 +355,18 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
   overscroll-behavior: contain;
   list-style: none;
 }
+.claude-items > li { flex: none; min-width: 0; } /* each line keeps its whole height: the list scrolls instead */
 .claude-items p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.claude-items .you { align-self: flex-end; max-width: 86%; padding: 7px 11px; border-radius: 14px; border-bottom-right-radius: 5px; background: var(--accent-soft); }
-.claude-items .claude { align-self: flex-start; max-width: 96%; padding: 7px 11px; border-radius: 14px; border-bottom-left-radius: 5px; background: var(--track); }
-.claude-items .tool, .claude-items .result {
+.claude-items .cl-you { align-self: flex-end; max-width: 86%; padding: 7px 11px; border-radius: 14px; border-bottom-right-radius: 5px; background: var(--accent-soft); }
+.claude-items .cl-claude { align-self: flex-start; max-width: 96%; padding: 7px 11px; border-radius: 14px; border-bottom-left-radius: 5px; background: var(--track); }
+.claude-items .cl-tool, .claude-items .cl-result {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   line-height: 1.4;
 }
-.claude-items .tool { color: var(--fg); }
-.claude-items .tool::before { content: "⏺ "; color: var(--accent); }
-.claude-items .result { margin-top: -3px; padding: 4px 8px; border-left: 2px solid var(--line); color: var(--muted); }
-.claude-items .result.error { border-left-color: var(--error); color: var(--error); }
-.claude-items .event { align-self: center; color: var(--muted); font-size: 12px; }
-.claude-items .older { align-self: center; color: var(--muted); font-size: 11px; }
+.claude-items .cl-tool { color: var(--fg); }
+.claude-items .cl-tool::before { content: "⏺ "; color: var(--accent); }
+.claude-items .cl-result { margin-top: -3px; padding: 4px 8px; border-left: 2px solid var(--line); color: var(--muted); }
+.claude-items .cl-result.error { border-left-color: var(--error); color: var(--error); }
+.claude-items .cl-event { align-self: center; color: var(--muted); font-size: 12px; }
+.claude-items .cl-note { align-self: center; color: var(--muted); font-size: 11px; }

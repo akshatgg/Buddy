@@ -45,6 +45,20 @@ module.exports = async function claudeModeCheck(ctx, { assert, waitFor }) {
   const text = await page("document.getElementById('claude-items').innerText");
   for (const expected of ['fix the cart total', 'npm test', '42 passing']) assert.ok(text.includes(expected), `the session shows "${expected}"`);
   assert.strictEqual(await page("document.getElementById('claude-name').textContent"), 'shop-e2e');
+
+  // Many long lines, as a real session has: each keeps its whole height, and none is drawn over the one before.
+  const long = Array.from({ length: 12 }, (_, i) => `Step ${i + 1}: ${'a long reply that wraps over several lines in the narrow panel '.repeat(3)}`);
+  fs.appendFileSync(transcript, long.map((text) => line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }, { type: 'tool_use', name: 'Bash', input: { command: 'npm test' } }] } })).join(''));
+  await shows('Step 12:', 'the long lines');
+  const layout = await page(`[...document.querySelectorAll('#claude-items > li')].map((li) => {
+    const r = li.getBoundingClientRect();
+    return [li.className, r.top, r.bottom, li.offsetHeight, li.scrollHeight];
+  })`);
+  for (const [i, [cls, top, , height, content]] of layout.entries()) {
+    assert.ok(height >= content, `line ${i} (${cls}) is as tall as its words: ${height} < ${content}`);
+    if (i > 0) assert.ok(top >= layout[i - 1][2] - 0.5, `line ${i} (${cls}) starts below line ${i - 1}: ${top} < ${layout[i - 1][2]}`);
+  }
+  assert.ok(layout.some(([cls]) => cls === 'cl-claude') && layout.some(([cls]) => cls === 'cl-tool'), 'replies and tools are there');
   assert.strictEqual(await page("document.getElementById('box').placeholder"), 'Message Claude in shop-e2e…');
 
   // It goes on: a new reply in the file shows by itself.

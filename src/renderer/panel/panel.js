@@ -676,7 +676,8 @@ function claudeReopen() {
 /** One item of the session, as the terminal shows it. */
 function drawClaudeItem(item) {
   const kind = ['you', 'claude', 'tool', 'result', 'event'].includes(item.kind) ? item.kind : 'event';
-  const li = make('li', kind + (item.error ? ' error' : ''));
+  // Its own class names (cl-…): the chat's .you and .event, and the view's own .claude, must not reach these lines.
+  const li = make('li', `cl-${kind}${item.error ? ' error' : ''}`);
   li.append(make('p', '', item.text));
   return li;
 }
@@ -694,8 +695,8 @@ function drawClaude(session, { scroll = false } = {}) {
   const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
   const items = Array.isArray(session.items) ? session.items : [];
   const rows = items.map(drawClaudeItem);
-  if (session.waiting) rows.push(make('li', 'older', CLAUDE_WORDS.waiting(session.device)));
-  if (!session.canTalk) rows.push(make('li', 'older', session.remote ? CLAUDE_WORDS.noTalkThere : CLAUDE_WORDS.noTalk));
+  if (session.waiting) rows.push(make('li', 'cl-note', CLAUDE_WORDS.waiting(session.device)));
+  if (!session.canTalk) rows.push(make('li', 'cl-note', session.remote ? CLAUDE_WORDS.noTalkThere : CLAUDE_WORDS.noTalk));
   list.replaceChildren(...rows);
   const newest = items.length ? items[items.length - 1].id : 0;
   if (scroll || (atBottom && newest !== claude.newest)) list.scrollTop = list.scrollHeight;

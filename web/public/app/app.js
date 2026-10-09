@@ -1,22 +1,84 @@
-// Buddy on iPhone: starts everything. So far, the head (the buddy picked, asleep when left alone, petting, a shake of
-// the phone) and the service worker, which keeps the app's files for opening it without the network.
+// Buddy on iPhone: starts everything. Signed out, the head and the sign-in button; signed in, three tabs under the
+// head: Chat, Claude (Claude Code on the person's computers) and Settings. Each part is its own file; this one hands
+// them what they need from each other, and tells the buddy what happens (its feelings, as src/main/feelings.js does on
+// the Mac).
 
 import { createStore, localStorageOf } from './store.js';
+import { createApi, TIMEOUTS } from './api.js';
+import { startAuth, signInMessage, SIGN_IN_OFFLINE } from './auth.js';
+import { createMemory } from './memory.js';
+import { createChat } from './chat-core.js';
+import { startChatView } from './chat.js';
+import { startSettings } from './settings.js';
 import { createHead } from './head.js';
 import { createMotionShake, askForMotion } from './motion.js';
+import { createVoice } from './voice.js';
+import { startClaudeView } from './claude.js';
+import { createPush, supportHere } from './push.js';
 import { createSleep } from './shared/sleep.js';
+import { $ } from './dom.js';
 
+const app = $('app');
 const store = createStore(localStorageOf(window));
+const memory = createMemory({ store });
+const TABS = ['chat', 'claude', 'settings'];
+const BUBBLE_MS = 2500;
+const LINK = /^#claude\/([\w-]{1,100})$/; // a notification's session: /app#claude/<session id>
+
+let person = null; // who is signed in: { uid, email, name, firstName }, or null
+let config = null; // GET /api/config for them: voiceOn, pushKey, …
+let tab = 'chat';
+let buddies = []; // buddies.json
+let bubbleTimer = null;
+
+/** A short line under the head for a moment ("Copied"). */
+function say(text) {
+  $('bubble').textContent = text;
+  $('bubble').hidden = false;
+  clearTimeout(bubbleTimer);
+  bubbleTimer = setTimeout(() => {
+    $('bubble').hidden = true;
+  }, BUBBLE_MS);
+}
+
+// ---- sign-in and Buddy's server ----
+
+let auth = null;
+let authReady;
+const authStarted = new Promise((resolve) => {
+  authReady = resolve;
+});
+const api = createApi({
+  getToken: async (force) => {
+    const a = await authStarted;
+    return a ? a.token(force) : null;
+  },
+  onSignedOut: () => auth?.signOut(),
+});
+
+function showSignInError(message) {
+  $('signin-error').textContent = message;
+  $('signin-error').hidden = !message;
+}
+
+// ---- the head and its feelings ----
 
 let head = null;
 try {
-  head = createHead({ canvas: document.getElementById('head'), symbolsRoot: document.getElementById('symbols'), onTouch: touched });
+  head = createHead({ canvas: $('head'), symbolsRoot: $('symbols'), onTouch: touched });
 } catch (err) {
   console.error('[buddy] the head could not start', err); // no WebGL: the app works on without it
-  document.getElementById('head').hidden = true;
+  $('head').hidden = true;
 }
 // Drowsy after a minute left alone and asleep after two, as on the Mac (src/main/sleep.js).
 const sleep = createSleep({ onMood: (name) => head?.mood(name) });
+
+/** A mood from the app: a use, which wakes a sleeping buddy first; thinking holds the sleep countdown while it lasts. */
+function feel(name) {
+  sleep.poke();
+  sleep.hold('busy', name === 'thinking');
+  head?.mood(name);
+}
 
 const shake = createMotionShake();
 let motionAnswered = false; // granted or denied: stop asking
@@ -42,23 +104,176 @@ function listenForShakes() {
   motionListening = true;
   window.addEventListener('devicemotion', (e) => {
     const a = e.acceleration;
-    if (a && shake.feed(a.x, a.y, a.z, e.timeStamp)) {
-      sleep.poke();
-      head?.mood('dizzy');
-    }
+    if (a && shake.feed(a.x, a.y, a.z, e.timeStamp)) feel('dizzy');
   });
 }
 
 async function loadBuddy() {
-  const buddies = await (await fetch('/app/buddies/buddies.json')).json();
+  if (!buddies.length) {
+    try {
+      buddies = await (await fetch('/app/buddies/buddies.json')).json();
+    } catch {
+      buddies = [];
+    }
+  }
   const picked = buddies.find((b) => b.id === store.read('buddy', null)) || buddies[0];
   if (picked && head) await head.load({ url: `/app/buddies/${picked.file}`, accent: picked.accent });
 }
 
-document.addEventListener('visibilitychange', () => head?.pause(document.hidden));
+const buddyName = () => (buddies.find((b) => b.id === store.read('buddy', null)) || buddies[0])?.defaultName || 'Buddy';
+
+// ---- the chat ----
+
+const chat = createChat({
+  ask: (body) => api.post('/api/ask', body, { timeoutMs: TIMEOUTS.ask }),
+  memory,
+  userName: () => person?.firstName || '',
+  onMood: feel,
+  onChange: () => chatView.draw(),
+});
+const chatView = startChatView({ chat, buddyName, say, onCelebrate: () => feel('celebrate'), onMic: toggleVoice });
+
+// ---- voice ----
+
+const voice = createVoice({
+  transcribe: async (audio, mime) => (await api.post('/api/transcribe', { audio, mime }, { timeoutMs: TIMEOUTS.transcribe })).text,
+  onState: (state) => {
+    sleep.hold('voice', state === 'listening');
+    head?.micOn(state === 'listening');
+    chatView.voiceState(state);
+    claudeView.voiceState(state);
+  },
+  onLevel: (level) => head?.level(level),
+  onWords: (text) => (tab === 'claude' ? claudeView : chatView).addWords(text),
+  onError: (message) => (tab === 'claude' ? claudeView : chatView).showError(message),
+});
+
+function toggleVoice() {
+  if (voice.state === 'idle') voice.start();
+  else voice.stop();
+}
+
+// ---- Claude mode ----
+
+const claudeView = startClaudeView({ api, onMic: toggleVoice, onFull: (on) => app.classList.toggle('full', on) });
+
+// ---- notifications and settings ----
+
+const push = createPush({ api, pushKey: () => config?.pushKey || null });
+
+async function signOut() {
+  await push.off(); // this phone stops getting the person's notifications
+  await auth?.signOut();
+}
+
+const settings = startSettings({
+  store,
+  memory,
+  buddies: () => buddies,
+  onBuddy: (id) => {
+    store.write('buddy', id);
+    loadBuddy().catch((err) => console.error('[buddy] the buddy did not load', err));
+  },
+  account: () => person,
+  onSignOut: signOut,
+  push,
+  support: () => supportHere(window),
+});
+
+// ---- the tabs ----
+
+function showTab(next, { open = null } = {}) {
+  if (!TABS.includes(next)) return;
+  if (tab === 'claude' && next !== 'claude') claudeView.away();
+  if (next !== tab) voice.cancel();
+  tab = next;
+  for (const b of document.querySelectorAll('#tabs button')) b.setAttribute('aria-pressed', String(b.dataset.tab === next));
+  $('chat-pane').hidden = next !== 'chat';
+  $('claude-pane').hidden = next !== 'claude';
+  $('settings-pane').hidden = next !== 'settings';
+  sleep.poke();
+  if (next === 'claude') claudeView.show(open);
+  if (next === 'settings') settings.draw();
+}
+
+for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => showTab(b.dataset.tab));
+
+/** A notification's link (/app#claude/<session>): the Claude tab, on that session. Used once. */
+function followLink() {
+  const match = LINK.exec(window.location.hash);
+  if (!match || !person) return;
+  window.history.replaceState(null, '', '/app');
+  showTab('claude', { open: match[1] });
+}
+window.addEventListener('hashchange', followLink);
+
+// ---- signed in and out ----
+
+function showSignedOut() {
+  person = null;
+  config = null;
+  app.dataset.signed = 'out';
+  $('signin').hidden = false;
+  $('tabs').hidden = true;
+  for (const id of ['chat-pane', 'claude-pane', 'settings-pane']) $(id).hidden = true;
+  voice.cancel();
+  claudeView.leave();
+  chat.clear();
+}
+
+async function showSignedIn(who) {
+  person = who;
+  app.dataset.signed = 'in';
+  showSignInError('');
+  $('signin').hidden = true;
+  $('tabs').hidden = false;
+  showTab(tab);
+  followLink();
+  config = await api.get('/api/config', { timeoutMs: TIMEOUTS.config }).catch(() => null);
+  if (person !== who) return; // signed out meanwhile
+  chatView.setVoice(config?.voiceOn === true);
+  claudeView.setVoice(config?.voiceOn === true);
+}
+
+$('signin-button').addEventListener('click', () => {
+  if (!auth) {
+    showSignInError(SIGN_IN_OFFLINE);
+    return;
+  }
+  showSignInError('');
+  auth.signIn().catch((err) => showSignInError(signInMessage(err)));
+});
+
+startAuth({ onUser: (who) => (who ? showSignedIn(who) : showSignedOut()), onError: showSignInError })
+  .then((a) => {
+    auth = a;
+    authReady(a);
+  })
+  .catch((err) => {
+    console.error('[buddy] sign-in could not start', err);
+    authReady(null);
+    showSignedOut();
+    showSignInError(SIGN_IN_OFFLINE);
+  });
+
+// ---- the page ----
+
+document.addEventListener('visibilitychange', () => {
+  head?.pause(document.hidden);
+  if (document.hidden) {
+    voice.cancel();
+    claudeView.hidden();
+  } else if (tab === 'claude' && person) {
+    claudeView.show();
+  }
+});
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/app/sw.js', { scope: '/app' }).catch((err) => console.warn('[buddy] no offline copy', err));
+  // A tapped notification, while the app was open: sw.js says which session to show.
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data?.type === 'open' && typeof e.data.url === 'string') window.location.hash = new URL(e.data.url, window.location.href).hash;
+  });
 }
 
 loadBuddy().catch((err) => console.error('[buddy] the buddy did not load', err));

@@ -23,8 +23,9 @@ const UNREACHABLE = ['network', 'timeout', 'server']; // the server cannot be us
 // answer with any other code comes from something in front of the server, such as the hosting platform.
 const SERVER_CODES = [
   'bad_request', 'free_no_vision', 'unauthenticated', 'blocked', 'free_off', 'not_admin', 'not_found',
-  'method_not_allowed', 'free_limit', 'upstream', 'server', 'voice_off', 'voice_busy',
+  'method_not_allowed', 'free_limit', 'upstream', 'server', 'voice_off', 'voice_busy', 'mac_offline',
 ];
+const REMOTE_TIMEOUT_MS = 10_000; // Claude mode on the phone: a report that takes longer is tried again later
 // What a request may carry to the server (shared/prompts.js): the inputs of write, fix and check, then those of a chat.
 const ASK_INPUTS = [
   'instruction', 'tone', 'text', 'image',
@@ -186,6 +187,26 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
     return j.text;
   }
 
+  /**
+   * Claude mode on the phone (claude/share.js): this computer's Claude Code sessions, and the watched one's items, for
+   * the server to pass to the person's phone. Answers { watch, inbox }.
+   */
+  const remoteMac = (body) => call('/api/remote/mac', { method: 'POST', body, timeoutMs: REMOTE_TIMEOUT_MS });
+
+  /**
+   * Claude mode from this computer on the person's other computers' sessions (claude/mode.js): { online, sessions,
+   * feed }, with `sessionId` that session's items (looking keeps it watched). `exclude` is this computer's own id.
+   */
+  function remoteLook(sessionId, exclude) {
+    const query = new URLSearchParams();
+    if (sessionId) query.set('session', sessionId);
+    if (exclude) query.set('exclude', exclude);
+    const q = query.toString();
+    return call(`/api/remote/phone${q ? `?${q}` : ''}`, { timeoutMs: REMOTE_TIMEOUT_MS });
+  }
+  const remoteSend = (sessionId, text) => call('/api/remote/phone', { method: 'POST', body: { action: 'send', session: sessionId, text }, timeoutMs: REMOTE_TIMEOUT_MS });
+  const remoteStop = () => call('/api/remote/phone', { method: 'POST', body: { action: 'stop' }, timeoutMs: REMOTE_TIMEOUT_MS });
+
   const admin = {
     settings: () => call('/api/admin/settings'),
     save: (patch) => call('/api/admin/settings', { method: 'PUT', body: patch }),
@@ -200,6 +221,10 @@ function createCloud({ config, account, store, fetchImpl = fetch, now = Date.now
     forget,
     ask,
     transcribe,
+    remoteMac,
+    remoteLook,
+    remoteSend,
+    remoteStop,
     admin,
     /** `fn()` is called whenever the kept settings change. */
     onChange: (fn) => {

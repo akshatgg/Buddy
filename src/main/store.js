@@ -32,6 +32,8 @@ const DEFAULTS = Object.freeze({
   projects: [], // the folders Claude Code may work in, as [{ path, name }] (src/main/claude/projects.js)
   lastProject: null, // the path of the project the chat last worked in, or null
   watchClaudeCode: false, // Settings → Claude Code's "Show me what Claude Code is doing" (src/main/claude/watch.js)
+  shareClaudeToPhone: false, // Settings → Claude Code's "Show my sessions on my other devices" (src/main/claude/share.js)
+  deviceId: null, // this computer, to the person's other devices (claude/share.js thisDevice): made on first use
   claudeHookPort: null, // the port Claude Code's hooks post to, picked on the first watch and kept (49152–65535)
   claudeHookToken: null, // 16 random bytes as hex, part of the hooks' URL, so only Claude Code's hooks are heard
 });

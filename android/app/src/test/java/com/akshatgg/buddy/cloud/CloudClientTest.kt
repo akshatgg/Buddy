@@ -316,4 +316,96 @@ class CloudClientTest {
         serve(HttpResponse(200, """{"text":"ok"}"""))
         assertEquals("2 MB is still taken", "ok", cloud.transcribe(ByteArray(2_000_000)))
     }
+
+    // ---- Claude mode ----
+
+    private val offline = "None of your computers is sharing right now. Keep Buddy open on one, with Settings → Claude Code → Show my sessions on my other devices on."
+    private val gone = "That session is not running any more. Pick another one."
+
+    @Test fun remoteLookAsksForTheSessionsWithTheIdTokenAndReadsThem() = runTest {
+        signIn()
+        val cloud = client()
+        serve(HttpResponse(200, """{"online":true,"sessions":[{"id":"s-1","name":"buddy","status":"working","canTalk":true},{"id":"s_2","name":"web","status":"waiting","canTalk":false}],"feed":null}"""))
+        assertEquals(
+            RemoteLook(true, listOf(RemoteSession("s-1", "buddy", "working", true), RemoteSession("s_2", "web", "waiting", false)), null),
+            cloud.remoteLook(),
+        )
+        val req = toServer().single()
+        assertEquals(listOf("https://srv/api/remote/phone", "GET", "Bearer id", 10_000), listOf(req.url, req.method, req.headers["authorization"], req.timeoutMs))
+        assertNull(req.body)
+        assertNull(req.headers["content-type"])
+    }
+
+    @Test fun remoteLookAtASessionAsksForItAndReadsItsItems() = runTest {
+        signIn()
+        val cloud = client()
+        serve(
+            HttpResponse(200, """{"online":true,"sessions":[{"id":"s-1","name":"buddy","status":"done","canTalk":true}],"feed":{"id":"s-1","name":"buddy","status":"done","canTalk":true,"items":[{"id":1,"kind":"you","text":"fix the tests"},{"id":2,"kind":"tool","text":"Bash(npm test)"},{"id":3,"kind":"result","text":"1 failed","error":true},{"id":4,"kind":"claude","text":"Fixed."}]}}"""),
+            HttpResponse(200, """{"online":true,"sessions":[{"id":"s-1","name":"buddy","status":"working","canTalk":true}],"feed":null}"""),
+        )
+        val session = RemoteSession("s-1", "buddy", "done", true)
+        val items = listOf(RemoteItem(1, "you", "fix the tests"), RemoteItem(2, "tool", "Bash(npm test)"), RemoteItem(3, "result", "1 failed", error = true), RemoteItem(4, "claude", "Fixed."))
+        assertEquals(RemoteLook(true, listOf(session), RemoteFeed(session, items)), cloud.remoteLook("s-1"))
+        assertEquals("https://srv/api/remote/phone?session=s-1", toServer().single().url)
+        assertNull("not sent yet by the computer", cloud.remoteLook("s-1").feed)
+    }
+
+    @Test fun remoteLookLeavesOutWhatIsOdd() = runTest {
+        signIn()
+        val cloud = client()
+        serve(
+            HttpResponse(200, """{"online":"true","sessions":"none","feed":[]}"""),
+            HttpResponse(200, """{"online":true,"sessions":[{"id":"bad id"},{"name":"no id"},{"id":"a","name":"  ","status":"sleeping"},{"id":"a","name":"twice"},7],"feed":{"id":"a","items":[{"id":1,"kind":"poem","text":"x"},{"id":"2","kind":"you","text":"y"},{"id":1,"kind":"you","text":"again"},{"id":3,"kind":"you"},{"id":4,"kind":"claude","text":"ok","error":"yes"}]}}"""),
+        )
+        assertEquals(RemoteLook(false, emptyList(), null), cloud.remoteLook())
+        val a = RemoteSession("a", "Claude Code", "sleeping", false)
+        assertEquals(
+            RemoteLook(true, listOf(a), RemoteFeed(RemoteSession("a", "Claude Code", "idle", false), listOf(RemoteItem(1, "event", "x"), RemoteItem(4, "claude", "ok")))),
+            cloud.remoteLook("a"),
+        )
+    }
+
+    @Test fun remoteLookReadsWhichComputerASessionRunsOn() = runTest {
+        signIn()
+        val cloud = client()
+        serve(HttpResponse(200, """{"online":true,"sessions":[{"id":"a","name":"buddy","status":"idle","canTalk":true,"device":"Akshat's MacBook Air"},{"id":"b","name":"web","status":"idle","canTalk":true,"device":"  "},{"id":"c","name":"api","status":"idle","canTalk":true,"device":7}],"feed":{"id":"a","name":"buddy","status":"idle","canTalk":true,"device":"Akshat's MacBook Air","items":[]}}"""))
+        val r = cloud.remoteLook("a")
+        assertEquals(listOf("Akshat's MacBook Air", null, null), r.sessions.map { it.device })
+        assertEquals("Akshat's MacBook Air", r.feed?.session?.device)
+    }
+
+    @Test fun remoteSendAndStopPostTheirAction() = runTest {
+        signIn()
+        val cloud = client()
+        serve(HttpResponse(200, """{"sent":true}"""), HttpResponse(200, "{}"))
+        cloud.remoteSend("s-1", "run the tests")
+        cloud.remoteStop()
+        val (send, stop) = toServer()
+        assertEquals(
+            listOf("https://srv/api/remote/phone", "POST", "application/json", "Bearer id", 10_000),
+            listOf(send.url, send.method, send.headers["content-type"], send.headers["authorization"], send.timeoutMs),
+        )
+        assertEquals(Json.parseToJsonElement("""{"action":"send","session":"s-1","text":"run the tests"}"""), Json.parseToJsonElement(send.body!!))
+        assertEquals(listOf("https://srv/api/remote/phone", "POST", "application/json"), listOf(stop.url, stop.method, stop.headers["content-type"]))
+        assertEquals(Json.parseToJsonElement("""{"action":"stop"}"""), Json.parseToJsonElement(stop.body!!))
+    }
+
+    @Test fun claudeModesErrorsComeThroughInTheServersWords() = runTest {
+        signIn()
+        val cloud = client()
+        serve(
+            HttpResponse(404, """{"error":{"code":"not_found","message":"$gone"}}"""),
+            HttpResponse(409, """{"error":{"code":"mac_offline","message":"$offline"}}"""),
+            HttpResponse(400, """{"error":{"code":"bad_request","message":"Type something first."}}"""),
+            HttpResponse(500, "<html>"),
+        )
+        val notFound = error { cloud.remoteLook("s-1") }
+        assertEquals(listOf("not_found", gone), listOf(notFound.code, notFound.message))
+        val offline = error { cloud.remoteSend("s-1", "hi") }
+        assertEquals(listOf("mac_offline", this@CloudClientTest.offline), listOf(offline.code, offline.message))
+        val bad = error { cloud.remoteSend("s-1", " ") }
+        assertEquals(listOf("bad_request", "Type something first."), listOf(bad.code, bad.message))
+        val other = error { cloud.remoteStop() }
+        assertEquals(listOf("server", serverProblem), listOf(other.code, other.message))
+    }
 }

@@ -602,6 +602,8 @@ const CLAUDE_STATUS = { working: 'working…', waiting: 'waiting for you', done:
 const CLAUDE_WORDS = {
   placeholder: (name) => `Message Claude in ${name}…`,
   noTalk: "Buddy can't type into this terminal: what you send is copied, to paste there.",
+  noTalkThere: "Buddy can't type into this terminal on that computer, so what you send there may not arrive.",
+  waiting: (device) => `Waiting for ${device || 'your other computer'}…`,
   typed: '✅ Sent to the terminal',
 };
 
@@ -634,7 +636,10 @@ async function claudeList() {
     const li = make('li');
     const b = make('button');
     b.type = 'button';
-    b.append(make('span', 'name', s.name), make('span', `status-chip ${s.status}`, CLAUDE_STATUS[s.status] || s.status));
+    const name = make('span', 'name', s.name);
+    // A session on another of the person's computers (shared through Buddy's server) says which one.
+    if (s.remote && s.device) name.append(make('span', 'device', `on ${s.device}`));
+    b.append(name, make('span', `status-chip ${s.status}`, CLAUDE_STATUS[s.status] || s.status));
     b.addEventListener('click', () => claudeOpen(s.id));
     li.append(b);
     return li;
@@ -681,7 +686,7 @@ function drawClaude(session, { scroll = false } = {}) {
   if (!session) return;
   claude.session = session;
   applyMode();
-  $('claude-name').textContent = session.name;
+  $('claude-name').textContent = session.remote && session.device ? `${session.name} · on ${session.device}` : session.name;
   const chip = $('claude-status');
   chip.className = `status-chip ${session.status}`;
   chip.textContent = CLAUDE_STATUS[session.status] || session.status;
@@ -689,7 +694,8 @@ function drawClaude(session, { scroll = false } = {}) {
   const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
   const items = Array.isArray(session.items) ? session.items : [];
   const rows = items.map(drawClaudeItem);
-  if (!session.canTalk) rows.push(make('li', 'older', CLAUDE_WORDS.noTalk));
+  if (session.waiting) rows.push(make('li', 'older', CLAUDE_WORDS.waiting(session.device)));
+  if (!session.canTalk) rows.push(make('li', 'older', session.remote ? CLAUDE_WORDS.noTalkThere : CLAUDE_WORDS.noTalk));
   list.replaceChildren(...rows);
   const newest = items.length ? items[items.length - 1].id : 0;
   if (scroll || (atBottom && newest !== claude.newest)) list.scrollTop = list.scrollHeight;
@@ -737,6 +743,11 @@ $('claude-mode').addEventListener('click', () => {
 });
 $('claude-back').addEventListener('click', () => claudeList());
 $('claude-again').addEventListener('click', () => claudeList());
-window.buddy.onClaudeState((session) => {
-  if (mode === 'claude' && session && claude.session && session.id === claude.session.id) drawClaude(session);
+window.buddy.onClaudeState(async (session) => {
+  if (mode !== 'claude' || !session || !claude.session || session.id !== claude.session.id) return;
+  if (!session.gone) return drawClaude(session);
+  // The session ended on its computer, or that computer stopped sharing: back to the list, which says why.
+  await claudeList();
+  $('claude-pick-error').textContent = session.message;
+  show($('claude-pick-error'), true);
 });

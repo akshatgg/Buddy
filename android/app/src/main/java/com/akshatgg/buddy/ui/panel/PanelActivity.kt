@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.akshatgg.buddy.AppGraph
@@ -27,6 +28,7 @@ import com.akshatgg.buddy.voice.MicButton
 class PanelActivity : ComponentActivity(), ChatHost {
     private val kept: ChatViewModel by viewModels()
     private val model: PanelModel get() = kept.model
+    private val claude: ClaudeModel get() = kept.claude
 
     // Lint reads Fragment 1.2.5 from the compile classpath (the app runs with 1.5.7), and the check is about a
     // FragmentActivity before 1.3.0 losing results: the panel is a plain ComponentActivity.
@@ -43,22 +45,41 @@ class PanelActivity : ComponentActivity(), ChatHost {
         // A turn of the phone makes the activity again on the same chat; only a new panel starts one.
         if (savedInstanceState == null) model.open()
         val buddyName = AppGraph.instance.settings.buddyName
-        val on = PanelCallbacks(
+        // The Claude button only for a person signed in: Claude mode reaches their computer through Buddy's server.
+        fun callbacks(signedIn: Boolean) = PanelCallbacks(
             setDraft = model::setDraft,
             send = model::send,
             dropSelection = model::dropSelection,
             press = model::press,
             settings = { openSettingsFor(null) },
             close = ::finish,
+            claude = if (!signedIn) null else ClaudeCallbacks(
+                toggle = claude::toggle,
+                open = claude::open,
+                list = claude::list,
+                setDraft = claude::setDraft,
+                send = claude::send,
+            ),
         )
         setContent {
             BuddyTheme {
                 // Collected without a hop through the main queue, so that the box always shows what was just typed.
                 val state by model.state.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
-                // One recorder for this screen; its words go into the box, its refusals become a line in the chat.
+                val claudeState by claude.state.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
+                val user by AppGraph.instance.account.user.collectAsStateWithLifecycle()
+                val signedIn = user != null
+                // Signed out meanwhile: back to the chat, as Claude mode cannot reach the computer any more.
+                LaunchedEffect(signedIn) { if (!signedIn) claude.leave() }
+                // One recorder for this screen; its words go into the box, its refusals become a line in the chat (in
+                // Claude mode, the session's box and the line under it).
                 val voice = remember { AppGraph.instance.voiceFactory(applicationContext) }
-                PanelScreen(state, buddyName, on) {
-                    MicButton(voice, onWords = model::voiceWords, onError = model::voiceError)
+                val on = remember(signedIn) { callbacks(signedIn) }
+                PanelScreen(state, buddyName, on, claudeState) {
+                    MicButton(
+                        voice,
+                        onWords = { if (claude.state.value.on) claude.voiceWords(it) else model.voiceWords(it) },
+                        onError = { if (claude.state.value.on) claude.voiceError(it) else model.voiceError(it) },
+                    )
                 }
             }
         }
@@ -75,12 +96,14 @@ class PanelActivity : ComponentActivity(), ChatHost {
         super.onStart()
         BubbleBus.sheetShown(kept)
         model.shown()
+        claude.shown()
     }
 
     override fun onStop() {
         if (!isChangingConfigurations) {
             BubbleBus.sheetGone(kept)
             if (!isFinishing) model.hidden() // behind the app: the chat waits five minutes
+            claude.hidden() // the phone stops looking at a Claude Code session while the panel is away
         }
         super.onStop()
     }

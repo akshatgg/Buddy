@@ -332,6 +332,7 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
 }
 .sessions button:hover { background: var(--hover); }
 .sessions .name { flex: 1; min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.sessions .device { display: block; overflow: hidden; color: var(--muted); font-size: 11px; font-weight: 400; text-overflow: ellipsis; }
 
 /* How a session stands: a small chip, coloured by its status. */
 .status-chip { flex: none; padding: 1px 8px; border-radius: 10px; background: var(--track); color: var(--muted); font-size: 11px; }

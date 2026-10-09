@@ -33,6 +33,13 @@ function harness({ allowed = () => true } = {}) {
     async setOn(on) { this.calls.push(on); return { on, line: on ? 'Watching.' : 'off words' }; },
     status: () => ({ on: false, line: 'off words' }),
   };
+  // "Show my sessions on my other devices" (src/main/claude/share.js): `signedIn` says whether it can be turned on.
+  const share = {
+    calls: [],
+    signedIn: true,
+    async setOn(on) { this.calls.push(on); return { on, canTurnOn: true, line: on ? 'shared' : 'not shared' }; },
+    status() { return { on: false, canTurnOn: this.signedIn, line: this.signedIn ? 'not shared' : 'Sign in to Buddy to use this.' }; },
+  };
   registerClaudeIpc({
     ipcMain: { handle: (channel, fn) => { handlers[channel] = (...args) => fn({ sender: 'page' }, ...args); } },
     allowed,
@@ -41,8 +48,9 @@ function harness({ allowed = () => true } = {}) {
     projects,
     dialog,
     watch,
+    share,
   });
-  return { handlers, asked, status, opened, projects, dialog, list, watch };
+  return { handlers, asked, status, opened, projects, dialog, list, watch, share };
 }
 
 test('claude:status answers the status and its line, cached unless forced', async () => {
@@ -110,6 +118,17 @@ test('claude:watch answers the switch, and turns it on and off through the watch
   assert.deepEqual(await handlers['claude:watch'](true), { ok: true, on: true, line: 'Watching.' });
   assert.deepEqual(await handlers['claude:watch'](false), { ok: true, on: false, line: 'off words' });
   assert.deepEqual(watch.calls, [true, false]);
+});
+
+test('claude:share answers the phone switch and turns it on and off; signed out, it cannot be turned on', async () => {
+  const { handlers, share } = harness();
+  assert.deepEqual(await handlers['claude:share'](), { ok: true, on: false, canTurnOn: true, line: 'not shared' });
+  assert.deepEqual(await handlers['claude:share'](true), { ok: true, on: true, canTurnOn: true, line: 'shared' });
+  assert.deepEqual(await handlers['claude:share'](false), { ok: true, on: false, canTurnOn: true, line: 'not shared' });
+  assert.equal((await handlers['claude:share']('yes')).error.code, 'bad_request');
+  share.signedIn = false;
+  assert.deepEqual((await handlers['claude:share'](true)).error, { code: 'signed_out', message: 'Sign in to Buddy to use this.' });
+  assert.deepEqual(share.calls, [true, false]);
 });
 
 test('claude:watch wants on or off, and tells the page in plain words otherwise', async () => {

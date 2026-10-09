@@ -14,8 +14,8 @@ module.exports = async function microphoneCheck(ctx, { assert, delay, waitFor })
     // The state's voice: on only for someone signed in whose server can write down what is said, the "listen when
     // the panel opens" switch, and the microphone as macOS (or Windows' privacy switch) says.
     const voice = () => ctx.actions.state().voice;
-    assert.deepStrictEqual(voice(), { on: false, auto: true, mic: 'granted', system: process.platform },
-      'the fake server has no Groq key');
+    assert.deepStrictEqual(voice(), { on: false, auto: false, mic: 'granted', system: process.platform },
+      'the fake server has no Groq key, and the panel listens only after 🎤 unless that is turned on');
     ctx.cloud.free = { ...free, voiceOn: true };
     assert.strictEqual(voice().on, true);
     ctx.account.signedIn = false; // only for this line: nobody is told, so nothing else changes

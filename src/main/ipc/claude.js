@@ -15,10 +15,12 @@ const { GET_URL } = require('../claude/find');
  *   claude:remove-project   -> { projects }: the folder taken out
  *   claude:watch { on? }    -> { on, line }: "Show me what Claude Code is doing" (src/main/claude/watch.js); with `on`
  *                              true or false it turns the watch on or off, with none it answers how it stands
+ *   claude:share { on? }    -> { on, canTurnOn, line }: "Show my sessions on my other devices" (src/main/claude/share.js), the
+ *                              same way
  *
  * Calls answer { ok, ... } like every Settings call (ipc/result.js), and only `allowed` senders may make them.
  */
-function registerClaudeIpc({ ipcMain, allowed, find, openExternal, projects, dialog, watch }) {
+function registerClaudeIpc({ ipcMain, allowed, find, openExternal, projects, dialog, watch, share }) {
   const handle = guarded(ipcMain, allowed);
 
   handle('claude:get', async () => {
@@ -49,6 +51,13 @@ function registerClaudeIpc({ ipcMain, allowed, find, openExternal, projects, dia
     if (on === undefined) return watch.status();
     if (typeof on !== 'boolean') throw new BuddyError('bad_request', 'Watching Claude Code must be on or off.');
     return watch.setOn(on);
+  });
+
+  handle('claude:share', async (on) => {
+    if (on === undefined) return share.status();
+    if (typeof on !== 'boolean') throw new BuddyError('bad_request', 'Showing your sessions on your other devices must be on or off.');
+    if (on && !share.status().canTurnOn) throw new BuddyError('signed_out', share.status().line);
+    return share.setOn(on);
   });
 
   return {};

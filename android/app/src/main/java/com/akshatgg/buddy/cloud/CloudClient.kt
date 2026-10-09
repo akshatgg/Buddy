@@ -23,6 +23,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.IOException
+import java.net.URLEncoder
 import java.util.Base64
 import java.net.SocketTimeoutException
 
@@ -32,6 +33,9 @@ private const val CONFIG_TIMEOUT_MS = 8_000 // for the settings, which a request
 // For a recording: longer than the server waits for Groq (30 s, web/lib/transcribe.js), so that its own answer ("I
 // couldn't write down what you said") comes first. As on the Mac (cloud.js).
 private const val TRANSCRIBE_TIMEOUT_MS = 45_000
+// For Claude mode's calls: a look comes every 1.5 s while the phone watches a session, so one that hangs is given up
+// on sooner than other calls, and the next look tries again.
+private const val REMOTE_TIMEOUT_MS = 10_000
 private const val AUDIO_MAX_BYTES = 2_000_000 // about 2 MB: the most Buddy's server takes (the Mac's panel stops there too)
 private val UNREACHABLE = listOf("network", "timeout", "server") // the server cannot be used now: fall back to what is kept
 // The codes Buddy's server answers errors with: the keys of STATUS in web/lib/handlers.js, and `server` (which its
@@ -39,7 +43,7 @@ private val UNREACHABLE = listOf("network", "timeout", "server") // the server c
 // of the server, such as the hosting platform.
 private val SERVER_CODES = listOf(
     "bad_request", "free_no_vision", "unauthenticated", "blocked", "free_off", "not_admin", "not_found",
-    "method_not_allowed", "free_limit", "upstream", "server", "voice_off", "voice_busy",
+    "method_not_allowed", "free_limit", "upstream", "server", "voice_off", "voice_busy", "mac_offline",
 )
 
 private fun serverProblem() = BuddyError("server", "Buddy's server had a problem. Try again.")
@@ -214,5 +218,32 @@ class CloudClient(
         }
         val j = call("/api/transcribe", "POST", body, timeoutMs = TRANSCRIBE_TIMEOUT_MS)
         return j.string("text") ?: throw serverProblem()
+    }
+
+    // ---- Claude mode: the Claude Code sessions on the person's computer (web/lib/remote.js) ----
+
+    /**
+     * Whether the person's computer shares its Claude Code sessions now, which, and with `session` that one's items
+     * (once the computer has sent them). Looking at a session is what keeps it watched: the computer sends its items
+     * only while the phone looks.
+     */
+    suspend fun remoteLook(session: String? = null): RemoteLook {
+        val query = session?.let { "?session=" + URLEncoder.encode(it, "UTF-8") }.orEmpty()
+        return RemoteLook.read(call("/api/remote/phone$query", timeoutMs = REMOTE_TIMEOUT_MS))
+    }
+
+    /** Words for a session's terminal: its computer types them in when it next reports. */
+    suspend fun remoteSend(session: String, text: String) {
+        val body = buildJsonObject {
+            put("action", "send")
+            put("session", session)
+            put("text", text)
+        }
+        call("/api/remote/phone", "POST", body, timeoutMs = REMOTE_TIMEOUT_MS)
+    }
+
+    /** The phone stops watching: the computer stops sending the session's items, and the server drops them. */
+    suspend fun remoteStop() {
+        call("/api/remote/phone", "POST", buildJsonObject { put("action", "stop") }, timeoutMs = REMOTE_TIMEOUT_MS)
     }
 }

@@ -40,4 +40,6 @@ contextBridge.exposeInMainWorld('buddy', {
   removeProject: (path) => ipcRenderer.invoke('claude:remove-project', path),
   setClaudeWatch: (on) => ipcRenderer.invoke('claude:watch', on),
   claudeWatch: () => ipcRenderer.invoke('claude:watch'),
+  setClaudeShare: (on) => ipcRenderer.invoke('claude:share', on),
+  claudeShare: () => ipcRenderer.invoke('claude:share'),
 });

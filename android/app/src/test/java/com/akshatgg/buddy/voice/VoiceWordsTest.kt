@@ -83,13 +83,13 @@ class VoiceWordsTest {
 
     @Test fun theWakePhraseAndItsCasesAreTheJavaScriptsOwn() {
         val wake = root.getValue("wake").jsonObject
-        val known = wake.getValue("known").jsonArray.strings().toSet()
+        val lacks = wake.getValue("lacks").jsonArray.strings().toSet()
         val phrases = wake.getValue("phrases").jsonArray.map { it.jsonObject }
         assertTrue(phrases.size >= 5)
         for (c in phrases) {
             val want = c.getValue("phrase").let { if (it is JsonNull) null else it.jsonPrimitive.content }
             assertEquals(c.str("name"), want, VoiceWords.wakePhrase(c.str("name")))
-            assertEquals(c.str("name"), c.getValue("missing").jsonArray.strings(), VoiceWords.wakeMissing(c.str("name"), known))
+            assertEquals(c.str("name"), c.getValue("missing").jsonArray.strings(), VoiceWords.wakeMissing(c.str("name"), lacks))
         }
         assertEquals(wake.getValue("floor").jsonPrimitive.content.toFloat(), VoiceWords.WAKE_FLOOR)
         val request = wake.getValue("request").jsonObject

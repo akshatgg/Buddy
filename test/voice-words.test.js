@@ -126,10 +126,16 @@ test('the wake phrase is "hey" and the name, plain, at most three words', () => 
   assert.strictEqual(wakePhrase('123'), null);
 });
 
-test('words the model lacks', () => {
-  assert.deepStrictEqual(wakeMissing('Xyzzy', new Set(['hey', 'rahul'])), ['xyzzy']);
-  assert.deepStrictEqual(wakeMissing('Rahul', new Set(['hey', 'rahul'])), []);
-  assert.deepStrictEqual(wakeMissing('123', new Set(['hey'])), []);
+test('the name words the model can\'t hear', () => {
+  const lacks = ['aarav', 'priya'];
+  assert.deepStrictEqual(wakeMissing('Aarav', lacks), ['aarav']);
+  assert.deepStrictEqual(wakeMissing('Anaya', lacks), []);
+  assert.deepStrictEqual(wakeMissing('Rahul', lacks), []);
+  assert.deepStrictEqual(wakeMissing('R2D2', lacks), ['r2d2']);
+  assert.deepStrictEqual(wakeMissing('123', lacks), ['123']);
+  assert.deepStrictEqual(wakeMissing('Aarav Priya', lacks), ['aarav', 'priya']);
+  assert.deepStrictEqual(wakeMissing('Aarav'), ['aarav'], 'the shared list by default');
+  assert.deepStrictEqual(wakeMissing('Rahul'), []);
 });
 
 test('a wake is the phrase as the first words, each sure enough; what follows is the request', () => {

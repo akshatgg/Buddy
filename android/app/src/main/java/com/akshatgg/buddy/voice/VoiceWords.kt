@@ -154,9 +154,16 @@ object VoiceWords {
         return if (words.isEmpty()) null else "hey " + words.joinToString(" ")
     }
 
-    /** The words of the phrase (with "hey") that the model does not know (`known`: its words, less the shared voiceModel.missing). */
-    fun wakeMissing(name: String, known: Set<String>): List<String> =
-        wakePhrase(name)?.split(' ')?.filter { it !in known } ?: emptyList()
+    /**
+     * The name's words the model can't hear: the phrase's words in `missing` (the shared voiceModel.missing), and any word
+     * with a digit in it (the phrase is letters only). Empty when Buddy can listen for the name.
+     */
+    fun wakeMissing(name: String, missing: Set<String>): List<String> {
+        val folded = java.text.Normalizer.normalize(name.trim(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("[\\u0300-\\u036f]"), "").lowercase()
+        val digits = folded.split(Regex("\\s+")).filter { t -> t.any { it in '0'..'9' } }.map { it.replace(Regex("[^a-z0-9]"), "") }
+        return digits + (wakePhrase(name)?.split(' ')?.filter { it in missing } ?: emptyList())
+    }
 
     /** Whether the result starts with the phrase: its words first, in order, each at least `floor` sure. */
     fun wakeFrom(said: VoskSaid, phrase: String, floor: Float): Wake? {

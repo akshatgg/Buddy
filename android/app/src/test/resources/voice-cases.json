@@ -752,6 +752,26 @@
         "missing": []
       },
       {
+        "name": "Anaya",
+        "phrase": "hey anaya",
+        "missing": []
+      },
+      {
+        "name": "R2D2",
+        "phrase": "hey r d",
+        "missing": [
+          "r2d2"
+        ]
+      },
+      {
+        "name": "Aarav Priya",
+        "phrase": "hey aarav priya",
+        "missing": [
+          "aarav",
+          "priya"
+        ]
+      },
+      {
         "name": "  Mr.  Rahul  Kumar Singh ",
         "phrase": "hey mr rahul kumar",
         "missing": []
@@ -764,7 +784,9 @@
       {
         "name": "123",
         "phrase": null,
-        "missing": []
+        "missing": [
+          "123"
+        ]
       },
       {
         "name": "",
@@ -774,23 +796,19 @@
       {
         "name": "Xyzzy",
         "phrase": "hey xyzzy",
-        "missing": [
-          "xyzzy"
-        ]
+        "missing": []
       },
       {
         "name": "Aarav",
         "phrase": "hey aarav",
-        "missing": []
+        "missing": [
+          "aarav"
+        ]
       }
     ],
-    "known": [
-      "hey",
-      "rahul",
-      "mr",
-      "kumar",
-      "zoe",
-      "aarav"
+    "lacks": [
+      "aarav",
+      "priya"
     ],
     "floor": 0.6,
     "request": {

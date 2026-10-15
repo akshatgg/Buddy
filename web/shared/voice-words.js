@@ -1,5 +1,7 @@
 'use strict';
 
+const { VOICE_MODEL } = require('./voice-model');
+
 /**
  * The words of Buddy's voice flow (docs/superpowers/specs/2026-10-15-hey-buddy-message-design.md §2): what a spoken
  * answer to "Send it?" or "Call Prince Sharma?" means, the short list the on-device recognizer listens for, what Buddy
@@ -154,11 +156,16 @@ function wakePhrase(name) {
   return words.length ? `hey ${words.join(' ')}` : null;
 }
 
-/** The words of the phrase (with "hey") that the model does not know (`known`: the words it has, less VOICE_MODEL.missing). */
-function wakeMissing(name, known) {
+/**
+ * The name's words the model can't hear: the phrase's words that are in `missing` (the words it lacks), and any word with
+ * a digit in it (the phrase is letters only). Empty when Buddy can listen for the name.
+ */
+function wakeMissing(name, missing = VOICE_MODEL.missing) {
+  const lacks = new Set(missing);
+  const folded = trimmed(name).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const digits = folded.split(/\s+/).filter((t) => /\d/.test(t)).map((t) => t.replace(/[^a-z0-9]/g, ''));
   const phrase = wakePhrase(name);
-  if (!phrase) return [];
-  return phrase.split(' ').filter((w) => !known.has(w));
+  return [...digits, ...(phrase ? phrase.split(' ').filter((w) => lacks.has(w)) : [])];
 }
 
 /**

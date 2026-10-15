@@ -89,7 +89,10 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
     await waitFor(() => chat().at(-1)?.type === 'buddy', 'the answer');
     assert.deepStrictEqual(asks.at(-1), {
       action: 'chat',
-      input: { message: 'boss ko mail, kal chutti chahiye', history: [], facts: ctx.memory.facts(), appName: '', userName: 'E2E', step: 1 },
+      input: {
+        message: 'boss ko mail, kal chutti chahiye', history: [], facts: ctx.memory.facts(), appName: '', userName: 'E2E', step: 1,
+        ...(process.platform === 'darwin' ? { canMessage: true } : {}), // the Mac can message on WhatsApp; Windows cannot
+      },
     });
     assert.deepStrictEqual(chat().at(-1).buttons, ['insert', 'copy']);
     await pageShows('Dear Sir, I need leave tomorrow.', 'the answer');

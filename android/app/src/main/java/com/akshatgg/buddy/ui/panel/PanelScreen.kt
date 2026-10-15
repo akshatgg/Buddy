@@ -112,6 +112,7 @@ const val EXAMPLES = "“boss ko mail, kal chutti chahiye” · “fix this” �
 private val LABELS = mapOf(
     ChatButton.INSERT to "Insert", ChatButton.REPLACE to "Replace", ChatButton.COPY to "Copy", ChatButton.SHARE to "Share",
     ChatButton.UNDO to "Undo", ChatButton.RETRY to "Try again", ChatButton.SETTINGS to "Open Settings",
+    ChatButton.SEND_MESSAGE to "Send", ChatButton.NOT_NOW to "Not now",
 )
 
 // The Mac's gear (base.css's .glyph-gear), so that both have the same Settings button.

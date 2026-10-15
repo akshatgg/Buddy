@@ -1,8 +1,10 @@
 package com.akshatgg.buddy.ui.panel
 
+import android.Manifest
 import android.app.Activity
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -10,6 +12,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.ActivityResultLauncher
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModel
@@ -17,6 +20,8 @@ import com.akshatgg.buddy.AppGraph
 import com.akshatgg.buddy.bubble.BubbleBus
 import com.akshatgg.buddy.capture.ScreenCapture
 import com.akshatgg.buddy.core.BuddyError
+import com.akshatgg.buddy.message.Messenger
+import com.akshatgg.buddy.message.ServiceChatScreen
 import com.akshatgg.buddy.ui.fix.FixActivity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -40,6 +45,9 @@ interface ChatHost {
 
     /** Where Android's answer to "Start recording or casting?" goes (registered by the activity). */
     val consent: ActivityResultLauncher<Intent>
+
+    /** Where Android's answer to "Allow Buddy to access your contacts?" goes (registered by the activity). */
+    val contacts: ActivityResultLauncher<String>? get() = null
 }
 
 /**
@@ -50,8 +58,22 @@ interface ChatHost {
 class ChatViewModel : ViewModel() {
     var host: ChatHost? = null
     private var picture: CompletableDeferred<ActivityResult>? = null
+    private var contactsAnswer: CompletableDeferred<Boolean>? = null
     private val graph = AppGraph.instance
     private val app = graph.appContext
+
+    private val hands = PanelHands(
+        stepAside = {
+            host?.stepAside()
+            delay(ASIDE_MS)
+        },
+        copy = { app.copyText(it) },
+        share = { text -> host?.activity?.let { share(it, text) } },
+        screen = ::screen,
+        replace = { host?.replace(it) },
+        openSettings = { app.openSettingsFor(it) },
+        contacts = ::contacts,
+    )
 
     val model = PanelModel(
         ask = graph.ask,
@@ -59,17 +81,8 @@ class ChatViewModel : ViewModel() {
         bubble = BubbleBus::send,
         typeIn = graph.typeIn,
         facts = graph.facts,
-        hands = PanelHands(
-            stepAside = {
-                host?.stepAside()
-                delay(ASIDE_MS)
-            },
-            copy = { app.copyText(it) },
-            share = { text -> host?.activity?.let { share(it, text) } },
-            screen = ::screen,
-            replace = { host?.replace(it) },
-            openSettings = { app.openSettingsFor(it) },
-        ),
+        hands = hands,
+        messaging = Messenger(graph.whatsApp, ServiceChatScreen(app), contactsAllowed = hands.contacts),
         firstName = graph::firstName,
         maxMessage = graph.shared.limitInstruction,
         maxSelection = graph.shared.limitText,
@@ -78,6 +91,28 @@ class ChatViewModel : ViewModel() {
     /** Android's answer to "Start recording or casting?", from the activity that asked (or the one made after a turn). */
     fun pictureAnswered(result: ActivityResult) {
         picture?.complete(result)
+    }
+
+    /** Android's answer to "Allow Buddy to access your contacts?", from the activity that asked. */
+    fun contactsAnswered(allowed: Boolean) {
+        contactsAnswer?.complete(allowed)
+    }
+
+    /**
+     * Whether Buddy may read the phone's contacts, to find someone on WhatsApp: Android asks the person when it may not
+     * yet (and, after they said no twice, no longer asks: only the phone's settings for Buddy allow it then).
+     */
+    private suspend fun contacts(): Boolean {
+        if (ContextCompat.checkSelfPermission(app, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) return true
+        val ask = host?.contacts ?: return false
+        val answer = CompletableDeferred<Boolean>()
+        contactsAnswer = answer
+        ask.launch(Manifest.permission.READ_CONTACTS)
+        return try {
+            answer.await()
+        } finally {
+            contactsAnswer = null
+        }
     }
 
     /**

@@ -55,6 +55,10 @@ class FixActivity : ComponentActivity(), ChatHost {
     override val consent: ActivityResultLauncher<Intent> =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { kept.pictureAnswered(it) }
 
+    @SuppressLint("InvalidFragmentVersionForActivityResult") // as consent
+    override val contacts: ActivityResultLauncher<String> =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { kept.contactsAnswered(it) }
+
     override val activity: ComponentActivity get() = this
 
     override fun onCreate(savedInstanceState: Bundle?) {

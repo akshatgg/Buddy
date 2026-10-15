@@ -10,6 +10,10 @@ import com.akshatgg.buddy.ai.providers.AI_TIMEOUT_MS
 import com.akshatgg.buddy.bubble.BubbleEvent
 import com.akshatgg.buddy.bubble.Mood
 import com.akshatgg.buddy.core.BuddyError
+import com.akshatgg.buddy.message.Found
+import com.akshatgg.buddy.message.Messaging
+import com.akshatgg.buddy.message.Person
+import com.akshatgg.buddy.message.Sent
 import com.akshatgg.buddy.store.Facts
 import com.akshatgg.buddy.typing.Edit
 import com.akshatgg.buddy.typing.PutMode
@@ -27,7 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
 /** A button on a line of the chat. */
-enum class ChatButton { INSERT, REPLACE, COPY, SHARE, UNDO, RETRY, SETTINGS }
+enum class ChatButton { INSERT, REPLACE, COPY, SHARE, UNDO, RETRY, SETTINGS, SEND_MESSAGE, NOT_NOW }
 
 /** A line of the chat. `id`s go up from 1 in each chat. */
 sealed interface ChatItem {
@@ -65,7 +69,7 @@ data class PanelState(
  * out of the app's way, keeping the chat; `screen` is one picture of the screen (base64 JPEG), null when the person
  * said no, and throws a BuddyError when it could not be taken; `replace` hands the text back to the app that opened
  * the panel on its selection (PROCESS_TEXT), which closes the panel; `openSettings` goes where the fix for the error
- * code is.
+ * code is; `contacts` is true when Buddy may read the phone's contacts, asking the person once when it may not yet.
  */
 class PanelHands(
     val stepAside: suspend () -> Unit = {},
@@ -74,6 +78,7 @@ class PanelHands(
     val screen: suspend () -> String? = { null },
     val replace: (String) -> Unit = {},
     val openSettings: (String?) -> Unit = {},
+    val contacts: suspend () -> Boolean = { false },
 )
 
 private const val RESUME_MS = 5 * 60_000L // a panel only hidden comes back on the same chat this long after
@@ -89,6 +94,7 @@ private const val LOOK_AGAIN = "Open me again and ask once more, so I can look a
 private const val NOT_FOUND = "I couldn't find it. Select the text and ask me again."
 private const val VOICE_OFF = "Voice isn't set up yet."
 private const val BOX_CHANGED = "That box has changed since, so I left it."
+private const val NOT_SENT = "Okay, not sent."
 
 private enum class From { NOTHING, SELECTION, BOX }
 
@@ -102,6 +108,7 @@ private data class PutRecord(val before: String, val beforeCursor: Int, val edit
  * The panel as a chat, as the Mac's actions.js on a phone (the chat panel design, and the Android chat design §2-§3):
  * the person's messages and the buddy's answers, the "box" and "screen" second steps, doing it in the app through
  * "Buddy can type for you" (TypeIn) with Undo, what Buddy learns about the person (Facts), and errors with Try again.
+ * A message to someone on WhatsApp (Messaging) is a card that is sent only when the person presses Send on it.
  * One message at a time. The chat lasts until the panel is closed; a panel only hidden opens on it again within five
  * minutes, from the same app. Plain Kotlin, so that it is tested on the JVM.
  */
@@ -112,6 +119,7 @@ class PanelModel(
     private val typeIn: TypeIn,
     private val facts: Facts,
     private val hands: PanelHands,
+    private val messaging: Messaging,
     private val firstName: () -> String = { "" },
     private val now: () -> Long = System::currentTimeMillis,
     private val maxMessage: Int = 1000,
@@ -127,6 +135,7 @@ class PanelModel(
         val puts = HashMap<Int, PutRecord>()
         val factOf = HashMap<Int, String>() // a "Remembered" line's fact
         val youOf = HashMap<Int, Int>() // an error's message, for Try again
+        val messages = HashMap<Int, Pair<Person, String>>() // a message card's person and text, until it is sent
     }
 
     private val current = MutableStateFlow(PanelState())
@@ -438,6 +447,7 @@ class PanelModel(
 
     /** The final answer: what it shows, and what Buddy does in the app. */
     private suspend fun finish(c: Chat, reply: ChatReply, from: From, sent: String): Outcome {
+        if (reply.kind == "message") return message(c, reply)
         if (reply.kind == "send") {
             add(c) { BuddySaid(it, NO_SEND, "", emptyList(), emptyList()) }
             return Outcome.ANSWERED
@@ -466,6 +476,57 @@ class PanelModel(
             return Outcome.ANSWERED
         }
         return if (putInApp(c, item.id, reply.again)) Outcome.PUT else Outcome.ANSWERED
+    }
+
+    /**
+     * A message to someone on WhatsApp: who it is (asking for the contacts first), then a card with Send and Not now.
+     * Nothing is opened or sent until Send is pressed.
+     */
+    private suspend fun message(c: Chat, reply: ChatReply): Outcome {
+        if (reply.say.isNotBlank()) {
+            add(c) { BuddySaid(it, reply.say, "", emptyList(), emptyList()) }
+            publish()
+        }
+        val found = messaging.find(reply.to)
+        if (c !== chat) return Outcome.GONE
+        when (found) {
+            is Found.Say -> {
+                if (found.code != null) {
+                    return stop(c, found.code, found.line, if (found.code in SETTINGS_ERRORS) listOf(ChatButton.SETTINGS) else emptyList())
+                }
+                add(c) { BuddySaid(it, "", found.line, emptyList(), emptyList()) }
+            }
+            is Found.One -> {
+                val card = add(c) {
+                    BuddySaid(it, "", "To ${found.person.name}:\n${reply.text}", emptyList(), listOf(ChatButton.SEND_MESSAGE, ChatButton.NOT_NOW))
+                }
+                c.messages[card.id] = found.person to reply.text
+            }
+        }
+        return Outcome.ANSWERED
+    }
+
+    /**
+     * Send on a message card, out of the way: WhatsApp opens the chat, Buddy checks it is theirs and presses Send.
+     * When it was not sent, the card stays, to press Send again, and a red line says why.
+     */
+    private suspend fun sendMessage(c: Chat, id: Int) {
+        val (person, text) = c.messages[id] ?: return
+        hands.stepAside()
+        when (val sent = messaging.send(person, text)) {
+            Sent.Done -> {
+                c.messages.remove(id)
+                replaceItem(c, ChatEvent(id, "✅ Sent to ${person.name}"))
+                say("Sent ✅")
+                mood(Mood.HAPPY)
+            }
+            is Sent.Failed -> {
+                val code = sent.code ?: "message_failed"
+                add(c) { ChatError(it, sent.line, code, if (code in SETTINGS_ERRORS) listOf(ChatButton.SETTINGS) else emptyList()) }
+                say(sent.line)
+            }
+        }
+        publish()
     }
 
     /**
@@ -632,6 +693,13 @@ class PanelModel(
                     inApp { undo(c, id) }
                 }
             }
+            ChatButton.SEND_MESSAGE -> inApp { sendMessage(c, id) }
+            ChatButton.NOT_NOW -> {
+                if (working) return // being sent now
+                c.messages.remove(id)
+                replaceItem(c, ChatEvent(id, NOT_SENT))
+                publish()
+            }
             ChatButton.RETRY -> {
                 if (busy) return
                 val you = c.youOf[id] ?: return
@@ -660,12 +728,12 @@ class PanelModel(
          * Errors whose fix is in Settings, as the Mac's: no key yet, a key that was refused, an account out of credit,
          * a model that cannot be used; signed out, today's free requests used up with own keys allowed but none saved,
          * free mode turned off, a copy of Buddy that cannot sign in; Buddy off (no picture of the screen without it);
-         * "Buddy can type for you" off; the microphone not allowed (the app's own Android settings). They come with
-         * "Open Settings".
+         * "Buddy can type for you" off; the microphone or the contacts not allowed (the app's own Android settings);
+         * Buddy off in Android's Accessibility settings, so it cannot press WhatsApp's Send. They come with "Open Settings".
          */
         val SETTINGS_ERRORS = setOf(
             "no_key", "bad_key", "no_credit", "bad_model", "no_vision", "signed_out", "need_key", "free_off", "not_set_up",
-            "buddy_off", "no_type", "no_microphone",
+            "buddy_off", "no_type", "no_microphone", "no_contacts", "no_accessibility",
         )
     }
 }

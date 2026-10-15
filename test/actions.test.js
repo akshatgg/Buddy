@@ -2796,3 +2796,17 @@ test('voice(words), after "Hey <name>": opens the chat and sends the words as a 
   assert.deepStrictEqual(spokenOf(s), ["To Priya Sharma: hi. Send it?", 'Okay, not sent.']);
   assert.strictEqual(waSends(s).length, 0, 'nothing is sent without a yes');
 });
+
+test('voice(words) while the chat is still answering: says it is busy (so "Hey <name>" can tell the person), sends nothing', async () => {
+  let answer;
+  const s = setup({ ask: () => new Promise((resolve) => { answer = () => resolve({ text: 'Hi', chat: reply({ text: 'Hi' }) }); }) });
+  await s.actions.open();
+  const first = s.actions.send('hello');
+  await new Promise(setImmediate);
+  assert.strictEqual(s.actions.state().busy, true);
+  const asks = entries(s.log, 'ask').length;
+  assert.deepStrictEqual(await s.actions.voice('call mom'), { busy: true });
+  assert.strictEqual(entries(s.log, 'ask').length, asks);
+  answer();
+  await first;
+});

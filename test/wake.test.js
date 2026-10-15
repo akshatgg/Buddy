@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { EventEmitter } = require('node:events');
-const { createWake, shouldListen } = require('../src/main/wake');
+const { createWake, shouldListen, shownName } = require('../src/main/wake');
 const { WAKE_LINES, WAKE_FLOOR, REQUEST } = require('../shared/voice-words');
 
 const ALL = {
@@ -20,7 +20,7 @@ test('shouldListen: only when every rule holds', () => {
   assert.strictEqual(shouldListen({ ...ALL, mic: 'not-determined' }), false);
 });
 
-function setup(t, { name = 'Rahul', wakeOn = true, mic = 'granted', modelReady = true, missing = [], locked = false, signedIn = true } = {}) {
+function setup(t, { name = 'Rahul', wakeOn = true, mic = 'granted', modelReady = true, missing = [], locked = false, signedIn = true, ensure = () => Promise.resolve(), voiceResult = {} } = {}) {
   if (!t.mock.timers._on) { t.mock.timers.enable({ apis: ['setTimeout'] }); t.mock.timers._on = true; }
   const data = { buddyName: name, wakeOn };
   const store = { get: (k) => data[k], set: (p) => Object.assign(data, p) };
@@ -32,10 +32,11 @@ function setup(t, { name = 'Rahul', wakeOn = true, mic = 'granted', modelReady =
     close: () => log.push(['close']),
     on: (event, fn) => { handlers[event] = fn; },
   };
-  const state = { mic, locked, signedIn, buddyOn: true };
+  const state = { mic, locked, signedIn, buddyOn: true, busy: false, asleepNow: false };
+  const changes = [];
   const powerMonitor = new EventEmitter();
-  const actions = { transcribe: async () => ({ text: 'call mom' }), voice: async (words) => { log.push(['voice', words]); } };
-  const model = { ready: () => modelReady, missing: () => new Set(missing), ensure: () => Promise.resolve() };
+  const actions = { transcribe: async () => ({ text: 'call mom' }), voice: async (words) => { log.push(['voice', words]); return voiceResult; } };
+  const model = { ready: () => modelReady, missing: () => new Set(missing), ensure };
   const lock = { locked: () => state.locked };
   const wake = createWake({
     store, ear, model, lock,
@@ -44,10 +45,12 @@ function setup(t, { name = 'Rahul', wakeOn = true, mic = 'granted', modelReady =
     account: { isSignedIn: () => state.signedIn },
     cloud: { last: () => ({ voiceOn: true, blocked: false }) },
     powerMonitor, actions, talkBack: { say: async (line) => { log.push(['say', line]); } },
+    busy: () => state.busy,
+    onChange: (st) => changes.push(st),
     testMs: 10000,
   });
   const last = (kind) => log.filter((l) => l[0] === kind).at(-1);
-  return { wake, log, handlers, powerMonitor, state, data, last, actions };
+  return { wake, log, handlers, powerMonitor, state, data, last, actions, changes };
 }
 
 test('refresh starts the loop with the phrase and keeps the ear window; switched off it stops and lets go', (t) => {
@@ -179,4 +182,84 @@ test('test(onHeard) tells each wake as it is heard', async (t) => {
   t.mock.timers.tick(10000);
   await p;
   assert.deepStrictEqual(heard, [1, 2]);
+});
+
+const BUSY_LINE = "I'm still on the last one. Ask me again in a moment.";
+const says = (s) => s.log.filter((l) => l[0] === 'say').map((l) => l[1]);
+
+test('busy chat: a request is not transcribed and not dropped silently, Buddy says so', async (t) => {
+  const s = setup(t);
+  s.wake.refresh();
+  let transcribed = 0;
+  s.actions.transcribe = async () => { transcribed += 1; return { text: 'call mom' }; };
+  s.state.busy = true;
+  await s.handlers.request({ audio: 'AAAA' });
+  assert.strictEqual(transcribed, 0);
+  assert.deepStrictEqual(says(s), [BUSY_LINE]);
+  assert.strictEqual(s.log.filter((l) => l[0] === 'voice').length, 0);
+});
+
+test('a spoken turn running: a request gets the busy line too', async (t) => {
+  const s = setup(t);
+  s.wake.refresh();
+  s.wake.turn(true);
+  await s.handlers.request({ audio: 'AAAA' });
+  assert.deepStrictEqual(says(s), [BUSY_LINE]);
+});
+
+test('the chat got busy while the words were written down: the busy line, not silence', async (t) => {
+  const s = setup(t, { voiceResult: { busy: true } });
+  s.wake.refresh();
+  await s.handlers.request({ audio: 'AAAA' });
+  assert.deepStrictEqual(says(s), [BUSY_LINE]);
+});
+
+test('a failed model download: the switch goes off, the ears-failed line shows, toggling retries', async (t) => {
+  let fail = true;
+  const s = setup(t, { modelReady: false, ensure: () => (fail ? Promise.reject(new Error('x')) : Promise.resolve()) });
+  s.wake.refresh();
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(s.data.wakeOn, false);
+  assert.deepStrictEqual(s.wake.state(), { on: false, line: WAKE_LINES.earsFailed });
+  assert.ok(s.changes.length > 0, 'Settings is told');
+  // retry: the person turns it on again
+  fail = false;
+  s.data.wakeOn = true;
+  s.wake.refresh();
+  assert.strictEqual(s.wake.state().line, WAKE_LINES.gettingEars);
+});
+
+test('download progress and finish are pushed to Settings', async (t) => {
+  let report;
+  let done;
+  const s = setup(t, {
+    modelReady: false,
+    ensure: ({ onProgress } = {}) => { report = onProgress; return new Promise((r) => { done = r; }); },
+  });
+  s.wake.refresh();
+  report(40);
+  assert.strictEqual(s.changes.at(-1).percent, 40);
+  assert.strictEqual(s.wake.state().percent, 40);
+  const before = s.changes.length;
+  done();
+  await new Promise((r) => setImmediate(r));
+  assert.ok(s.changes.length > before);
+});
+
+test('asleep with the switch on: the ear window is kept (no 37 MB re-send on waking)', (t) => {
+  const s = setup(t);
+  s.wake.refresh();
+  s.powerMonitor.emit('suspend');
+  assert.deepStrictEqual(s.last('keep'), ['keep', true]);
+  assert.strictEqual(s.log.some((l) => l[0] === 'close'), false);
+  assert.strictEqual(s.last('wake')[1], null);
+  s.powerMonitor.emit('resume');
+  assert.strictEqual(s.last('wake')[1].phrase, 'hey rahul');
+});
+
+test('shownName: three words at most, the same as are listened for', () => {
+  assert.strictEqual(shownName('Rahul'), 'Rahul');
+  assert.strictEqual(shownName('Mary Anne Smith'), 'Mary Anne Smith');
+  assert.strictEqual(shownName('Sir Reginald Of Wessex'), 'Sir Reginald Of');
+  assert.strictEqual(shownName('Mary-Anne Smith Jones'), 'Mary Anne Smith');
 });

@@ -391,7 +391,7 @@ function render({ fields = true } = {}) {
 // "Listen for Hey <name>": the Mac only. The lines come worded in the snapshot (the name is the buddy's).
 let wakeReason = ''; // the line under the row that render put there (so that a saved or error line is not wiped by a render)
 let wakeHeardCount = 0;
-function renderWake() {
+function renderWake({ force = false } = {}) {
   $('wake-row').hidden = onWindows() || !snap.wake;
   if ($('wake-row').hidden) return;
   const wake = snap.wake;
@@ -399,9 +399,12 @@ function renderWake() {
   $('wake-line').textContent = wake.privacy;
   $('wake-on').checked = snap.settings.wakeOn === true;
   $('wake-test').hidden = !(snap.settings.wakeOn === true && wake.on);
-  const reason = snap.settings.wakeOn === true && !wake.on ? wake.line || '' : '';
+  $('wake-hint').textContent = wake.hint || '';
+  $('wake-hint').hidden = !(snap.settings.wakeOn === true && wake.on && wake.hint);
+  // Why it is not listening, also with the switch off: a failed download turns it off and says so. The download shows its percent.
+  const reason = !wake.on && wake.line ? `${wake.line}${typeof wake.percent === 'number' && wake.percent > 0 ? ` ${wake.percent}%` : ''}` : '';
   const shown = $('wake-status').textContent;
-  if (!shown || shown === wakeReason) setLine('wake-status', reason);
+  if (!shown || shown === wakeReason || force) setLine('wake-status', reason);
   wakeReason = reason;
 }
 
@@ -755,6 +758,13 @@ $('wake-test').addEventListener('click', async () => {
   if (!r.ok) showStatus('wake-status', r.error.message, 'error');
   else if (r.count > 0) showStatus('wake-status', wake.heard, 'good');
   else showStatus('wake-status', wake.notHeard, 'error');
+});
+// The ears download moves on, ends or fails (which turns the switch off): the row follows at once, never a stale "getting ready".
+window.buddy.onWakeChanged((data) => {
+  if (!snap || !data) return;
+  snap.settings.wakeOn = data.wakeOn === true;
+  snap.wake = data.wake;
+  renderWake({ force: !$('wake-test').disabled }); // not while "Test it" is talking
 });
 // Each wake heard during a test shows at once.
 window.buddy.onWakeHeard(() => {

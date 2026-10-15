@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('buddy', {
   setMemoryLearning: (on) => ipcRenderer.invoke('settings:memory-learning', on),
   onMemory: (fn) => ipcRenderer.on('memory:changed', (_event, list) => fn(list)),
   wakeTest: () => ipcRenderer.invoke('settings:wake-test'),
+  onWakeChanged: (fn) => ipcRenderer.on('wake:changed', (_event, data) => fn(data)),
   onWakeHeard: (fn) => ipcRenderer.on('wake:heard', () => fn()),
   claudeStatus: (force) => ipcRenderer.invoke('claude:status', { force }),
   claudeGet: () => ipcRenderer.invoke('claude:get'),

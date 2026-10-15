@@ -162,6 +162,7 @@ async function start(options = {}) {
     ? createWake({
       store, ear, model: voiceModel, lock, microphone, power: { isOn: () => power.isOn() }, account, cloud, powerMonitor,
       actions: { transcribe: (...a) => actions.transcribe(...a), voice: (words) => actions.voice(words) }, talkBack: rawTalkBack,
+      busy: () => actions.state().busy === true, // the chat is still answering: "Hey <name>" says so instead of dropping the request
     })
     : null;
   const turned = (run) => async (...args) => {

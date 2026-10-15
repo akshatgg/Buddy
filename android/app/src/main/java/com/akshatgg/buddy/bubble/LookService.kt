@@ -18,6 +18,7 @@ import android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTE
 import android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY
 import androidx.core.os.BundleCompat
 import com.akshatgg.buddy.AppGraph
+import com.akshatgg.buddy.message.WhatsAppScreen
 import com.akshatgg.buddy.typing.BoxText
 import com.akshatgg.buddy.typing.Tag
 import com.akshatgg.buddy.typing.TagFlow
@@ -185,6 +186,51 @@ class LookService : AccessibilityService() {
         val said = event.text.joinToString("")
         if (said.isNotEmpty()) return said
         return if (box.isShowingHintText) "" else box.text ?: ""
+    }
+
+    private val whatsApp = WhatsAppScreen<AccessibilityNodeInfo>(
+        byId = { root, id -> root.findAccessibilityNodeInfosByViewId(id).orEmpty() },
+        text = { it.text?.toString() }, describe = { it.contentDescription?.toString() },
+        kids = { n -> (0 until n.childCount).mapNotNull { n.getChild(it) } },
+        idOf = { it.viewIdResourceName },
+    )
+
+    /**
+     * The root of app `app`'s window, or null when it is not on screen. Its window is looked for among all the
+     * interactive ones first, as Buddy's own floating head or the system may be the active one while the app shows;
+     * the active window is the fallback. The caller recycles it.
+     */
+    private fun appRoot(app: String): AccessibilityNodeInfo? {
+        for (window in windows) {
+            val root = window.root
+            if (root?.packageName?.toString() == app) return root
+            root?.let(::recycle)
+        }
+        val active = rootInActiveWindow ?: return null
+        if (active.packageName?.toString() == app) return active
+        recycle(active)
+        return null
+    }
+
+    /** The name at the top of the open WhatsApp chat, or null when WhatsApp (`app`) is not showing a chat. Off the main thread. */
+    fun whatsAppChat(app: String): String? {
+        val root = appRoot(app) ?: return null
+        try {
+            return whatsApp.chatName(root, app)
+        } finally {
+            recycle(root)
+        }
+    }
+
+    /** Presses Send in the open WhatsApp chat. False when it is not there or did not take the press. Off the main thread. */
+    fun pressWhatsAppSend(app: String): Boolean {
+        val root = appRoot(app) ?: return false
+        try {
+            val send = whatsApp.sendButton(root, app) ?: return false
+            return send.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        } finally {
+            recycle(root)
+        }
     }
 
     /** The label of the app the person was last in, or null. */

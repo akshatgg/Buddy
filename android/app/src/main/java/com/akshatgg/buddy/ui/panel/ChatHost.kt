@@ -19,10 +19,15 @@ import androidx.lifecycle.ViewModel
 import com.akshatgg.buddy.AppGraph
 import com.akshatgg.buddy.apps.AppOpener
 import com.akshatgg.buddy.bubble.BubbleBus
+import com.akshatgg.buddy.calls.AndroidCallLog
+import com.akshatgg.buddy.calls.AndroidNameLookup
+import com.akshatgg.buddy.calls.AndroidPhoneState
+import com.akshatgg.buddy.calls.CallInfo
 import com.akshatgg.buddy.calls.PhoneCaller
 import com.akshatgg.buddy.calls.PhoneDialer
 import com.akshatgg.buddy.calls.ServiceCallScreen
 import com.akshatgg.buddy.calls.WhatsAppCaller
+import com.akshatgg.buddy.calls.phoneFormat
 import com.akshatgg.buddy.capture.ScreenCapture
 import com.akshatgg.buddy.core.BuddyError
 import com.akshatgg.buddy.message.Messenger
@@ -96,6 +101,7 @@ class ChatViewModel : ViewModel() {
         apps = AppOpener(graph.launcher),
         phone = PhoneCaller(graph.phoneBook, PhoneDialer(app), contactsAllowed = hands.contacts, callsAllowed = { hands.allow(Manifest.permission.CALL_PHONE) }),
         whatsAppCalls = WhatsAppCaller(graph.whatsApp, ServiceCallScreen(app)),
+        callInfo = CallInfo(AndroidPhoneState(app), { graph.ringWatch.now }, AndroidCallLog(app), AndroidNameLookup(app), allowed = hands.allow, format = phoneFormat(app)),
         firstName = graph::firstName,
         maxMessage = graph.shared.limitInstruction,
         maxSelection = graph.shared.limitText,

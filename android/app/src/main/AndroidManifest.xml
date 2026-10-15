@@ -17,6 +17,10 @@
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <!-- CALL_PHONE would otherwise make a phone line required: Buddy also runs on tablets, which only cannot call. -->
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
+    <!-- Who is calling, and missed calls: only when the person asks in the chat; nothing is kept. READ_PHONE_STATE says
+         whether the phone rings; READ_CALL_LOG gives the ringing number (Android 9 and later) and the missed calls. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <!-- Filament draws the head with OpenGL ES 3.0: a phone without it is not offered Buddy. -->
     <uses-feature android:glEsVersion="0x00030000" android:required="true" />
     <!-- The chat names the app the person is in ("Done! It's in WhatsApp ✅"): Android 11 and later show Buddy the

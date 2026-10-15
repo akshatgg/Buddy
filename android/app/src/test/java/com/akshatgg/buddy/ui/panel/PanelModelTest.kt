@@ -10,10 +10,12 @@ import com.akshatgg.buddy.apps.Opened
 import com.akshatgg.buddy.bubble.BubbleEvent
 import com.akshatgg.buddy.bubble.Mood
 import com.akshatgg.buddy.calls.CallFound
+import com.akshatgg.buddy.calls.CallTelling
 import com.akshatgg.buddy.calls.Callee
 import com.akshatgg.buddy.calls.Called
 import com.akshatgg.buddy.calls.NO_CALLS
 import com.akshatgg.buddy.calls.PhoneCalling
+import com.akshatgg.buddy.calls.Told
 import com.akshatgg.buddy.calls.WhatsAppCalling
 import com.akshatgg.buddy.core.BuddyError
 import com.akshatgg.buddy.message.Found
@@ -128,6 +130,19 @@ private class FakeWhatsAppCalls(val log: MutableList<String>) : WhatsAppCalling 
     }
 }
 
+/** The phone's calls, as the panel asks about them: queued answers, and each question in `log` (shared with the hands). */
+private class FakeCallInfo(val log: MutableList<String>) : CallTelling {
+    val told = ArrayDeque<Told>()
+    override suspend fun ringing(): Told {
+        log += "ringing"
+        return told.removeFirstOrNull() ?: Told("Nobody is calling right now.")
+    }
+    override suspend fun missed(): Told {
+        log += "missed"
+        return told.removeFirstOrNull() ?: Told("No missed calls today.")
+    }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class) // runTest's clock: runCurrent, advanceTimeBy, advanceUntilIdle, StandardTestDispatcher
 class PanelModelTest {
     private val asked = mutableListOf<AskInput>()
@@ -146,6 +161,7 @@ class PanelModelTest {
     private val apps = FakeApps(log)
     private val phone = FakePhone(log)
     private val whatsAppCalls = FakeWhatsAppCalls(log)
+    private val callInfo = FakeCallInfo(log)
     private var picture: String? = "IMG"
     private var pictureError: BuddyError? = null
     private var clock = 1_000_000L
@@ -174,6 +190,7 @@ class PanelModelTest {
         apps = apps,
         phone = phone,
         whatsAppCalls = whatsAppCalls,
+        callInfo = callInfo,
         firstName = { name },
         now = { clock },
     ).apply { open() }
@@ -210,7 +227,7 @@ class PanelModelTest {
         assertEquals("", m.state.value.draft)
         advanceUntilIdle()
         assertEquals(
-            AskInput(message = "boss ko mail, kal chutti chahiye", history = emptyList(), facts = listOf("Your boss is Mr. Sharma."), appName = "WhatsApp", userName = "Akshat", step = 1, canMessage = true, canOpen = true, canCall = true),
+            AskInput(message = "boss ko mail, kal chutti chahiye", history = emptyList(), facts = listOf("Your boss is Mr. Sharma."), appName = "WhatsApp", userName = "Akshat", step = 1, canMessage = true, canOpen = true, canCall = true, canSeeCalls = true),
             asked.single(),
         )
         assertEquals(YouSaid(1, "boss ko mail, kal chutti chahiye"), m.items[0])
@@ -390,7 +407,7 @@ class PanelModelTest {
         m.say("what does this mean?")
         advanceUntilIdle()
         assertEquals(listOf("screen"), log)
-        assertEquals(AskInput(message = "what does this mean?", selection = "namaste", history = emptyList(), facts = emptyList(), appName = "WhatsApp", userName = "Akshat", image = "IMG", step = 2, canMessage = true, canOpen = true, canCall = true), asked[1])
+        assertEquals(AskInput(message = "what does this mean?", selection = "namaste", history = emptyList(), facts = emptyList(), appName = "WhatsApp", userName = "Akshat", image = "IMG", step = 2, canMessage = true, canOpen = true, canCall = true, canSeeCalls = true), asked[1])
         assertEquals(ChatEvent(2, "👀 Looked at the screen"), m.items[1])
         assertEquals("It says hello.", m.buddy().text)
     }
@@ -759,6 +776,7 @@ class PanelModelTest {
         assertEquals(listOf(true, true), asked.map { it.canMessage })
         assertEquals(listOf(true, true), asked.map { it.canOpen })
         assertEquals(listOf(true, true), asked.map { it.canCall })
+        assertEquals(listOf(true, true), asked.map { it.canSeeCalls })
     }
 
     // ---- an app to open ----
@@ -1278,5 +1296,55 @@ class PanelModelTest {
         m.press(2, ChatButton.CALL)
         advanceUntilIdle()
         assertEquals(2, log.count { it.startsWith("wa call") })
+    }
+
+    // ---- who is calling, and missed calls ----
+
+    private fun callsAsk(what: String, say: String = "") =
+        ChatReply("calls", say, "", emptyList(), false, false, emptyList(), false, what = what)
+
+    @Test fun whoIsCallingIsAnsweredWithTheLine() = runTest {
+        answers(callsAsk("now", say = "Let me look!"))
+        callInfo.told += Told("Prince Sharma is calling.")
+        val m = model()
+        m.say("who is calling me?")
+        advanceUntilIdle()
+        assertEquals(listOf(BuddySaid(2, "", "Prince Sharma is calling.", emptyList(), emptyList())), m.items.drop(1))
+        assertEquals(listOf("ringing"), log)
+        assertEquals(Mood.HAPPY, moods.last())
+    }
+
+    @Test fun whoCalledIsKeptOffTheChatSentToTheAi() = runTest {
+        answers(callsAsk("now"), written("Hello!", kind = "answer"))
+        callInfo.told += Told("Prince Sharma is calling.")
+        val m = model()
+        m.say("who is calling me?")
+        advanceUntilIdle()
+        m.say("thanks")
+        advanceUntilIdle()
+        assertEquals(listOf(ChatTurn("you", "who is calling me?")), asked.last().history)
+    }
+
+    @Test fun missedCallsAskTheMissedOnes() = runTest {
+        answers(callsAsk("missed"))
+        callInfo.told += Told("1 missed call today: Mom at 5:40 pm.")
+        val m = model()
+        m.say("any missed calls?")
+        advanceUntilIdle()
+        assertEquals(listOf("missed"), log)
+        assertEquals(BuddySaid(2, "", "1 missed call today: Mom at 5:40 pm.", emptyList(), emptyList()), m.last())
+    }
+
+    @Test fun callsNotAllowedSaySoWithOpenSettings() = runTest {
+        val line = "I need permission to see your calls. You can allow it in Settings."
+        answers(callsAsk("missed"))
+        callInfo.told += Told(line, "no_call_log")
+        val m = model()
+        m.say("any missed calls?")
+        advanceUntilIdle()
+        assertEquals(ChatError(2, line, "no_call_log", listOf(ChatButton.SETTINGS)), m.last())
+        assertEquals(Mood.IDLE, moods.last())
+        m.press(2, ChatButton.SETTINGS)
+        assertEquals("settings no_call_log", log.last())
     }
 }

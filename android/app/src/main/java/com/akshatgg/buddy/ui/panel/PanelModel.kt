@@ -13,6 +13,7 @@ import com.akshatgg.buddy.bubble.BubbleEvent
 import com.akshatgg.buddy.bubble.Mood
 import com.akshatgg.buddy.calls.CALL_UNSURE
 import com.akshatgg.buddy.calls.CallFound
+import com.akshatgg.buddy.calls.CallTelling
 import com.akshatgg.buddy.calls.Callee
 import com.akshatgg.buddy.calls.Called
 import com.akshatgg.buddy.calls.PhoneCalling
@@ -136,7 +137,8 @@ private data class PutRecord(val before: String, val beforeCursor: Int, val edit
  * "Buddy can type for you" (TypeIn) with Undo, what Buddy learns about the person (Facts), and errors with Try again.
  * A message to someone on WhatsApp (Messaging) is a card that is sent only when the person presses Send on it; an app
  * the person names (AppOpening) is opened at once. A phone call (PhoneCalling) or a WhatsApp call (WhatsAppCalling) is
- * a card too: nobody is called until the person presses Call on it.
+ * a card too: nobody is called until the person presses Call on it. "Who is calling?" and "any missed calls?"
+ * (CallTelling) are answered in a line that stays off the chat sent to the AI.
  * One message at a time. The chat lasts until the panel is closed; a panel only hidden opens on it again within five
  * minutes, from the same app. Plain Kotlin, so that it is tested on the JVM.
  */
@@ -154,6 +156,10 @@ class PanelModel(
         override suspend fun call(callee: Callee): Called = error("no phone")
     },
     private val whatsAppCalls: WhatsAppCalling = WhatsAppCalling { _, _ -> error("no WhatsApp calls") },
+    private val callInfo: CallTelling = object : CallTelling {
+        override suspend fun ringing() = error("no calls")
+        override suspend fun missed() = error("no calls")
+    },
     private val firstName: () -> String = { "" },
     private val now: () -> Long = System::currentTimeMillis,
     private val maxMessage: Int = 1000,
@@ -171,6 +177,7 @@ class PanelModel(
         val youOf = HashMap<Int, Int>() // an error's message, for Try again
         val messages = HashMap<Int, Pair<Person, String>>() // a message card's person and text, until it is sent
         val calls = HashMap<Int, CallCard>() // a call card's who, until it is called
+        val offRecord = HashSet<Int>() // lines kept out of the chat sent to the AI: who called
     }
 
     private val current = MutableStateFlow(PanelState())
@@ -395,6 +402,7 @@ class PanelModel(
 
     private fun historyBefore(c: Chat, youId: Int): List<ChatTurn> =
         c.items.takeWhile { it.id != youId }
+            .filter { it.id !in c.offRecord }
             .mapNotNull {
                 when (it) {
                     is YouSaid -> ChatTurn("you", it.text)
@@ -426,6 +434,7 @@ class PanelModel(
             canMessage = true, // this app can message on WhatsApp
             canOpen = true, // this app can open apps
             canCall = true, // this app can call: by phone and on WhatsApp
+            canSeeCalls = true, // this app can tell who is calling, and the missed calls
         )
         val sent = c.selection
         val selection = sent.ifEmpty { null }
@@ -504,6 +513,7 @@ class PanelModel(
         if (reply.kind == "open") return openApp(c, reply)
         if (reply.kind == "call" && reply.how == "phone") return phoneCall(c, reply)
         if (reply.kind == "call") return whatsAppCall(c, reply)
+        if (reply.kind == "calls") return tellCalls(c, reply)
         if (reply.kind == "send") {
             add(c) { BuddySaid(it, NO_SEND, "", emptyList(), emptyList()) }
             return Outcome.ANSWERED
@@ -597,6 +607,20 @@ class PanelModel(
                 c.calls[card.id] = CallCard.Phone(found.callee)
             }
         }
+        return Outcome.ANSWERED
+    }
+
+    /**
+     * "Who is calling?" / "Any missed calls?": the answer is shown but kept off the chat sent to the AI, as it names
+     * the people who called. The AI's own `say` is left out: the line is the answer.
+     */
+    private suspend fun tellCalls(c: Chat, reply: ChatReply): Outcome {
+        val told = if (reply.what == "missed") callInfo.missed() else callInfo.ringing()
+        if (c !== chat) return Outcome.GONE
+        val code = told.code
+        if (code != null) return stop(c, code, told.line, if (code in SETTINGS_ERRORS) listOf(ChatButton.SETTINGS) else emptyList())
+        val line = add(c) { BuddySaid(it, "", told.line, emptyList(), emptyList()) }
+        c.offRecord += line.id
         return Outcome.ANSWERED
     }
 
@@ -923,12 +947,12 @@ class PanelModel(
          * a model that cannot be used; signed out, today's free requests used up with own keys allowed but none saved,
          * free mode turned off, a copy of Buddy that cannot sign in; Buddy off (no picture of the screen without it);
          * "Buddy can type for you" off; the microphone or the contacts not allowed (the app's own Android settings);
-         * the call permission not allowed (the same);
+         * the call permission not allowed (the same); the call log not allowed (the same);
          * Buddy off in Android's Accessibility settings, so it cannot press WhatsApp's Send. They come with "Open Settings".
          */
         val SETTINGS_ERRORS = setOf(
             "no_key", "bad_key", "no_credit", "bad_model", "no_vision", "signed_out", "need_key", "free_off", "not_set_up",
-            "buddy_off", "no_type", "no_microphone", "no_contacts", "no_accessibility", "no_calls",
+            "buddy_off", "no_type", "no_microphone", "no_contacts", "no_accessibility", "no_calls", "no_call_log",
         )
     }
 }

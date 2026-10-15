@@ -66,8 +66,11 @@ class WakeControl(
         unwatchRecordings()
     }
 
-    /** Looks at the situation again: starts listening, with the phrase of the name now, or stops. */
-    fun refresh() {
+    /**
+     * Looks at the situation again: starts listening, with the phrase of the name now, or stops. With `testMs` (Settings'
+     * Test it) it only listens for wakes for that long, tells BubbleBus of each, takes no request, and then goes on as before.
+     */
+    fun refresh(testMs: Long? = null) {
         job?.cancel(); job = null
         val name = graph.settings.buddyName
         val phrase = VoiceWords.wakePhrase(name)
@@ -83,22 +86,28 @@ class WakeControl(
                 micService = micService,
             )
             if (!WakeRules.listen(situation) || phrase == null) return@launch
-            listen(phrase)
+            if (testMs == null) {
+                listen(phrase, testOnly = false)
+            } else {
+                kotlinx.coroutines.withTimeoutOrNull(testMs) { listen(phrase, testOnly = true) }
+                refresh()
+            }
         }
     }
 
-    private suspend fun listen(phrase: String) {
+    private suspend fun listen(phrase: String, testOnly: Boolean) {
         val listener = WakeListener(
             mic = { AudioRecordSource() },
             spotters = Spotters { grammar -> graph.spotters.get()!!.make(grammar) },
             phrase = phrase,
             paused = ::paused,
+            testOnly = testOnly,
         )
         try {
             kotlinx.coroutines.withContext(Dispatchers.IO) {
                 listener.run { event ->
                     when (event) {
-                        WakeEvent.Woke -> BubbleBus.mood(Mood.THINKING)
+                        WakeEvent.Woke -> if (testOnly) BubbleBus.woke() else BubbleBus.mood(Mood.THINKING)
                         is WakeEvent.Request -> {
                             turnRunning = true
                             try {

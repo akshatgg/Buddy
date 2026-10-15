@@ -182,6 +182,7 @@ class BubbleService : LifecycleService() {
         if (intent?.action == ACTION_LOOK) showLook()
         if (intent?.action == ACTION_LISTEN) startListening()
         if (intent?.action == ACTION_WAKE) wakeChanged()
+        if (intent?.action == ACTION_TEST && listening) wakeControl.refresh(testMs = intent.getLongExtra(EXTRA_MS, 10_000L))
         return START_STICKY
     }
 
@@ -587,6 +588,19 @@ class BubbleService : LifecycleService() {
         private const val ACTION_LOOK = "com.akshatgg.buddy.LOOK"
         private const val ACTION_LISTEN = "com.akshatgg.buddy.LISTEN"
         private const val ACTION_WAKE = "com.akshatgg.buddy.WAKE"
+        private const val ACTION_TEST = "com.akshatgg.buddy.WAKE_TEST"
+        private const val EXTRA_MS = "ms"
+
+        /** Settings' Test it: for `ms` the listener only counts wakes (BubbleBus.wakes), and takes no request. */
+        fun test(context: Context, ms: Long) {
+            val graph = AppGraph.instance
+            if (!graph.settings.buddyOn || !graph.settings.wakeOn) return
+            try {
+                ContextCompat.startForegroundService(context, Intent(context, BubbleService::class.java).setAction(ACTION_TEST).putExtra(EXTRA_MS, ms))
+            } catch (e: IllegalStateException) {
+                Log.w(TAG, "bubble: not told (${e.javaClass.simpleName})")
+            }
+        }
 
         /**
          * Start listening for "Hey <name>". Only from an activity that is on screen (Android 14 allows a microphone

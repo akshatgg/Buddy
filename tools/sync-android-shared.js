@@ -41,6 +41,7 @@ const KNOWN = [null, ['yes', 'okay', 'send', 'no', 'cancel', 'stop']];
 
 function buildVoiceCases() {
   return {
+    voiceModel: require('../shared/voice-model').VOICE_MODEL,
     note: 'Made by tools/sync-android-shared.js from shared/voice-words.js. Do not edit: run npm run sync:android.',
     heard: HEARD.map(([text, verb]) => ({ text, verb, words: voice.heardWords(text, verb), answer: voice.heardAnswer(text, verb) })),
     grammar: KNOWN.flatMap((known) => voice.VERBS.map((verb) => ({ verb, known, ...voice.answerGrammar(verb, known && new Set(known)) }))),
@@ -68,6 +69,7 @@ function buildShared() {
   const asked = prompts.buildPrompt('check', { image: 'x', instruction: 'Q' }).user;
   const { LIMITS } = prompts;
   return {
+    voiceModel: require('../shared/voice-model').VOICE_MODEL,
     note: 'Made by tools/sync-android-shared.js from shared/. Do not edit: run npm run sync:android.',
     maxTokens: prompts.MAX_TOKENS,
     limits: LIMITS,
@@ -221,6 +223,7 @@ const CHAT_REPLIES = [
 
 function buildChatCases() {
   return {
+    voiceModel: require('../shared/voice-model').VOICE_MODEL,
     note: 'Made by tools/sync-android-shared.js from shared/prompts.js. Do not edit: run npm run sync:android.',
     prompts: CHAT_INPUTS.map((input) => {
       try {

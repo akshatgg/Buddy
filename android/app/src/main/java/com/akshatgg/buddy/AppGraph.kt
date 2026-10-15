@@ -44,6 +44,7 @@ import com.akshatgg.buddy.update.ApkInstaller
 import com.akshatgg.buddy.update.Updater
 import com.akshatgg.buddy.voice.MediaRecorderRecorder
 import com.akshatgg.buddy.voice.Voice
+import com.akshatgg.buddy.voice.VoiceModel
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -83,6 +84,8 @@ class AppGraph(
             install = { apk -> ApkInstaller.install(appContext, apk) },
         )
     }
+    /** Buddy's ears (voice/VoiceModel.kt): the Vosk model, downloaded from Buddy's release the first time it is needed. */
+    val voiceModel: VoiceModel by lazy { VoiceModel(File(appContext.filesDir, "voice-model"), shared.voiceModel, ApkInstaller::download, scope) }
     val router = Router(account, cloud, settings, secrets, providers, prompts)
     val keySaver = KeySaver(settings, secrets, providers)
     val memory = Memory(kv, MemorySync(shared))

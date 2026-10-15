@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -51,6 +52,10 @@ class ChatPromptTest {
             userName = string("userName"),
             step = j["step"]?.jsonPrimitive?.int,
             canMessage = j["canMessage"]?.jsonPrimitive?.boolean,
+            canCall = j["canCall"]?.jsonPrimitive?.takeIf { !it.isString }?.booleanOrNull,
+            canOpen = j["canOpen"]?.jsonPrimitive?.takeIf { !it.isString }?.booleanOrNull,
+            canSeeCalls = j["canSeeCalls"]?.jsonPrimitive?.takeIf { !it.isString }?.booleanOrNull,
+            canReadNotifs = j["canReadNotifs"]?.jsonPrimitive?.takeIf { !it.isString }?.booleanOrNull,
         )
     }
 
@@ -90,6 +95,9 @@ class ChatPromptTest {
                 remember = list("remember"),
                 again = r.getValue("again").jsonPrimitive.boolean,
                 to = r["to"]?.jsonPrimitive?.content.orEmpty(),
+                how = r["how"]?.jsonPrimitive?.content.orEmpty(),
+                app = r["app"]?.jsonPrimitive?.content.orEmpty(),
+                what = r["what"]?.jsonPrimitive?.content.orEmpty(),
             )
             assertEquals(raw.take(200), expected, prompts.parseChat(raw))
         }
@@ -185,13 +193,39 @@ class ChatPromptTest {
         assertTrue(system.startsWith("You are Buddy"))
         assertTrue(system.contains("JSON only"))
         assertTrue(system.contains("all eight fields"))
-        assertEquals(listOf("write", "fix", "answer", "box", "screen", "send", "code", "message"), TestShared.shared.chatKinds)
+        assertEquals(listOf("write", "fix", "answer", "box", "screen", "send", "code", "message", "call", "open", "calls", "notifs"), TestShared.shared.chatKinds)
+    }
+
+    @Test fun aCallKeepsWhoAndHowAndNoText() {
+        val r = prompts.parseChat("""{"kind":"call","to":"Prince","how":"WhatsApp_Video","say":"Calling!","text":"x","notes":["n"],"doIt":true,"send":true,"remember":[],"again":true}""")
+        assertEquals(ChatReply("call", "Calling!", "", emptyList(), false, false, emptyList(), false, to = "Prince", how = "whatsapp_video"), r)
+        assertEquals("phone", prompts.parseChat("""{"kind":"call","to":"Prince"}""").how)
+    }
+    @Test fun aCallAnotherWayOrToNobodyIsAnAnswer() {
+        assertEquals(reply("answer", text = "I can call by phone or on WhatsApp for now."), prompts.parseChat("""{"kind":"call","to":"Prince","how":"facetime"}"""))
+        assertEquals(reply("answer", text = "Who should I call?"), prompts.parseChat("""{"kind":"call","to":" ","how":"phone"}"""))
+    }
+    @Test fun anOpenKeepsTheApp() {
+        assertEquals(ChatReply("open", "", "", emptyList(), false, false, emptyList(), false, app = "YouTube"), prompts.parseChat("""{"kind":"open","app":" YouTube "}"""))
+        assertEquals(reply("answer", text = "Which app should I open?"), prompts.parseChat("""{"kind":"open","app":""}"""))
+    }
+    @Test fun callsAreNowUnlessMissed() {
+        assertEquals("missed", prompts.parseChat("""{"kind":"calls","what":"Missed"}""").what)
+        assertEquals("now", prompts.parseChat("""{"kind":"calls","what":"today"}""").what)
+    }
+    @Test fun notifsKeepTheAppOrNone() {
+        assertEquals(ChatReply("notifs", "", "", emptyList(), false, false, emptyList(), false, app = "Instagram"), prompts.parseChat("""{"kind":"notifs","app":" Instagram ","text":"x"}"""))
+        assertEquals("", prompts.parseChat("""{"kind":"notifs"}""").app)
+    }
+    @Test fun theFlagsAddTheirLines() {
+        val user = chat(AskInput(message = "hi", canMessage = true, canCall = true, canOpen = true, canSeeCalls = true, canReadNotifs = true)).user
+        assertTrue(user.contains("Buddy can make calls from here.\n\nBuddy can open apps from here.\n\nBuddy can see their calls from here.\n\nBuddy can read their notifications from here."))
     }
 
     // ---- test/prompts.test.js, parseChat ----
 
     @Test fun parseChatReadsEachKind() {
-        for (kind in TestShared.shared.chatKinds.filter { it != "message" }) { // a message has its own shape
+        for (kind in TestShared.shared.chatKinds.filter { it !in setOf("message", "call", "open", "calls", "notifs") }) { // a message has its own shape
             assertEquals(kind, reply(kind, say = "Here you go.", text = "Some text"), prompts.parseChat(answerOf(kind, "Some text", "Here you go.")))
         }
     }

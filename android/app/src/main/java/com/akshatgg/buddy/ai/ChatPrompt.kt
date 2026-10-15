@@ -24,6 +24,8 @@ internal fun jsTrimEnd(text: String): String = text.trimEnd { it in JS_SPACES }
 /** A name or a fact on one line (runs of spaces become one space), cut to `max` characters. */
 internal fun oneLine(value: String?, max: Int): String = value?.let { jsTrim(jsTrim(it.replace(JS_SPACE_RUN, " ")).take(max)) }.orEmpty()
 
+private val CALL_HOWS = setOf("phone", "whatsapp", "whatsapp_video")
+
 private fun quoted(text: String) = "\"\"\"\n$text\n\"\"\""
 
 /** The chat's user turn: what is known about the person and the chat, what they gave, then their message last. */
@@ -57,6 +59,10 @@ internal fun chatPrompt(shared: Shared, input: AskInput): Prompt {
     if (who.isNotEmpty()) parts += who.joinToString("\n")
     if (facts.isNotEmpty()) parts += "What you know about them:\n" + facts.joinToString("\n") { "- $it" }
     if (input.canMessage == true) parts += "Buddy can message people on WhatsApp from here."
+    if (input.canCall == true) parts += "Buddy can make calls from here."
+    if (input.canOpen == true) parts += "Buddy can open apps from here."
+    if (input.canSeeCalls == true) parts += "Buddy can see their calls from here."
+    if (input.canReadNotifs == true) parts += "Buddy can read their notifications from here."
     if (history.isNotEmpty()) parts += "Chat so far (oldest first):\n" + history.joinToString("\n")
     if (selection.isNotEmpty()) parts += "Selected text:\n${quoted(selection)}"
     if (box.isNotEmpty()) parts += "Their text box:\n${quoted(box)}"
@@ -146,6 +152,27 @@ internal fun readChat(shared: Shared, text: String?): ChatReply {
         if (to.isEmpty()) return asAnswer("Who should I send it to?")
         if (plain.text.isEmpty()) return asAnswer("What should I say to $to?")
         return plain.copy(to = to)
+    }
+    // A call, an app to open, their calls or notifications (shared/prompts.js): no text; one that cannot be done says why.
+    if (kind == "call" || kind == "open" || kind == "calls" || kind == "notifs") {
+        val plain = out.copy(text = "", notes = emptyList(), doIt = false, send = false, again = false)
+        fun asAnswer(text: String) = plain.copy(kind = "answer", say = "", text = text)
+        when (kind) {
+            "call" -> {
+                val how = j.string("how").lowercase().ifEmpty { "phone" }
+                val to = j.string("to").take(limits.nameChars)
+                if (how !in CALL_HOWS) return asAnswer("I can call by phone or on WhatsApp for now.")
+                if (to.isEmpty()) return asAnswer("Who should I call?")
+                return plain.copy(to = to, how = how)
+            }
+            "open" -> {
+                val app = j.string("app").take(limits.nameChars)
+                if (app.isEmpty()) return asAnswer("Which app should I open?")
+                return plain.copy(app = app)
+            }
+            "notifs" -> return plain.copy(app = j.string("app").take(limits.nameChars))
+            else -> return plain.copy(what = if (j.string("what").lowercase() == "missed") "missed" else "now")
+        }
     }
     // A job for Claude Code (the desktop's): never put in an app, sent, or with notes.
     if (kind == "code") return out.copy(notes = emptyList(), doIt = false, send = false, again = false)

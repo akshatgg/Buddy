@@ -34,6 +34,11 @@ data class AskInput(
     val step: Int? = null,
     /** The chat's: this app can message people on WhatsApp (the panel's chat says so; the iPhone web app does not). */
     val canMessage: Boolean? = null,
+    /** The chat's: this app can call, open apps, see the phone's calls, read its notifications (shared/prompts.js chatPrompt). */
+    val canCall: Boolean? = null,
+    val canOpen: Boolean? = null,
+    val canSeeCalls: Boolean? = null,
+    val canReadNotifs: Boolean? = null,
 )
 
 /** A chat answer as parseChat reads it (shared/prompts.js): never null, whatever the AI wrote. */
@@ -48,6 +53,12 @@ data class ChatReply(
     val again: Boolean,
     /** Who a "message" is to; empty for every other kind. */
     val to: String = "",
+    /** How a "call" is made: phone, whatsapp or whatsapp_video; empty for every other kind. */
+    val how: String = "",
+    /** The app an "open" opens, or the app a "notifs" asks about (empty for all of them); empty for every other kind. */
+    val app: String = "",
+    /** Which calls a "calls" asks about: now or missed; empty for every other kind. */
+    val what: String = "",
 )
 
 data class Prompt(val system: String, val user: String, val image: String?)

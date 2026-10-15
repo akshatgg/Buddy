@@ -839,6 +839,23 @@ class PanelModelTest {
         assertEquals(2, log.count { it.startsWith("send") })
     }
 
+    @Test fun aSendBuddyIsNotSureOfSaysSoAndOffersNoSecondSend() = runTest {
+        answers(message())
+        messaging.found += Found.One(priya)
+        messaging.sent += Sent.Unsure
+        val m = model()
+        m.say("message Priya I'm late")
+        advanceUntilIdle()
+        m.press(2, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "I'm not sure it went. Check WhatsApp."), m.items.first { it.id == 2 })
+        assertFalse(m.items.any { it is ChatError })
+        assertEquals("I'm not sure it went. Check WhatsApp.", said.last())
+        m.press(2, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertEquals(1, log.count { it.startsWith("send") })
+    }
+
     @Test fun notNowWhileItIsBeingSentLeavesTheCard() = runTest {
         answers(message())
         messaging.found += Found.One(priya)

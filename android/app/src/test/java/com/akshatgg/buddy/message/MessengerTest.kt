@@ -142,11 +142,22 @@ class MessengerTest {
     @Test fun aChatThatCannotBeReadAfterThePressIsNotSure() = runTest {
         val s = FakeScreen(chats = mutableListOf(priyaWith("hi")), takes = false)
         val m = Messenger(FakeWhatsApp(), s, contactsAllowed = { true }, wait = { if (s.pressed.isNotEmpty()) s.chats = mutableListOf(null) })
-        assertEquals(Sent.Failed("I'm not sure it went. Check WhatsApp.", inWhatsApp = true), m.send(priya, "hi"))
+        assertEquals(Sent.Unsure, m.send(priya, "hi"))
+    }
+    @Test fun anotherChatAfterThePressIsNotSure() = runTest {
+        val s = FakeScreen(chats = mutableListOf(priyaWith("hi")), takes = false)
+        val m = Messenger(FakeWhatsApp(), s, contactsAllowed = { true }, wait = { if (s.pressed.isNotEmpty()) s.chats = mutableListOf(ChatState("Rahul", "")) })
+        assertEquals(Sent.Unsure, m.send(priya, "hi")) // an empty box in someone else's chat says nothing about Priya's
+        assertEquals(1, s.pressed.size)
+    }
+    @Test fun anotherChatThenTheSameChatEmptyIsSent() = runTest {
+        val s = FakeScreen(chats = mutableListOf(priyaWith("hi")), takes = false)
+        val m = Messenger(FakeWhatsApp(), s, contactsAllowed = { true }, wait = { s.log += "wait"; if (s.pressed.isNotEmpty()) s.chats = mutableListOf(if (s.log.count { it == "wait" } < 4) ChatState("Rahul", "") else priyaWith("")) })
+        assertEquals(Sent.Done, m.send(priya, "hi"))
     }
     @Test fun aPressThatThrowsIsNotSure() = runTest {
         val s = FakeScreen(fails = IllegalStateException("node gone"))
-        assertEquals(Sent.Failed("I'm not sure it went. Check WhatsApp.", inWhatsApp = true), messenger(FakeWhatsApp(), s).send(priya, "hi"))
+        assertEquals(Sent.Unsure, messenger(FakeWhatsApp(), s).send(priya, "hi"))
         assertEquals(1, s.pressed.size)
     }
     @Test fun aPressCancelledIsCancelled() {

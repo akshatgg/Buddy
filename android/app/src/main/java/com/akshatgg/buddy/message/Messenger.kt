@@ -35,6 +35,8 @@ sealed interface Found {
  */
 sealed interface Sent {
     data object Done : Sent
+    /** Pressed (or may have been), and Buddy cannot tell whether it went: the person checks WhatsApp; never a second send. */
+    data object Unsure : Sent
     data class Failed(val line: String, val code: String? = null, val inWhatsApp: Boolean = false) : Sent
 }
 
@@ -51,7 +53,8 @@ private const val MAIN_APP = "com.whatsapp"
 private const val NO_WHATSAPP = "WhatsApp isn't on this phone."
 private const val READY_THERE = "It's ready in WhatsApp. Turn on Buddy in Accessibility so I can press Send for you."
 private const val NOT_SENT = "I pressed Send, but WhatsApp didn't send it. Check WhatsApp."
-private const val NOT_SURE = "I'm not sure it went. Check WhatsApp."
+/** What Buddy says when a send may or may not have gone. */
+const val NOT_SURE = "I'm not sure it went. Check WhatsApp."
 
 /**
  * Messaging someone on WhatsApp, the steps in order. find(): who "Priya" is, among the phone's WhatsApp contacts.
@@ -109,7 +112,7 @@ class Messenger(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    return Sent.Failed(NOT_SURE, inWhatsApp = true) // it may have been pressed: never a second send
+                    return Sent.Unsure // it may have been pressed: never a second send
                 }
                 if (!pressed) return Sent.Failed("I couldn't press Send. It's ready in WhatsApp: press Send yourself.", inWhatsApp = true)
                 return sentAfterPress(person, text)
@@ -123,9 +126,10 @@ class Messenger(
     }
 
     /**
-     * After the press: sent once the chat's box no longer holds the text (WhatsApp empties it as the message goes).
-     * Still there after a moment and a half: WhatsApp did not send it, and it waits there for the person. The chat not
-     * read once in that time: Buddy cannot tell.
+     * After the press: sent once a read shows the same chat (the person's) with its box no longer holding the text
+     * (WhatsApp empties it as the message goes). A read of another chat, or of nothing, says nothing and is not counted.
+     * Still holding it after a moment and a half: WhatsApp did not send it, and it waits there for the person. No read
+     * of the same chat in that time: Buddy cannot tell.
      */
     private suspend fun sentAfterPress(person: Person, text: String): Sent {
         var seen = false
@@ -134,9 +138,10 @@ class Messenger(
             wait(STEP_MS)
             waited += STEP_MS
             val now = screen.chat(person.app) ?: continue
+            if (!sameName(now.name, person.name)) continue
             if (!now.readyFor(person.name, text)) return Sent.Done
             seen = true
         }
-        return Sent.Failed(if (seen) NOT_SENT else NOT_SURE, inWhatsApp = true)
+        return if (seen) Sent.Failed(NOT_SENT, inWhatsApp = true) else Sent.Unsure
     }
 }

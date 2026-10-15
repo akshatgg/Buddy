@@ -700,13 +700,15 @@ function createActions({
     const names = (list) => (Array.isArray(list) ? list.filter((name) => typeof name === 'string') : null);
     const chats = names(found.chats) || [];
     // WhatsApp's search also lists a message found in a chat under that chat's name: only the rows that are chats or
-    // contacts (`exact`) can be two chats with one name. A helper from before `exact` gives every row.
+    // contacts (`exact`) can be two chats with one name. A helper from before `exact`, or an `exact` with no row of
+    // the picked name, counts every row.
     const exact = names(found.exact) || chats;
     const pick = pickChat(reply.to, chats);
+    const rows = pick && exact.some((name) => sameName(name, pick.name)) ? exact : chats;
     const line = pickLine(reply.to, pick);
     if (line) {
       add(c, { type: 'buddy', say: '', text: line, notes: [], buttons: [] });
-    } else if (exact.filter((name) => sameName(name, pick.name)).length > 1) {
+    } else if (rows.filter((name) => sameName(name, pick.name)).length > 1) {
       const text = `You have more than one chat called ${pick.name}. Rename one in WhatsApp, then ask me again.`;
       add(c, { type: 'buddy', say: '', text, notes: [], buttons: [] });
     } else {

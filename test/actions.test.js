@@ -2241,6 +2241,16 @@ test('two chats (not message hits) with the very same name: no card, Buddy asks 
   assert.ok(!chatOf(s).some((i) => i.type === 'question'));
 });
 
+test('an empty or unrelated exact list counts the same-named chats among all the rows', async () => {
+  for (const exact of [[], ['Rahul']]) {
+    const s = setup({ answers: [message()], replies: { waFind: { chats: ['Priya Sharma', 'Priya Sharma', 'Rahul'], exact } } });
+    await s.actions.open();
+    await s.actions.send('message priya hi');
+    assert.strictEqual(chatOf(s).at(-1).text, 'You have more than one chat called Priya Sharma. Rename one in WhatsApp, then ask me again.', JSON.stringify(exact));
+    assert.ok(!chatOf(s).some((i) => i.type === 'question'));
+  }
+});
+
 test('the Mac says in every chat request that it can message on WhatsApp; Windows never does', async () => {
   const mac = setup({ replies: { captureSelection: (args) => ({ text: args.selectAll ? 'i am go' : '' }) }, answers: [reply({ kind: 'box' }), reply({ kind: 'fix', text: 'I am going.' })] });
   await mac.actions.open();

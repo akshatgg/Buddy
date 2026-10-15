@@ -13,6 +13,7 @@ import com.akshatgg.buddy.core.BuddyError
 import com.akshatgg.buddy.message.Found
 import com.akshatgg.buddy.message.Messaging
 import com.akshatgg.buddy.message.Person
+import com.akshatgg.buddy.message.NOT_SURE
 import com.akshatgg.buddy.message.Sent
 import com.akshatgg.buddy.store.Facts
 import com.akshatgg.buddy.typing.Edit
@@ -533,6 +534,12 @@ class PanelModel(
                 replaceItem(c, ChatEvent(id, "✅ Sent to ${person.name}"))
                 say("Sent ✅")
                 mood(Mood.HAPPY)
+            }
+            Sent.Unsure -> {
+                // Pressed, or maybe pressed: no red error and no second Send, only the line to check WhatsApp.
+                c.messages.remove(id)
+                replaceItem(c, ChatEvent(id, NOT_SURE))
+                say(NOT_SURE)
             }
             is Sent.Failed -> {
                 if (sent.inWhatsApp) {

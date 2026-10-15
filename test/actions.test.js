@@ -2507,6 +2507,21 @@ test('a call Buddy cannot be sure of takes the card away; one that did not happe
   }
 });
 
+test('a call press the helper could not confirm (call_unsure) ends the card: Call is never offered again', async () => {
+  // The helper tried the press (WhatsApp may have taken it even when it answered with an error) and saw no call.
+  const s = setup({ answers: [calling({ how: 'whatsapp_video' })], replies: { waFind: { chats: ['Prince Sharma'] }, waCall: failure('call_unsure', "I'm not sure the call started. Check WhatsApp.") } });
+  await s.actions.open();
+  await s.actions.send('video call prince on whatsapp');
+  const card = lastItem(s);
+  await s.actions.act(card.id, 'call');
+  assert.deepStrictEqual(chatOf(s).find((i) => i.id === card.id), { id: card.id, type: 'event', text: "I'm not sure the call started. Check WhatsApp.", buttons: [] });
+  assert.ok(!chatOf(s).some((i) => (i.buttons ?? []).some((b) => b === 'call' || b === 'retry')), 'no second call offered');
+  await assert.rejects(s.actions.act(card.id, 'call'), { code: 'bad_request' });
+  await assert.rejects(s.actions.act(card.id, 'not-now'), { code: 'bad_request' });
+  assert.notStrictEqual(moods(s.log).at(-1), 'celebrate');
+  assert.strictEqual(waCalls(s).length, 1);
+});
+
 test('while a call is being placed, neither Call again nor Not now does anything to it', async () => {
   let release;
   const gate = new Promise((resolve) => { release = resolve; });

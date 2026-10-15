@@ -14,7 +14,16 @@ function appDirs(home) {
   return ['/Applications', '/System/Applications', path.join(home, 'Applications')];
 }
 
-function createApps({ dirs, openPath, readdir = (dir) => fs.readdirSync(dir, { withFileTypes: true }) }) {
+/**
+ * Buddy's own bundle's folder name ("Buddy.app"): the outermost .app its program runs in (app.getPath('exe')), wherever
+ * that is (the Mac may run it from a copy elsewhere). null when it runs from none (Windows).
+ */
+function ownBundle(exe) {
+  return String(exe || '').split('/').find((part) => part.endsWith('.app')) || null;
+}
+
+/** `own`: Buddy's own bundle's folder name (ownBundle), never one of the apps; null for none. */
+function createApps({ dirs, openPath, own = null, readdir = (dir) => fs.readdirSync(dir, { withFileTypes: true }) }) {
   function inside(dir, depth) {
     let entries;
     try {
@@ -24,7 +33,7 @@ function createApps({ dirs, openPath, readdir = (dir) => fs.readdirSync(dir, { w
     }
     const found = [];
     for (const entry of entries) {
-      if (entry.name.startsWith('.')) continue;
+      if (entry.name.startsWith('.') || entry.name === own) continue;
       const full = path.join(dir, entry.name);
       if (entry.name.endsWith('.app')) found.push({ name: entry.name.slice(0, -'.app'.length), path: full });
       else if (depth === 0 && entry.isDirectory()) found.push(...inside(full, 1));
@@ -38,4 +47,4 @@ function createApps({ dirs, openPath, readdir = (dir) => fs.readdirSync(dir, { w
   };
 }
 
-module.exports = { createApps, appDirs };
+module.exports = { createApps, appDirs, ownBundle };

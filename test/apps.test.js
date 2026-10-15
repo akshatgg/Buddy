@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { createApps, appDirs } = require('../src/main/apps');
+const { createApps, appDirs, ownBundle } = require('../src/main/apps');
 
 function folder(tree) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-apps-'));
@@ -30,4 +30,20 @@ test('open hands the path to the system and gives back its answer', async () => 
 
 test('the Mac keeps apps in three places', () => {
   assert.deepStrictEqual(appDirs('/Users/a'), ['/Applications', '/System/Applications', '/Users/a/Applications']);
+});
+
+test('Buddy is not one of the apps: its own bundle is left out, wherever it runs from', () => {
+  const a = folder(['Buddy.app/Contents', 'Safari.app', 'Utilities/Terminal.app']);
+  const apps = createApps({ dirs: [a], openPath: async () => '', own: 'Buddy.app' });
+  assert.deepStrictEqual(apps.list().map((x) => x.name).sort(), ['Safari', 'Terminal']);
+  const all = createApps({ dirs: [a], openPath: async () => '' });
+  assert.deepStrictEqual(all.list().map((x) => x.name).sort(), ['Buddy', 'Safari', 'Terminal'], 'no own bundle given: all of them');
+});
+
+test("Buddy's own bundle is the outermost .app its program runs in", () => {
+  assert.strictEqual(ownBundle('/Applications/Buddy.app/Contents/MacOS/Buddy'), 'Buddy.app');
+  assert.strictEqual(ownBundle('/private/var/folders/x/AppTranslocation/ABC/d/Buddy.app/Contents/MacOS/Buddy'), 'Buddy.app');
+  assert.strictEqual(ownBundle('/Applications/Buddy.app/Contents/Frameworks/Buddy Helper.app/Contents/MacOS/Buddy Helper'), 'Buddy.app');
+  assert.strictEqual(ownBundle('C:\\Program Files\\Buddy\\Buddy.exe'), null);
+  assert.strictEqual(ownBundle(''), null);
 });

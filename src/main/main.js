@@ -32,7 +32,7 @@ const { createPanelWindow } = require('./panel-window');
 const { createSettingsWindows } = require('./settings-windows');
 const { installAppMenu } = require('./app-menu');
 const { createActions } = require('./actions');
-const { createApps, appDirs } = require('./apps');
+const { createApps, appDirs, ownBundle } = require('./apps');
 const { sendKeyFor, undoKey } = require('./send-keys');
 const { createTray, updateMenuState } = require('./tray');
 const { createPower, loginItemsFor } = require('./power');
@@ -231,7 +231,7 @@ async function start(options = {}) {
     ui,
     jobs, // Claude Code jobs in the person's projects
     // "Open Safari": the Mac's apps, opened as the Finder would. Windows has none (yet).
-    apps: process.platform === 'darwin' ? createApps({ dirs: appDirs(app.getPath('home')), openPath: (p) => shell.openPath(p) }) : null,
+    apps: process.platform === 'darwin' ? createApps({ dirs: appDirs(app.getPath('home')), openPath: (p) => shell.openPath(p), own: ownBundle(app.getPath('exe')) }) : null,
   });
   // The chat's own moods win over Claude Code's: chatBusy says a chat answer is in flight. While Buddy is off the
   // switch is only saved (active), and power's onChange starts the watcher when Buddy is turned on.

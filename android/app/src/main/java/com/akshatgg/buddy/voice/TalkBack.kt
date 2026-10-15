@@ -83,14 +83,18 @@ class PhoneTalkBack(
     }
 
     override suspend fun hear(verb: String): Heard = stoppable(Heard.NO) {
-        delay(300)
-        if (!model.ready()) model.fetchInBackground()
-        ears.hear(verb)
+        MicBus.holding { // the wake listener steps aside while the answer is heard
+            delay(300)
+            if (!model.ready()) model.fetchInBackground()
+            ears.hear(verb)
+        }
     }
 
     override suspend fun listen(): String? = stoppable<String?>(null) {
-        delay(300)
-        val wav = ears.request() ?: return@stoppable null
+        val wav = MicBus.holding {
+            delay(300)
+            ears.request()
+        } ?: return@stoppable null
         try {
             transcribe(wav, "audio/wav").trim().ifEmpty { null }
         } catch (e: CancellationException) {

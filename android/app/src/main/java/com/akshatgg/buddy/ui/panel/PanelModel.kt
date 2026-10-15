@@ -194,6 +194,7 @@ class PanelModel(
         var asking: Int? = null // the card whose question Buddy is asking out loud now
         var followUps = 0 // spoken follow-ups in a row, for a "which one?"
         var speaking = false // Buddy is speaking an answer
+        var unlocking: Int? = null // the card whose send or call waits for the phone to be unlocked
         var voice = 0 // goes up whenever speech is ended: older speech steps stop at once
     }
 
@@ -205,6 +206,7 @@ class PanelModel(
     private var boxError: String? = null
     private var busy = false
     private var running: Job? = null // the message the AI is answering now, if any
+    private var workJob: Job? = null // the work in the app now, so that a wait for the unlock can be let go of
     private var working = false // Buddy is putting text in the app or taking it back
     private var replaceable = false // the app that opened the panel on its selection takes the fix back
     private var shown = false
@@ -257,6 +259,7 @@ class PanelModel(
      */
     fun close() {
         hush(chat)
+        cancelUnlock(chat)
         if (busy) {
             running?.let {
                 running = null
@@ -273,6 +276,7 @@ class PanelModel(
     /** A new chat in place of the last one, whose answer, if it is still on its way, is dropped. */
     private fun newChat(app: String) {
         hush(chat)
+        cancelUnlock(chat)
         running?.let {
             running = null
             it.cancel()
@@ -346,12 +350,34 @@ class PanelModel(
             return
         }
         hush(c)
+        cancelUnlock(c)
         if (fromBox) draft = ""
         boxError = null
         c.spoken = spoken
         c.followUps = if (followUp) c.followUps + 1 else 0
         val you = add(c) { YouSaid(it, text) }
         talk(c, you.id)
+    }
+
+    /** A send or call waiting for the unlock is let go of: nothing is sent or called. True when there was one. */
+    private fun cancelUnlock(c: Chat): Boolean {
+        if (c.unlocking == null) return false
+        c.unlocking = null
+        workJob?.cancel()
+        workJob = null
+        working = false
+        return true
+    }
+
+    /** A line said out loud after a card was pressed: hush ends it, like an answer. */
+    private suspend fun sayAloud(c: Chat, text: String) {
+        val epoch = c.voice
+        c.speaking = true
+        try {
+            talkBack.say(text)
+        } finally {
+            if (c.voice == epoch) c.speaking = false
+        }
     }
 
     /** Any speech or question Buddy has out loud ends: nothing it hears afterwards counts. */
@@ -804,7 +830,7 @@ class PanelModel(
             }
         }
         publish()
-        if (c.spoken) talkBack.say(aloud)
+        if (c.spoken) sayAloud(c, aloud)
     }
 
     private fun calledLine(card: CallCard) = when (card) {
@@ -856,7 +882,7 @@ class PanelModel(
             }
         }
         publish()
-        if (c.spoken) talkBack.say(aloud)
+        if (c.spoken) sayAloud(c, aloud)
     }
 
     private fun nameOf(card: CallCard) = when (card) {
@@ -872,16 +898,26 @@ class PanelModel(
         if (!lock.locked()) return true
         val ask = VoiceWords.unlockLine("phone", kind, name)
         say(ask)
-        if (c.spoken) talkBack.say(ask)
-        if (lock.unlocked(VoiceWords.UNLOCK_WAIT_MS)) {
-            return c === chat && (c.messages.containsKey(id) || c.calls.containsKey(id))
+        val gave = if (kind == "call") VoiceWords.DIDNT_CALL else VoiceWords.DIDNT_SEND
+        c.unlocking = id
+        val opened = try {
+            if (c.spoken) sayAloud(c, ask)
+            lock.unlocked(VoiceWords.UNLOCK_WAIT_MS).also { currentCoroutineContext().ensureActive() }
+        } finally {
+            if (c.unlocking == id) c.unlocking = null
+        }
+        if (opened) {
+            if (c === chat && (c.messages.containsKey(id) || c.calls.containsKey(id))) return true
+            // Unlocked, but the chat or the card changed meanwhile: nothing goes.
+            say(gave)
+            if (c.spoken) sayAloud(c, gave)
+            return false
         }
         c.messages.remove(id)
         c.calls.remove(id)
-        val gave = if (kind == "call") VoiceWords.DIDNT_CALL else VoiceWords.DIDNT_SEND
         replaceItem(c, ChatEvent(id, gave))
         publish()
-        if (c.spoken) talkBack.say(gave)
+        if (c.spoken) sayAloud(c, gave)
         return false
     }
 
@@ -996,6 +1032,8 @@ class PanelModel(
         working = true
         val c = chat
         scope.launch {
+            val me = currentCoroutineContext()[Job]
+            workJob = me
             try {
                 work()
             } catch (e: CancellationException) {
@@ -1010,7 +1048,10 @@ class PanelModel(
                     publish()
                 }
             } finally {
-                working = false
+                if (workJob === me) {
+                    workJob = null
+                    working = false
+                }
             }
         }
     }
@@ -1058,7 +1099,7 @@ class PanelModel(
             ChatButton.SEND_MESSAGE -> inApp { sendMessage(c, id) }
             ChatButton.CALL -> inApp { placeCall(c, id) }
             ChatButton.NOT_NOW -> {
-                if (working) return // being sent or called now
+                if (working && !cancelUnlock(c)) return // being sent or called now (but not while it only waits for the unlock)
                 // A call card is the one with Call: "not now" whether or not its call is still kept.
                 val call = ChatButton.CALL in buttons || c.calls.containsKey(id)
                 c.calls.remove(id)
@@ -1066,7 +1107,7 @@ class PanelModel(
                 val line = if (call) NOT_NOW_CALL else NOT_SENT
                 replaceItem(c, ChatEvent(id, line))
                 publish()
-                if (spoken) scope.launch { talkBack.say(if (call) VoiceWords.NOT_NOW else VoiceWords.NOT_SENT) }
+                if (spoken) scope.launch { sayAloud(c, if (call) VoiceWords.NOT_NOW else VoiceWords.NOT_SENT) }
             }
             ChatButton.RETRY -> {
                 if (busy) return

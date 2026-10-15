@@ -162,15 +162,22 @@ private class FakeTalkBack(val log: MutableList<String>) : TalkBack {
     val answers = ArrayDeque<Heard>()
     val requests = ArrayDeque<String?>()
     var hearing: CompletableDeferred<Heard>? = null // a hear() that waits until this is completed
-    override suspend fun say(text: String) { log += "say $text" }
+    var stopCompletes = true // false: a late hear() answer still arrives after stop(), as on a real recognizer
+    var gateText = ""
+    var sayGate: CompletableDeferred<Unit>? = null // saying gateText waits until this is completed (after it is logged)
+    override suspend fun say(text: String) { log += "say $text"; if (text == gateText) sayGate?.await() }
     override suspend fun hear(verb: String): Heard { log += "hear $verb"; return hearing?.await() ?: answers.removeFirstOrNull() ?: Heard.NO }
     override suspend fun listen(): String? { log += "listen"; return requests.removeFirstOrNull() }
-    override fun stop() { log += "stop"; hearing?.complete(Heard.NO) }
+    override fun stop() { log += "stop"; if (stopCompletes) hearing?.complete(Heard.NO) }
 }
 
 private class FakeLock(var isLocked: Boolean = false, var unlocks: Boolean = true) : Lock {
+    var gate: CompletableDeferred<Boolean>? = null // an unlocked() that waits until this is completed
     override fun locked() = isLocked
-    override suspend fun unlocked(withinMs: Long) = unlocks.also { if (it) isLocked = false }
+    override suspend fun unlocked(withinMs: Long): Boolean {
+        val g = gate ?: return unlocks.also { if (it) isLocked = false }
+        return g.await().also { if (it) isLocked = false }
+    }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class) // runTest's clock: runCurrent, advanceTimeBy, advanceUntilIdle, StandardTestDispatcher
@@ -1540,19 +1547,141 @@ class PanelModelTest {
         assertEquals(listOf(ChatButton.SEND_MESSAGE, ChatButton.NOT_NOW), (m.items[1] as BuddySaid).buttons)
     }
 
-    @Test fun aYesForACardThatChangedPressesNothing() = runTest {
+    /** A spoken message card whose question is still being heard (the yes can still arrive late). */
+    private fun TestScope.askedCard(): PanelModel {
         answers(message(to = "Priya", text = "hi"))
         messaging.found += Found.One(priya)
-        val gate = CompletableDeferred<Heard>()
-        talk.hearing = gate
         val m = model()
         m.sendSpoken("message Priya hi")
         advanceUntilIdle()
-        // The card is already gone (e.g. replaced) when the yes arrives, without the panel's press being used.
+        return m
+    }
+
+    @Test fun aLateYesAfterNotNowPressesNothing() = runTest {
+        talk.stopCompletes = false
+        val gate = CompletableDeferred<Heard>()
+        talk.hearing = gate
+        val m = askedCard()
+        m.press(2, ChatButton.NOT_NOW)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "Okay, not sent."), m.last())
+        gate.complete(Heard.YES)
+        advanceUntilIdle()
+        assertEquals(0, m.sent())
+        assertEquals(ChatEvent(2, "Okay, not sent."), m.last())
+    }
+
+    @Test fun aLateYesAfterTheButtonWasPressedSendsOnce() = runTest {
+        talk.stopCompletes = false
+        val gate = CompletableDeferred<Heard>()
+        talk.hearing = gate
+        val m = askedCard()
+        m.press(2, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        gate.complete(Heard.YES)
+        advanceUntilIdle()
+        assertEquals(1, m.sent())
+    }
+
+    @Test fun aLateYesAfterANewMessagePressesNothing() = runTest {
+        talk.stopCompletes = false
+        val gate = CompletableDeferred<Heard>()
+        talk.hearing = gate
+        val m = askedCard()
+        answers(written("ok"))
+        m.sendSpoken("hello")
+        advanceUntilIdle()
+        gate.complete(Heard.YES)
+        advanceUntilIdle()
+        assertEquals(0, m.sent())
+    }
+
+    @Test fun aLateYesAfterTheCloseSendsNothing() = runTest {
+        talk.stopCompletes = false
+        val gate = CompletableDeferred<Heard>()
+        talk.hearing = gate
+        val m = askedCard()
         m.close()
         gate.complete(Heard.YES)
         advanceUntilIdle()
         assertEquals(0, m.sent())
+    }
+
+    /** A locked phone: a spoken message card says yes and waits at the unlock. */
+    private fun TestScope.waitingToSend(): PanelModel {
+        talk.answers += Heard.YES
+        lock.isLocked = true
+        lock.gate = CompletableDeferred()
+        val m = askedCard()
+        assertTrue("say Unlock your phone and I'll send it to Priya Sharma." in log)
+        return m
+    }
+
+    @Test fun notNowWhileWaitingForTheUnlockSendsNothing() = runTest {
+        val m = waitingToSend()
+        m.press(2, ChatButton.NOT_NOW)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "Okay, not sent."), m.last())
+        lock.gate!!.complete(true)
+        advanceUntilIdle()
+        assertEquals(0, m.sent())
+        assertEquals(ChatEvent(2, "Okay, not sent."), m.last())
+        // and the next send is not stuck behind the cancelled wait
+        lock.gate = null
+        answers(message(to = "Priya", text = "again"))
+        messaging.found += Found.One(priya)
+        talk.answers += Heard.YES
+        m.sendSpoken("message Priya again")
+        advanceUntilIdle()
+        assertEquals(1, m.sent())
+    }
+
+    @Test fun aNewMessageWhileWaitingForTheUnlockSendsNothing() = runTest {
+        val m = waitingToSend()
+        answers(written("ok"))
+        m.sendSpoken("hello")
+        advanceUntilIdle()
+        lock.gate!!.complete(true)
+        advanceUntilIdle()
+        assertEquals(0, m.sent())
+    }
+
+    @Test fun closingWhileWaitingForTheUnlockSendsNothing() = runTest {
+        val m = waitingToSend()
+        m.close()
+        lock.gate!!.complete(true)
+        advanceUntilIdle()
+        assertEquals(0, m.sent())
+    }
+
+    @Test fun notNowWhileWaitingForTheUnlockDoesNotCall() = runTest {
+        answers(calling())
+        phone.found += CallFound.One(princeSharma)
+        talk.answers += Heard.YES
+        lock.isLocked = true
+        lock.gate = CompletableDeferred()
+        val m = model()
+        m.sendSpoken("call Prince")
+        advanceUntilIdle()
+        m.press(2, ChatButton.NOT_NOW)
+        advanceUntilIdle()
+        lock.gate!!.complete(true)
+        advanceUntilIdle()
+        assertTrue(log.none { it.startsWith("call ") })
+        assertEquals(ChatEvent(2, "Okay, not now."), m.last())
+    }
+
+    @Test fun hushStopsTheOutcomeLineSpokenAfterAPress() = runTest {
+        talk.answers += Heard.YES
+        talk.gateText = "Sent."
+        talk.sayGate = CompletableDeferred()
+        val m = askedCard()
+        assertEquals("say Sent.", log.last())
+        log.clear()
+        m.close()
+        assertTrue("stop" in log)
+        talk.sayGate!!.complete(Unit)
+        advanceUntilIdle()
     }
 
     @Test fun aSpokenCallAsksCallNameAndAYesCallsOnce() = runTest {

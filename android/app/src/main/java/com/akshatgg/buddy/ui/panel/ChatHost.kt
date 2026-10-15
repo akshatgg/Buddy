@@ -21,6 +21,8 @@ import com.akshatgg.buddy.apps.AppOpener
 import com.akshatgg.buddy.bubble.BubbleBus
 import com.akshatgg.buddy.calls.PhoneCaller
 import com.akshatgg.buddy.calls.PhoneDialer
+import com.akshatgg.buddy.calls.ServiceCallScreen
+import com.akshatgg.buddy.calls.WhatsAppCaller
 import com.akshatgg.buddy.capture.ScreenCapture
 import com.akshatgg.buddy.core.BuddyError
 import com.akshatgg.buddy.message.Messenger
@@ -93,6 +95,7 @@ class ChatViewModel : ViewModel() {
         messaging = Messenger(graph.whatsApp, ServiceChatScreen(app), contactsAllowed = hands.contacts),
         apps = AppOpener(graph.launcher),
         phone = PhoneCaller(graph.phoneBook, PhoneDialer(app), contactsAllowed = hands.contacts, callsAllowed = { hands.allow(Manifest.permission.CALL_PHONE) }),
+        whatsAppCalls = WhatsAppCaller(graph.whatsApp, ServiceCallScreen(app)),
         firstName = graph::firstName,
         maxMessage = graph.shared.limitInstruction,
         maxSelection = graph.shared.limitText,

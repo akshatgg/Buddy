@@ -14,6 +14,7 @@ import com.akshatgg.buddy.calls.Callee
 import com.akshatgg.buddy.calls.Called
 import com.akshatgg.buddy.calls.NO_CALLS
 import com.akshatgg.buddy.calls.PhoneCalling
+import com.akshatgg.buddy.calls.WhatsAppCalling
 import com.akshatgg.buddy.core.BuddyError
 import com.akshatgg.buddy.message.Found
 import com.akshatgg.buddy.message.Messaging
@@ -114,6 +115,17 @@ private class FakePhone(val log: MutableList<String>) : PhoneCalling {
     }
 }
 
+/** WhatsApp calls, as the panel asks for them: queued answers, and each call in `log` (shared with the hands). */
+private class FakeWhatsAppCalls(val log: MutableList<String>) : WhatsAppCalling {
+    val called = ArrayDeque<Called>()
+    var throws: Exception? = null
+    override suspend fun call(person: Person, video: Boolean): Called {
+        log += "wa call ${person.name} $video"
+        throws?.let { throw it }
+        return called.removeFirstOrNull() ?: Called.Done
+    }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class) // runTest's clock: runCurrent, advanceTimeBy, advanceUntilIdle, StandardTestDispatcher
 class PanelModelTest {
     private val asked = mutableListOf<AskInput>()
@@ -131,6 +143,7 @@ class PanelModelTest {
     private val messaging = FakeMessaging(log)
     private val apps = FakeApps(log)
     private val phone = FakePhone(log)
+    private val whatsAppCalls = FakeWhatsAppCalls(log)
     private var picture: String? = "IMG"
     private var pictureError: BuddyError? = null
     private var clock = 1_000_000L
@@ -157,6 +170,7 @@ class PanelModelTest {
         messaging = messaging,
         apps = apps,
         phone = phone,
+        whatsAppCalls = whatsAppCalls,
         firstName = { name },
         now = { clock },
     ).apply { open() }
@@ -193,7 +207,7 @@ class PanelModelTest {
         assertEquals("", m.state.value.draft)
         advanceUntilIdle()
         assertEquals(
-            AskInput(message = "boss ko mail, kal chutti chahiye", history = emptyList(), facts = listOf("Your boss is Mr. Sharma."), appName = "WhatsApp", userName = "Akshat", step = 1, canMessage = true, canOpen = true),
+            AskInput(message = "boss ko mail, kal chutti chahiye", history = emptyList(), facts = listOf("Your boss is Mr. Sharma."), appName = "WhatsApp", userName = "Akshat", step = 1, canMessage = true, canOpen = true, canCall = true),
             asked.single(),
         )
         assertEquals(YouSaid(1, "boss ko mail, kal chutti chahiye"), m.items[0])
@@ -373,7 +387,7 @@ class PanelModelTest {
         m.say("what does this mean?")
         advanceUntilIdle()
         assertEquals(listOf("screen"), log)
-        assertEquals(AskInput(message = "what does this mean?", selection = "namaste", history = emptyList(), facts = emptyList(), appName = "WhatsApp", userName = "Akshat", image = "IMG", step = 2, canMessage = true, canOpen = true), asked[1])
+        assertEquals(AskInput(message = "what does this mean?", selection = "namaste", history = emptyList(), facts = emptyList(), appName = "WhatsApp", userName = "Akshat", image = "IMG", step = 2, canMessage = true, canOpen = true, canCall = true), asked[1])
         assertEquals(ChatEvent(2, "👀 Looked at the screen"), m.items[1])
         assertEquals("It says hello.", m.buddy().text)
     }
@@ -733,7 +747,7 @@ class PanelModelTest {
     private fun message(to: String = "Priya", text: String = "I'm late", say: String = "") =
         ChatReply("message", say, text, emptyList(), false, false, emptyList(), false, to)
 
-    @Test fun everyStepSaysThisAppCanMessageOnWhatsAppAndOpenApps() = runTest {
+    @Test fun everyStepSaysThisAppCanMessageOnWhatsAppOpenAppsAndCall() = runTest {
         answers(written("", kind = "box"), written("I am going.", kind = "fix"))
         typeIn.box = BoxText("i am go", 7, 7)
         val m = model()
@@ -741,6 +755,7 @@ class PanelModelTest {
         advanceUntilIdle()
         assertEquals(listOf(true, true), asked.map { it.canMessage })
         assertEquals(listOf(true, true), asked.map { it.canOpen })
+        assertEquals(listOf(true, true), asked.map { it.canCall })
     }
 
     // ---- an app to open ----
@@ -1109,5 +1124,101 @@ class PanelModelTest {
         m.press(2, ChatButton.CALL) // 2 is now the new chat's answer, which has no Call
         advanceUntilIdle()
         assertTrue(log.none { it.startsWith("call") })
+    }
+
+    // ---- a WhatsApp call ----
+
+    private fun TestScope.whatsAppCallCard(video: Boolean = true): PanelModel {
+        answers(calling(to = "Priya", how = if (video) "whatsapp_video" else "whatsapp"))
+        messaging.found += Found.One(priya)
+        val m = model()
+        m.say("whatsapp call Priya")
+        advanceUntilIdle()
+        return m
+    }
+
+    @Test fun aWhatsAppCallFindsThemOnWhatsAppAndShowsACardNothingRings() = runTest {
+        val m = whatsAppCallCard()
+        assertEquals(BuddySaid(2, "", "WhatsApp video call Priya Sharma?", emptyList(), listOf(ChatButton.CALL, ChatButton.NOT_NOW)), m.last())
+        assertEquals(listOf("find Priya"), log)
+        assertEquals(listOf(Mood.THINKING, Mood.HAPPY), moods)
+    }
+
+    @Test fun aVoiceWhatsAppCallCard() = runTest {
+        val m = whatsAppCallCard(video = false)
+        assertEquals(BuddySaid(2, "", "WhatsApp call Priya Sharma?", emptyList(), listOf(ChatButton.CALL, ChatButton.NOT_NOW)), m.last())
+    }
+
+    @Test fun whoToCallOnWhatsAppIsNotOneIsSaid() = runTest {
+        answers(calling(to = "Priya", how = "whatsapp"), calling(to = "Priya", how = "whatsapp"))
+        messaging.found += Found.Say("I need your contacts to find Priya. You can allow it in Settings.", "no_contacts")
+        messaging.found += Found.Say("I couldn't find Priya on WhatsApp.")
+        val m = model()
+        m.say("whatsapp call Priya")
+        advanceUntilIdle()
+        assertEquals(ChatError(2, "I need your contacts to find Priya. You can allow it in Settings.", "no_contacts", listOf(ChatButton.SETTINGS)), m.last())
+        m.say("whatsapp call Priya")
+        advanceUntilIdle()
+        assertEquals(BuddySaid(4, "", "I couldn't find Priya on WhatsApp.", emptyList(), emptyList()), m.last())
+        assertTrue(log.none { it.startsWith("wa call") })
+    }
+
+    @Test fun callOnAWhatsAppCardStepsAsideAndCallsThemOnce() = runTest {
+        val m = whatsAppCallCard()
+        events.clear()
+        m.press(2, ChatButton.CALL)
+        advanceUntilIdle()
+        assertEquals(listOf("find Priya", "aside", "wa call Priya Sharma true"), log)
+        assertEquals(ChatEvent(2, "📹 Video calling Priya Sharma on WhatsApp"), m.last())
+        assertEquals(listOf(Mood.HAPPY), moods)
+        m.press(2, ChatButton.CALL) // the card is gone: nobody is called twice
+        advanceUntilIdle()
+        assertEquals(1, log.count { it.startsWith("wa call") })
+    }
+
+    @Test fun aVoiceWhatsAppCallSaysCalling() = runTest {
+        val m = whatsAppCallCard(video = false)
+        m.press(2, ChatButton.CALL)
+        advanceUntilIdle()
+        assertEquals("wa call Priya Sharma false", log.last())
+        assertEquals(ChatEvent(2, "📞 Calling Priya Sharma on WhatsApp"), m.last())
+    }
+
+    @Test fun aWhatsAppCallBuddyIsNotSureOfIsNeverOfferedAgain() = runTest {
+        whatsAppCalls.called += Called.Unsure
+        val m = whatsAppCallCard()
+        m.press(2, ChatButton.CALL)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "I'm not sure the call started. Check WhatsApp."), m.items.first { it.id == 2 })
+        assertEquals("I'm not sure the call started. Check WhatsApp.", said.last())
+        m.press(2, ChatButton.CALL)
+        advanceUntilIdle()
+        assertEquals(1, log.count { it.startsWith("wa call") })
+    }
+
+    @Test fun accessibilityOffForAWhatsAppCallOffersSettingsAndTheCardStays() = runTest {
+        whatsAppCalls.called += Called.Failed("It's open in WhatsApp. Turn on Buddy in Accessibility so I can press Call for you.", "no_accessibility")
+        val m = whatsAppCallCard()
+        val card = m.last()
+        m.press(2, ChatButton.CALL)
+        advanceUntilIdle()
+        assertEquals(ChatError(3, "It's open in WhatsApp. Turn on Buddy in Accessibility so I can press Call for you.", "no_accessibility", listOf(ChatButton.SETTINGS)), m.last())
+        assertEquals(card, m.items.first { it.id == 2 })
+        m.press(2, ChatButton.CALL) // turned on meanwhile: pressed again, it calls
+        advanceUntilIdle()
+        assertEquals(2, log.count { it.startsWith("wa call") })
+        assertEquals(ChatEvent(2, "📹 Video calling Priya Sharma on WhatsApp"), m.items.first { it.id == 2 })
+    }
+
+    @Test fun aWhatsAppCallThatThrowsIsNeverPlacedAgain() = runTest {
+        whatsAppCalls.throws = IllegalStateException("gone")
+        val m = whatsAppCallCard()
+        m.press(2, ChatButton.CALL)
+        advanceUntilIdle()
+        assertEquals(ChatError(3, "Something went wrong. Try again.", "failed", emptyList()), m.last())
+        whatsAppCalls.throws = null
+        m.press(2, ChatButton.CALL) // whether it rang is not known: never a second call from this card
+        advanceUntilIdle()
+        assertEquals(1, log.count { it.startsWith("wa call") })
     }
 }

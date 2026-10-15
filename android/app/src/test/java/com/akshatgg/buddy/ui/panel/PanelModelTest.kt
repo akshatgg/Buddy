@@ -22,6 +22,8 @@ import com.akshatgg.buddy.message.Found
 import com.akshatgg.buddy.message.Messaging
 import com.akshatgg.buddy.message.Person
 import com.akshatgg.buddy.message.Sent
+import com.akshatgg.buddy.notify.NOTIFS_OFF
+import com.akshatgg.buddy.notify.NotifReading
 import com.akshatgg.buddy.store.Fact
 import com.akshatgg.buddy.store.Facts
 import com.akshatgg.buddy.typing.BoxText
@@ -143,6 +145,15 @@ private class FakeCallInfo(val log: MutableList<String>) : CallTelling {
     }
 }
 
+/** The phone's notifications, as the panel asks about them: queued answers, and each question in `log`. */
+private class FakeNotifs(val log: MutableList<String>) : NotifReading {
+    val told = ArrayDeque<Told>()
+    override suspend fun read(app: String): Told {
+        log += "notifs $app"
+        return told.removeFirstOrNull() ?: Told("No new notifications.")
+    }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class) // runTest's clock: runCurrent, advanceTimeBy, advanceUntilIdle, StandardTestDispatcher
 class PanelModelTest {
     private val asked = mutableListOf<AskInput>()
@@ -162,6 +173,7 @@ class PanelModelTest {
     private val phone = FakePhone(log)
     private val whatsAppCalls = FakeWhatsAppCalls(log)
     private val callInfo = FakeCallInfo(log)
+    private val notifs = FakeNotifs(log)
     private var picture: String? = "IMG"
     private var pictureError: BuddyError? = null
     private var clock = 1_000_000L
@@ -191,6 +203,7 @@ class PanelModelTest {
         phone = phone,
         whatsAppCalls = whatsAppCalls,
         callInfo = callInfo,
+        notifs = notifs,
         firstName = { name },
         now = { clock },
     ).apply { open() }
@@ -227,7 +240,7 @@ class PanelModelTest {
         assertEquals("", m.state.value.draft)
         advanceUntilIdle()
         assertEquals(
-            AskInput(message = "boss ko mail, kal chutti chahiye", history = emptyList(), facts = listOf("Your boss is Mr. Sharma."), appName = "WhatsApp", userName = "Akshat", step = 1, canMessage = true, canOpen = true, canCall = true, canSeeCalls = true),
+            AskInput(message = "boss ko mail, kal chutti chahiye", history = emptyList(), facts = listOf("Your boss is Mr. Sharma."), appName = "WhatsApp", userName = "Akshat", step = 1, canMessage = true, canOpen = true, canCall = true, canSeeCalls = true, canReadNotifs = true),
             asked.single(),
         )
         assertEquals(YouSaid(1, "boss ko mail, kal chutti chahiye"), m.items[0])
@@ -407,7 +420,7 @@ class PanelModelTest {
         m.say("what does this mean?")
         advanceUntilIdle()
         assertEquals(listOf("screen"), log)
-        assertEquals(AskInput(message = "what does this mean?", selection = "namaste", history = emptyList(), facts = emptyList(), appName = "WhatsApp", userName = "Akshat", image = "IMG", step = 2, canMessage = true, canOpen = true, canCall = true, canSeeCalls = true), asked[1])
+        assertEquals(AskInput(message = "what does this mean?", selection = "namaste", history = emptyList(), facts = emptyList(), appName = "WhatsApp", userName = "Akshat", image = "IMG", step = 2, canMessage = true, canOpen = true, canCall = true, canSeeCalls = true, canReadNotifs = true), asked[1])
         assertEquals(ChatEvent(2, "👀 Looked at the screen"), m.items[1])
         assertEquals("It says hello.", m.buddy().text)
     }
@@ -777,6 +790,7 @@ class PanelModelTest {
         assertEquals(listOf(true, true), asked.map { it.canOpen })
         assertEquals(listOf(true, true), asked.map { it.canCall })
         assertEquals(listOf(true, true), asked.map { it.canSeeCalls })
+        assertEquals(listOf(true, true), asked.map { it.canReadNotifs })
     }
 
     // ---- an app to open ----
@@ -1346,5 +1360,45 @@ class PanelModelTest {
         assertEquals(Mood.IDLE, moods.last())
         m.press(2, ChatButton.SETTINGS)
         assertEquals("settings no_call_log", log.last())
+    }
+
+    // ---- notifications ----
+
+    private fun notifsAsk(app: String = "", say: String = "") =
+        ChatReply("notifs", say, "", emptyList(), false, false, emptyList(), false, app = app)
+
+    @Test fun theNotificationsAreAnsweredWithTheLine() = runTest {
+        answers(notifsAsk("Instagram", say = "Let me look!"))
+        notifs.told += Told("Instagram: \"New follower\"")
+        val m = model()
+        m.say("what's the Instagram notification about?")
+        advanceUntilIdle()
+        assertEquals(listOf(BuddySaid(2, "", "Instagram: \"New follower\"", emptyList(), emptyList())), m.items.drop(1))
+        assertEquals(listOf("notifs Instagram"), log)
+        assertEquals(Mood.HAPPY, moods.last())
+    }
+
+    @Test fun theNotificationsAreKeptOffTheChatSentToTheAi() = runTest {
+        answers(notifsAsk(), written("Hello!", kind = "answer"))
+        notifs.told += Told("Prince on WhatsApp: \"Where are you?\"")
+        val m = model()
+        m.say("who messaged me?")
+        advanceUntilIdle()
+        m.say("thanks")
+        advanceUntilIdle()
+        assertEquals(listOf("notifs "), log)
+        assertEquals(listOf(ChatTurn("you", "who messaged me?")), asked.last().history)
+    }
+
+    @Test fun notificationAccessOffSaysSoWithOpenSettings() = runTest {
+        answers(notifsAsk())
+        notifs.told += Told(NOTIFS_OFF, "no_notifs")
+        val m = model()
+        m.say("who messaged me?")
+        advanceUntilIdle()
+        assertEquals(ChatError(2, NOTIFS_OFF, "no_notifs", listOf(ChatButton.SETTINGS)), m.last())
+        assertEquals(Mood.IDLE, moods.last())
+        m.press(2, ChatButton.SETTINGS)
+        assertEquals("settings no_notifs", log.last())
     }
 }

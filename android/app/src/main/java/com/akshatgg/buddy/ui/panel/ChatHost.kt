@@ -12,6 +12,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.ActivityResultLauncher
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -32,6 +33,7 @@ import com.akshatgg.buddy.capture.ScreenCapture
 import com.akshatgg.buddy.core.BuddyError
 import com.akshatgg.buddy.message.Messenger
 import com.akshatgg.buddy.message.ServiceChatScreen
+import com.akshatgg.buddy.notify.NotifReader
 import com.akshatgg.buddy.ui.fix.FixActivity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -102,6 +104,7 @@ class ChatViewModel : ViewModel() {
         phone = PhoneCaller(graph.phoneBook, PhoneDialer(app), contactsAllowed = hands.contacts, callsAllowed = { hands.allow(Manifest.permission.CALL_PHONE) }),
         whatsAppCalls = WhatsAppCaller(graph.whatsApp, ServiceCallScreen(app)),
         callInfo = CallInfo(AndroidPhoneState(app), { graph.ringWatch.now }, AndroidCallLog(app), AndroidNameLookup(app), allowed = hands.allow, format = phoneFormat(app)),
+        notifs = NotifReader(on = { NotificationManagerCompat.getEnabledListenerPackages(app).contains(app.packageName) }, recent = graph.notifs::recent),
         firstName = graph::firstName,
         maxMessage = graph.shared.limitInstruction,
         maxSelection = graph.shared.limitText,

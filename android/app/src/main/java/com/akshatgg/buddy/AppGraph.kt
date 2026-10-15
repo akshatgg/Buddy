@@ -26,6 +26,7 @@ import com.akshatgg.buddy.core.Shared
 import com.akshatgg.buddy.message.PhoneWhatsApp
 import com.akshatgg.buddy.message.WhatsApp
 import com.akshatgg.buddy.net.Http
+import com.akshatgg.buddy.notify.NotifStore
 import com.akshatgg.buddy.net.UrlConnectionHttp
 import com.akshatgg.buddy.store.AppSettings
 import com.akshatgg.buddy.store.Facts
@@ -114,6 +115,9 @@ class AppGraph(
 
     /** Who is calling: the ringing number, heard while the bubble runs (calls/Ringing.kt). */
     val ringWatch: RingWatch by lazy { RingWatch(appContext) }
+
+    /** Notifications heard while Notification access is on, in memory only (notify/Notifs.kt). */
+    val notifs = NotifStore()
 
     /** What Buddy knows about the person, as the chat sees it: the memory on this phone (kept with the account too, signed in). */
     val facts: Facts get() = memory

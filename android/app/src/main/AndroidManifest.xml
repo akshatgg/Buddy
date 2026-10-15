@@ -120,6 +120,17 @@
             </intent-filter>
             <meta-data android:name="android.accessibilityservice" android:resource="@xml/look_service" />
         </service>
+        <!-- Buddy can read your notifications: optional, turned on by the person in Android's Notification access
+             settings. Only Android can bind it. What it hears stays in memory (notify/Notifs.kt NotifStore). -->
+        <service
+            android:name=".notify.BuddyNotifications"
+            android:exported="true"
+            android:label="@string/notifs_service_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
         <receiver android:name=".bubble.BootReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

@@ -19,6 +19,9 @@ Builds on branch `hey-buddy` (the `message` kind, `shared/message-pick.js` and i
 | "Who is calling me?" | "**Prince Sharma is calling.**" / "**+91 98123 45678 is calling.**" / "**Nobody is calling right now.**" | "I can only see calls on your phone." | same line as Mac |
 | "Any missed calls?" / "who called me?" | "**2 missed calls today: Prince Sharma at 3:10 pm, Mom at 5:40 pm.**" / "**No missed calls today.**" | "I can only see calls on your phone." | same line as Mac |
 
+| "Who messaged me?" / "What are my notifications?" | "**Prince on WhatsApp: "Where are you?" Mom on WhatsApp: "Call me."**" (last 5, newest first) / "**No new notifications.**" | "I can only read notifications on your phone." | same line as Mac |
+| "What's the Instagram notification about?" | that app's latest notification(s), read out the same way | same line as Mac | same line as Mac |
+
 - Buddy never calls without the Call press (later: the spoken yes). Opening an app needs no question.
 - Buddy only tells about calls when asked; it never announces them by itself.
 - Only normal phone calls are seen (not WhatsApp calls).
@@ -59,6 +62,17 @@ apps and other platforms never get them:
   Open Settings. Nothing is read or kept beyond answering that one question; nothing leaves the phone except the line in
   the chat (which, like every chat line, goes to the AI as history — call names are kept out of the history sent to the AI:
   the reply line is shown but not added to `history`).
+
+- **Notifications** (owner, 2026-10-15: "who's messaged me right now, what the notification is about"): a
+  `NotificationListenerService` ("Buddy can read your notifications", turned on by the person in Android's Notification
+  access settings, asked the first time with one line why; off → "Turn on Notification access for Buddy so I can read
+  your notifications." with Open Settings). It keeps the last 50 notifications **in memory only** (never written to disk,
+  never synced, never sent to the AI; gone on restart; each dropped after 24 h or when the app removes it): app label,
+  title (usually who), text (one line, at most 200 characters), time. Skipped: Buddy's own, ongoing ones (music, calls,
+  downloads, charging, USB), group summaries, and empty ones. Brain kind `notifs` `{kind:'notifs', app}` (`app` optional:
+  "Instagram") gated by `canReadNotifs`. Buddy builds the line itself on the phone: up to 5, newest first,
+  `<title> on <app>: "<text>"`, joined by spaces; `app` given → only that app's ("No new notifications from Instagram.").
+  The line is shown but, like call info, **not** added to the chat history sent to the AI.
 
 ## Mac
 

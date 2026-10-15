@@ -5,7 +5,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 sealed interface WakeEvent {
-    data object Hearing : WakeEvent // reserved: the voice of the request was first heard
     data object Woke : WakeEvent
     /** What was said after the wake, as a WAV; null when nothing was. */
     class Request(val wav: ByteArray?) : WakeEvent
@@ -23,7 +22,8 @@ class WakeListener(
     private val spotters: Spotters,
     private val phrase: String,
     private val floor: Float = VoiceWords.WAKE_FLOOR,
-    private val paused: () -> Boolean = { false }, // a call, the mic silenced, MicBus busy
+    private val paused: () -> Boolean = { false }, // a call, MicBus busy, a hands-free turn: the mic is let go of
+    private val silenced: () -> Boolean = { false }, // another app records: the mic stays open (it reads zeros), nothing is fed
     private val testOnly: Boolean = false, // Settings' "Test it": a Woke for each wake, no request
 ) {
     private companion object {
@@ -62,6 +62,7 @@ class WakeListener(
                 val live = source!!
                 val n = live.read(chunk)
                 if (n <= 0) { release(); delay(RETRY_MS); continue }
+                if (silenced()) continue // a silenced client reads zeros: neither judged nor kept, and the mic is not restarted
                 total += n
                 kept.add(chunk, n)
                 val final = spotter?.accept(chunk, n) ?: continue

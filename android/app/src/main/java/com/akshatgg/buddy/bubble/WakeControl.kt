@@ -23,6 +23,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 /**
@@ -35,6 +37,7 @@ class WakeControl(
     private val context: Context,
     private val graph: AppGraph,
     private val scope: CoroutineScope,
+    private val chatBusy: () -> Boolean = { false }, // the hands-free chat is still answering
     private val onRequest: suspend (ByteArray?) -> Unit,
 ) {
     private val audio = context.getSystemService(AudioManager::class.java)
@@ -50,8 +53,9 @@ class WakeControl(
         micService = true
         if (watching == null) {
             watching = scope.launch { // the model arriving, or a sign-in or sign-out, changes what may be done
-                launch { graph.voiceModel.state.collect { refresh() } }
-                launch { graph.account.user.collect { refresh() } }
+                // the first value of each is what start() looks at itself below
+                launch { graph.voiceModel.state.drop(1).distinctUntilChanged().collect { refresh() } }
+                launch { graph.account.user.drop(1).distinctUntilChanged().collect { refresh() } }
             }
         }
         watchRecordings()
@@ -82,7 +86,7 @@ class WakeControl(
                 voiceOn = runCatching { graph.cloud.voiceOn() }.getOrDefault(false),
                 micAllowed = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
                 modelReady = graph.voiceModel.ready(),
-                nameOk = phrase != null && VoiceWords.wakeMissing(name, graph.shared.voiceModelMissing).isEmpty(),
+                nameOk = WakeRules.nameHeard(name, graph.shared.voiceModelMissing),
                 micService = micService,
             )
             if (!WakeRules.listen(situation) || phrase == null) return@launch
@@ -98,9 +102,10 @@ class WakeControl(
     private suspend fun listen(phrase: String, testOnly: Boolean) {
         val listener = WakeListener(
             mic = { AudioRecordSource() },
-            spotters = Spotters { grammar -> graph.spotters.get()!!.make(grammar) },
+            spotters = Spotters { grammar -> (runCatching { graph.spotters.get() }.getOrNull() ?: throw EarsFailed()).make(grammar) },
             phrase = phrase,
             paused = ::paused,
+            silenced = { silenced },
             testOnly = testOnly,
         )
         try {
@@ -112,17 +117,22 @@ class WakeControl(
                             turnRunning = true
                             try {
                                 onRequest(event.wav)
+                                // the chat answers (and speaks) after the request is handed over: the microphone stays
+                                // let go of until it is quiet again
+                                WakeRules.untilQuiet { chatBusy() || MicBus.busy.value > 0 }
                             } finally {
                                 turnRunning = false
                                 BubbleBus.mood(Mood.IDLE)
                             }
                         }
-                        WakeEvent.Hearing -> {}
                     }
                 }
             }
         } catch (e: CancellationException) {
             throw e
+        } catch (e: EarsFailed) {
+            Log.w("Buddy", "wake: no model to listen with")
+            BubbleBus.say(VoiceWords.WakeLines.EARS_FAILED)
         } catch (e: Exception) {
             Log.w("Buddy", "wake: stopped (${e.javaClass.simpleName})")
         }
@@ -131,7 +141,7 @@ class WakeControl(
     private fun paused(): Boolean {
         val mode = audio.mode
         val inCall = mode == AudioManager.MODE_IN_CALL || mode == AudioManager.MODE_IN_COMMUNICATION || mode == AudioManager.MODE_RINGTONE
-        return WakeRules.paused(inCall, silenced, MicBus.busy.value, turnRunning)
+        return WakeRules.paused(inCall, MicBus.busy.value, turnRunning)
     }
 
     /** Android 10+ tells an app when its own recording is silenced because another app (a call) took the microphone. */
@@ -152,3 +162,6 @@ class WakeControl(
         silenced = false
     }
 }
+
+/** The on-device model is not there (or would not load) when the listener needs a recognizer. */
+private class EarsFailed : RuntimeException()

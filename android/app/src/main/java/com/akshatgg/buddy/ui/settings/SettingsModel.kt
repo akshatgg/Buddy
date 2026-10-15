@@ -16,6 +16,7 @@ import com.akshatgg.buddy.ui.common.Tone
 import com.akshatgg.buddy.ui.common.failure
 import com.akshatgg.buddy.voice.VoiceModel
 import com.akshatgg.buddy.voice.VoiceWords
+import com.akshatgg.buddy.voice.WakeRules
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -32,8 +33,9 @@ private const val FADE_AFTER_MS = 3000L // how long a success ("Saved ✓") is s
 // The desktop's words (src/main/ipc/settings.js) when a fact typed into Settings → Memory is not kept.
 private const val CANT_SAVE = "I can't save that. Passwords, PINs, OTPs and long numbers are never saved."
 private const val KNOWN_ALREADY = "I already know that."
-private const val MIC_REFUSED = "Buddy needs the microphone to hear you. Allow it in Settings."
+private const val MIC_REFUSED = VoiceWords.WakeLines.MIC_NEEDED
 private const val TEST_MS = 10_000L
+private const val WAKE_DEBOUNCE_MS = 600L // typing in the name box: the phrase is looked at again this long after the last key
 
 /** Where a status line is: under the account, under the Buddy card, or under What Buddy knows about you. */
 enum class Line { ACCOUNT, BUDDY, MEMORY }
@@ -121,6 +123,8 @@ data class SettingsState(
     /** Test it is running (10 s), and how many wakes it heard. */
     val wakeTesting: Boolean = false,
     val wakeHeard: Int = 0,
+    /** The model can hear the name; when not, nothing listens and Test it is hidden. */
+    val wakeCanHear: Boolean = true,
 )
 
 /**
@@ -156,6 +160,11 @@ class SettingsModel(
     val state: StateFlow<SettingsState> = current.asStateFlow()
     private val fading = mutableMapOf<Line, Job>()
 
+    init {
+        val s = current.value
+        if (settings.wakeOn && !s.wakeCanHear) current.update { it.copy(wakeLine = Status(VoiceWords.WakeLines.cantListen(settings.buddyName), Tone.ERROR)) }
+    }
+
     // Buddy on was asked for while it could not float: it comes on once "Display over other apps" is allowed.
     private var waitingToFloat = false
 
@@ -173,6 +182,7 @@ class SettingsModel(
             tagOn = settings.tagOn,
             learning = memory.learning,
             wakeOn = settings.wakeOn,
+            wakeCanHear = !settings.wakeOn || WakeRules.nameHeard(settings.buddyName, modelMissing()),
         )
     }
 
@@ -260,7 +270,14 @@ class SettingsModel(
         val cut = name.take(NAME_MAX)
         settings.buddyName = cut
         current.update { it.copy(name = cut) }
-        if (settings.wakeOn) checkWake(renamed = true)
+        // The phrase is looked at again once the typing stops, not at each key; an empty box is left alone (it would
+        // show the default name's line while the person is still typing).
+        renameCheck?.cancel()
+        if (!settings.wakeOn || cut.isBlank()) return
+        renameCheck = scope.launch {
+            delay(WAKE_DEBOUNCE_MS)
+            if (settings.wakeOn) checkWake(renamed = true)
+        }
     }
 
     fun setSize(size: BuddySize) {
@@ -296,6 +313,7 @@ class SettingsModel(
 
     private var fetching: Job? = null
     private var testing: Job? = null
+    private var renameCheck: Job? = null
 
     /**
      * The switch. Only turned on from Settings (the app is open); it goes back off when the microphone is refused or
@@ -303,9 +321,9 @@ class SettingsModel(
      */
     fun setWakeOn(on: Boolean) {
         if (!on) {
-            fetching?.cancel(); testing?.cancel()
+            fetching?.cancel(); testing?.cancel(); renameCheck?.cancel()
             settings.wakeOn = false
-            current.update { it.copy(wakeOn = false, wakeLine = null, wakeTesting = false) }
+            current.update { it.copy(wakeOn = false, wakeLine = null, wakeTesting = false, wakeCanHear = true) }
             wakeChanged()
             return
         }
@@ -344,18 +362,18 @@ class SettingsModel(
      */
     private fun checkWake(renamed: Boolean) {
         val name = settings.buddyName
-        if (VoiceWords.wakePhrase(name) == null || VoiceWords.wakeMissing(name, modelMissing()).isNotEmpty()) {
-            current.update { it.copy(wakeLine = Status(VoiceWords.WakeLines.cantListen(name), Tone.ERROR)) }
+        if (!WakeRules.nameHeard(name, modelMissing())) {
+            current.update { it.copy(wakeCanHear = false, wakeLine = Status(VoiceWords.WakeLines.cantListen(name), Tone.ERROR)) }
             if (renamed) wakeChanged()
             return
         }
-        current.update { it.copy(wakeLine = null) }
+        current.update { it.copy(wakeCanHear = true, wakeLine = null) }
         wakeChanged()
     }
 
     /** Test it: for 10 s each "Hey <name>" heard is counted, and nothing is asked of the chat. */
     fun testWake() {
-        if (current.value.wakeTesting || !settings.wakeOn) return
+        if (current.value.wakeTesting || !settings.wakeOn || !current.value.wakeCanHear) return
         val name = settings.buddyName
         current.update { it.copy(wakeTesting = true, wakeHeard = 0, wakeLine = Status(VoiceWords.WakeLines.sayNow(name))) }
         testing = scope.launch {

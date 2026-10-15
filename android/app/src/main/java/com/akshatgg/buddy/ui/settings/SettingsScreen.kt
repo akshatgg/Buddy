@@ -450,7 +450,7 @@ private fun WakeRow(state: SettingsState, onChange: (Boolean) -> Unit, test: () 
                 colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.accentFg),
             )
         }
-        if (state.wakeOn) {
+        if (state.wakeOn && state.wakeCanHear) {
             Row(Modifier.padding(top = 8.dp)) { Secondary("Test it", onClick = { if (!state.wakeTesting) test() }) }
         }
         StatusLine(state.wakeLine)

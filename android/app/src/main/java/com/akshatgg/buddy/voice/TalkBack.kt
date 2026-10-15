@@ -62,7 +62,7 @@ class PhoneTalkBack(
     override suspend fun say(text: String) {
         stopped = false
         warm() // the ears load while the question is spoken, so that the first "yes" is not lost to the load
-        speaker.say(text)
+        MicBus.holding { speaker.say(text) } // the wake listener is not live while Buddy talks
     }
 
     /** Runs `block` as a job that stop() can cancel; `onStop` is the answer when it was. */

@@ -386,9 +386,37 @@ class SettingsModelTest {
         assertTrue(settings.wakeOn)
         assertEquals(Status("Buddy can't listen for 'Xyzzy'. Try another spelling.", Tone.ERROR), m.state.value.wakeLine)
         assertEquals(0, woke)
+        assertFalse(m.state.value.wakeCanHear) // Test it is hidden
         m.setName("Rahul") // a name the model knows
+        testScheduler.advanceTimeBy(600); testScheduler.runCurrent()
         assertNull(m.state.value.wakeLine)
+        assertTrue(m.state.value.wakeCanHear)
         assertEquals(1, woke)
+    }
+
+    @Test fun renamingWaitsForTheTypingToStop() = runTest {
+        val m = wakeModel()
+        m.setWakeOn(true)
+        woke = 0
+        for (typed in listOf("R", "Ra", "Rah", "Rahu")) { m.setName(typed); testScheduler.advanceTimeBy(300); testScheduler.runCurrent() }
+        assertEquals(0, woke) // a key every 300 ms: nothing looked at yet
+        m.setName("Rahul")
+        testScheduler.advanceTimeBy(599); testScheduler.runCurrent()
+        assertEquals(0, woke)
+        testScheduler.advanceTimeBy(1); testScheduler.runCurrent()
+        assertEquals(1, woke)
+    }
+
+    @Test fun anEmptyNameBoxIsNotCheckedAgainstTheDefaultName() = runTest {
+        missing = setOf("aarav")
+        val m = wakeModel()
+        m.setWakeOn(true)
+        m.setName("Rahul"); testScheduler.advanceTimeBy(600); testScheduler.runCurrent()
+        woke = 0
+        m.setName("")
+        testScheduler.advanceTimeBy(5_000); testScheduler.runCurrent()
+        assertEquals(0, woke)
+        assertNull(m.state.value.wakeLine)
     }
 
     @Test fun turningItOffSaysSo() = runTest {

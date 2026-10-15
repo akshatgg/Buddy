@@ -1,6 +1,8 @@
 package com.akshatgg.buddy.bubble
 
 import android.animation.ValueAnimator
+import android.Manifest
+import android.content.pm.PackageManager
 import android.app.AppOpsManager
 import android.app.KeyguardManager
 import android.app.Notification
@@ -39,6 +41,7 @@ import com.akshatgg.buddy.store.AppSettings
 import com.akshatgg.buddy.ui.MainActivity
 import com.akshatgg.buddy.ui.panel.PanelActivity
 import com.akshatgg.buddy.voice.VoiceWords
+import com.akshatgg.buddy.voice.WakeRules
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -101,7 +104,7 @@ class BubbleService : LifecycleService() {
     // "Hey <name>": the microphone is only ever started from an app screen (ACTION_LISTEN); see WakeControl.
     private var listening = false // this service is a microphone one now
     private val wakeControl by lazy {
-        WakeControl(this, AppGraph.instance, lifecycleScope) { wav -> AppGraph.instance.handsFree.request(wav) }
+        WakeControl(this, AppGraph.instance, lifecycleScope, chatBusy = { AppGraph.instance.handsFree.busy }) { wav -> AppGraph.instance.handsFree.request(wav) }
     }
 
     // The person can take "Display over other apps" away in the phone's settings while Buddy runs. Android then hides
@@ -268,6 +271,10 @@ class BubbleService : LifecycleService() {
      */
     private fun startListening() {
         if (!settings.wakeOn || listening) return
+        // A name the model cannot hear: the switch stays on, but nothing listens, so no microphone service and no
+        // "Listening for…" (Settings says so).
+        if (!nameHeard()) return
+        if (!micAllowed()) return needsTap() // taken away in Android's settings: the line says to allow it
         if (foreground(capturing = false, microphone = true)) {
             listening = true
             settings.wakeNeedsTap = false
@@ -289,15 +296,31 @@ class BubbleService : LifecycleService() {
             }
             return
         }
+        if (listening && !nameHeard()) { // renamed to a name the model cannot hear: no longer a microphone service
+            listening = false
+            wakeControl.stop()
+            foreground(capturing = false, microphone = false)
+            return
+        }
         if (listening) {
             foreground(capturing = false) // the notification names the buddy
             wakeControl.refresh()
         }
     }
 
+    private fun nameHeard() = WakeRules.nameHeard(settings.buddyName, AppGraph.instance.shared.voiceModelMissing)
+
+    private fun micAllowed() = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
     private fun needsTap() {
         settings.wakeNeedsTap = true
-        say(VoiceWords.WakeLines.TAP_TO_LISTEN, ::openPanel)
+        tapLine()
+    }
+
+    /** "Tap me to listen again", or, when the microphone was taken away, to allow it. */
+    private fun tapLine() {
+        if (!nameHeard()) return
+        say(if (micAllowed()) VoiceWords.WakeLines.TAP_TO_LISTEN else VoiceWords.WakeLines.MIC_NEEDED, ::openPanel)
     }
 
     /** Buddy off, as "Turn off" in the Mac's menu: it stays off, after a restart too, until the person turns it on. */
@@ -561,7 +584,7 @@ class BubbleService : LifecycleService() {
                 }
                 showOrHide()
                 if (intent.action == Intent.ACTION_USER_PRESENT && settings.wakeOn && settings.wakeNeedsTap) {
-                    say(VoiceWords.WakeLines.TAP_TO_LISTEN, ::openPanel)
+                    tapLine()
                 }
             }
         }

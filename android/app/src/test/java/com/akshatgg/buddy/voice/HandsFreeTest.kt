@@ -14,6 +14,7 @@ class HandsFreeTest {
         override fun open() { log += "open" }
         override fun hidden() { log += "hidden" }
         override fun sendSpoken(text: String) { log += "send $text" }
+        override var busy = false
     }
     private val talk = object : TalkBack {
         override suspend fun say(text: String) { said += text }
@@ -54,6 +55,18 @@ class HandsFreeTest {
         transcribed = { _, _ -> throw BuddyError("rate_limited", "Too many tries. Wait a minute.") }
         handsFree().request(ByteArray(10))
         assertEquals(listOf("Too many tries. Wait a minute."), said)
+        assertEquals(emptyList<String>(), log)
+    }
+
+    @Test fun aRequestWhileTheChatIsBusyIsNotWrittenDownAndSaysSo() = runTest {
+        chat.busy = true
+        var sent = 0
+        transcribed = { _, _ -> sent++; "call Mom" }
+        handsFree().request(ByteArray(10))
+        val line = "I'm still on the last one. Ask me again in a moment."
+        assertEquals(listOf(line), said)
+        assertEquals(listOf(line), shown)
+        assertEquals(0, sent)
         assertEquals(emptyList<String>(), log)
     }
 

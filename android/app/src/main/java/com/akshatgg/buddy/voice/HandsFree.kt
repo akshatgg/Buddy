@@ -10,6 +10,8 @@ interface SpokenChat {
     /** Not on screen: nothing opens, an answer for an app waits in the chat. */
     fun hidden()
     fun sendSpoken(text: String)
+    /** The last spoken message is still being answered. */
+    val busy: Boolean
 }
 
 /**
@@ -25,7 +27,11 @@ class HandsFree(
     private val name: () -> String,
     private val bubble: (String) -> Unit = {},
 ) {
+    /** The last hands-free turn is still being answered: the wake listener waits. */
+    val busy: Boolean get() = chat.busy
+
     suspend fun request(wav: ByteArray?) {
+        if (chat.busy) return tell(VoiceWords.WakeLines.STILL_BUSY) // not written down: the chat would drop it
         if (wav == null || wav.isEmpty()) return tell(VoiceWords.WakeLines.notCaught(name()))
         val words = try {
             transcribe(wav, "audio/wav").trim()

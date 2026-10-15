@@ -121,6 +121,29 @@ class WakeListenerTest {
         job.cancel()
     }
 
+    @Test fun aSilencedMicStaysOpenAndIsNotFedUntilItIsHeardAgain() = runTest {
+        // the 6th to 15th reads are silenced (another app records): nothing is fed, nothing is released or made again
+        var mics = 0
+        val mic = FakeMic(quiet(30))
+        val spotter = FakeSpotter(emptyMap(), "")
+        val spotters = Made(mutableListOf(spotter))
+        var checks = 0
+        val listener = WakeListener(
+            mic = { mics++; mic },
+            spotters = spotters,
+            phrase = "hey rahul",
+            silenced = { checks++ in 5..14 },
+        )
+        val events = ArrayList<WakeEvent>()
+        val job = launch { listener.run { events.add(it) } }
+        runCurrent()
+        assertEquals(1, mics)
+        assertEquals(1, spotters.made.size)
+        assertEquals(20, spotter.chunk) // 30 reads, 10 of them silenced
+        advanceTimeBy(0)
+        job.cancel()
+    }
+
     @Test fun aNewSpotterAfterEachWake() = runTest {
         val said = hey("hey" to 0.1f, "rahul" to 0.2f)
         val mic = FakeMic(quiet(300))

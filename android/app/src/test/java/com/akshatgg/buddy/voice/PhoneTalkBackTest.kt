@@ -99,4 +99,15 @@ class PhoneTalkBackTest {
         t.say("Send it?")
         assertEquals(1, warms)
     }
+
+    @Test fun theMicIsHeldWhileBuddySpeaks() = runTest(UnconfinedTestDispatcher()) {
+        val before = MicBus.busy.value
+        val block = CompletableDeferred<Unit>()
+        val t = talk(this, FakeSpeaker(block), mic = speech(1))
+        val saying = async { t.say("It is sunny.") }
+        assertEquals(before + 1, MicBus.busy.value) // the wake listener is not live while Buddy talks
+        block.complete(Unit)
+        saying.await()
+        assertEquals(before, MicBus.busy.value)
+    }
 }

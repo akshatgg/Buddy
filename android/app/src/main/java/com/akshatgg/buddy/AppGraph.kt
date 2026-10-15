@@ -187,6 +187,7 @@ class AppGraph(
             override fun open() = model.open()
             override fun hidden() = model.hidden()
             override fun sendSpoken(text: String) = model.sendSpoken(text)
+            override val busy: Boolean get() = model.state.value.busy
         }
         HandsFree(chat, talkBack, { audio, mime -> cloud.transcribe(audio, mime) }, { settings.buddyName }, BubbleBus::say)
     }

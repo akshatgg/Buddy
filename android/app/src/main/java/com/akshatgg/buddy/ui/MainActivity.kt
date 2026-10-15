@@ -105,7 +105,9 @@ class MainActivity : ComponentActivity() {
         val settingsCallbacks = SettingsCallbacks(
             signIn = { kept.settings.signIn { kept.signIn(this) } },
             lookChanged = { BubbleService.lookChanged(this) },
-            powerChanged = { on -> if (on) BubbleService.start(this) else BubbleService.stop(this) },
+            powerChanged = { on ->
+                if (on) { BubbleService.start(this); BubbleService.listen(this) } else BubbleService.stop(this) // on with the switch on: listens too
+            },
             askNotifications = askNotifications,
             askMicrophone = { microphone.launch(Manifest.permission.RECORD_AUDIO) },
             checkUpdate = { kept.graph.updater.check(asked = true) },

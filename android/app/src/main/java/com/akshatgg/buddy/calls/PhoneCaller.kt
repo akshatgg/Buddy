@@ -16,10 +16,15 @@ sealed interface CallFound {
     data class Say(val line: String, val code: String? = null) : CallFound
 }
 
-/** How a call ended: started; pressed but Buddy cannot tell (never a second call); or not, and why. */
+/**
+ * How a call ended: started; pressed but Buddy cannot tell (never a second call); stopped after the call button was
+ * pressed, and why (the card ends: never a second call either); or not called before any press, and why (the card
+ * stays, to press Call again).
+ */
 sealed interface Called {
     data object Done : Called
     data object Unsure : Called
+    data class Ended(val line: String) : Called
     data class Failed(val line: String, val code: String? = null) : Called
 }
 

@@ -32,6 +32,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -627,19 +629,25 @@ class PanelModel(
     }
 
     /**
-     * Call on a call card: the card's own person, once. Called: the card says so. Not called: a red line says why and
-     * the card stays, to press Call again. Not sure: the card says to check, and goes (never a second call).
+     * Call on a call card: the card's own person, once. Called: the card says so. Not called, before anything was
+     * pressed: a red line says why and the card stays, to press Call again. Stopped after the call button was pressed,
+     * or not sure (the call threw too): the card says so, and goes (never a second call).
      */
     private suspend fun placeCall(c: Chat, id: Int) {
+        val first = c.calls[id] ?: return
+        if (first is CallCard.WhatsApp) hands.stepAside() // nothing called yet: should it throw, the card stays
         // Taken off the card before calling, and put back only when it did not call: should the call throw, whether it
         // rang is not known, and the card must not call a second time.
         val card = c.calls.remove(id) ?: return
-        val called = when (card) {
-            is CallCard.Phone -> phone.call(card.callee)
-            is CallCard.WhatsApp -> {
-                hands.stepAside()
-                whatsAppCalls.call(card.person, card.video)
+        val called = try {
+            when (card) {
+                is CallCard.Phone -> phone.call(card.callee)
+                is CallCard.WhatsApp -> whatsAppCalls.call(card.person, card.video)
             }
+        } catch (e: Exception) {
+            currentCoroutineContext().ensureActive() // the panel's own cancel goes on; anything else is "not sure"
+            Log.w("Buddy", "call: unexpected ${e.javaClass.simpleName}")
+            Called.Unsure
         }
         when (called) {
             Called.Done -> {
@@ -649,6 +657,10 @@ class PanelModel(
             Called.Unsure -> {
                 replaceItem(c, ChatEvent(id, CALL_UNSURE))
                 say(CALL_UNSURE)
+            }
+            is Called.Ended -> {
+                replaceItem(c, ChatEvent(id, called.line))
+                say(called.line)
             }
             is Called.Failed -> {
                 c.calls[id] = card
@@ -874,7 +886,11 @@ class PanelModel(
             ChatButton.CALL -> inApp { placeCall(c, id) }
             ChatButton.NOT_NOW -> {
                 if (working) return // being sent or called now
-                val line = if (c.calls.remove(id) != null) NOT_NOW_CALL else NOT_SENT.also { c.messages.remove(id) }
+                // A call card is the one with Call: "not now" whether or not its call is still kept.
+                val call = ChatButton.CALL in buttons || c.calls.containsKey(id)
+                c.calls.remove(id)
+                c.messages.remove(id)
+                val line = if (call) NOT_NOW_CALL else NOT_SENT
                 replaceItem(c, ChatEvent(id, line))
                 publish()
             }

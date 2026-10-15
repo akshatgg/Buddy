@@ -27,6 +27,7 @@ class WhatsAppCallerTest {
         var failsAfter: Exception? = null,
     ) : CallScreen {
         val pressed = mutableListOf<String>()
+        var confirms = 0 // WhatsApp's own question answered (its Call pressed)
         override fun on() = on
         override suspend fun chat(app: String) = if (chats.size > 1) chats.removeAt(0) else chats.firstOrNull()
         override suspend fun pressCall(app: String, name: String, video: Boolean): Boolean {
@@ -35,9 +36,15 @@ class WhatsAppCallerTest {
             if (press && starts) chats = mutableListOf(null)
             return press
         }
-        override suspend fun question(app: String, name: String): Confirm {
+        /** PRESSED in `questions` is a question for this person on the screen: answered only when Buddy may press. */
+        override suspend fun question(app: String, name: String, press: Boolean): Confirm {
             failsAfter?.let { throw it }
-            return if (questions.size > 1) questions.removeAt(0) else questions.first()
+            val q = if (questions.size > 1) questions.removeAt(0) else questions.first()
+            if (q == Confirm.PRESSED) {
+                if (!press) return Confirm.ASKING
+                confirms += 1
+            }
+            return q
         }
     }
     private fun caller(w: WhatsApp = FakeWhatsApp(), s: CallScreen = FakeScreen()) = WhatsAppCaller(w, s, wait = {})
@@ -82,13 +89,15 @@ class WhatsAppCallerTest {
         assertEquals(Called.Done, caller(s = s).call(prince, false))
         assertEquals(1, s.pressed.size)
     }
-    @Test fun aQuestionAboutSomeoneElseIsNotAnswered() = runTest {
+    // After the call button was pressed, nothing is Failed (which would offer Call again): the card ends with the line.
+    @Test fun aQuestionAboutSomeoneElseIsNotAnsweredAndTheCardEnds() = runTest {
         val s = FakeScreen(questions = mutableListOf(Confirm.OTHER), starts = false)
-        assertEquals(Called.Failed("WhatsApp asked to call someone else, so I didn't."), caller(s = s).call(prince, false))
+        assertEquals(Called.Ended("WhatsApp asked to call someone else, so I didn't."), caller(s = s).call(prince, false))
+        assertEquals(0, s.confirms)
     }
-    @Test fun aQuestionWhoseCallWouldNotTakeThePress() = runTest {
+    @Test fun aQuestionWhoseCallWouldNotTakeThePressEndsTheCard() = runTest {
         val s = FakeScreen(questions = mutableListOf(Confirm.NOT_PRESSED), starts = false)
-        assertEquals(Called.Failed("I couldn't press Call. Call from WhatsApp yourself."), caller(s = s).call(prince, false))
+        assertEquals(Called.Ended("I couldn't press Call. Call from WhatsApp yourself."), caller(s = s).call(prince, false))
     }
     @Test fun aPressWhoseCallIsNotSeenIsUnsure() = runTest {
         val s = FakeScreen(starts = false)
@@ -113,5 +122,24 @@ class WhatsAppCallerTest {
             override suspend fun chat(app: String): ChatState? { reads += 1; return if (reads == 2) null else s.chat(app) }
         }
         assertEquals(Called.Unsure, caller(s = flicker).call(prince, false))
+    }
+
+    @Test fun whatsAppsQuestionIsAnsweredOnlyOnceThoughItStillShows() = runTest {
+        val s = FakeScreen(questions = mutableListOf(Confirm.PRESSED, Confirm.PRESSED, Confirm.NONE))
+        assertEquals(Called.Done, caller(s = s).call(prince, false))
+        assertEquals(1, s.confirms)
+        assertEquals(1, s.pressed.size)
+    }
+    @Test fun aQuestionThatStaysAfterItWasAnsweredIsWaitedOnThenUnsure() = runTest {
+        val s = FakeScreen(questions = mutableListOf(Confirm.PRESSED))
+        assertEquals(Called.Unsure, caller(s = s).call(prince, false))
+        assertEquals(1, s.confirms)
+    }
+    @Test fun afterTheQuestionWasAnsweredAnythingOddIsUnsureNeverFailed() = runTest {
+        val s = FakeScreen(questions = mutableListOf(Confirm.PRESSED, Confirm.OTHER), starts = false)
+        assertEquals(Called.Unsure, caller(s = s).call(prince, false))
+        val t = FakeScreen(questions = mutableListOf(Confirm.PRESSED, Confirm.NOT_PRESSED), starts = false)
+        assertEquals(Called.Unsure, caller(s = t).call(prince, false))
+        assertEquals(listOf(1, 1), listOf(s.confirms, t.confirms))
     }
 }

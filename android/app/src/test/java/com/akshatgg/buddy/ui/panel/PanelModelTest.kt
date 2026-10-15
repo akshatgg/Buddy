@@ -104,6 +104,7 @@ private class FakePhone(val log: MutableList<String>) : PhoneCalling {
     val found = ArrayDeque<CallFound>()
     val called = ArrayDeque<Called>()
     var calling: CompletableDeferred<Unit>? = null // a call that takes until this is completed
+    var throws: Exception? = null
     override suspend fun find(asked: String): CallFound {
         log += "find phone $asked"
         return found.removeFirstOrNull() ?: CallFound.Say("I couldn't find $asked in your contacts.")
@@ -111,6 +112,7 @@ private class FakePhone(val log: MutableList<String>) : PhoneCalling {
     override suspend fun call(callee: Callee): Called {
         log += "call ${callee.name}"
         calling?.await()
+        throws?.let { throw it }
         return called.removeFirstOrNull() ?: Called.Done
     }
 }
@@ -147,6 +149,7 @@ class PanelModelTest {
     private var picture: String? = "IMG"
     private var pictureError: BuddyError? = null
     private var clock = 1_000_000L
+    private var asideFails: Exception? = null
 
     private fun written(text: String, kind: String = "write", say: String = "", doIt: Boolean = false, again: Boolean = false, remember: List<String> = emptyList(), notes: List<String> = emptyList()) =
         ChatReply(kind, say, text, notes, doIt, false, remember, again)
@@ -160,7 +163,7 @@ class PanelModelTest {
         typeIn = typeIn,
         facts = facts,
         hands = PanelHands(
-            stepAside = { log += "aside" },
+            stepAside = { log += "aside"; asideFails?.let { throw it } },
             copy = { log += "copy $it" },
             share = { log += "share $it" },
             screen = { log += "screen"; pictureError?.let { throw it }; picture },
@@ -1210,15 +1213,70 @@ class PanelModelTest {
         assertEquals(ChatEvent(2, "📹 Video calling Priya Sharma on WhatsApp"), m.items.first { it.id == 2 })
     }
 
-    @Test fun aWhatsAppCallThatThrowsIsNeverPlacedAgain() = runTest {
+    @Test fun aWhatsAppCallThatThrowsIsUnsureAndNeverPlacedAgain() = runTest {
         whatsAppCalls.throws = IllegalStateException("gone")
         val m = whatsAppCallCard()
         m.press(2, ChatButton.CALL)
         advanceUntilIdle()
-        assertEquals(ChatError(3, "Something went wrong. Try again.", "failed", emptyList()), m.last())
+        assertEquals(ChatEvent(2, "I'm not sure the call started. Check WhatsApp."), m.last())
+        assertEquals("I'm not sure the call started. Check WhatsApp.", said.last())
+        assertTrue(m.items.none { it is ChatError })
         whatsAppCalls.throws = null
         m.press(2, ChatButton.CALL) // whether it rang is not known: never a second call from this card
         advanceUntilIdle()
         assertEquals(1, log.count { it.startsWith("wa call") })
+    }
+
+    @Test fun aPhoneCallThatThrowsIsUnsureAndNeverPlacedAgain() = runTest {
+        phone.throws = IllegalStateException("gone")
+        val m = callCard()
+        m.press(2, ChatButton.CALL)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "I'm not sure the call started. Check WhatsApp."), m.last())
+        assertTrue(m.items.none { it is ChatError })
+        phone.throws = null
+        m.press(2, ChatButton.CALL)
+        advanceUntilIdle()
+        assertEquals(1, log.count { it.startsWith("call") })
+    }
+
+    @Test fun notNowOnACallCardIsAlwaysNotNow() = runTest {
+        asideFails = IllegalStateException("no panel") // nothing was called: the card still works
+        val m = whatsAppCallCard()
+        m.press(2, ChatButton.CALL)
+        advanceUntilIdle()
+        assertTrue(log.none { it.startsWith("wa call") })
+        m.press(2, ChatButton.NOT_NOW)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "Okay, not now."), m.items.first { it.id == 2 })
+    }
+
+    @Test fun whatEndsAWhatsAppCallAfterItsButtonWasPressedNeverOffersCallAgain() = runTest {
+        for (line in listOf("WhatsApp asked to call someone else, so I didn't.", "I couldn't press Call. Call from WhatsApp yourself.")) {
+            log.clear(); events.clear()
+            whatsAppCalls.called += Called.Ended(line)
+            val m = whatsAppCallCard()
+            m.press(2, ChatButton.CALL)
+            advanceUntilIdle()
+            assertEquals(ChatEvent(2, line), m.items.first { it.id == 2 })
+            assertEquals(line, said.last())
+            assertTrue(m.items.none { it is ChatError })
+            m.press(2, ChatButton.CALL)
+            advanceUntilIdle()
+            assertEquals(1, log.count { it.startsWith("wa call") })
+        }
+    }
+
+    @Test fun whatStopsAWhatsAppCallBeforeItsButtonWasPressedKeepsTheCard() = runTest {
+        whatsAppCalls.called += Called.Failed("That opened the wrong chat, so I didn't call.")
+        val m = whatsAppCallCard()
+        val card = m.last()
+        m.press(2, ChatButton.CALL)
+        advanceUntilIdle()
+        assertEquals(ChatError(3, "That opened the wrong chat, so I didn't call.", "call_failed", emptyList()), m.last())
+        assertEquals(card, m.items.first { it.id == 2 })
+        m.press(2, ChatButton.CALL)
+        advanceUntilIdle()
+        assertEquals(2, log.count { it.startsWith("wa call") })
     }
 }

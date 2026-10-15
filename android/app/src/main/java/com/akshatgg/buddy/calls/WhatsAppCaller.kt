@@ -17,7 +17,8 @@ interface CallScreen {
     fun on(): Boolean
     suspend fun chat(app: String): ChatState?
     suspend fun pressCall(app: String, name: String, video: Boolean): Boolean
-    suspend fun question(app: String, name: String): Confirm
+    /** WhatsApp's question before a call: its Call pressed only when `press` and it names `name`. */
+    suspend fun question(app: String, name: String, press: Boolean): Confirm
 }
 
 /**
@@ -29,8 +30,8 @@ class ServiceCallScreen(private val context: Context) : CallScreen {
     override suspend fun chat(app: String) = withContext(Dispatchers.Default) { LookService.running?.whatsAppChatBehind(app) }
     override suspend fun pressCall(app: String, name: String, video: Boolean) =
         withContext(Dispatchers.Default) { LookService.running?.pressWhatsAppCall(app, name, video) == true }
-    override suspend fun question(app: String, name: String) =
-        withContext(Dispatchers.Default) { LookService.running?.whatsAppCallQuestion(app, name) ?: Confirm.NONE }
+    override suspend fun question(app: String, name: String, press: Boolean) =
+        withContext(Dispatchers.Default) { LookService.running?.whatsAppCallQuestion(app, name, press) ?: Confirm.NONE }
 }
 
 /** What the chat panel needs for a WhatsApp call: call this person (found as for a message), by voice or video. */
@@ -88,7 +89,7 @@ class WhatsAppCaller(
         } catch (e: Exception) {
             return Called.Unsure // it may have been pressed: never a second call
         }
-        if (!pressed) return Called.Failed(NOT_PRESSED)
+        if (!pressed) return Called.Failed(NOT_PRESSED) // the call button was not pressed: Call may be pressed again
         return try {
             afterPress(person)
         } catch (e: CancellationException) {
@@ -100,18 +101,23 @@ class WhatsAppCaller(
 
     /**
      * Started once the chat has gone from WhatsApp's screen two reads in a row with no question showing (its call screen
-     * is up). WhatsApp's question for this person is answered; one about someone else is not. Not seen in 4 s: unsure.
+     * is up). WhatsApp's question for this person is answered once, the first time it shows: still showing after, it
+     * is only waited on. One about someone else is not answered. The call button was pressed, so nothing here is
+     * Failed (which would offer Call again): before the question was answered, the card ends with why; after, anything
+     * odd, or the call not seen in 4 s, is unsure.
      */
     private suspend fun afterPress(person: Person): Called {
+        var answered = false
         var gone = 0
         var waited = 0L
         while (waited < CALL_WAIT_MS) {
             wait(STEP_MS)
             waited += STEP_MS
-            when (screen.question(person.app, person.name)) {
-                Confirm.OTHER -> return Called.Failed(SOMEONE_ELSE)
-                Confirm.NOT_PRESSED -> return Called.Failed(NOT_PRESSED)
-                Confirm.PRESSED -> {
+            when (screen.question(person.app, person.name, press = !answered)) {
+                Confirm.OTHER -> return if (answered) Called.Unsure else Called.Ended(SOMEONE_ELSE)
+                Confirm.NOT_PRESSED -> return if (answered) Called.Unsure else Called.Ended(NOT_PRESSED)
+                Confirm.PRESSED, Confirm.ASKING -> {
+                    answered = true
                     gone = 0
                     continue
                 }

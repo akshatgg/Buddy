@@ -245,7 +245,7 @@ class LookService : AccessibilityService() {
         byId = { root, id -> root.findAccessibilityNodeInfosByViewId(id).orEmpty() },
         text = { it.text?.toString() }, describe = { it.contentDescription?.toString() },
         kids = { n -> (0 until n.childCount).mapNotNull { n.getChild(it) } },
-        idOf = { it.viewIdResourceName },
+        idOf = { it.viewIdResourceName }, kind = { it.className?.toString() },
     )
 
     /**
@@ -263,15 +263,15 @@ class LookService : AccessibilityService() {
     }
 
     /**
-     * WhatsApp's own "Call …?" question: answered (its Call pressed) only when it names `name`. The question is a
-     * window of its own, so every window of `app` is looked in, not only the first. Off the main thread.
+     * WhatsApp's own "Call …?" question: answered (its Call pressed) only when `press` (the first time Buddy sees it)
+     * and it names `name`. The question is a window of its own, so every window of `app` is looked in, not only the
+     * first. Off the main thread.
      */
-    fun whatsAppCallQuestion(app: String, name: String): Confirm {
+    fun whatsAppCallQuestion(app: String, name: String, press: Boolean): Confirm {
         val roots = appRoots(app)
         try {
             val root = roots.firstOrNull(whatsAppCalls::asks) ?: return Confirm.NONE
-            val yes = whatsAppCalls.confirmButtonFor(root, name) ?: return Confirm.OTHER
-            return if (yes.performAction(AccessibilityNodeInfo.ACTION_CLICK)) Confirm.PRESSED else Confirm.NOT_PRESSED
+            return whatsAppCalls.answer(root, name, press) { it.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
         } finally {
             roots.forEach(::recycle)
         }

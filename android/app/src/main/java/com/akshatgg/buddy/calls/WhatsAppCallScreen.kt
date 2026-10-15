@@ -6,9 +6,10 @@ import com.akshatgg.buddy.message.sameName
 
 /**
  * WhatsApp's own "Call …?" question, after the call button: not there, answered for this person, about someone else,
- * or this person's but its Call did not take the press.
+ * this person's but its Call is not there or did not take the press, or this person's and left as it is (Buddy has
+ * answered it once already: never twice).
  */
-enum class Confirm { NONE, PRESSED, OTHER, NOT_PRESSED }
+enum class Confirm { NONE, PRESSED, OTHER, NOT_PRESSED, ASKING }
 
 // The open chat's call buttons. Not yet read on the owner's phone (Task 6 Step 1, checked in Task 11): the id lists
 // stay empty until then, and the buttons are found by their descriptions. Ids are suffixes under the app's package.
@@ -33,6 +34,7 @@ class WhatsAppCallScreen<N>(
     private val voiceIds: List<String> = VOICE_CALL_IDS,
     private val videoIds: List<String> = VIDEO_CALL_IDS,
     private val idOf: (N) -> String? = { null },
+    private val kind: (N) -> String? = { null },
 ) {
     /** The voice or video call button, only when this very screen shows `person`'s chat; else null. */
     fun callButtonFor(root: N, app: String, person: String, video: Boolean): N? {
@@ -40,7 +42,9 @@ class WhatsAppCallScreen<N>(
         if (!sameName(name, person)) return null
         (if (video) videoIds else voiceIds).firstNotNullOfOrNull { byId(root, "$app:id/$it").firstOrNull() }?.let { return it }
         val wanted = if (video) VIDEO_CALL_DESCRIPTIONS else VOICE_CALL_DESCRIPTIONS
-        return find(root) { n -> !ofAnotherApp(n, app) && wanted.any { describe(n)?.trim().equals(it, ignoreCase = true) } }
+        return find(root, skip = { isList(it, app) }) { n ->
+            !ofAnotherApp(n, app) && wanted.any { describe(n)?.trim().equals(it, ignoreCase = true) }
+        }
     }
 
     /** Whether WhatsApp is asking something (a dialog's text is on the screen). */
@@ -51,6 +55,19 @@ class WhatsAppCallScreen<N>(
         val asked = question(root) ?: return null
         if (!names(asked, person)) return null
         return byId(root, YES_ID).firstOrNull()
+    }
+
+    /**
+     * WhatsApp's question on this screen, for `person`: its Call pressed (with `click`) only when `press`, that is the
+     * first time Buddy sees it; after that, left as it is (ASKING). A question naming them with no Call, or whose Call
+     * did not take the press, is NOT_PRESSED; one naming someone else is OTHER; none is NONE.
+     */
+    fun answer(root: N, person: String, press: Boolean, click: (N) -> Boolean): Confirm {
+        val asked = question(root) ?: return Confirm.NONE
+        if (!names(asked, person)) return Confirm.OTHER
+        val yes = byId(root, YES_ID).firstOrNull() ?: return Confirm.NOT_PRESSED
+        if (!press) return Confirm.ASKING
+        return if (click(yes)) Confirm.PRESSED else Confirm.NOT_PRESSED
     }
 
     private fun question(root: N): String? = byId(root, QUESTION_ID).firstNotNullOfOrNull { text(it)?.takeIf(String::isNotBlank) }
@@ -81,10 +98,22 @@ class WhatsAppCallScreen<N>(
         return ":id/" in id && !id.startsWith("$app:")
     }
 
-    private fun find(node: N, depth: Int = 0, test: (N) -> Boolean): N? {
+    /**
+     * Whether the node is the chat's list of messages (by its id, or any list's class): WhatsApp's own call-log bubbles
+     * there say "Voice call" / "Video call" too, so the buttons are looked for outside it, in the toolbar.
+     */
+    private fun isList(node: N, app: String): Boolean {
+        val id = idOf(node)
+        if (id == "$app:id/conversation" || id == "android:id/list") return true
+        val cls = kind(node) ?: return false
+        return cls.endsWith("RecyclerView") || cls.endsWith("ListView")
+    }
+
+    private fun find(node: N, depth: Int = 0, skip: (N) -> Boolean, test: (N) -> Boolean): N? {
+        if (skip(node)) return null
         if (test(node)) return node
         if (depth > 40) return null
-        for (k in kids(node)) find(k, depth + 1, test)?.let { return it }
+        for (k in kids(node)) find(k, depth + 1, skip, test)?.let { return it }
         return null
     }
 }

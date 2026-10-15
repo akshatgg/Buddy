@@ -157,3 +157,19 @@ test('9. a spoken yes goes through the same press as the button: same helper com
   assert.deepStrictEqual(spoken.sends, pressed.sends);
   assert.deepStrictEqual(spoken.card, pressed.card);
 });
+
+test('a yes heard late for the plain "Send it?" presses nothing after Not now, a new message or a new chat', async () => {
+  const sendKeys = (s) => entries(s.log, 'helper').filter((e) => e[1] === 'press');
+  const make = () => setup({ answers: [reply({ kind: 'send' }), reply({ text: 'ok' })], replies: { windowTitle: { title: 'Inbox - Gmail' } }, talk: stubborn() });
+  for (const hush of [(s) => s.actions.act(2, 'not-now'), (s) => s.actions.send('and more'), (s) => s.actions.open()]) {
+    const s = make();
+    await s.actions.open();
+    await s.actions.send('send it', { spoken: true });
+    await settle();
+    await hush(s);
+    await settle();
+    s.talkBack.answerLate('yes');
+    await settle();
+    assert.strictEqual(sendKeys(s).length, 0);
+  }
+});

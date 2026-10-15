@@ -632,7 +632,7 @@ function createActions({
   async function speakAnswer(c, you, run) {
     const live = () => c === chat && c.run === run;
     const added = c.items.slice(c.items.indexOf(you) + 1);
-    const card = [...added].reverse().find((i) => (i.message || i.call) && i.buttons?.length);
+    const card = [...added].reverse().find((i) => ((i.message || i.call) || plainSend(i)) && i.buttons?.length);
     const lines = spokenLines(added.filter((i) => i !== card));
     c.speaking = true;
     try {
@@ -656,6 +656,11 @@ function createActions({
     if (words && live() && !c.busy) await send(words, { spoken: true, followUp: true });
   }
 
+  /** The plain "Send it?" question: Buddy pasted text in another app, or the reply was "send it". */
+  function plainSend(i) {
+    return i.type === 'question' && !i.message && !i.call && i.buttons?.join() === 'send,not-now';
+  }
+
   /**
    * Asks the card's own text out loud and listens. A yes presses the card's button through act(), the same way as the
    * person's press (so only while the card still shows it, in this chat, and once); no, nothing, or an error is Not now.
@@ -663,10 +668,19 @@ function createActions({
   async function askAloud(c, card, run) {
     const live = () => c === chat && c.run === run && c.asking === card.id;
     const verb = card.call ? 'call' : 'send';
-    const question = card.call
-      ? spokenQuestion({ kind: 'call', name: card.call.name, how: card.call.video ? 'whatsapp_video' : 'whatsapp' })
-      : spokenQuestion({ kind: 'message', name: card.message.name, text: card.message.text });
+    const plain = plainSend(card);
+    const question = plain ? 'Send it?'
+      : card.call
+        ? spokenQuestion({ kind: 'call', name: card.call.name, how: card.call.video ? 'whatsapp_video' : 'whatsapp' })
+        : spokenQuestion({ kind: 'message', name: card.message.name, text: card.message.text });
     c.asking = card.id;
+    // The plain Send acts in the front app, so there is no unlock to wait for: a locked Mac is a no.
+    if (plain && lock.locked()) {
+      c.asking = null;
+      await act(card.id, 'not-now', { spoken: true });
+      await speak(c, VOICE_LINES.notSent);
+      return;
+    }
     await speak(c, question);
     if (!live()) return;
     let heard;
@@ -681,7 +695,7 @@ function createActions({
     if (!live()) return;
     c.asking = null;
     if (heard === 'yes') {
-      await act(card.id, verb === 'call' ? 'call' : 'send-message', { spoken: true });
+      await act(card.id, plain ? 'send' : verb === 'call' ? 'call' : 'send-message', { spoken: true });
     } else {
       await act(card.id, 'not-now', { spoken: true });
       await speak(c, verb === 'call' ? VOICE_LINES.notNow : VOICE_LINES.notSent);

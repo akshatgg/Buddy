@@ -2720,3 +2720,70 @@ test('hush stops a line being spoken, not only a question', async () => {
   assert.ok(entries(s.log, 'stop').length > stops, 'the line being said was stopped');
   finish();
 });
+
+// ---- A spoken chat also asks the plain "Send it?" out loud ----
+const sendKeys = (s) => entries(s.log, 'helper').filter((e) => e[1] === 'press');
+const askSend = (extra = {}) => setup({ answers: [reply({ kind: 'send' })], replies: { windowTitle: { title: 'Inbox - Gmail' } }, ...extra });
+
+test('a spoken "send it": Buddy asks "Send it?", and a yes presses the app\'s Send once, like the button', async () => {
+  const s = askSend({ talk: { answers: ['yes'] } });
+  await s.actions.open();
+  await s.actions.send('send it', { spoken: true });
+  await settle();
+  assert.deepStrictEqual(spokenOf(s), ['Send it?']);
+  assert.deepStrictEqual(entries(s.log, 'hear'), [['hear', 'send']]);
+  assert.strictEqual(sendKeys(s).length, 1);
+  assert.strictEqual(chatOf(s).at(-1).text, '✅ Sent');
+  await assert.rejects(s.actions.act(2, 'send'), /isn't there/); // once
+  assert.strictEqual(sendKeys(s).length, 1);
+});
+
+test('a spoken "Send it?": no, nothing, an error or a locked Mac presses nothing and says "Okay, not sent."', async () => {
+  for (const answers of [['no'], []]) {
+    const s = askSend({ talk: { answers } });
+    await s.actions.open();
+    await s.actions.send('send it', { spoken: true });
+    await settle();
+    assert.strictEqual(sendKeys(s).length, 0);
+    assert.strictEqual(spokenOf(s).at(-1), 'Okay, not sent.');
+    assert.strictEqual(chatOf(s).at(-1).buttons.length, 0);
+  }
+  const e = askSend({ talk: {} });
+  e.talkBack.hear = async () => { throw new Error('ear gone'); };
+  await e.actions.open();
+  await e.actions.send('send it', { spoken: true });
+  await settle();
+  assert.strictEqual(sendKeys(e).length, 0);
+  assert.strictEqual(spokenOf(e).at(-1), 'Okay, not sent.');
+  const l = askSend({ talk: { answers: ['yes'] }, lock: { locked: () => true, unlocked: async () => false } });
+  await l.actions.open();
+  await l.actions.send('send it', { spoken: true });
+  await settle();
+  assert.strictEqual(sendKeys(l).length, 0);
+  assert.deepStrictEqual(entries(l.log, 'hear'), []);
+  assert.strictEqual(spokenOf(l).at(-1), 'Okay, not sent.');
+});
+
+test('a typed "send it" never speaks or listens', async () => {
+  const s = askSend({ talk: { answers: ['yes'] } });
+  await s.actions.open();
+  await s.actions.send('send it');
+  await settle();
+  assert.deepStrictEqual(spokenOf(s), []);
+  assert.deepStrictEqual(entries(s.log, 'hear'), []);
+  assert.strictEqual(sendKeys(s).length, 0);
+});
+
+test('Send pressed while Buddy asks "Send it?": sent once, and the late yes does nothing', async () => {
+  const s = askSend({ talk: { answers: ['wait'], stubborn: true } });
+  await s.actions.open();
+  await s.actions.send('send it', { spoken: true });
+  await settle();
+  await s.actions.act(2, 'send');
+  assert.strictEqual(sendKeys(s).length, 1);
+  const before = JSON.stringify(chatOf(s));
+  s.talkBack.answerLate('yes');
+  await settle();
+  assert.strictEqual(JSON.stringify(chatOf(s)), before);
+  assert.strictEqual(sendKeys(s).length, 1);
+});

@@ -16,7 +16,7 @@ const MIC_LINE = 'Allow the microphone in Settings.';
 const BUSY_LINE = "I'm still on the last one. Ask me again in a moment.";
 // vosk-browser 0.0.8 has no call to ask whether the model knows a word, so a name the model does not know is only caught by the
 // static list (model.missing). Under the switch, Settings says what to do when Test it does not hear the person.
-const SPELLING_HINT = "If Test it doesn't hear you, try another spelling of the name.";
+const SPELLING_HINT = WAKE_LINES.spellingHint;
 
 /** The name as shown and said: the same (at most) three words that are listened for. */
 function shownName(name) {

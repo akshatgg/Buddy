@@ -187,6 +187,7 @@ object VoiceWords {
         fun listening(name: String) = "Listening for \"Hey ${name.trim()}\""
         const val GETTING_EARS = "Getting Buddy's ears ready (36 MB)…"
         const val EARS_FAILED = "Couldn't get Buddy's ears ready. Check the internet and try again."
+        const val SPELLING_HINT = "If Test it doesn't hear you, try another spelling of the name."
         const val SIGN_IN = "Sign in to talk to Buddy."
         const val MIC_NEEDED = "Buddy needs the microphone to hear you. Allow it in Settings."
         const val STILL_BUSY = "I'm still on the last one. Ask me again in a moment."

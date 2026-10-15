@@ -125,6 +125,8 @@ data class SettingsState(
     val wakeHeard: Int = 0,
     /** The model can hear the name; when not, nothing listens and Test it is hidden. */
     val wakeCanHear: Boolean = true,
+    /** On, the name can be heard and the model is there: it is listening, so the spelling hint shows under the switch. */
+    val wakeListening: Boolean = false,
 )
 
 /**
@@ -183,6 +185,7 @@ class SettingsModel(
             learning = memory.learning,
             wakeOn = settings.wakeOn,
             wakeCanHear = !settings.wakeOn || WakeRules.nameHeard(settings.buddyName, modelMissing()),
+            wakeListening = settings.wakeOn && WakeRules.nameHeard(settings.buddyName, modelMissing()) && voiceModel?.ready() != false,
         )
     }
 
@@ -323,7 +326,7 @@ class SettingsModel(
         if (!on) {
             fetching?.cancel(); testing?.cancel(); renameCheck?.cancel()
             settings.wakeOn = false
-            current.update { it.copy(wakeOn = false, wakeLine = null, wakeTesting = false, wakeCanHear = true) }
+            current.update { it.copy(wakeOn = false, wakeLine = null, wakeTesting = false, wakeCanHear = true, wakeListening = false) }
             wakeChanged()
             return
         }
@@ -334,7 +337,7 @@ class SettingsModel(
         }
         if (refusal != null) {
             settings.wakeOn = false
-            current.update { it.copy(wakeOn = false, wakeLine = refusal) }
+            current.update { it.copy(wakeOn = false, wakeLine = refusal, wakeListening = false) }
             return
         }
         settings.wakeOn = true
@@ -351,7 +354,7 @@ class SettingsModel(
                 throw e
             } catch (e: Exception) {
                 settings.wakeOn = false
-                current.update { it.copy(wakeOn = false, wakeLine = Status(VoiceWords.WakeLines.EARS_FAILED, Tone.ERROR)) }
+                current.update { it.copy(wakeOn = false, wakeListening = false, wakeLine = Status(VoiceWords.WakeLines.EARS_FAILED, Tone.ERROR)) }
             }
         }
     }
@@ -363,11 +366,11 @@ class SettingsModel(
     private fun checkWake(renamed: Boolean) {
         val name = settings.buddyName
         if (!WakeRules.nameHeard(name, modelMissing())) {
-            current.update { it.copy(wakeCanHear = false, wakeLine = Status(VoiceWords.WakeLines.cantListen(name), Tone.ERROR)) }
+            current.update { it.copy(wakeCanHear = false, wakeListening = false, wakeLine = Status(VoiceWords.WakeLines.cantListen(name), Tone.ERROR)) }
             if (renamed) wakeChanged()
             return
         }
-        current.update { it.copy(wakeCanHear = true, wakeLine = null) }
+        current.update { it.copy(wakeCanHear = true, wakeListening = true, wakeLine = null) }
         wakeChanged()
     }
 

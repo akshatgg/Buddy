@@ -407,6 +407,21 @@ class SettingsModelTest {
         assertEquals(1, woke)
     }
 
+    @Test fun theSpellingHintShowsOnlyWhileItListens() = runTest {
+        missing = setOf("xyzzy")
+        val m = wakeModel()
+        assertFalse(m.state.value.wakeListening) // off
+        m.setWakeOn(true)
+        assertTrue(m.state.value.wakeListening)
+        assertEquals("If Test it doesn't hear you, try another spelling of the name.", com.akshatgg.buddy.voice.VoiceWords.WakeLines.SPELLING_HINT)
+        m.setName("Xyzzy"); testScheduler.advanceTimeBy(600); testScheduler.runCurrent()
+        assertFalse(m.state.value.wakeListening) // a name it cannot hear
+        m.setName("Rahul"); testScheduler.advanceTimeBy(600); testScheduler.runCurrent()
+        assertTrue(m.state.value.wakeListening)
+        m.setWakeOn(false)
+        assertFalse(m.state.value.wakeListening)
+    }
+
     @Test fun anEmptyNameBoxIsNotCheckedAgainstTheDefaultName() = runTest {
         missing = setOf("aarav")
         val m = wakeModel()

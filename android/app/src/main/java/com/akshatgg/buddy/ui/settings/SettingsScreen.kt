@@ -454,6 +454,9 @@ private fun WakeRow(state: SettingsState, onChange: (Boolean) -> Unit, test: () 
             Row(Modifier.padding(top = 8.dp)) { Secondary("Test it", onClick = { if (!state.wakeTesting) test() }) }
         }
         StatusLine(state.wakeLine)
+        if (state.wakeOn && state.wakeCanHear && state.wakeListening) {
+            Text(VoiceWords.WakeLines.SPELLING_HINT, color = colors.muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+        }
     }
 }
 

@@ -141,6 +141,7 @@ const WAKE_LINES = {
   gettingEars: "Getting Buddy's ears ready (36 MB)…",
   earsFailed: "Couldn't get Buddy's ears ready. Check the internet and try again.",
   signIn: 'Sign in to talk to Buddy.',
+  spellingHint: "If Test it doesn't hear you, try another spelling of the name.",
 };
 
 /** "hey " and the name: lower case, accents gone, letters and spaces only, at most 3 words. Null when no name is left. */

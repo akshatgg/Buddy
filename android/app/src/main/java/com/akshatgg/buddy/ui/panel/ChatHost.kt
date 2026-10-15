@@ -152,10 +152,16 @@ class ChatViewModel : ViewModel() {
      * no (nobody is left to answer it). Not when only the activity goes, on a turn of the phone: Android gives the
      * answer to the next one then.
      */
-    override fun onCleared() {
-        contactsAnswer.giveUp()
-        model.close()
-    }
+    override fun onCleared() = closeForGood(model::close, contactsAnswer)
+}
+
+/**
+ * The panel has gone for good: the chat closes first, and only then does a wait for the contacts question end as a no.
+ * That wait may go on at once, on this thread, so it finds the chat already closed.
+ */
+internal fun closeForGood(closeChat: () -> Unit, contacts: PendingAnswer<Boolean>) {
+    closeChat()
+    contacts.giveUp()
 }
 
 /** Android asks the person first ("Start recording or casting?"), every time: that is its rule. */

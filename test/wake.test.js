@@ -168,3 +168,15 @@ test('test() counts the wakes heard in 10 s, then goes back to the normal loop',
   assert.strictEqual(s.last('wake')[1].testOnly, false);
   assert.strictEqual(s.log.filter((l) => l[0] === 'voice').length, 0);
 });
+
+test('test(onHeard) tells each wake as it is heard', async (t) => {
+  const s = setup(t);
+  s.wake.refresh();
+  const heard = [];
+  const p = s.wake.test((n) => heard.push(n));
+  s.handlers.woke();
+  s.handlers.woke();
+  t.mock.timers.tick(10000);
+  await p;
+  assert.deepStrictEqual(heard, [1, 2]);
+});

@@ -370,6 +370,7 @@ function render({ fields = true } = {}) {
   $('update-auto').checked = snap.settings.checkForUpdates !== false;
   $('listen-on-open').checked = snap.settings.listenOnOpen !== false;
   $('tag-on').checked = snap.settings.tagOn !== false;
+  renderWake();
   // The tag also answers to the buddy's own name, when it is one word.
   const name = (snap.settings.buddyName || '').trim();
   const also = /^[\p{L}\p{N}_]{2,24}$/u.test(name) && name.toLowerCase() !== 'buddy' ? ` (or @${name.toLowerCase()})` : '';
@@ -387,6 +388,23 @@ function render({ fields = true } = {}) {
 }
 
 /** Save a change and say next to its field how it went. Then show what is saved, so a refused change puts the field back. */
+// "Listen for Hey <name>": the Mac only. The lines come worded in the snapshot (the name is the buddy's).
+let wakeReason = ''; // the line under the row that render put there (so that a saved or error line is not wiped by a render)
+let wakeHeardCount = 0;
+function renderWake() {
+  $('wake-row').hidden = onWindows() || !snap.wake;
+  if ($('wake-row').hidden) return;
+  const wake = snap.wake;
+  $('wake-title').textContent = wake.label;
+  $('wake-line').textContent = wake.privacy;
+  $('wake-on').checked = snap.settings.wakeOn === true;
+  $('wake-test').hidden = !(snap.settings.wakeOn === true && wake.on);
+  const reason = snap.settings.wakeOn === true && !wake.on ? wake.line || '' : '';
+  const shown = $('wake-status').textContent;
+  if (!shown || shown === wakeReason) setLine('wake-status', reason);
+  wakeReason = reason;
+}
+
 async function save(patch, statusId) {
   const r = await window.buddy.set(patch);
   showStatus(statusId, r.ok ? 'Saved ✓' : r.error.message, r.ok ? 'good' : 'error');
@@ -726,6 +744,23 @@ $('perm-microphone-btn').addEventListener('click', async () => {
   if (!r.ok) showStatus('perm-status', r.error.message, 'error');
 });
 $('listen-on-open').addEventListener('change', () => save({ listenOnOpen: $('listen-on-open').checked }, 'listen-status'));
+$('wake-on').addEventListener('change', () => save({ wakeOn: $('wake-on').checked }, 'wake-status'));
+$('wake-test').addEventListener('click', async () => {
+  const wake = snap.wake;
+  $('wake-test').disabled = true;
+  wakeHeardCount = 0;
+  showStatus('wake-status', wake.sayNow);
+  const r = await window.buddy.wakeTest();
+  $('wake-test').disabled = false;
+  if (!r.ok) showStatus('wake-status', r.error.message, 'error');
+  else if (r.count > 0) showStatus('wake-status', wake.heard, 'good');
+  else showStatus('wake-status', wake.notHeard, 'error');
+});
+// Each wake heard during a test shows at once.
+window.buddy.onWakeHeard(() => {
+  wakeHeardCount += 1;
+  showStatus('wake-status', wakeHeardCount > 1 ? `${snap.wake.heard} (${wakeHeardCount})` : snap.wake.heard, 'good');
+});
 $('tag-on').addEventListener('change', () => save({ tagOn: $('tag-on').checked }, 'listen-status'));
 $('update-check').addEventListener('click', () => updateCall(window.buddy.checkUpdates));
 $('update-now').addEventListener('click', () => updateCall(window.buddy.installUpdate));

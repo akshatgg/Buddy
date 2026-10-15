@@ -112,7 +112,9 @@ function createWake({
   }
 
   ear.on('woke', () => {
-    if (testing) testing.count += 1;
+    if (!testing) return;
+    testing.count += 1;
+    testing.onHeard?.(testing.count);
   });
   ear.on('request', onRequest);
   // The ear's page crashed or was closed under the loop: ask for it again a little later (not at once: a page that will not load would loop).
@@ -132,11 +134,11 @@ function createWake({
       turns = Math.max(0, turns + (on ? 1 : -1));
       apply();
     },
-    /** Listens for the phrase for 10 s and answers how many times it was heard. */
-    test() {
+    /** Listens for the phrase for 10 s and answers how many times it was heard; `onHeard(n)` hears each one as it comes. */
+    test(onHeard) {
       if (!shouldListen(inputs()) || testing) return Promise.resolve(0);
       return new Promise((resolve) => {
-        testing = { count: 0 };
+        testing = { count: 0, onHeard };
         sent = null;
         apply();
         setTimeout(() => {

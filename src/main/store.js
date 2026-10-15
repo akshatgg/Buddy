@@ -30,6 +30,7 @@ const DEFAULTS = Object.freeze({
   memoryOutbox: [], // the changes to `memory` that Buddy's server has not taken yet (shared/memory-sync.js)
   memoryUid: null, // the account `memory` is kept with (src/main/memory-sync.js): null until it first synced
   listenOnOpen: false, // Settings → General's "Listen when the panel opens": off, the panel listens only after 🎤
+  wakeOn: false, // Settings → General's "Listen for Hey <name>": off until the person turns it on (src/main/wake.js)
   tagOn: true, // Settings → General's "Fix where I type": "@buddy" after text, anywhere (src/main/tag.js)
   home: 'notch', // Settings → Buddy's "Where Buddy lives": 'notch' (on a Mac with one) or 'floating' (src/main/home.js)
   notchLook: 'face', // Settings → Buddy's "In the notch": Buddy's 'face' or two 'eyes' (src/main/notch-window.js)

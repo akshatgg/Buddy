@@ -84,6 +84,11 @@ class EarsTest {
         assertEquals(listOf("audio/wav"), sentToServer)
     }
 
+    @Test fun withoutTheModelAHinglishSendIsYesOnAMessageCard() = runTest {
+        serverSays = { "Haan, bhej do." }
+        assertEquals(Heard.YES, ears(speechThenQuiet(6, 20), spotters = false).hear("send"))
+    }
+
     @Test fun withoutTheModelTheServerSayingNoIsNo() = runTest {
         serverSays = { "no, stop" }
         assertEquals(Heard.NO, ears(speechThenQuiet(6, 20), spotters = false).hear("send"))

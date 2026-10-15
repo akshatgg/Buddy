@@ -200,6 +200,108 @@
       "verb": "send",
       "words": null,
       "answer": "no"
+    },
+    {
+      "text": "haan bhej do",
+      "verb": "send",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "bhej do",
+      "verb": "send",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "haan ji bhejo",
+      "verb": "send",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "bhejdo",
+      "verb": "send",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "bhejna",
+      "verb": "send",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "bhejiye",
+      "verb": "send",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "mat bhejo",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "bhej mat",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "nahi bhejo",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "abhi mat bhejo",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "haan bhej do",
+      "verb": "call",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "bhej do",
+      "verb": "call",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "bhejo",
+      "verb": "call",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "call karo",
+      "verb": "call",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "haan call kar do",
+      "verb": "call",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "kar do",
+      "verb": "call",
+      "words": null,
+      "answer": "no"
+    },
+    {
+      "text": "haan kar do",
+      "verb": "call",
+      "words": "yes",
+      "answer": "yes"
     }
   ],
   "grammar": [
@@ -213,6 +315,11 @@
         "ha",
         "okay",
         "send",
+        "bhej",
+        "bhejo",
+        "bhejdo",
+        "bhejna",
+        "bhejiye",
         "no",
         "nahi",
         "na",
@@ -276,6 +383,11 @@
         "yeah",
         "haan",
         "ha",
+        "bhej",
+        "bhejo",
+        "bhejdo",
+        "bhejna",
+        "bhejiye",
         "nahi",
         "na",
         "don't",

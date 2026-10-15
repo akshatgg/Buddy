@@ -30,7 +30,9 @@ const HEARD = [['yes', 'send'], ['Haan.', 'call'], ['ok send it', 'send'], ['sen
   ['Don’t', 'call'], ['nahin', 'send'], ['[unk] [unk]', 'send'], ['', 'call'], ['maybe later', 'send'], ['yes no', 'call'],
   ...['do not send it', 'do not call', 'Okay, not now', 'not okay', 'haan mat bhejo', 'nope, send', 'wait, send it', 'never mind okay', 'not yet',
     'haan nahi', 'no problem', "okay don't", 'abhi nahi'].map((t) => [t, 'send']), ['yes send it', 'send'], ['haan', 'send'], ['haan ji', 'send'],
-  ['okay send it please', 'send'], ['yes call now', 'call'], ['please', 'send']];
+  ['okay send it please', 'send'], ['yes call now', 'call'], ['please', 'send'],
+  ...['haan bhej do', 'bhej do', 'haan ji bhejo', 'bhejdo', 'bhejna', 'bhejiye', 'mat bhejo', 'bhej mat', 'nahi bhejo', 'abhi mat bhejo'].map((t) => [t, 'send']),
+  ...['haan bhej do', 'bhej do', 'bhejo', 'call karo', 'haan call kar do', 'kar do', 'haan kar do'].map((t) => [t, 'call'])];
 const QUESTIONS = [{ kind: 'message', name: 'Priya Sharma', text: "I'm running late" }, { kind: 'message', name: 'Priya', text: 'Kahan ho? ' }, { kind: 'message', name: 'Priya', text: ' ' },
   { kind: 'call', name: 'Prince Narasimhan', how: 'phone' }, { kind: 'call', name: 'Prince', how: 'whatsapp' }, { kind: 'call', name: 'Prince', how: 'whatsapp_video' }];
 const LINE_ITEMS = [[{ type: 'buddy', say: 'Okay!', text: 'x' }, { type: 'buddy', say: '', text: 'Which Priya: A or B? Tell me the full name.' },

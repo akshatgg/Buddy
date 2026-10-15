@@ -14,6 +14,9 @@ const FILLERS = ['it', 'please', 'ji', 'now', 'do', 'karo', 'kar', 'de'];
 const VERBS = ['send', 'call']; // a card's own word is a yes for that card only
 // The same word as a recognizer or Whisper may write it.
 const SAME = { ok: 'okay', dont: "don't", nahin: 'nahi', haa: 'haan', han: 'haan', nope: 'no', nah: 'no' };
+// The Hinglish ways to say "send": the same word for a message card (and no yes at all for a call card).
+const BHEJ = ['bhej', 'bhejo', 'bhejdo', 'bhejna', 'bhejiye'];
+for (const w of BHEJ) SAME[w] = 'send';
 const SPOKEN_MAX = 240; // a line of Buddy's own longer than this is only shown
 const ANSWER_MS = 8000; // nothing decisive heard this long after the question: no
 const UNLOCK_WAIT_MS = 60000;
@@ -57,7 +60,7 @@ function heardAnswer(text, verb) {
 }
 
 function answerGrammar(verb, known = null) {
-  const all = [...YES_WORDS, verb, ...NO_WORDS];
+  const all = [...YES_WORDS, verb, ...(verb === 'send' ? BHEJ : []), ...NO_WORDS];
   const kept = known ? all.filter((w) => known.has(w)) : all;
   return { grammar: [...kept, '[unk]'], missing: all.filter((w) => !kept.includes(w)) };
 }

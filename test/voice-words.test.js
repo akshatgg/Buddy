@@ -18,10 +18,14 @@ test('a yes word, or the card\'s own verb, is yes; any no word wins; nothing dec
 
 test('a yes is only words that all mean yes: a negation or any other word is no', () => {
   for (const said of ['do not send it', 'do not call', 'Okay, not now', 'not okay', 'haan mat bhejo', 'nope, send', 'wait, send it',
-    'never mind okay', 'yes no', 'not yet', 'haan nahi', 'no problem', 'okay don\'t', 'abhi nahi', 'maybe later', 'nah', 'nope']) {
+    'never mind okay', 'yes no', 'not yet', 'haan nahi', 'no problem', 'okay don\'t', 'abhi nahi', 'maybe later', 'nah', 'nope',
+    'mat bhejo', 'bhej mat', 'nahi bhejo', 'abhi mat bhejo']) {
     assert.strictEqual(heardAnswer(said, 'send'), 'no', said);
   }
-  for (const said of ['yes', 'yes send it', 'haan', 'haan ji', 'okay send it please', 'yes send now']) assert.strictEqual(heardAnswer(said, 'send'), 'yes', said);
+  for (const said of ['yes', 'yes send it', 'haan', 'haan ji', 'okay send it please', 'yes send now',
+    'haan bhej do', 'bhej do', 'haan ji bhejo', 'Bhejdo', 'bhejna', 'bhejiye', 'haan, bhej do.']) assert.strictEqual(heardAnswer(said, 'send'), 'yes', said);
+  for (const said of ['haan bhej do', 'bhej do', 'haan ji bhejo', 'kar do', 'karo']) assert.strictEqual(heardAnswer(said, 'call'), 'no', said);
+  for (const said of ['call karo', 'haan call kar do', 'haan kar do']) assert.strictEqual(heardAnswer(said, 'call'), 'yes', said);
   for (const said of ['call', 'yes call now', 'haan ji call kar do']) assert.strictEqual(heardAnswer(said, 'call'), 'yes', said);
   assert.strictEqual(heardWords('please', 'send'), null);
 });
@@ -36,7 +40,7 @@ test('heardWords tells "nothing decisive yet" (null) from a no', () => {
 
 test('the grammar keeps the words the model knows, then [unk], and says which it lacks', () => {
   assert.deepStrictEqual(answerGrammar('send', null).grammar,
-    ['yes', 'yeah', 'haan', 'ha', 'okay', 'send', 'no', 'nahi', 'na', 'cancel', "don't", 'stop', 'not', 'mat', 'nope', 'nah', 'wait', '[unk]']);
+    ['yes', 'yeah', 'haan', 'ha', 'okay', 'send', 'bhej', 'bhejo', 'bhejdo', 'bhejna', 'bhejiye', 'no', 'nahi', 'na', 'cancel', "don't", 'stop', 'not', 'mat', 'nope', 'nah', 'wait', '[unk]']);
   const known = new Set(['yes', 'yeah', 'okay', 'call', 'no', 'cancel', "don't", 'stop']);
   assert.deepStrictEqual(answerGrammar('call', known), {
     grammar: ['yes', 'yeah', 'okay', 'call', 'no', 'cancel', "don't", 'stop', '[unk]'],

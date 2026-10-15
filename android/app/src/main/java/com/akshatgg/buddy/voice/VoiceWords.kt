@@ -26,7 +26,10 @@ object VoiceWords {
     private val FILLERS = listOf("it", "please", "ji", "now", "do", "karo", "kar", "de")
 
     // The same word as a recognizer or Whisper may write it.
-    private val SAME = mapOf("ok" to "okay", "dont" to "don't", "nahin" to "nahi", "haa" to "haan", "han" to "haan", "nope" to "no", "nah" to "no")
+    private val BHEJ = listOf("bhej", "bhejo", "bhejdo", "bhejna", "bhejiye")
+    private val SAME = mapOf("ok" to "okay", "dont" to "don't", "nahin" to "nahi", "haa" to "haan", "han" to "haan", "nope" to "no", "nah" to "no") +
+        // The Hinglish ways to say "send".
+        BHEJ.associateWith { "send" }
     private val DONE = Regex("^(✅|📞|📹)\\s*")
     private val NO_INTERNET_CODES = listOf("network", "timeout")
 
@@ -66,7 +69,7 @@ object VoiceWords {
     fun heard(text: String, verb: String): Heard = words(text, verb) ?: Heard.NO
 
     fun grammar(verb: String, known: Set<String>?): Grammar {
-        val all = YES + verb + NO
+        val all = YES + verb + (if (verb == "send") BHEJ else emptyList()) + NO
         val kept = if (known != null) all.filter { it in known } else all
         return Grammar(kept + "[unk]", all.filter { it !in kept })
     }

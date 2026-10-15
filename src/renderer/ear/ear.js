@@ -35,6 +35,7 @@ const AFTER_SPEAKING_MS = 300; // quiet after the question, so its tail is never
 const ANSWER_MS = 8000; // as voice-words.js ANSWER_MS: nothing decisive heard this long after the question: no
 const FINAL_WAIT_MS = 600; // how long to wait for the recogniser's last word at the deadline
 const ANSWER_KEEP_S = 10;
+const MODEL_WAIT_MS = 20000; // a model that has not loaded by now is not coming: the server hears the answer
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -43,6 +44,7 @@ let onChunk = null; // where each buffer of microphone samples goes
 let modelPromise = null; // the recogniser's model, loaded once per window
 let current = null; // the command running: { finish(result) }, so a stop can end it
 let queue = Promise.resolve();
+let stopped = 0; // counts stops: a command queued before one never opens the microphone
 
 async function openMic() {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
@@ -95,6 +97,7 @@ function command(body) {
 }
 
 function say({ text }) {
+  loadModel(); // the ears load while the question is spoken
   return command((finish) => {
     const u = new SpeechSynthesisUtterance(String(text || ''));
     const timer = setTimeout(() => { speechSynthesis.cancel(); finish({}); }, SAY_MAX_MS);
@@ -115,11 +118,13 @@ function hear({ grammar, needsServer, decisive }) {
     let lastFinal = '';
     let resultWaiter = null;
     try {
+      // The model first, while the microphone is still shut: it was started when the window loaded and again at `say`,
+      // so it is usually there. Waiting for it with the microphone open would lose the start of the answer.
+      const model = grammar ? await Promise.race([loadModel(), pause(MODEL_WAIT_MS).then(() => null)]) : null;
+      if (over()) return;
       await openMic(); // opened only now
       if (over()) { closeMic(); return; } // stopped while the microphone was being asked for: let go of at once
       await pause(AFTER_SPEAKING_MS); // nothing is listened to for 300 ms, so the question's tail is never an answer
-      if (over()) return;
-      const model = grammar ? await loadModel() : null;
       if (over()) return;
       // No recogniser (no model yet, or it would not load): the server must hear the answer, whatever main said.
       const turn = EarCore.createAnswerTurn({ decisive, needsServer: Boolean(needsServer) || !model });
@@ -199,10 +204,11 @@ const COMMANDS = { say, hear, listen };
 
 window.ear.onDo(({ id, cmd, args }) => {
   // One command at a time, in the order sent.
+  const stopsBefore = stopped;
   queue = queue.then(async () => {
     let result;
     try {
-      result = COMMANDS[cmd] ? await COMMANDS[cmd](args || {}) : {};
+      result = stopsBefore !== stopped ? { gone: true } : COMMANDS[cmd] ? await COMMANDS[cmd](args || {}) : {};
     } catch {
       result = {};
     }
@@ -210,7 +216,10 @@ window.ear.onDo(({ id, cmd, args }) => {
   });
 });
 
+loadModel(); // and once when the window loads
+
 window.ear.onStop(() => {
+  stopped += 1; // commands still queued behind the running one are flushed
   speechSynthesis.cancel();
   if (current) current.finish({ stopped: true });
   closeMic();

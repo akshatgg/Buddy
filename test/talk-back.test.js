@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const { createTalkBack } = require('../src/main/talk-back');
 const { answerGrammar, YES_WORDS, NO_WORDS } = require('../shared/voice-words');
 
-function setup({ answers = [], ready = true, transcribe } = {}) {
+function setup({ answers = [], ready = true, transcribe, missing = [] } = {}) {
   const log = [];
   const ear = {
     call: async (cmd, args) => {
@@ -17,7 +17,7 @@ function setup({ answers = [], ready = true, transcribe } = {}) {
     stop: () => log.push(['stop']),
   };
   let ensures = 0;
-  const model = { ready: () => ready, words: () => null, ensure: () => { ensures += 1; return Promise.resolve(); } };
+  const model = { ready: () => ready, words: () => null, missing: () => new Set(missing), ensure: () => { ensures += 1; return Promise.resolve(); } };
   const sent = [];
   const tb = createTalkBack({ ear, model, transcribe: transcribe || (async (a, m) => { sent.push([a, m]); return 'yes'; }) });
   return { tb, log, sent, ensures: () => ensures };
@@ -36,6 +36,15 @@ test('hear with the model ready: the grammar, no server, and the words decide', 
     verb: 'send', grammar: answerGrammar('send', null).grammar, needsServer: false,
     decisive: { yes: [...YES_WORDS, 'send'], no: NO_WORDS },
   }]);
+});
+
+test('a word the model lacks is left out of the grammar and the server hears the answer too', async () => {
+  const { tb, log } = setup({ answers: [{ audio: 'QUJD' }], missing: ['nahi'] });
+  assert.strictEqual(await tb.hear('send'), 'yes');
+  const args = log[0][1];
+  assert.ok(!args.grammar.includes('nahi'));
+  assert.ok(args.grammar.includes('yes') && args.grammar.includes('[unk]'));
+  assert.strictEqual(args.needsServer, true);
 });
 
 test('a no word, or anything unclear, is no', async () => {

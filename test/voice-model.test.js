@@ -43,6 +43,14 @@ test('ensure() downloads, checks the hash, keeps <name>.tar.gz; words are never 
   assert.strictEqual(model.words(), null);
 });
 
+test('a write error rejects with model_failed and leaves no .part', async (t) => {
+  const { dir, model } = setup(t);
+  fs.mkdirSync(path.join(dir, 'm1.tar.gz.part'), { recursive: true }); // the stream cannot open a folder
+  await assert.rejects(model.ensure({}), (e) => e.code === 'model_failed');
+  assert.strictEqual(model.ready(), false);
+  assert.deepStrictEqual(fs.readdirSync(dir), []);
+});
+
 test('another hash: rejects with model_failed, nothing ready, no .part left', async (t) => {
   const { dir, model } = setup(t, { sha256: 'a'.repeat(64) });
   await assert.rejects(model.ensure({}), (e) => e.code === 'model_failed');

@@ -117,7 +117,7 @@ class AppGraph(
         val ears = Ears(
             mic = { AudioRecordSource() },
             spotters = { if (voiceModel.ready()) VoskSpotters(voiceModel) else null },
-            known = { null }, // the model has no words list: every grammar word is offered, an unknown one comes back [unk] (a no)
+            missing = { shared.voiceModelMissing }, // words the model lacks: not offered, and the server hears the answer too
             transcribe = { audio, mime -> cloud.transcribe(audio, mime) },
         )
         PhoneTalkBack(TtsSpeaker(appContext), ears, voiceModel) { audio, mime -> cloud.transcribe(audio, mime) }

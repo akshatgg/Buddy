@@ -2,9 +2,8 @@
 
 /**
  * Buddy's ears on the Mac: the .tar.gz of the small Vosk model (shared/voice-model.js) downloaded once into `dir`,
- * kept only when its SHA-256 is the expected one. The ear page reads it through bytes(). The model has no words list
- * in its spec, so words() is always null: the grammar then holds every yes/no word, and one the model does not know
- * simply comes back as [unk], which is a no.
+ * kept only when its SHA-256 is the expected one. The ear page reads it through bytes(). The model has no words list,
+ * so words() is null; missing() is the spec's list of words it does not know, which the grammar leaves out.
  */
 
 const crypto = require('node:crypto');
@@ -36,25 +35,29 @@ function createVoiceModel({ dir, spec = VOICE_MODEL, fetchImpl = fetch }) {
       if (!res.body) throw failed('no body');
       const hash = crypto.createHash('sha256');
       const out = fs.createWriteStream(part);
+      let streamError = null;
+      out.on('error', (err) => { streamError = err; });
       const total = spec.tgz.bytes || Number(res.headers.get('content-length')) || 0;
       let got = 0;
       try {
         for await (const chunk of res.body) {
           hash.update(chunk);
-          if (!out.write(chunk)) await new Promise((resolve) => out.once('drain', resolve));
+          if (streamError) throw failed(streamError.message, streamError);
+          if (!out.write(chunk)) await new Promise((resolve) => { out.once('drain', resolve); out.once('error', resolve); });
           got += chunk.length;
           percent = total ? Math.min(99, Math.floor((got / total) * 100)) : 0;
           onProgress?.(percent);
         }
       } finally {
-        await new Promise((resolve) => out.end(resolve));
+        await new Promise((resolve) => { out.once('error', resolve); out.end(resolve); });
       }
+      if (streamError) throw failed(streamError.message, streamError);
       if (hash.digest('hex') !== spec.tgz.sha256) throw failed('the model did not match its checksum');
       fs.renameSync(part, file);
       percent = 100;
       onProgress?.(100);
     } finally {
-      fs.rmSync(part, { force: true });
+      fs.rmSync(part, { force: true, recursive: true });
     }
   }
 
@@ -62,6 +65,7 @@ function createVoiceModel({ dir, spec = VOICE_MODEL, fetchImpl = fetch }) {
     ready,
     bytes: () => fs.promises.readFile(file),
     words: () => null,
+    missing: () => new Set(spec.missing || []),
     state: () => (ready() ? 'ready' : state),
     percent: () => (ready() ? 100 : percent),
     ensure({ onProgress } = {}) {

@@ -84,6 +84,9 @@ class Shared(json: String) {
         )
     }
 
+    val voiceModelMissing: Set<String> =
+        root.getValue("voiceModel").jsonObject.getValue("missing").jsonArray.map { it.jsonPrimitive.content }.toSet()
+
     val providers: List<ProviderFacts> = root.getValue("providers").jsonArray.map { element ->
         val p = element.jsonObject
         ProviderFacts(

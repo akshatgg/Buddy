@@ -37,7 +37,7 @@ function missingWords(dir) {
     const code = 'import sys,json\nfrom vosk import Model, SetLogLevel\nSetLogLevel(-1)\nm=Model(sys.argv[1])\n'
       + 'print(json.dumps([w for w in json.loads(sys.argv[2]) if m.vosk_model_find_word(w) == -1]))';
     const out = execFileSync(py, ['-c', code, dir, JSON.stringify(CHECK)], { encoding: 'utf8' }).trim().split('\n').pop();
-    return `checked; missing: ${JSON.parse(out).join(' ') || 'none'}`;
+    return `missing: [${JSON.parse(out).map((w) => `'${w}'`).join(', ')}],`;
   } catch {
     return 'unknown';
   }
@@ -65,7 +65,7 @@ async function main() {
     execFileSync('sh', ['-c', 'tar -cf - -C "$1" "$2" | gzip -n > "$3"', 'sh', temp, NAME, tgz]);
 
     for (const f of [zip, tgz]) console.log(`${path.basename(f).padEnd(34)} ${sha256(f)}  ${fs.statSync(f).size}`);
-    console.log(`words: ${missingWords(dir)}`);
+    console.log(`paste into VOICE_MODEL (shared/voice-model.js):  ${missingWords(dir)}`);
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }

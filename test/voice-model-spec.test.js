@@ -14,6 +14,12 @@ test('the model is a Buddy release asset, fixed by its SHA-256 and size', () => 
   }
 });
 
+test('the words the model lacks are a list of strings', () => {
+  assert.ok(Array.isArray(VOICE_MODEL.missing));
+  assert.ok(VOICE_MODEL.missing.every((w) => typeof w === 'string' && w));
+  assert.ok(VOICE_MODEL.missing.includes('nahi'));
+});
+
 test('Android reads the same model from shared.json', () => {
   const shared = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'assets', 'shared.json'), 'utf8'));
   assert.deepStrictEqual(shared.voiceModel, VOICE_MODEL);

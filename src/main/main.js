@@ -148,7 +148,7 @@ async function start(options = {}) {
     model: createVoiceModel({ dir: path.join(userData, 'voice-model') }),
   });
   const panel = createPanelWindow({
-    isEar: (webContents) => Boolean(ear.window()) && webContents === ear.window().webContents,
+    isEar: (webContents) => Boolean(ear.window()) && !ear.window().isDestroyed() && webContents === ear.window().webContents,
     store, // the size the person made the panel
     // Its page crashed or did not load, or its window was closed: a listening there is over, and the page cannot say so.
     onGone: () => ui.listening(false),

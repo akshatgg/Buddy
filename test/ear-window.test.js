@@ -102,6 +102,15 @@ test('a page that does not load is gone too', async (t) => {
   assert.deepStrictEqual(await p, { gone: true });
 });
 
+test('the 120 s cap answers gone and tells the page to stop', async (t) => {
+  const { ear, made, tick } = setup(t);
+  const p = ear.call('hear', {});
+  await tick();
+  t.mock.timers.tick(120000);
+  assert.deepStrictEqual(await p, { gone: true });
+  assert.ok(made[0].sent.some(([c]) => c === 'ear:stop'));
+});
+
 test('stop() sends ear:stop', async (t) => {
   const { ear, made, tick } = setup(t);
   ear.stop(); // no window: nothing

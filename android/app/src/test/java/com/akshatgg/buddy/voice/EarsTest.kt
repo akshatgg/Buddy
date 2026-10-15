@@ -50,11 +50,11 @@ class EarsTest {
         mic: FakeMic,
         spotter: FakeSpotter? = null,
         spotters: Boolean = spotter != null,
-        known: Set<String>? = null,
+        missing: Set<String> = emptySet(),
     ) = Ears(
         mic = { mic },
         spotters = { if (spotters) Spotters { spotter!! } else null },
-        known = { known },
+        missing = { missing },
         transcribe = { _, type -> sentToServer.add(type); serverSays() },
     )
 
@@ -106,12 +106,12 @@ class EarsTest {
 
     @Test fun aWordTheModelLacksIsAskedOfTheServerOnlyWhenSomethingWasSaid() = runTest {
         serverSays = { "haan" }
-        val known = setOf("yes", "yeah", "ha", "okay", "send", "no", "na", "cancel", "don't", "stop", "not", "mat", "nope", "nah", "wait")
-        val spoken = ears(speech(100), FakeSpotter(emptyMap(), said("[unk]")), known = known)
+        val missing = setOf("haan")
+        val spoken = ears(speech(100), FakeSpotter(emptyMap(), said("[unk]")), missing = missing)
         assertEquals(Heard.YES, spoken.hear("send"))
         assertEquals(listOf("audio/wav"), sentToServer)
         sentToServer.clear()
-        val mute = ears(silence(100), FakeSpotter(emptyMap(), said("[unk]")), known = known)
+        val mute = ears(silence(100), FakeSpotter(emptyMap(), said("[unk]")), missing = missing)
         assertEquals(Heard.NO, mute.hear("send"))
         assertEquals(emptyList<String>(), sentToServer)
     }
@@ -150,7 +150,7 @@ class EarsTest {
 
     @Test fun aModelThatCannotLoadIsNo() = runTest {
         val mic = speech(5)
-        val e = Ears({ mic }, { Spotters { throw IllegalStateException("model") } }, { null }, { _, _ -> "" })
+        val e = Ears({ mic }, { Spotters { throw IllegalStateException("model") } }, { emptySet() }, { _, _ -> "" })
         assertEquals(Heard.NO, e.hear("send"))
     }
 
@@ -162,7 +162,7 @@ class EarsTest {
             override fun close() { closed = true }
         }
         val mic = speech(5)
-        val e = Ears({ mic }, { Spotters { spotter } }, { null }, { _, _ -> "" })
+        val e = Ears({ mic }, { Spotters { spotter } }, { emptySet() }, { _, _ -> "" })
         assertEquals(Heard.NO, e.hear("send"))
         assertTrue(spotter.closed)
         assertTrue(mic.stopped)
@@ -170,7 +170,7 @@ class EarsTest {
 
     @Test fun aMicThatThrowsIsNoAndTheSpotterIsClosed() = runTest {
         val spotter = FakeSpotter(emptyMap(), said(""))
-        val e = Ears({ throw IllegalStateException("mic") }, { Spotters { spotter } }, { null }, { _, _ -> "" })
+        val e = Ears({ throw IllegalStateException("mic") }, { Spotters { spotter } }, { emptySet() }, { _, _ -> "" })
         assertEquals(Heard.NO, e.hear("send"))
         assertTrue(spotter.closed)
     }
@@ -188,7 +188,7 @@ class EarsTest {
             }
             override fun stop() {}
         }
-        val e = Ears({ mic }, { null }, { null }, { _, t -> sentToServer.add(t); "yes" })
+        val e = Ears({ mic }, { null }, { emptySet() }, { _, t -> sentToServer.add(t); "yes" })
         val j = async { e.hear("send") }
         job = j
         try { j.await() } catch (_: kotlinx.coroutines.CancellationException) {}

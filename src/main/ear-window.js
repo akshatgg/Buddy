@@ -35,6 +35,22 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
     for (const id of [...pending.keys()]) settle(id, { gone: true });
   }
 
+  function goneOne(id) {
+    stopPage();
+    settle(id, { gone: true });
+  }
+
+  function stopPage() {
+    if (win && !win.isDestroyed()) {
+      try {
+        win.webContents.send('ear:stop');
+      } catch {
+        /* the page is gone */
+      }
+    }
+  }
+
+
   function armIdle() {
     clearTimeout(idleTimer);
     idleTimer = null;
@@ -118,15 +134,7 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
         idleTimer = null;
       } else armIdle();
     },
-    stop() {
-      if (win && !win.isDestroyed()) {
-        try {
-          win.webContents.send('ear:stop');
-        } catch {
-          /* the page is gone */
-        }
-      }
-    },
+    stop: stopPage,
     /** Never rejects: a page that is gone answers { gone: true }. */
     async call(cmd, args) {
       clearTimeout(idleTimer);
@@ -136,7 +144,7 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
         const w = win;
         const id = nextId++;
         const answer = new Promise((resolve) => {
-          pending.set(id, { resolve, timer: setTimeout(() => settle(id, { gone: true }), CALL_LIMIT_MS) });
+          pending.set(id, { resolve, timer: setTimeout(() => goneOne(id), CALL_LIMIT_MS) });
         });
         await ready;
         if (w !== win) return answer; // dropped while loading: goneAll has answered it

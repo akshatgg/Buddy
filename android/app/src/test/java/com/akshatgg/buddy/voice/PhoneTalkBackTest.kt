@@ -34,7 +34,7 @@ class PhoneTalkBackTest {
 
     private fun talk(scope: CoroutineScope, speaker: Speaker = FakeSpeaker(), mic: FakeMic, spotter: FakeSpotter? = null): PhoneTalkBack {
         val t: suspend (ByteArray, String) -> String = { _, _ -> serverSays() }
-        val ears = Ears({ mic }, { spotter?.let { s -> Spotters { s } } }, { null }, t)
+        val ears = Ears({ mic }, { spotter?.let { s -> Spotters { s } } }, { emptySet() }, t)
         return PhoneTalkBack(speaker, ears, model(scope), t)
     }
 

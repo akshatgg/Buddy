@@ -32,7 +32,7 @@ class AnswerTurn(private val verb: String, private val needsServer: Boolean) {
 class Ears(
     private val mic: () -> PcmSource,
     private val spotters: () -> Spotters?, // null until the model is ready
-    private val known: () -> Set<String>?,
+    private val missing: () -> Set<String>, // words the model does not know (shared voiceModel.missing): left out of the grammar
     private val transcribe: suspend (ByteArray, String) -> String,
 ) {
     private companion object { const val CHUNK = 1_600 /* 100 ms */ }
@@ -40,7 +40,7 @@ class Ears(
     /** Anything unclear, an error included, is a no. */
     suspend fun hear(verb: String): Heard = withContext(Dispatchers.IO) {
         val maker = spotters()
-        val grammar = VoiceWords.grammar(verb, if (maker != null) known() else null)
+        val grammar = VoiceWords.grammar(verb, if (maker != null) VoiceWords.grammar(verb, null).phrases.toSet() - missing() else null)
         val turn = AnswerTurn(verb, needsServer = maker == null || grammar.missing.isNotEmpty())
         var spotter: Spotter? = null
         var source: PcmSource? = null

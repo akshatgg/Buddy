@@ -3,6 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   heardWords, heardAnswer, wantsServer, answerGrammar, spokenQuestion, spokenLines, asksBack, unlockLine, callingLine, VOICE_LINES,
+  wakePhrase, wakeMissing, wakeFrom, WAKE_FLOOR, REQUEST, WAKE_LINES,
 } = require('../shared/voice-words');
 
 test('a yes word, or the card\'s own verb, is yes; any no word wins; nothing decisive is no', () => {
@@ -116,4 +117,52 @@ test('the locked lines', () => {
   assert.strictEqual(unlockLine('phone', 'call', 'Prince Sharma'), "Unlock your phone and I'll call Prince Sharma.");
   assert.strictEqual(unlockLine('Mac', 'call', 'Prince Sharma'), "Unlock your Mac and I'll call Prince Sharma.");
   assert.strictEqual(callingLine('Prince Sharma'), 'Calling Prince Sharma.');
+});
+
+test('the wake phrase is "hey" and the name, plain, at most three words', () => {
+  assert.strictEqual(wakePhrase('Rahul'), 'hey rahul');
+  assert.strictEqual(wakePhrase('  Mr.  Rahul  Kumar Singh '), 'hey mr rahul kumar');
+  assert.strictEqual(wakePhrase('Zoë'), 'hey zoe');
+  assert.strictEqual(wakePhrase('123'), null);
+});
+
+test('the name words the model can\'t hear', () => {
+  const lacks = ['aarav', 'priya'];
+  assert.deepStrictEqual(wakeMissing('Aarav', lacks), ['aarav']);
+  assert.deepStrictEqual(wakeMissing('Anaya', lacks), []);
+  assert.deepStrictEqual(wakeMissing('Rahul', lacks), []);
+  assert.deepStrictEqual(wakeMissing('R2D2', lacks), ['r2d2']);
+  assert.deepStrictEqual(wakeMissing('123', lacks), ['123']);
+  assert.deepStrictEqual(wakeMissing('Aarav Priya', lacks), ['aarav', 'priya']);
+  assert.deepStrictEqual(wakeMissing('Aarav'), ['aarav'], 'the shared list by default');
+  assert.deepStrictEqual(wakeMissing('Rahul'), []);
+});
+
+test('a wake is the phrase as the first words, each sure enough; what follows is the request', () => {
+  const w = (word, conf, start, end) => ({ word, conf, start, end });
+  const said = (...words) => ({ text: words.map((x) => x.word).join(' '), result: words });
+  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 1, 1.2), w('rahul', 0.8, 1.2, 1.6)), 'hey rahul', 0.6), { endSec: 1.6, follows: false });
+  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 1, 1.2), w('rahul', 0.8, 1.2, 1.6), w('[unk]', 1, 1.7, 2.5)), 'hey rahul', 0.6), { endSec: 1.6, follows: true });
+  assert.strictEqual(wakeFrom(said(w('[unk]', 1, 0, 1), w('hey', 0.9, 1, 1.2), w('rahul', 0.9, 1.2, 1.6)), 'hey rahul', 0.6), null, 'the name in the middle of talk');
+  assert.strictEqual(wakeFrom(said(w('rahul', 0.9, 0, 0.4)), 'hey rahul', 0.6), null, '"Hey" is required');
+  assert.strictEqual(wakeFrom(said(w('hey', 0.5, 1, 1.2), w('rahul', 0.9, 1.2, 1.6)), 'hey rahul', 0.6), null, 'not sure enough');
+  assert.strictEqual(wakeFrom({ text: '', result: [] }, 'hey rahul', 0.6), null);
+  assert.strictEqual(wakeFrom(null, 'hey rahul', 0.6), null);
+});
+
+test('the wake numbers and lines', () => {
+  assert.strictEqual(WAKE_FLOOR, 0.6);
+  assert.deepStrictEqual(REQUEST, { quietMs: 1200, nothingMs: 8000, maxMs: 20000 });
+  assert.strictEqual(WAKE_LINES.cantListen('Xyzzy'), "Buddy can't listen for 'Xyzzy'. Try another spelling.");
+  assert.strictEqual(WAKE_LINES.notCaught('Rahul'), "I didn't catch that. Say 'Hey Rahul' and try again.");
+  assert.strictEqual(WAKE_LINES.sayNow('Rahul'), 'Say "Hey Rahul" now.');
+  assert.strictEqual(WAKE_LINES.heard, 'Heard you ✓');
+  assert.strictEqual(WAKE_LINES.notHeard('Rahul'), 'I didn\'t hear "Hey Rahul". Try again.');
+  assert.strictEqual(WAKE_LINES.privacy('Rahul'), "Your microphone stays on. Nothing leaves this device until you say 'Hey Rahul'.");
+  assert.strictEqual(WAKE_LINES.label('Rahul'), 'Listen for "Hey Rahul"');
+  assert.strictEqual(WAKE_LINES.tapToListen, 'Tap me to listen again');
+  assert.strictEqual(WAKE_LINES.listening('Rahul'), 'Listening for "Hey Rahul"');
+  assert.strictEqual(WAKE_LINES.gettingEars, "Getting Buddy's ears ready (36 MB)…");
+  assert.strictEqual(WAKE_LINES.earsFailed, "Couldn't get Buddy's ears ready. Check the internet and try again.");
+  assert.strictEqual(WAKE_LINES.signIn, 'Sign in to talk to Buddy.');
 });

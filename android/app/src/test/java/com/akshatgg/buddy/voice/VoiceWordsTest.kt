@@ -81,5 +81,49 @@ class VoiceWordsTest {
         for (c in cases("unlock")) assertEquals(c.str("said"), VoiceWords.unlockLine(c.str("device"), c.str("kind"), c.str("name")))
     }
 
+    @Test fun theWakePhraseAndItsCasesAreTheJavaScriptsOwn() {
+        val wake = root.getValue("wake").jsonObject
+        val lacks = wake.getValue("lacks").jsonArray.strings().toSet()
+        val phrases = wake.getValue("phrases").jsonArray.map { it.jsonObject }
+        assertTrue(phrases.size >= 5)
+        for (c in phrases) {
+            val want = c.getValue("phrase").let { if (it is JsonNull) null else it.jsonPrimitive.content }
+            assertEquals(c.str("name"), want, VoiceWords.wakePhrase(c.str("name")))
+            assertEquals(c.str("name"), c.getValue("missing").jsonArray.strings(), VoiceWords.wakeMissing(c.str("name"), lacks))
+        }
+        assertEquals(wake.getValue("floor").jsonPrimitive.content.toFloat(), VoiceWords.WAKE_FLOOR)
+        val request = wake.getValue("request").jsonObject
+        assertEquals(request.str("quietMs").toLong(), VoiceWords.REQUEST_QUIET_MS)
+        assertEquals(request.str("nothingMs").toLong(), VoiceWords.REQUEST_NOTHING_MS)
+        assertEquals(request.str("maxMs").toLong(), VoiceWords.REQUEST_MAX_MS)
+        val froms = wake.getValue("from").jsonArray.map { it.jsonObject }
+        assertTrue(froms.size >= 5)
+        for (c in froms) {
+            val said = c.getValue("said").jsonObject
+            val words = said.getValue("result").jsonArray.map { it.jsonObject }.map {
+                VoskWord(it.str("word"), it.str("conf").toFloat(), it.str("start").toFloat(), it.str("end").toFloat())
+            }
+            val got = VoiceWords.wakeFrom(VoskSaid(said.str("text"), words), c.str("phrase"), VoiceWords.WAKE_FLOOR)
+            val want = c.getValue("wake").let { if (it is JsonNull) null else it.jsonObject }
+            if (want == null) assertEquals(null, got)
+            else assertEquals(Wake(want.str("endSec").toFloat(), want.str("follows").toBoolean()), got)
+        }
+        val lines = wake.getValue("lines").jsonObject
+        val n = lines.str("name")
+        val l = VoiceWords.WakeLines
+        assertEquals(lines.str("cantListen"), l.cantListen(n))
+        assertEquals(lines.str("notCaught"), l.notCaught(n))
+        assertEquals(lines.str("sayNow"), l.sayNow(n))
+        assertEquals(lines.str("heard"), l.HEARD)
+        assertEquals(lines.str("notHeard"), l.notHeard(n))
+        assertEquals(lines.str("privacy"), l.privacy(n))
+        assertEquals(lines.str("label"), l.label(n))
+        assertEquals(lines.str("tapToListen"), l.TAP_TO_LISTEN)
+        assertEquals(lines.str("listening"), l.listening(n))
+        assertEquals(lines.str("gettingEars"), l.GETTING_EARS)
+        assertEquals(lines.str("earsFailed"), l.EARS_FAILED)
+        assertEquals(lines.str("signIn"), l.SIGN_IN)
+    }
+
     @Test fun callingNamesWhoIsCalled() = assertEquals("Calling Priya.", VoiceWords.calling("Priya"))
 }

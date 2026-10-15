@@ -5,6 +5,9 @@ enum class Heard { YES, NO }
 /** The short list the recognizer listens for, and the words of it the model does not know. */
 data class Grammar(val phrases: List<String>, val missing: List<String>)
 
+/** Whether the result began with the wake phrase: when its last word ended (seconds) and whether more was said after it. */
+data class Wake(val endSec: Float, val follows: Boolean)
+
 /** The card Buddy asks about out loud. */
 sealed interface SpokenCard {
     data class Message(val name: String, val text: String) : SpokenCard
@@ -131,6 +134,61 @@ object VoiceWords {
         } else {
             if (kind == "call") "Unlock your phone and I'll call $name." else "Unlock your phone and I'll send it to $name."
         }
+
+
+    // The wake phrase ("Hey <name>"): the device listens for it all the time.
+    const val WAKE_FLOOR = 0.6f // each word of the phrase must be at least this sure
+    const val REQUEST_QUIET_MS = 1_200L
+    const val REQUEST_NOTHING_MS = 8_000L
+    const val REQUEST_MAX_MS = 20_000L
+
+    /** "hey " and the name: lower case, accents gone, letters and spaces only, at most 3 words. Null when no name is left. */
+    fun wakePhrase(name: String): String? {
+        val words = java.text.Normalizer.normalize(name.trim(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("[\\u0300-\\u036f]"), "")
+            .lowercase()
+            .replace(Regex("[^a-z]+"), " ")
+            .split(' ')
+            .filter { it.isNotEmpty() }
+            .take(3)
+        return if (words.isEmpty()) null else "hey " + words.joinToString(" ")
+    }
+
+    /**
+     * The name's words the model can't hear: the phrase's words in `missing` (the shared voiceModel.missing), and any word
+     * with a digit in it (the phrase is letters only). Empty when Buddy can listen for the name.
+     */
+    fun wakeMissing(name: String, missing: Set<String>): List<String> {
+        val folded = java.text.Normalizer.normalize(name.trim(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("[\\u0300-\\u036f]"), "").lowercase()
+        val digits = folded.split(Regex("\\s+")).filter { t -> t.any { it in '0'..'9' } }.map { it.replace(Regex("[^a-z0-9]"), "") }
+        return digits + (wakePhrase(name)?.split(' ')?.filter { it in missing } ?: emptyList())
+    }
+
+    /** Whether the result starts with the phrase: its words first, in order, each at least `floor` sure. */
+    fun wakeFrom(said: VoskSaid, phrase: String, floor: Float): Wake? {
+        val want = phrase.split(' ').filter { it.isNotEmpty() }
+        val got = said.words
+        if (want.isEmpty() || got.size < want.size) return null
+        for (i in want.indices) if (got[i].word != want[i] || !(got[i].conf >= floor)) return null
+        return Wake(got[want.size - 1].end, got.size > want.size)
+    }
+
+    /** What Buddy says and shows around the wake phrase; `name` is as typed in Settings. */
+    object WakeLines {
+        fun cantListen(name: String) = "Buddy can't listen for '${name.trim()}'. Try another spelling."
+        fun notCaught(name: String) = "I didn't catch that. Say 'Hey ${name.trim()}' and try again."
+        fun sayNow(name: String) = "Say \"Hey ${name.trim()}\" now."
+        const val HEARD = "Heard you ✓"
+        fun notHeard(name: String) = "I didn't hear \"Hey ${name.trim()}\". Try again."
+        fun privacy(name: String) = "Your microphone stays on. Nothing leaves this device until you say 'Hey ${name.trim()}'."
+        fun label(name: String) = "Listen for \"Hey ${name.trim()}\""
+        const val TAP_TO_LISTEN = "Tap me to listen again"
+        fun listening(name: String) = "Listening for \"Hey ${name.trim()}\""
+        const val GETTING_EARS = "Getting Buddy's ears ready (36 MB)…"
+        const val EARS_FAILED = "Couldn't get Buddy's ears ready. Check the internet and try again."
+        const val SIGN_IN = "Sign in to talk to Buddy."
+    }
 
     fun calling(name: String): String = "Calling $name."
 }

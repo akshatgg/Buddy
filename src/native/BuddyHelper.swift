@@ -757,8 +757,8 @@ let waSearchBoxId = "TokenizedSearchBar_TextView"
 let waChatListId = "ChatListView_TableView"
 let waHeaderId = "NavigationBar_HeaderViewButton"
 let waComposerId = "ChatBar_ComposerTextView"
-// The invisible marks WhatsApp puts around names: left-to-right, right-to-left, and the embeddings and overrides.
-let directionMarks = CharacterSet(charactersIn: "\u{200E}\u{200F}\u{202A}\u{202B}\u{202C}\u{202D}\u{202E}")
+// The invisible marks WhatsApp puts around names: left-to-right, right-to-left, and the embeddings and overrides, and the isolates.
+let directionMarks = CharacterSet(charactersIn: "\u{200E}\u{200F}\u{202A}\u{202B}\u{202C}\u{202D}\u{202E}\u{2066}\u{2067}\u{2068}\u{2069}")
 
 let whatsAppNotReady = HelperError(code: "whatsapp_not_ready", message: "WhatsApp didn't open. Open it once, then try again.")
 let waChatNotFound = HelperError(code: "chat_not_found", message: "I couldn't find that chat in WhatsApp.")
@@ -875,10 +875,12 @@ func whatsAppReady() throws -> (pid_t, AXUIElement) {
 
 /// Searches WhatsApp for `name`: the result rows, by their chat names, in the order WhatsApp lists them. Only the
 /// search box is typed into, and nothing is opened.
-func waSearch(_ pid: pid_t, _ ax: AXUIElement, _ name: String) throws -> [(name: String, row: AXUIElement)] {
+func waSearch(_ pid: pid_t, _ ax: AXUIElement, _ name: String, pasteBefore: Date? = nil) throws -> [(name: String, row: AXUIElement)] {
     guard let window = whatsAppWindow(ax), let search = axFind(window, { axId($0) == waSearchBoxId }) else { throw whatsAppNotReady }
     // The name goes into the search box or nowhere: pasted into a chat's message box it would sit there as a draft.
     guard focusOn(search, id: waSearchBoxId, pid: pid, in: ax) else { throw whatsAppNotReady }
+    // Too late to paste: Buddy gives up on the caller's side soon, and the clipboard must be put back before that.
+    if let latest = pasteBefore, Date() >= latest { throw whatsAppNotReady }
     pasteHere(name, selectAll: true)
     // The results follow what is in the box: wait for it to hold the name, then for WhatsApp to list them.
     let typed = Date().addingTimeInterval(1.5)
@@ -909,8 +911,10 @@ func waSearch(_ pid: pid_t, _ ax: AXUIElement, _ name: String) throws -> [(name:
 func waFind(_ args: [String: Any]) throws -> [String: Any] {
     let name = (args["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     guard !name.isEmpty else { throw HelperError(code: "bad_request", message: "name is missing") }
+    // Buddy stops waiting after 15 seconds (src/main/helper.js): no paste after 11.
+    let started = Date()
     let (pid, ax) = try whatsAppReady()
-    return ["chats": try waSearch(pid, ax, name).prefix(10).map { $0.name }]
+    return ["chats": try waSearch(pid, ax, name, pasteBefore: started.addingTimeInterval(11)).prefix(10).map { $0.name }]
 }
 
 /// The name in the open chat's header, "" when there is none.
@@ -958,9 +962,16 @@ func waSend(_ args: [String: Any]) throws -> [String: Any] {
     guard holds() else { throw waNotPutIn }
     // Still the same chat, the box still has the focus, and WhatsApp is still in front (Return goes to the app in front).
     guard waHeader(ax) == header else { throw waWrongChat }
-    guard frontPid() == pid, axFocusedId(ax) == waComposerId, holds(), Date().timeIntervalSince(started) < 18 else { throw waNotPutIn }
+    guard frontPid() == pid, axFocusedId(ax) == waComposerId, holds(), Date().timeIntervalSince(started) < 17.5 else { throw waNotPutIn }
     pressKeys(.returnKey, [])
-    return ["chat": header]
+    // Sent means the box no longer holds the text. Return is never pressed again: at most 17.5 s + 1.5 s = 19 s here.
+    let confirmBy = Date().addingTimeInterval(1.5)
+    repeat {
+        if !holds() { return ["chat": header] }
+        usleep(100_000)
+    } while Date() < confirmBy
+    if !holds() { return ["chat": header] }
+    throw HelperError(code: "not_sent", message: "I pressed Send, but WhatsApp didn't send it. Check WhatsApp.")
 }
 
 func handle(_ msg: [String: Any]) {

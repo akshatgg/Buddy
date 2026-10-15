@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { BuddyError } = require('../shared/errors');
 const { PROVIDERS } = require('../shared/providers');
+const { parseChat, MESSAGE_ELSEWHERE } = require('../shared/prompts');
 const { config, ask, adminSettings, adminModels, adminUsers, handle } = require('../web/lib/handlers');
 const { fakeDb } = require('./helpers/fake-db');
 
@@ -362,6 +363,24 @@ test('ask: a chat from an app that can message on WhatsApp says so to the AI; on
   await s.run(ask, 'POST', { body: { action: 'chat', message: 'message priya hi', step: 1 } });
   assert.ok(s.completes[0].user.includes(line));
   assert.ok(!s.completes[1].user.includes(line), 'an older app, or the iPhone web app');
+});
+
+test('ask: a "message" answer for an app that cannot message becomes an answer, and the text old apps read says so too', async () => {
+  const s = setup({ stored: freeDaily(5), reply: chatReply('message', { to: 'Priya', text: 'hi', remember: ['Priya is a friend.'] }) });
+  const r = await s.run(ask, 'POST', { body: { action: 'chat', message: 'message priya hi', step: 1 } });
+  const want = { kind: 'answer', say: '', text: MESSAGE_ELSEWHERE, notes: [], doIt: false, send: false, remember: ['Priya is a friend.'], again: false };
+  assert.strictEqual(MESSAGE_ELSEWHERE, 'I can message on WhatsApp from the Mac and Android apps for now.');
+  assert.deepStrictEqual(r.body.chat, want);
+  assert.deepStrictEqual(parseChat(r.body.text), want);
+});
+
+test('ask: a "message" answer for an app that can message passes through unchanged', async () => {
+  const reply = chatReply('message', { to: 'Priya', text: 'hi' });
+  const s = setup({ stored: freeDaily(5), reply });
+  const r = await s.run(ask, 'POST', { body: { action: 'chat', message: 'message priya hi', canMessage: true, step: 1 } });
+  assert.strictEqual(r.body.text, reply);
+  assert.strictEqual(r.body.chat.kind, 'message');
+  assert.strictEqual(r.body.chat.to, 'Priya');
 });
 
 test('ask: a chat whose first answer wants the text box or the screen is given back: one question costs one request', async () => {

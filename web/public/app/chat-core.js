@@ -7,12 +7,12 @@
 // An item: { id, type: 'you' | 'buddy' | 'event' | 'error', say, text, notes, buttons }, and `fact` on a fact that was
 // remembered (Undo forgets it), `you` on an error (the message that Try again sends again).
 
-import { LIMITS, CHAT_LIMITS } from './shared/prompts.js';
+import { LIMITS, CHAT_LIMITS, MESSAGE_ELSEWHERE } from './shared/prompts.js';
 
 export const EMPTY = 'Tell me what to do first.';
 export const TOO_LONG = `That message is too long (over ${LIMITS.instruction} characters). Try a shorter one.`;
 export const CANT_SEE = "I can't see other apps on iPhone. Paste the text here.";
-export const MESSAGE_ELSEWHERE = 'I can message on WhatsApp from the Mac and Android apps for now.';
+export { MESSAGE_ELSEWHERE };
 export const CANT_SEND = "I can't send it from your iPhone. Copy it, then send it there.";
 export const NO_ANSWER = "I couldn't answer that. Try again.";
 export const FAILED = 'Something went wrong. Try again.';

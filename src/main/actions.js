@@ -18,7 +18,7 @@
  */
 
 const { BuddyError } = require('../../shared/errors');
-const { LIMITS } = require('../../shared/prompts');
+const { LIMITS, MESSAGE_ELSEWHERE } = require('../../shared/prompts');
 const { pickChat, pickLine, sameName } = require('../../shared/message-pick');
 const { AI_TIMEOUT_MS } = require('./ai');
 const { TRANSCRIBE_TIMEOUT_MS } = require('./cloud');
@@ -60,7 +60,6 @@ const NO_PROJECT = 'Add a project folder in Settings → Claude Code first.';
 // A message on WhatsApp (shared/prompts.js parseChat's "message"): where it cannot be sent from, a send that WhatsApp
 // left in its box, and a send whose end Buddy never heard (the helper took too long, or stopped): Buddy cannot tell
 // whether it went, so it never sends it again by itself.
-const MESSAGE_ELSEWHERE = 'I can message on WhatsApp from the Mac and Android apps for now.';
 const MESSAGE_WAITS = "It's in WhatsApp, ready for you to send.";
 const MESSAGE_UNSURE = "I'm not sure it went. Check WhatsApp.";
 // A "message" answer to a second step: who and what may be someone else's words, read in their box or on the screen.

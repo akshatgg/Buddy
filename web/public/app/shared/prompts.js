@@ -30,6 +30,8 @@ const MAX_TOKENS = 1024;
 // What a chat answer can be: see SYSTEM.chat.
 const KINDS = ['write', 'fix', 'answer', 'box', 'screen', 'send', 'code', 'message'];
 // What a "message" answer says when it cannot be one.
+// What an app that cannot message says to a "message" answer (the server says it for older apps).
+const MESSAGE_ELSEWHERE = 'I can message on WhatsApp from the Mac and Android apps for now.';
 const MESSAGE_ONLY_WHATSAPP = 'I can only message on WhatsApp for now.';
 // How much of the chat, of what Buddy knows about the person, and of the answer's lists is kept.
 const CHAT_LIMITS = {
@@ -348,6 +350,6 @@ function parseChat(text) {
   return out;
 }
 
-module.exports = { ACTIONS, TONES, LIMITS, MAX_TOKENS, KINDS, MESSAGE_ONLY_WHATSAPP, CHAT_LIMITS, buildPrompt, parseCheck, parseChat };
+module.exports = { ACTIONS, TONES, LIMITS, MAX_TOKENS, KINDS, MESSAGE_ONLY_WHATSAPP, MESSAGE_ELSEWHERE, CHAT_LIMITS, buildPrompt, parseCheck, parseChat };
 })();
-export const { ACTIONS, TONES, LIMITS, MAX_TOKENS, KINDS, MESSAGE_ONLY_WHATSAPP, CHAT_LIMITS, buildPrompt, parseCheck, parseChat } = module.exports;
+export const { ACTIONS, TONES, LIMITS, MAX_TOKENS, KINDS, MESSAGE_ONLY_WHATSAPP, MESSAGE_ELSEWHERE, CHAT_LIMITS, buildPrompt, parseCheck, parseChat } = module.exports;

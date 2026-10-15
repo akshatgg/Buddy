@@ -21,8 +21,11 @@
  */
 
 const { BuddyError } = require('../shared/errors');
-const { buildPrompt, parseCheck, parseChat, MAX_TOKENS } = require('../shared/prompts');
+const { buildPrompt, parseCheck, parseChat, MAX_TOKENS, MESSAGE_ELSEWHERE } = require('../shared/prompts');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
+/** Chat answer kinds that need the app to say it can (kind -> the request's flag); add later kinds here. */
+const ANSWER_KIND_NEEDS = { message: 'canMessage' };
+
 const { dayKey } = require('./day');
 const { withDefaults, isFreeOn, applyPatch } = require('./free-config');
 const { transcribeWithGroq, readRecording } = require('./transcribe');
@@ -206,6 +209,12 @@ async function ask(req, deps) {
   if (chat && body.step !== 2 && (chat.kind === 'box' || chat.kind === 'screen')) {
     await giveBack(who.uid, day, deps);
     chat = { kind: chat.kind, say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false };
+    text = JSON.stringify(chat);
+  }
+  // A kind only some apps know: an app that did not say it can take it (the request's flag) never gets it, because an
+  // older app would show the raw JSON. It gets a plain answer instead, in `text` too, which older apps read themselves.
+  if (chat && ANSWER_KIND_NEEDS[chat.kind] && body[ANSWER_KIND_NEEDS[chat.kind]] !== true) {
+    chat = { kind: 'answer', say: '', text: MESSAGE_ELSEWHERE, notes: [], doIt: false, send: false, remember: chat.remember, again: false };
     text = JSON.stringify(chat);
   }
   return answer({

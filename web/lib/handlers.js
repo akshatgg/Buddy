@@ -21,10 +21,19 @@
  */
 
 const { BuddyError } = require('../shared/errors');
-const { buildPrompt, parseCheck, parseChat, MAX_TOKENS, MESSAGE_ELSEWHERE } = require('../shared/prompts');
+const { buildPrompt, parseCheck, parseChat, MAX_TOKENS, MESSAGE_ELSEWHERE, ELSEWHERE } = require('../shared/prompts');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
-/** Chat answer kinds that need the app to say it can (kind -> the request's flag); add later kinds here. */
-const ANSWER_KIND_NEEDS = { message: 'canMessage' };
+/**
+ * Chat answer kinds that need the app to say it can (kind -> the request's flag, and the line an app that cannot gets
+ * instead); add later kinds here.
+ */
+const ANSWER_KIND_NEEDS = {
+  message: { flag: 'canMessage', line: () => MESSAGE_ELSEWHERE },
+  call: { flag: 'canCall', line: (chat) => (chat.how === 'phone' ? ELSEWHERE.phoneCall : ELSEWHERE.whatsAppCall) },
+  open: { flag: 'canOpen', line: () => ELSEWHERE.open },
+  calls: { flag: 'canSeeCalls', line: () => ELSEWHERE.calls },
+  notifs: { flag: 'canReadNotifs', line: () => ELSEWHERE.notifs },
+};
 
 const { dayKey } = require('./day');
 const { withDefaults, isFreeOn, applyPatch } = require('./free-config');
@@ -213,8 +222,9 @@ async function ask(req, deps) {
   }
   // A kind only some apps know: an app that did not say it can take it (the request's flag) never gets it, because an
   // older app would show the raw JSON. It gets a plain answer instead, in `text` too, which older apps read themselves.
-  if (chat && ANSWER_KIND_NEEDS[chat.kind] && body[ANSWER_KIND_NEEDS[chat.kind]] !== true) {
-    chat = { kind: 'answer', say: '', text: MESSAGE_ELSEWHERE, notes: [], doIt: false, send: false, remember: chat.remember, again: false };
+  const needs = chat && Object.hasOwn(ANSWER_KIND_NEEDS, chat.kind) ? ANSWER_KIND_NEEDS[chat.kind] : null;
+  if (needs && body[needs.flag] !== true) {
+    chat = { kind: 'answer', say: '', text: needs.line(chat), notes: [], doIt: false, send: false, remember: chat.remember, again: false };
     text = JSON.stringify(chat);
   }
   return answer({

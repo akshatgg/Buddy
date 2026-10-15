@@ -28,7 +28,7 @@ internal fun Context.copyText(text: String) {
 }
 
 /**
- * Where the fix for the error `code` is: the microphone and the contacts in Buddy's own page of Android's settings;
+ * Where the fix for the error `code` is: the microphone, the contacts and calls in Buddy's own page of Android's settings;
  * Buddy in Android's Accessibility settings, to press WhatsApp's Send; anything else in Settings, at the part that fixes
  * it (or at the top), in the app's own task: the panel's is apart and out of Recents, and a Fix with Buddy's is another
  * app's.
@@ -36,7 +36,7 @@ internal fun Context.copyText(text: String) {
 internal fun Context.openSettingsFor(code: String?) {
     // Android's own pages: the panel's context is the app's, so they open in a task of their own.
     val android = when (code) {
-        "no_microphone", "no_contacts" -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:$packageName".toUri())
+        "no_microphone", "no_contacts", "no_calls" -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:$packageName".toUri())
         "no_accessibility" -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS) // as Settings' "Buddy can type for you"
         else -> null
     }

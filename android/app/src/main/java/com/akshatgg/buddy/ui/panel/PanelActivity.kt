@@ -45,6 +45,10 @@ class PanelActivity : ComponentActivity(), ChatHost {
     override val contacts: ActivityResultLauncher<String> =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { kept.contactsAnswered(it) }
 
+    @SuppressLint("InvalidFragmentVersionForActivityResult") // as consent
+    override val permission: ActivityResultLauncher<String> =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { kept.permissionAnswered(it) }
+
     override val activity: ComponentActivity get() = this
 
     override fun onCreate(savedInstanceState: Bundle?) {

@@ -17,6 +17,8 @@ import com.akshatgg.buddy.apps.Launcher
 import com.akshatgg.buddy.apps.PhoneLauncher
 import com.akshatgg.buddy.bubble.BubbleBus
 import com.akshatgg.buddy.bubble.LookService
+import com.akshatgg.buddy.calls.AndroidPhoneBook
+import com.akshatgg.buddy.calls.PhoneBook
 import com.akshatgg.buddy.cloud.CloudClient
 import com.akshatgg.buddy.cloud.MemorySyncer
 import com.akshatgg.buddy.core.Shared
@@ -105,6 +107,9 @@ class AppGraph(
 
     /** Open an app: the phone's home-screen apps (apps/Apps.kt). */
     val launcher: Launcher by lazy { PhoneLauncher(appContext) }
+
+    /** Call someone: the phone's contacts' numbers (calls/PhoneBook.kt). */
+    val phoneBook: PhoneBook by lazy { AndroidPhoneBook(appContext) }
 
     /** What Buddy knows about the person, as the chat sees it: the memory on this phone (kept with the account too, signed in). */
     val facts: Facts get() = memory

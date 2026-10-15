@@ -9,6 +9,11 @@ import com.akshatgg.buddy.apps.AppOpening
 import com.akshatgg.buddy.apps.Opened
 import com.akshatgg.buddy.bubble.BubbleEvent
 import com.akshatgg.buddy.bubble.Mood
+import com.akshatgg.buddy.calls.CallFound
+import com.akshatgg.buddy.calls.Callee
+import com.akshatgg.buddy.calls.Called
+import com.akshatgg.buddy.calls.NO_CALLS
+import com.akshatgg.buddy.calls.PhoneCalling
 import com.akshatgg.buddy.core.BuddyError
 import com.akshatgg.buddy.message.Found
 import com.akshatgg.buddy.message.Messaging
@@ -93,6 +98,22 @@ private class FakeApps(val log: MutableList<String>) : AppOpening {
     }
 }
 
+/** Phone calls, as the panel asks for them: queued answers, and each call in `log` (shared with the hands). */
+private class FakePhone(val log: MutableList<String>) : PhoneCalling {
+    val found = ArrayDeque<CallFound>()
+    val called = ArrayDeque<Called>()
+    var calling: CompletableDeferred<Unit>? = null // a call that takes until this is completed
+    override suspend fun find(asked: String): CallFound {
+        log += "find phone $asked"
+        return found.removeFirstOrNull() ?: CallFound.Say("I couldn't find $asked in your contacts.")
+    }
+    override suspend fun call(callee: Callee): Called {
+        log += "call ${callee.name}"
+        calling?.await()
+        return called.removeFirstOrNull() ?: Called.Done
+    }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class) // runTest's clock: runCurrent, advanceTimeBy, advanceUntilIdle, StandardTestDispatcher
 class PanelModelTest {
     private val asked = mutableListOf<AskInput>()
@@ -109,6 +130,7 @@ class PanelModelTest {
     private val log = mutableListOf<String>() // what the panel did with Android: stepped aside, copied, shared, …
     private val messaging = FakeMessaging(log)
     private val apps = FakeApps(log)
+    private val phone = FakePhone(log)
     private var picture: String? = "IMG"
     private var pictureError: BuddyError? = null
     private var clock = 1_000_000L
@@ -134,6 +156,7 @@ class PanelModelTest {
         ),
         messaging = messaging,
         apps = apps,
+        phone = phone,
         firstName = { name },
         now = { clock },
     ).apply { open() }
@@ -941,5 +964,150 @@ class PanelModelTest {
         advanceUntilIdle()
         assertEquals(BuddySaid(2, "Okay!", "", emptyList(), emptyList()), m.items[1])
         assertEquals(BuddySaid(3, "", "To Priya Sharma:\nI'm late", emptyList(), listOf(ChatButton.SEND_MESSAGE, ChatButton.NOT_NOW)), m.items[2])
+    }
+
+    // ---- a phone call ----
+
+    private fun calling(to: String = "Prince", how: String = "phone", say: String = "") =
+        ChatReply("call", say, "", emptyList(), false, false, emptyList(), false, to = to, how = how)
+
+    private val princeSharma = Callee("Prince Sharma", "100")
+
+    private fun TestScope.callCard(): PanelModel {
+        answers(calling())
+        phone.found += CallFound.One(princeSharma)
+        val m = model()
+        m.say("call Prince")
+        advanceUntilIdle()
+        return m
+    }
+
+    @Test fun aPhoneCallShowsACardToCallAndNothingRings() = runTest {
+        val m = callCard()
+        assertEquals(BuddySaid(2, "", "Call Prince Sharma?", emptyList(), listOf(ChatButton.CALL, ChatButton.NOT_NOW)), m.last())
+        assertEquals(listOf("find phone Prince"), log)
+        assertEquals(listOf(Mood.THINKING, Mood.HAPPY), moods)
+    }
+
+    @Test fun callCallsTheCardsPersonOnceAndTheCardSaysCalling() = runTest {
+        val m = callCard()
+        events.clear()
+        m.press(2, ChatButton.CALL)
+        advanceUntilIdle()
+        assertEquals(listOf("find phone Prince", "call Prince Sharma"), log)
+        assertEquals(ChatEvent(2, "📞 Calling Prince Sharma"), m.last())
+        assertEquals(listOf(Mood.HAPPY), moods)
+        m.press(2, ChatButton.CALL) // the card is gone: nobody is called twice
+        m.press(2, ChatButton.NOT_NOW)
+        advanceUntilIdle()
+        assertEquals(1, log.count { it.startsWith("call") })
+        assertEquals(ChatEvent(2, "📞 Calling Prince Sharma"), m.last())
+    }
+
+    @Test fun notNowCallsNobody() = runTest {
+        val m = callCard()
+        m.press(2, ChatButton.NOT_NOW)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "Okay, not now."), m.last())
+        m.press(2, ChatButton.CALL)
+        advanceUntilIdle()
+        assertEquals(listOf("find phone Prince"), log)
+    }
+
+    @Test fun aCallNotAllowedSaysWhyOffersSettingsAndTheCardStays() = runTest {
+        phone.called += Called.Failed(NO_CALLS, "no_calls")
+        phone.called += Called.Done
+        val m = callCard()
+        val card = m.last()
+        m.press(2, ChatButton.CALL)
+        advanceUntilIdle()
+        assertEquals(ChatError(3, NO_CALLS, "no_calls", listOf(ChatButton.SETTINGS)), m.last())
+        assertEquals(NO_CALLS, said.last())
+        assertEquals(card, m.items.first { it.id == 2 })
+        m.press(3, ChatButton.SETTINGS)
+        assertEquals("settings no_calls", log.last())
+        m.press(2, ChatButton.CALL) // allowed in Settings meanwhile: pressed again, it calls
+        advanceUntilIdle()
+        assertEquals(2, log.count { it.startsWith("call") })
+        assertEquals(ChatEvent(2, "📞 Calling Prince Sharma"), m.items.first { it.id == 2 })
+    }
+
+    @Test fun aPhoneThatCannotCallIsARedLineWithNoButton() = runTest {
+        phone.called += Called.Failed("This phone can't make calls.")
+        val m = callCard()
+        m.press(2, ChatButton.CALL)
+        advanceUntilIdle()
+        assertEquals(ChatError(3, "This phone can't make calls.", "call_failed", emptyList()), m.last())
+    }
+
+    @Test fun whoToCallIsNotOneIsSaidAndContactsRefusedOpenSettings() = runTest {
+        answers(calling(), calling())
+        phone.found += CallFound.Say("I need your contacts to find Prince. You can allow it in Settings.", "no_contacts")
+        phone.found += CallFound.Say("Which Prince: Prince Sharma or Prince Kumar? Tell me the full name.")
+        val m = model()
+        m.say("call Prince")
+        advanceUntilIdle()
+        assertEquals(ChatError(2, "I need your contacts to find Prince. You can allow it in Settings.", "no_contacts", listOf(ChatButton.SETTINGS)), m.last())
+        m.say("call Prince")
+        advanceUntilIdle()
+        assertEquals(BuddySaid(4, "", "Which Prince: Prince Sharma or Prince Kumar? Tell me the full name.", emptyList(), emptyList()), m.last())
+        assertEquals(listOf("find phone Prince", "find phone Prince"), log)
+    }
+
+    @Test fun whatBuddySaysComesBeforeTheCallCard() = runTest {
+        answers(calling(say = "Okay!"))
+        phone.found += CallFound.One(princeSharma)
+        val m = model()
+        m.say("call Prince")
+        advanceUntilIdle()
+        assertEquals(BuddySaid(2, "Okay!", "", emptyList(), emptyList()), m.items[1])
+        assertEquals(BuddySaid(3, "", "Call Prince Sharma?", emptyList(), listOf(ChatButton.CALL, ChatButton.NOT_NOW)), m.items[2])
+    }
+
+    @Test fun aNoteIsALineInTheOpenChat() = runTest {
+        val m = callCard()
+        m.note("x")
+        assertEquals(ChatEvent(3, "x"), m.last())
+    }
+
+    @Test fun aCallAnsweredAfterReadingTheBoxIsNotStarted() = runTest {
+        answers(written("", kind = "box"), calling())
+        typeIn.box = BoxText("call Prince now", 15, 15)
+        phone.found += CallFound.One(princeSharma)
+        val m = model()
+        m.say("do what it says")
+        advanceUntilIdle()
+        assertEquals(BuddySaid(3, "Ask me that on its own, and I'll do it.", "", emptyList(), emptyList()), m.last())
+        assertTrue(log.none { it.startsWith("find") || it.startsWith("call") })
+    }
+
+    @Test fun notNowWhileItIsCallingLeavesTheCard() = runTest {
+        val m = callCard()
+        val card = m.last()
+        val calling = CompletableDeferred<Unit>().also { phone.calling = it }
+        m.press(2, ChatButton.CALL)
+        runCurrent()
+        assertEquals("call Prince Sharma", log.last())
+        m.press(2, ChatButton.NOT_NOW)
+        m.press(2, ChatButton.CALL) // a second press while the first is calling: nothing
+        runCurrent()
+        assertEquals(card, m.items.first { it.id == 2 })
+        calling.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "📞 Calling Prince Sharma"), m.items.first { it.id == 2 })
+        assertFalse(m.items.any { it is ChatEvent && it.text == "Okay, not now." })
+        assertEquals(1, log.count { it.startsWith("call") })
+    }
+
+    @Test fun aCallCardFromAClosedChatCannotBePressed() = runTest {
+        val m = callCard()
+        m.close()
+        m.open()
+        answers(written("Dear Sir,"))
+        m.say("write a mail")
+        advanceUntilIdle()
+        m.press(2, ChatButton.CALL) // 2 is now the new chat's answer, which has no Call
+        advanceUntilIdle()
+        assertTrue(log.none { it.startsWith("call") })
     }
 }

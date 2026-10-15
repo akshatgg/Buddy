@@ -178,6 +178,25 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
     assert.strictEqual(chat().find((item) => item.id === remembered.id).text, 'Okay, I forgot that.');
     await waitFor(boxFocused, 'the box to have the focus back after Undo');
 
+    // A message on WhatsApp: Buddy finds the person in WhatsApp's search, comes back with the card, and sends only on
+    // its Send: that text, to that chat.
+    answers.push(reply({ kind: 'message', to: 'Priya', text: 'hi' }));
+    ctx.helper.replies.waFind = { chats: ['Priya Sharma'] };
+    ctx.helper.replies.waSend = { chat: 'Priya Sharma' };
+    await type('message priya hi');
+    await pageShows('To Priya Sharma: hi', 'the message card');
+    assert.deepStrictEqual(ctx.helper.calls.filter((call) => call.cmd === 'waFind').at(-1).args, { name: 'Priya' });
+    assert.strictEqual(ctx.helper.calls.filter((call) => call.cmd === 'waSend').length, 0, 'nothing is sent before Send');
+    assert.deepStrictEqual(await buttonsOn('To Priya Sharma: hi'), ['Send', 'Not now']);
+    await click('To Priya Sharma: hi', 'Send');
+    await bubbleSays('Sent ✅');
+    await waitFor(() => chat().some((item) => item.text === '✅ Sent to Priya Sharma'), 'the card to say it was sent');
+    assert.deepStrictEqual(ctx.helper.calls.filter((call) => call.cmd === 'waSend').map((call) => call.args), [{ name: 'Priya Sharma', text: 'hi' }]);
+    delete ctx.helper.replies.waFind;
+    delete ctx.helper.replies.waSend;
+    await openPanel();
+    await pageShows('✅ Sent to Priya Sharma', 'the sent message in the chat');
+
     // Errors show in the chat with Try again, and Open Settings when the fix is there.
     const LABELS = { retry: 'Try again', settings: 'Open Settings' };
     for (const [code, message, buttons] of [

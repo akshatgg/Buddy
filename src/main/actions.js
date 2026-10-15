@@ -19,6 +19,7 @@
 
 const { BuddyError } = require('../../shared/errors');
 const { LIMITS } = require('../../shared/prompts');
+const { pickChat, pickLine, sameName } = require('../../shared/message-pick');
 const { AI_TIMEOUT_MS } = require('./ai');
 const { TRANSCRIBE_TIMEOUT_MS } = require('./cloud');
 const platform = require('./platform');
@@ -56,6 +57,13 @@ const LIVE_LINES = 6;
 const NO_ANSWER = 'No answer for 10 minutes, so I said no.';
 const QUESTION_OVER = 'Not needed any more.';
 const NO_PROJECT = 'Add a project folder in Settings → Claude Code first.';
+// A message on WhatsApp (shared/prompts.js parseChat's "message"): where it cannot be sent from, a send that WhatsApp
+// left in its box, and a send whose end Buddy never heard (the helper took too long, or stopped): Buddy cannot tell
+// whether it went, so it never sends it again by itself.
+const MESSAGE_ELSEWHERE = 'I can message on WhatsApp from the Mac and Android apps for now.';
+const MESSAGE_WAITS = "It's in WhatsApp, ready for you to send.";
+const MESSAGE_UNSURE = "I'm not sure it went. Check WhatsApp.";
+const UNKNOWN_END = ['timeout', 'helper_exit'];
 
 /** The Settings section where the fix for an error is, or undefined for Settings' start. */
 function sectionFor(code) {
@@ -67,7 +75,8 @@ function sectionFor(code) {
 const SETTINGS_ERRORS = new Set([...AI_ERRORS, ...ACCOUNT_ERRORS, ...PERMISSION_ERRORS]);
 
 // What the page gets of each kind of item. The items here also carry what only this file needs: how a buddy's text
-// goes in the app (`mode`), the fact a "Remembered" line can forget, and the message an error can try again.
+// goes in the app (`mode`), the fact a "Remembered" line can forget, the message an error can try again, and who a
+// WhatsApp card sends to and what (`message`: the page shows only the card's line).
 const SHOWN = {
   you: ['text'],
   buddy: ['say', 'text', 'notes', 'buttons'],
@@ -456,6 +465,7 @@ function createActions({
 
   /** The final answer: what it shows, and what Buddy does in the app. */
   async function finish(c, reply, from) {
+    if (reply.kind === 'message') return startMessage(c, reply);
     if (reply.kind === 'code') return startCode(c, reply);
     if (reply.kind === 'send') {
       add(c, { type: 'question', text: 'Send it?', buttons: ['send', 'not-now'] });
@@ -647,6 +657,81 @@ function createActions({
   }
 
   /**
+   * "Message Priya on WhatsApp …": Buddy looks Priya up in WhatsApp's search (WhatsApp comes to the front for it, so
+   * only while the person is still with Buddy), comes back, and asks "To Priya Sharma: …" with Send and Not now.
+   * Nothing goes into WhatsApp before Send. One name found twice is two chats Buddy cannot tell apart: no card then.
+   * Answers true when the buddy answered, false when it stopped short (the reason is in the chat).
+   */
+  async function startMessage(c, reply) {
+    if (reply.say) add(c, { type: 'buddy', say: reply.say, text: '', notes: [], buttons: [] });
+    if (system === 'win32') {
+      add(c, { type: 'buddy', say: '', text: MESSAGE_ELSEWHERE, notes: [], buttons: [] });
+      return true;
+    }
+    let chats;
+    try {
+      chats = await inApp(async () => {
+        if (!present(c)) return null;
+        const found = await stepAside(() => helper.call('waFind', { name: reply.to }));
+        return Array.isArray(found?.chats) ? found.chats.filter((name) => typeof name === 'string') : [];
+      }, { wait: true });
+    } catch (err) {
+      failed(c, err);
+      await comeBack(c);
+      return false;
+    }
+    if (chats === null) {
+      // The person hid the panel meanwhile: WhatsApp is left alone, and the bubble says there is something to read.
+      if (c === chat) ui.bubble(READY);
+      add(c, { type: 'buddy', say: 'Open me again and ask once more, so I can look in WhatsApp.', text: '', notes: [], buttons: [] });
+      return false;
+    }
+    const pick = pickChat(reply.to, chats);
+    const line = pickLine(reply.to, pick);
+    if (line) {
+      add(c, { type: 'buddy', say: '', text: line, notes: [], buttons: [] });
+    } else if (chats.filter((name) => sameName(name, pick.name)).length > 1) {
+      const text = `You have more than one chat called ${pick.name}. Rename one in WhatsApp, then ask me again.`;
+      add(c, { type: 'buddy', say: '', text, notes: [], buttons: [] });
+    } else {
+      add(c, { type: 'question', text: `To ${pick.name}: ${reply.text}`, buttons: ['send-message', 'not-now'], message: { name: pick.name, text: reply.text } });
+    }
+    await comeBack(c);
+    return true;
+  }
+
+  /**
+   * Send on a WhatsApp card: the helper opens that chat, checks its name, puts the card's text in and sends it, only
+   * that text to that chat. `sending` keeps Not now off the card meanwhile. A send that did not happen leaves the card,
+   * to try again; one WhatsApp left in its box, or whose end Buddy never heard, takes the card away: no second send.
+   */
+  async function sendMessage(c, item) {
+    item.sending = true;
+    try {
+      await stepAside(() => helper.call('waSend', { name: item.message.name, text: item.message.text }));
+    } catch (err) {
+      const code = err instanceof BuddyError ? err.code : '';
+      if (code === 'not_sent') {
+        swap(c, item, { type: 'event', text: MESSAGE_WAITS, buttons: [] });
+        failed(c, err);
+      } else if (UNKNOWN_END.includes(code)) {
+        swap(c, item, { type: 'event', text: MESSAGE_UNSURE, buttons: [] });
+        ui.bubble(MESSAGE_UNSURE);
+      } else {
+        failed(c, err); // the card stays, to try again
+      }
+      await comeBack(c);
+      return;
+    } finally {
+      item.sending = false;
+    }
+    swap(c, item, { type: 'event', text: `✅ Sent to ${item.message.name}`, buttons: [] });
+    ui.bubble('Sent ✅');
+    if (c === chat) ui.mood('celebrate'); // not for a chat closed meanwhile (Buddy turned off), as in talk()
+    push(c);
+  }
+
+  /**
    * Work in the app, one step at a time: each one waits for the one before it, so that no step's panel comes back, or
    * its keys land, in the middle of another. Buddy's own steps (reading the box, "do it") wait their turn; a button
    * pressed while a step is under way or waiting is refused instead (a quick second press of Send must not send twice).
@@ -680,6 +765,11 @@ function createActions({
       await inApp(() => undo(c, item));
     } else if (button === 'send') {
       await inApp(() => sendIt(c, item));
+    } else if (button === 'send-message') {
+      await inApp(() => sendMessage(c, item));
+    } else if (button === 'not-now' && item.sending) {
+      // Not now on a WhatsApp card whose Send is under way: too late to take it back.
+      throw new BuddyError('bad_request', "Wait a moment, I'm still on it.");
     } else if (button === 'stop') {
       // The job's item has Stop, and so has "Stop it first" for that job. The process is told; the item ends when it
       // has gone (the `stopped` event).

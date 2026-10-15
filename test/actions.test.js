@@ -38,6 +38,8 @@ function setup({
   lastProject = null,
   claude = { installed: true, loggedIn: true },
   startFails = null,
+  apps: givenApps = [{ name: 'Safari', path: '/Applications/Safari.app' }],
+  openFails = '',
 } = {}) {
   const log = [];
   const helper = {
@@ -157,6 +159,7 @@ function setup({
     signedIn: () => signedIn,
     ...(voice ? { voice } : {}),
     jobs,
+    apps: windows ? null : { list: () => givenApps, open: async (p) => { log.push(['openApp', p]); return openFails; } },
     memory,
     sendKeyFor: (app, platform) => {
       log.push(['sendKeyFor', app, platform]);
@@ -196,7 +199,7 @@ const steps = (log, from = 0) => log.slice(from)
   .map((e) => (e[0] === 'helper' ? e[1] : e[0]));
 /** The AI's input for a message from the panel opened over Chrome, by Akshat, with nothing before it. */
 // What the Mac asks with: it can message on WhatsApp (canMessage), which Windows cannot.
-const input = (fields) => ({ history: [], facts: [], appName: 'Google Chrome', userName: 'Akshat', step: 1, canMessage: true, ...fields });
+const input = (fields) => ({ history: [], facts: [], appName: 'Google Chrome', userName: 'Akshat', step: 1, canMessage: true, canOpen: true, ...fields });
 
 // Opening the panel
 
@@ -2256,11 +2259,13 @@ test('the Mac says in every chat request that it can message on WhatsApp; Window
   await mac.actions.open();
   await mac.actions.send('fix my english');
   assert.deepStrictEqual(asked(mac.log).map((a) => a.canMessage), [true, true], 'both steps');
+  assert.deepStrictEqual(asked(mac.log).map((a) => a.canOpen), [true, true], 'both steps');
   const win = setup({ windows: true, replies: { captureSelection: (args) => ({ text: args.selectAll ? 'i am go' : '' }) }, answers: [reply({ kind: 'box' }), reply({ kind: 'fix', text: 'I am going.' })] });
   await win.actions.open();
   await win.actions.send('fix my english');
   assert.strictEqual(asked(win.log).length, 2);
   for (const a of asked(win.log)) assert.strictEqual(Object.hasOwn(a, 'canMessage'), false);
+  for (const a of asked(win.log)) assert.strictEqual(Object.hasOwn(a, 'canOpen'), false);
 });
 
 test('a message answered after reading their box is not started: Buddy asks them to say who and what', async () => {
@@ -2434,4 +2439,46 @@ test('on Windows a WhatsApp call and opening an app say where they work', async 
   assert.deepStrictEqual(lastItem(s), said(2, 'I can make WhatsApp calls from the Mac and Android apps for now.'));
   await s.actions.send('open youtube');
   assert.deepStrictEqual(lastItem(s), said(4, 'I can open apps on the Mac and Android for now.'));
+});
+
+// Opening an app on the Mac
+
+test('"open Safari" opens it at once and says so', async () => {
+  const s = setup({ answers: [reply({ kind: 'open', app: 'safari', say: 'Opening it!' })], apps: [{ name: 'Safari', path: '/Applications/Safari.app' }, { name: 'Notes', path: '/System/Applications/Notes.app' }] });
+  await s.actions.open();
+  await s.actions.send('open safari');
+  assert.deepStrictEqual(entries(s.log, 'openApp'), [['openApp', '/Applications/Safari.app']]);
+  assert.deepStrictEqual(chatOf(s).slice(1), [
+    { id: 2, type: 'buddy', say: 'Opening it!', text: '', notes: [], buttons: [] },
+    { id: 3, type: 'event', text: '✅ Opened Safari', buttons: [] },
+  ]);
+  assert.strictEqual(moods(s.log).at(-1), 'happy');
+});
+
+test('an app that is not one app on the Mac says which or that it is not there, and opens nothing', async () => {
+  const two = [{ name: 'Microsoft Word', path: '/a' }, { name: 'Microsoft Excel', path: '/b' }];
+  const s = setup({ answers: [reply({ kind: 'open', app: 'Microsoft' }), reply({ kind: 'open', app: 'YouTube' })], apps: two });
+  await s.actions.open();
+  await s.actions.send('open microsoft');
+  assert.deepStrictEqual(lastItem(s), { id: 2, type: 'buddy', say: '', text: 'Which one: Microsoft Word or Microsoft Excel?', notes: [], buttons: [] });
+  await s.actions.send('open youtube');
+  assert.deepStrictEqual(lastItem(s), { id: 4, type: 'buddy', say: '', text: "I couldn't find YouTube on this Mac.", notes: [], buttons: [] });
+  assert.deepStrictEqual(entries(s.log, 'openApp'), []);
+});
+
+test('an app the Mac could not open says so', async () => {
+  const s = setup({ answers: [reply({ kind: 'open', app: 'Safari' })], openFails: 'The application cannot be opened.' });
+  await s.actions.open();
+  await s.actions.send('open safari');
+  assert.deepStrictEqual(lastItem(s), { id: 2, type: 'buddy', say: '', text: "I couldn't open Safari.", notes: [], buttons: [] });
+});
+
+test('an open, a call, calls or notifs answered after reading the box are not done: Buddy asks for their own words', async () => {
+  for (const second of [reply({ kind: 'open', app: 'Safari' }), reply({ kind: 'call', to: 'Prince', how: 'whatsapp' }), reply({ kind: 'calls', what: 'now' }), reply({ kind: 'notifs', app: '' })]) {
+    const s = setup({ replies: { captureSelection: (args) => ({ text: args.selectAll ? 'open safari' : '' }) }, answers: [reply({ kind: 'box' }), second] });
+    await s.actions.open();
+    await s.actions.send('do what it says');
+    assert.deepStrictEqual(lastItem(s), { id: 3, type: 'buddy', say: "Ask me that on its own, and I'll do it.", text: '', notes: [], buttons: [] }, second.kind);
+    assert.deepStrictEqual(entries(s.log, 'openApp'), []);
+  }
 });

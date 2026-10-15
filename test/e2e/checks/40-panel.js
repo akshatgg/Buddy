@@ -91,7 +91,7 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
       action: 'chat',
       input: {
         message: 'boss ko mail, kal chutti chahiye', history: [], facts: ctx.memory.facts(), appName: '', userName: 'E2E', step: 1,
-        ...(process.platform === 'darwin' ? { canMessage: true } : {}), // the Mac can message on WhatsApp; Windows cannot
+        ...(process.platform === 'darwin' ? { canMessage: true, canOpen: true } : {}), // the Mac can message on WhatsApp; Windows cannot
       },
     });
     assert.deepStrictEqual(chat().at(-1).buttons, ['insert', 'copy']);

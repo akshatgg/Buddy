@@ -20,6 +20,7 @@
 const { BuddyError } = require('../../shared/errors');
 const { LIMITS, MESSAGE_ELSEWHERE, ELSEWHERE } = require('../../shared/prompts');
 const { pickChat, pickLine, sameName } = require('../../shared/message-pick');
+const { appLine } = require('../../shared/pick-lines');
 const { AI_TIMEOUT_MS } = require('./ai');
 const { TRANSCRIBE_TIMEOUT_MS } = require('./cloud');
 const platform = require('./platform');
@@ -64,6 +65,8 @@ const MESSAGE_WAITS = "It's in WhatsApp, ready for you to send.";
 const MESSAGE_UNSURE = "I'm not sure it went. Check WhatsApp.";
 // A "message" answer to a second step: who and what may be someone else's words, read in their box or on the screen.
 const MESSAGE_ASK = "Tell me who to message and what, and I'll do it.";
+// A call, an app to open, their calls or notifications, answered from a second step.
+const SECOND_ASK = "Ask me that on its own, and I'll do it.";
 const UNKNOWN_END = ['timeout', 'helper_exit'];
 
 /** The Settings section where the fix for an error is, or undefined for Settings' start. */
@@ -97,6 +100,7 @@ const SHOWN = {
  * and has this person's settings, and `signedIn()` whether someone is. `voice()` gives { on, auto, mic }: voice is on for this person, the panel
  * listens as it opens, and how the microphone stands.
  * `jobs` runs Claude Code in the person's project folders (claude/job.js createJobs); none means no jobs.
+ * `apps` is apps.js's list of this Mac's apps and the way to open one; none on Windows.
  */
 function createActions({
   helper,
@@ -111,6 +115,7 @@ function createActions({
   signedIn = () => false,
   voice = () => ({}),
   jobs = null,
+  apps = null,
   userName = () => '',
   now = Date.now,
   helperMovesFocus = platform.helperMovesFocus,
@@ -391,6 +396,7 @@ function createActions({
     const asked = { message: you.text, history: historyBefore(c, you), facts: memory.facts(), appName: c.app?.name || '', userName: firstName() };
     if (jobs?.projects().length) asked.projects = jobs.projects().map((p) => p.name); // only when there are any
     if (system === 'darwin') asked.canMessage = true; // the Mac can message on WhatsApp; Windows cannot (yet)
+    if (system === 'darwin') asked.canOpen = true; // the Mac opens apps
     const sent = c.selection;
     const selection = sent ? { selection: sent } : {};
     let from = sent ? 'selection' : null; // where the text the answer works on came from
@@ -440,6 +446,12 @@ function createActions({
       add(c, { type: 'buddy', say: MESSAGE_ASK, text: '', notes: [], buttons: [] });
       return true;
     }
+    // The same for a call, an app to open, their calls or notifications: Buddy does these by itself, so only from
+    // their own words.
+    if (second && ['call', 'open', 'calls', 'notifs'].includes(reply.kind)) {
+      add(c, { type: 'buddy', say: SECOND_ASK, text: '', notes: [], buttons: [] });
+      return true;
+    }
     return finish(c, reply, from);
   }
 
@@ -481,6 +493,7 @@ function createActions({
       && (system === 'win32' || reply.kind === 'calls' || reply.kind === 'notifs' || (reply.kind === 'call' && reply.how === 'phone'))) {
       return elsewhere(c, reply);
     }
+    if (reply.kind === 'open') return startOpen(c, reply);
     if (reply.kind === 'code') return startCode(c, reply);
     if (reply.kind === 'send') {
       add(c, { type: 'question', text: 'Send it?', buttons: ['send', 'not-now'] });
@@ -681,6 +694,23 @@ function createActions({
     else if (reply.kind === 'notifs') text = ELSEWHERE.notifs;
     else if (reply.kind === 'call') text = reply.how === 'phone' ? ELSEWHERE.phoneCall : ELSEWHERE.whatsAppCall;
     add(c, { type: 'buddy', say: '', text, notes: [], buttons: [] });
+    return true;
+  }
+
+  /** "Open Safari": opened at once, no question; the chat says it was, or which one, or why not. */
+  async function startOpen(c, reply) {
+    if (reply.say) add(c, { type: 'buddy', say: reply.say, text: '', notes: [], buttons: [] });
+    const found = apps.list();
+    const pick = pickChat(reply.app, found.map((app) => app.name));
+    const line = appLine(reply.app, pick, 'Mac');
+    if (line) {
+      add(c, { type: 'buddy', say: '', text: line, notes: [], buttons: [] });
+      return true;
+    }
+    const app = found.find((a) => a.name === pick.name);
+    const problem = await apps.open(app.path);
+    if (problem) add(c, { type: 'buddy', say: '', text: `I couldn't open ${app.name}.`, notes: [], buttons: [] });
+    else add(c, { type: 'event', text: `✅ Opened ${app.name}`, buttons: [] });
     return true;
   }
 

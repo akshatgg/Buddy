@@ -421,3 +421,46 @@ test('a drag or ⤢ before the panel ever opened does nothing', () => {
   panel.toggleSize();
   assert.strictEqual(panel.window(), null);
 });
+
+// The ear window's page: the hidden page that speaks and listens for Buddy's voice flow.
+const EAR = { name: 'the ear page' };
+const EAR_PAGE = path.join(__dirname, '..', 'src', 'renderer', 'ear', 'index.html');
+const EAR_URL = pathToFileURL(EAR_PAGE).href;
+
+function earRules() {
+  const r = permissionRules({ isPanel: (w) => w === PANEL, isEar: (w) => w === EAR });
+  return {
+    request(webContents, permission, details) {
+      let answer;
+      r.request(webContents, permission, (granted) => { answer = granted; }, details);
+      return answer;
+    },
+    check: (webContents, permission, details) => r.check(webContents, permission, 'file:///', details),
+  };
+}
+
+test('the ear page has the microphone (audio only) and nothing else', () => {
+  const r = earRules();
+  const mic = { isMainFrame: true, requestingUrl: EAR_URL, mediaTypes: ['audio'] };
+  assert.strictEqual(r.request(EAR, 'media', mic), true);
+  assert.strictEqual(r.request(EAR, 'media', { ...mic, mediaTypes: ['video'] }), false);
+  assert.strictEqual(r.request(EAR, 'media', { ...mic, mediaTypes: ['audio', 'video'] }), false);
+  assert.strictEqual(r.request(EAR, 'media', { ...mic, isMainFrame: false }), false);
+  assert.strictEqual(r.request(EAR, 'media', { ...mic, requestingUrl: PAGE_URL }), false, "not the panel's page");
+  assert.strictEqual(r.request(EAR, 'media', { ...mic, requestingUrl: 'https://example.com/' }), false);
+  for (const permission of ['notifications', 'clipboard-read', 'display-capture', 'geolocation', 'openExternal']) {
+    assert.strictEqual(r.request(EAR, permission, { isMainFrame: true, requestingUrl: EAR_URL }), false, permission);
+  }
+  const audio = { isMainFrame: true, requestingUrl: EAR_URL, mediaType: 'audio' };
+  assert.strictEqual(r.check(EAR, 'media', audio), true);
+  assert.strictEqual(r.check(EAR, 'media', { ...audio, mediaType: 'video' }), false);
+  assert.strictEqual(r.check(EAR, 'media', { ...audio, isMainFrame: false }), false);
+  assert.strictEqual(r.check(EAR, 'notifications', audio), false);
+});
+
+test("other pages still have no microphone, even at the ear page's address; the panel keeps its own", () => {
+  const r = earRules();
+  assert.strictEqual(r.request(SETTINGS, 'media', { isMainFrame: true, requestingUrl: EAR_URL, mediaTypes: ['audio'] }), false);
+  assert.strictEqual(r.request(PANEL, 'media', { isMainFrame: true, requestingUrl: EAR_URL, mediaTypes: ['audio'] }), false);
+  assert.strictEqual(r.request(PANEL, 'media', microphone()), true);
+});

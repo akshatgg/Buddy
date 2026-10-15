@@ -81,6 +81,13 @@ module.exports = {
     // through its import map (src/renderer/buddy/index.html): the glTF loader and the studio
     // environment, with the helpers the loader imports. Without them the page shows no robot.
     // A file set copies from the folder itself, which skips that rule.
+    // The ear page (src/renderer/ear) loads only vosk-browser's dist/vosk.js; the rest of the package stays out.
+    '!node_modules/vosk-browser/**',
+    {
+      from: 'node_modules/vosk-browser/dist',
+      to: 'node_modules/vosk-browser/dist',
+      filter: ['vosk.js'],
+    },
     {
       from: 'node_modules/three/examples/jsm',
       to: 'node_modules/three/examples/jsm',

@@ -10,7 +10,7 @@ const path = require('node:path');
 const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const {
-  app, clipboard, dialog, globalShortcut: systemShortcut, ipcMain, powerMonitor, safeStorage, screen, shell, systemPreferences,
+  app, BrowserWindow, clipboard, dialog, globalShortcut: systemShortcut, ipcMain, powerMonitor, safeStorage, screen, shell, systemPreferences,
 } = require('electron');
 const { createStore } = require('./store');
 const { createMemory } = require('./memory');
@@ -29,6 +29,8 @@ const { createBubbleWindow } = require('./bubble-window');
 const { createNotchWindow } = require('./notch-window');
 const { createHome } = require('./home');
 const { createPanelWindow } = require('./panel-window');
+const { createEarWindow } = require('./ear-window');
+const { createVoiceModel } = require('./voice-model');
 const { createSettingsWindows } = require('./settings-windows');
 const { installAppMenu } = require('./app-menu');
 const { createActions } = require('./actions');
@@ -139,7 +141,14 @@ async function start(options = {}) {
   // What the app tells the buddy (feelings.js): every mood is a use; the panel and the voice hold the countdown. A
   // listening that stops while the answer to a message is still on its way goes back to thinking.
   const feelings = createFeelings({ buddy, sleep, busy: () => actions.state().busy });
+  // Buddy's ear (ear-window.js): a hidden window, made when something first speaks or listens. Its page has the microphone.
+  const ear = createEarWindow({
+    BrowserWindow,
+    ipcMain,
+    model: createVoiceModel({ dir: path.join(userData, 'voice-model') }),
+  });
   const panel = createPanelWindow({
+    isEar: (webContents) => Boolean(ear.window()) && webContents === ear.window().webContents,
     store, // the size the person made the panel
     // Its page crashed or did not load, or its window was closed: a listening there is over, and the page cannot say so.
     onGone: () => ui.listening(false),
@@ -466,7 +475,7 @@ async function start(options = {}) {
   if (target.platform !== 'development') updatesIpc.launchCheck();
 
   return {
-    store, secrets, memory, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, trayState, shortcut, updater,
+    store, secrets, memory, account, cloud, ai, helper, characters, buddy, bubble, ear, panel, windows, actions, power, tray, trayState, shortcut, updater,
     home: buddy, // the same object as buddy, by the name the e2e checks for the notch use
     projects, jobs, find, live, // Claude Code (src/main/claude)
   };

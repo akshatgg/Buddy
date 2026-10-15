@@ -15,11 +15,13 @@ const prompts = require('../shared/prompts');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
 const memoryRules = require('../shared/memory-rules');
 const memorySync = require('../shared/memory-sync');
+const { pickChat, pickLine, PICK_CASES } = require('../shared/message-pick');
 
 const ROOT = path.join(__dirname, '..');
 const TO = path.join(ROOT, 'android', 'app', 'src', 'main', 'assets', 'shared.json');
 // Not shipped: what shared/prompts.js answers for some chat inputs, which the Kotlin port's tests must answer the same.
 const CASES_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'chat-cases.json');
+const PICK_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'pick-cases.json');
 
 /** The message buildPrompt refuses `input` with. */
 function refusal(action, input) {
@@ -186,12 +188,19 @@ function buildChatCases() {
   };
 }
 
+function buildPickCases() {
+  return PICK_CASES.map(([asked, names]) => {
+    const pick = pickChat(asked, names);
+    return { asked, names, pick, line: pickLine(asked, pick) };
+  });
+}
+
 if (require.main === module) {
-  for (const [to, made] of [[TO, buildShared()], [CASES_TO, buildChatCases()]]) {
+  for (const [to, made] of [[TO, buildShared()], [CASES_TO, buildChatCases()], [PICK_TO, buildPickCases()]]) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.writeFileSync(to, `${JSON.stringify(made, null, 2)}\n`);
     console.log(`wrote ${path.relative(ROOT, to)}`);
   }
 }
 
-module.exports = { buildShared, buildChatCases, TO, CASES_TO };
+module.exports = { buildShared, buildChatCases, buildPickCases, TO, CASES_TO, PICK_TO };

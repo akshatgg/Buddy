@@ -1,0 +1,150 @@
+[
+  {
+    "asked": "Priya",
+    "names": [
+      "Rahul Verma",
+      "Priya Sharma",
+      "Coorg trip"
+    ],
+    "pick": {
+      "kind": "one",
+      "name": "Priya Sharma"
+    },
+    "line": null
+  },
+  {
+    "asked": "  priyá  ",
+    "names": [
+      "‎Priya Sharma"
+    ],
+    "pick": {
+      "kind": "one",
+      "name": "‎Priya Sharma"
+    },
+    "line": null
+  },
+  {
+    "asked": "Priya Sharma",
+    "names": [
+      "Priya Sharma",
+      "Priya Sharma Office"
+    ],
+    "pick": {
+      "kind": "one",
+      "name": "Priya Sharma"
+    },
+    "line": null
+  },
+  {
+    "asked": "mummy",
+    "names": [
+      "Mummy Office",
+      "Mummy"
+    ],
+    "pick": {
+      "kind": "one",
+      "name": "Mummy"
+    },
+    "line": null
+  },
+  {
+    "asked": "Priya",
+    "names": [
+      "Priya Sharma",
+      "Priya Verma"
+    ],
+    "pick": {
+      "kind": "choose",
+      "names": [
+        "Priya Sharma",
+        "Priya Verma"
+      ]
+    },
+    "line": "Which Priya: Priya Sharma or Priya Verma? Tell me the full name."
+  },
+  {
+    "asked": "Priya",
+    "names": [
+      "Priya Sharma",
+      "Priya Verma",
+      "Priya K"
+    ],
+    "pick": {
+      "kind": "choose",
+      "names": [
+        "Priya Sharma",
+        "Priya Verma",
+        "Priya K"
+      ]
+    },
+    "line": "Which Priya: Priya Sharma, Priya Verma or Priya K? Tell me the full name."
+  },
+  {
+    "asked": "Priya Ver",
+    "names": [
+      "Priya Sharma",
+      "Priya Verma"
+    ],
+    "pick": {
+      "kind": "one",
+      "name": "Priya Verma"
+    },
+    "line": null
+  },
+  {
+    "asked": "riya",
+    "names": [
+      "Priya Sharma"
+    ],
+    "pick": {
+      "kind": "none"
+    },
+    "line": "I couldn't find riya on WhatsApp."
+  },
+  {
+    "asked": "Priya",
+    "names": [
+      "Priya Sharma",
+      "Priya Sharma"
+    ],
+    "pick": {
+      "kind": "one",
+      "name": "Priya Sharma"
+    },
+    "line": null
+  },
+  {
+    "asked": "Zoya",
+    "names": [
+      "Priya Sharma"
+    ],
+    "pick": {
+      "kind": "none"
+    },
+    "line": "I couldn't find Zoya on WhatsApp."
+  },
+  {
+    "asked": "a",
+    "names": [
+      "A b",
+      "A c",
+      "A d",
+      "A e",
+      "A f"
+    ],
+    "pick": {
+      "kind": "many"
+    },
+    "line": "I found lots of people called a. Tell me the full name."
+  },
+  {
+    "asked": "",
+    "names": [
+      "Priya"
+    ],
+    "pick": {
+      "kind": "none"
+    },
+    "line": "I couldn't find  on WhatsApp."
+  }
+]

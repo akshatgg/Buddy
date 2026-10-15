@@ -10,15 +10,16 @@ import kotlinx.coroutines.withContext
 /** What Buddy's Accessibility service can do in WhatsApp's chat screen. */
 interface ChatScreen {
     fun on(): Boolean
-    suspend fun chatName(app: String): String?
-    suspend fun pressSend(app: String): Boolean
+    suspend fun chat(app: String): ChatState?
+    suspend fun pressSend(app: String, name: String, text: String): Boolean
 }
 
 /** The chat screen through Buddy's Accessibility service (LookService), which reads it off the main thread. */
 class ServiceChatScreen(private val context: Context) : ChatScreen {
     override fun on() = LookService.isEnabled(context) && LookService.running != null
-    override suspend fun chatName(app: String) = withContext(Dispatchers.Default) { LookService.running?.whatsAppChat(app) }
-    override suspend fun pressSend(app: String) = withContext(Dispatchers.Default) { LookService.running?.pressWhatsAppSend(app) == true }
+    override suspend fun chat(app: String) = withContext(Dispatchers.Default) { LookService.running?.whatsAppChat(app) }
+    override suspend fun pressSend(app: String, name: String, text: String) =
+        withContext(Dispatchers.Default) { LookService.running?.pressWhatsAppSend(app, name, text) == true }
 }
 
 /** Who "Priya" is: one person, or what Buddy says instead (`code` says which part of Settings fixes it). */
@@ -27,10 +28,13 @@ sealed interface Found {
     data class Say(val line: String, val code: String? = null) : Found
 }
 
-/** How a send ended: sent, or not, and why (`code` says which part of Settings fixes it). */
+/**
+ * How a send ended: sent, or not, and why (`code` says which part of Settings fixes it). `inWhatsApp`: the text waits
+ * in the person's chat for them to send themselves, so Buddy must not offer to send it again.
+ */
 sealed interface Sent {
     data object Done : Sent
-    data class Failed(val line: String, val code: String? = null) : Sent
+    data class Failed(val line: String, val code: String? = null, val inWhatsApp: Boolean = false) : Sent
 }
 
 /** What the chat panel needs for a message: who, then send. */
@@ -43,11 +47,12 @@ private const val OPEN_WAIT_MS = 8_000L
 private const val STEP_MS = 250L
 private const val MAIN_APP = "com.whatsapp"
 private const val NO_WHATSAPP = "WhatsApp isn't on this phone."
+private const val READY_THERE = "It's ready in WhatsApp. Turn on Buddy in Accessibility so I can press Send for you."
 
 /**
  * Messaging someone on WhatsApp, the steps in order. find(): who "Priya" is, among the phone's WhatsApp contacts.
  * send(), only after the person said yes: open the chat with the text in its box, wait until WhatsApp shows that
- * chat, check its name, press Send. Nothing is sent when anything is off; the text then waits in WhatsApp's box.
+ * chat with that text in its box, check both again at the press, press Send. Nothing is sent when anything is off.
  */
 class Messenger(
     private val whatsApp: WhatsApp,
@@ -81,20 +86,27 @@ class Messenger(
         } catch (e: ActivityNotFoundException) {
             return Sent.Failed(NO_WHATSAPP) // uninstalled since the card was shown
         }
-        if (!screen.on()) return Sent.Failed("It's ready in WhatsApp. Turn on Buddy in Accessibility so I can press Send for you.", "no_accessibility")
-        // WhatsApp may still show the chat it had open before for a moment: Buddy waits for this one's name.
-        var name: String? = null
+        if (!screen.on()) return Sent.Failed(READY_THERE, "no_accessibility", inWhatsApp = true)
+        // WhatsApp may still show the chat it had open before for a moment, or this person's chat with an old draft
+        // before it puts the new text in: Buddy waits until the chat is theirs with exactly this text in its box, and
+        // looks for the first time only after a step (never at once, while WhatsApp may not have switched yet).
+        var seen: ChatState? = null
         var waited = 0L
-        while (true) {
-            name = screen.chatName(person.app) ?: name
-            if (name != null && sameName(name, person.name)) break
-            if (waited >= OPEN_WAIT_MS) break
+        while (waited < OPEN_WAIT_MS) {
             wait(STEP_MS)
             waited += STEP_MS
+            val now = screen.chat(person.app) ?: continue
+            seen = now
+            if (now.readyFor(person.name, text)) {
+                // Checked once more at the press, on the screen Send is found on.
+                return if (screen.pressSend(person.app, person.name, text)) Sent.Done
+                else Sent.Failed("I couldn't press Send. It's ready in WhatsApp: press Send yourself.", inWhatsApp = true)
+            }
         }
-        if (name == null) return Sent.Failed("WhatsApp didn't open ${person.name}'s chat, so I didn't send it.")
-        if (!sameName(name, person.name)) return Sent.Failed("That opened the wrong chat, so I didn't send it.")
-        return if (screen.pressSend(person.app)) Sent.Done
-        else Sent.Failed("I couldn't press Send. It's ready in WhatsApp: press Send yourself.")
+        return when {
+            seen == null -> Sent.Failed("WhatsApp didn't open ${person.name}'s chat, so I didn't send it.")
+            !sameName(seen.name, person.name) -> Sent.Failed("That opened the wrong chat, so I didn't send it.")
+            else -> Sent.Failed("WhatsApp didn't put the message in, so I didn't send it.")
+        }
     }
 }

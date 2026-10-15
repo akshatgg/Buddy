@@ -95,6 +95,7 @@ private const val NOT_FOUND = "I couldn't find it. Select the text and ask me ag
 private const val VOICE_OFF = "Voice isn't set up yet."
 private const val BOX_CHANGED = "That box has changed since, so I left it."
 private const val NOT_SENT = "Okay, not sent."
+private const val IN_WHATSAPP = "It's in WhatsApp, ready for you to send."
 
 private enum class From { NOTHING, SELECTION, BOX }
 
@@ -508,7 +509,8 @@ class PanelModel(
 
     /**
      * Send on a message card, out of the way: WhatsApp opens the chat, Buddy checks it is theirs and presses Send.
-     * When it was not sent, the card stays, to press Send again, and a red line says why.
+     * When it was not sent, a red line says why and the card stays, to press Send again; but when the text was left
+     * in their chat for them to send (Accessibility off, Send not pressed), the card only says so.
      */
     private suspend fun sendMessage(c: Chat, id: Int) {
         val (person, text) = c.messages[id] ?: return
@@ -521,6 +523,11 @@ class PanelModel(
                 mood(Mood.HAPPY)
             }
             is Sent.Failed -> {
+                if (sent.inWhatsApp) {
+                    // The text waits in their chat for them to press Send: offering Send again could send it twice.
+                    c.messages.remove(id)
+                    replaceItem(c, ChatEvent(id, IN_WHATSAPP))
+                }
                 val code = sent.code ?: "message_failed"
                 add(c) { ChatError(it, sent.line, code, if (code in SETTINGS_ERRORS) listOf(ChatButton.SETTINGS) else emptyList()) }
                 say(sent.line)

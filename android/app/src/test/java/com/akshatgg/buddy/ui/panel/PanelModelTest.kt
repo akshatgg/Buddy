@@ -70,12 +70,14 @@ private class FakeFacts : Facts {
 private class FakeMessaging(val log: MutableList<String>) : Messaging {
     val found = ArrayDeque<Found>()
     val sent = ArrayDeque<Sent>()
+    var sending: CompletableDeferred<Unit>? = null // a send that takes until this is completed
     override suspend fun find(asked: String): Found {
         log += "find $asked"
         return found.removeFirstOrNull() ?: Found.Say("I couldn't find $asked on WhatsApp.")
     }
     override suspend fun send(person: Person, text: String): Sent {
         log += "send ${person.name}: $text"
+        sending?.await()
         return sent.removeFirstOrNull() ?: Sent.Done
     }
 }
@@ -757,22 +759,82 @@ class PanelModelTest {
     @Test fun aSendThatFailsSaysWhyAndTheCardStays() = runTest {
         answers(message())
         messaging.found += Found.One(priya)
-        messaging.sent += Sent.Failed("It's ready in WhatsApp. Turn on Buddy in Accessibility so I can press Send for you.", "no_accessibility")
         messaging.sent += Sent.Failed("That opened the wrong chat, so I didn't send it.")
+        messaging.sent += Sent.Failed("WhatsApp didn't put the message in, so I didn't send it.")
         val m = model()
         m.say("message Priya I'm late")
         advanceUntilIdle()
         val card = m.last()
         m.press(2, ChatButton.SEND_MESSAGE)
         advanceUntilIdle()
-        assertEquals(ChatError(3, "It's ready in WhatsApp. Turn on Buddy in Accessibility so I can press Send for you.", "no_accessibility", listOf(ChatButton.SETTINGS)), m.last())
-        assertEquals("It's ready in WhatsApp. Turn on Buddy in Accessibility so I can press Send for you.", said.last())
+        assertEquals(ChatError(3, "That opened the wrong chat, so I didn't send it.", "message_failed", emptyList()), m.last())
+        assertEquals("That opened the wrong chat, so I didn't send it.", said.last())
         assertEquals(card, m.items.first { it.id == 2 })
         m.press(2, ChatButton.SEND_MESSAGE) // pressed again: tried again
         advanceUntilIdle()
-        assertEquals(ChatError(4, "That opened the wrong chat, so I didn't send it.", "message_failed", emptyList()), m.last())
+        assertEquals(ChatError(4, "WhatsApp didn't put the message in, so I didn't send it.", "message_failed", emptyList()), m.last())
         assertEquals(card, m.items.first { it.id == 2 })
         assertEquals(2, log.count { it.startsWith("send") })
+    }
+
+    @Test fun textLeftInWhatsAppForThemToSendEndsTheCard() = runTest {
+        answers(message(), message())
+        messaging.found += Found.One(priya)
+        messaging.found += Found.One(priya)
+        messaging.sent += Sent.Failed("It's ready in WhatsApp. Turn on Buddy in Accessibility so I can press Send for you.", "no_accessibility", inWhatsApp = true)
+        messaging.sent += Sent.Failed("I couldn't press Send. It's ready in WhatsApp: press Send yourself.", inWhatsApp = true)
+        val m = model()
+        m.say("message Priya I'm late")
+        advanceUntilIdle()
+        m.press(2, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "It's in WhatsApp, ready for you to send."), m.items.first { it.id == 2 })
+        assertEquals(ChatError(3, "It's ready in WhatsApp. Turn on Buddy in Accessibility so I can press Send for you.", "no_accessibility", listOf(ChatButton.SETTINGS)), m.last())
+        assertEquals("It's ready in WhatsApp. Turn on Buddy in Accessibility so I can press Send for you.", said.last())
+        m.press(2, ChatButton.SEND_MESSAGE) // no second send: the text is waiting in WhatsApp
+        advanceUntilIdle()
+        assertEquals(1, log.count { it.startsWith("send") })
+
+        m.say("message Priya I'm late")
+        advanceUntilIdle()
+        val card = m.last().id
+        m.press(card, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(card, "It's in WhatsApp, ready for you to send."), m.items.first { it.id == card })
+        assertEquals(ChatError(card + 1, "I couldn't press Send. It's ready in WhatsApp: press Send yourself.", "message_failed", emptyList()), m.last())
+        assertEquals("I couldn't press Send. It's ready in WhatsApp: press Send yourself.", said.last())
+        m.press(card, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertEquals(2, log.count { it.startsWith("send") })
+    }
+
+    @Test fun notNowWhileItIsBeingSentLeavesTheCard() = runTest {
+        answers(message())
+        messaging.found += Found.One(priya)
+        val m = model()
+        m.say("message Priya I'm late")
+        advanceUntilIdle()
+        val card = m.last()
+        val sending = CompletableDeferred<Unit>().also { messaging.sending = it }
+        m.press(2, ChatButton.SEND_MESSAGE)
+        runCurrent()
+        assertEquals("send Priya Sharma: I'm late", log.last())
+        m.press(2, ChatButton.NOT_NOW)
+        runCurrent()
+        assertEquals(card, m.items.first { it.id == 2 })
+        sending.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "✅ Sent to Priya Sharma"), m.items.first { it.id == 2 })
+        assertFalse(m.items.any { it is ChatEvent && it.text == "Okay, not sent." })
+    }
+
+    @Test fun aCodeNotFixedInSettingsGetsNoButton() = runTest {
+        answers(message())
+        messaging.found += Found.Say("Something about Priya.", "not_in_settings")
+        val m = model()
+        m.say("message Priya I'm late")
+        advanceUntilIdle()
+        assertEquals(ChatError(2, "Something about Priya.", "not_in_settings", emptyList()), m.last())
     }
 
     @Test fun whatBuddySaysComesBeforeTheCard() = runTest {

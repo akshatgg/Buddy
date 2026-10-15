@@ -58,7 +58,7 @@ interface ChatHost {
 class ChatViewModel : ViewModel() {
     var host: ChatHost? = null
     private var picture: CompletableDeferred<ActivityResult>? = null
-    private var contactsAnswer: CompletableDeferred<Boolean>? = null
+    private val contactsAnswer = PendingAnswer(none = false)
     private val graph = AppGraph.instance
     private val app = graph.appContext
 
@@ -95,7 +95,7 @@ class ChatViewModel : ViewModel() {
 
     /** Android's answer to "Allow Buddy to access your contacts?", from the activity that asked. */
     fun contactsAnswered(allowed: Boolean) {
-        contactsAnswer?.complete(allowed)
+        contactsAnswer.answered(allowed)
     }
 
     /**
@@ -105,14 +105,7 @@ class ChatViewModel : ViewModel() {
     private suspend fun contacts(): Boolean {
         if (ContextCompat.checkSelfPermission(app, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) return true
         val ask = host?.contacts ?: return false
-        val answer = CompletableDeferred<Boolean>()
-        contactsAnswer = answer
-        ask.launch(Manifest.permission.READ_CONTACTS)
-        return try {
-            answer.await()
-        } finally {
-            contactsAnswer = null
-        }
+        return contactsAnswer.ask { ask.launch(Manifest.permission.READ_CONTACTS) }
     }
 
     /**
@@ -154,8 +147,13 @@ class ChatViewModel : ViewModel() {
         }
     }
 
-    /** The panel was closed: an answer still on its way is let go of. */
+    /**
+     * The panel was closed: an answer still on its way is let go of, and a wait for the contacts question ends as a
+     * no (nobody is left to answer it). Not when only the activity goes, on a turn of the phone: Android gives the
+     * answer to the next one then.
+     */
     override fun onCleared() {
+        contactsAnswer.giveUp()
         model.close()
     }
 }

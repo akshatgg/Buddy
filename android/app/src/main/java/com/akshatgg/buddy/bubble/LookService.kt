@@ -18,6 +18,7 @@ import android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTE
 import android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY
 import androidx.core.os.BundleCompat
 import com.akshatgg.buddy.AppGraph
+import com.akshatgg.buddy.message.ChatState
 import com.akshatgg.buddy.message.WhatsAppScreen
 import com.akshatgg.buddy.typing.BoxText
 import com.akshatgg.buddy.typing.Tag
@@ -192,7 +193,7 @@ class LookService : AccessibilityService() {
         byId = { root, id -> root.findAccessibilityNodeInfosByViewId(id).orEmpty() },
         text = { it.text?.toString() }, describe = { it.contentDescription?.toString() },
         kids = { n -> (0 until n.childCount).mapNotNull { n.getChild(it) } },
-        idOf = { it.viewIdResourceName },
+        idOf = { it.viewIdResourceName }, hint = { it.isShowingHintText },
     )
 
     /**
@@ -212,21 +213,25 @@ class LookService : AccessibilityService() {
         return null
     }
 
-    /** The name at the top of the open WhatsApp chat, or null when WhatsApp (`app`) is not showing a chat. Off the main thread. */
-    fun whatsAppChat(app: String): String? {
+    /** The open WhatsApp chat (its name and its box), or null when WhatsApp (`app`) is not showing a chat. Off the main thread. */
+    fun whatsAppChat(app: String): ChatState? {
         val root = appRoot(app) ?: return null
         try {
-            return whatsApp.chatName(root, app)
+            return whatsApp.chat(root, app)
         } finally {
             recycle(root)
         }
     }
 
-    /** Presses Send in the open WhatsApp chat. False when it is not there or did not take the press. Off the main thread. */
-    fun pressWhatsAppSend(app: String): Boolean {
+    /**
+     * Presses Send in the open WhatsApp chat, only when the screen it is found on still shows `name`'s chat with
+     * exactly `text` in its box (checked at the press, as the chat may have changed since Buddy last looked). False
+     * when anything is off, Send is not there, or it did not take the press. Off the main thread.
+     */
+    fun pressWhatsAppSend(app: String, name: String, text: String): Boolean {
         val root = appRoot(app) ?: return false
         try {
-            val send = whatsApp.sendButton(root, app) ?: return false
+            val send = whatsApp.sendButtonFor(root, app, name, text) ?: return false
             return send.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         } finally {
             recycle(root)

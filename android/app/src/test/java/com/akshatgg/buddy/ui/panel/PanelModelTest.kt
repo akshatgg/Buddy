@@ -212,7 +212,7 @@ class PanelModelTest {
 
     private fun answers(vararg r: ChatReply) = replies.addAll(r)
 
-    private fun model(scope: CoroutineScope, name: String = "Akshat") = PanelModel(
+    private fun model(scope: CoroutineScope, name: String = "Akshat", ready: String? = null) = PanelModel(
         ask = { action, input -> assertEquals(Action.CHAT, action); asked += input; reply(input) },
         scope = scope,
         bubble = { events += it },
@@ -236,9 +236,10 @@ class PanelModelTest {
         lock = lock,
         firstName = { name },
         now = { clock },
+        readyLine = ready ?: "Your answer is ready. Open me to see it.",
     ).apply { open() }
 
-    private fun TestScope.model(name: String = "Akshat") = model(this, name)
+    private fun TestScope.model(name: String = "Akshat", ready: String? = null) = model(this, name, ready)
 
     private fun PanelModel.say(text: String) {
         setDraft(text)
@@ -595,6 +596,20 @@ class PanelModelTest {
         m.press(m.buddy().id, ChatButton.INSERT) // not stuck: the next press works
         advanceUntilIdle()
         assertEquals("Dear Sir," to 9, typeIn.writes.last())
+    }
+
+    @Test fun theLineForAnAnswerThatWaitsCanBeAnother() = runTest {
+        answers(written("Dear Sir,", doIt = true))
+        val gate = CompletableDeferred<Unit>()
+        val inner = reply
+        reply = { gate.await(); inner(it) }
+        val m = model(ready = "Open me and ask again, and I'll write it.")
+        m.say("reply to this")
+        runCurrent()
+        m.hidden()
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(listOf("Open me and ask again, and I'll write it."), said)
     }
 
     @Test fun anAnswerThatComesWhileThePanelIsHiddenWaitsInTheChat() = runTest {

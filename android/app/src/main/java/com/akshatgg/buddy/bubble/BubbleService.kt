@@ -101,7 +101,7 @@ class BubbleService : LifecycleService() {
     // "Hey <name>": the microphone is only ever started from an app screen (ACTION_LISTEN); see WakeControl.
     private var listening = false // this service is a microphone one now
     private val wakeControl by lazy {
-        WakeControl(this, AppGraph.instance, lifecycleScope) { _ -> } // the request is taken in the next step (HandsFree)
+        WakeControl(this, AppGraph.instance, lifecycleScope) { wav -> AppGraph.instance.handsFree.request(wav) }
     }
 
     // The person can take "Display over other apps" away in the phone's settings while Buddy runs. Android then hides

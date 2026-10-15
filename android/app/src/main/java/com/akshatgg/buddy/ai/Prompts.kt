@@ -32,6 +32,8 @@ data class AskInput(
     val appName: String? = null,
     val userName: String? = null,
     val step: Int? = null,
+    /** The chat's: this app can message people on WhatsApp (the panel's chat says so; the iPhone web app does not). */
+    val canMessage: Boolean? = null,
 )
 
 /** A chat answer as parseChat reads it (shared/prompts.js): never null, whatever the AI wrote. */

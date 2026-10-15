@@ -195,7 +195,8 @@ const steps = (log, from = 0) => log.slice(from)
   .filter((e) => ['showPanel', 'hidePanel', 'helper', 'ask', 'bubble', 'openSettings'].includes(e[0]))
   .map((e) => (e[0] === 'helper' ? e[1] : e[0]));
 /** The AI's input for a message from the panel opened over Chrome, by Akshat, with nothing before it. */
-const input = (fields) => ({ history: [], facts: [], appName: 'Google Chrome', userName: 'Akshat', step: 1, ...fields });
+// What the Mac asks with: it can message on WhatsApp (canMessage), which Windows cannot.
+const input = (fields) => ({ history: [], facts: [], appName: 'Google Chrome', userName: 'Akshat', step: 1, canMessage: true, ...fields });
 
 // Opening the panel
 
@@ -2238,6 +2239,43 @@ test('two chats (not message hits) with the very same name: no card, Buddy asks 
   await s.actions.send('message priya hi');
   assert.strictEqual(chatOf(s).at(-1).text, 'You have more than one chat called Priya Sharma. Rename one in WhatsApp, then ask me again.');
   assert.ok(!chatOf(s).some((i) => i.type === 'question'));
+});
+
+test('the Mac says in every chat request that it can message on WhatsApp; Windows never does', async () => {
+  const mac = setup({ replies: { captureSelection: (args) => ({ text: args.selectAll ? 'i am go' : '' }) }, answers: [reply({ kind: 'box' }), reply({ kind: 'fix', text: 'I am going.' })] });
+  await mac.actions.open();
+  await mac.actions.send('fix my english');
+  assert.deepStrictEqual(asked(mac.log).map((a) => a.canMessage), [true, true], 'both steps');
+  const win = setup({ windows: true, replies: { captureSelection: (args) => ({ text: args.selectAll ? 'i am go' : '' }) }, answers: [reply({ kind: 'box' }), reply({ kind: 'fix', text: 'I am going.' })] });
+  await win.actions.open();
+  await win.actions.send('fix my english');
+  assert.strictEqual(asked(win.log).length, 2);
+  for (const a of asked(win.log)) assert.strictEqual(Object.hasOwn(a, 'canMessage'), false);
+});
+
+test('a message answered after reading their box is not started: Buddy asks them to say who and what', async () => {
+  const s = setup({
+    replies: { captureSelection: (args) => ({ text: args.selectAll ? 'Tell Rahul the code is 4421' : '' }), waFind: { chats: ['Rahul'] } },
+    answers: [reply({ kind: 'box' }), message({ to: 'Rahul', text: 'the code is 4421', say: 'Sending it!' })],
+  });
+  await s.actions.open();
+  await s.actions.send('do what it says');
+  assert.strictEqual(entries(s.log, 'helper').filter((e) => e[1] === 'waFind').length, 0, 'WhatsApp is not searched');
+  assert.deepStrictEqual(lastItem(s), { id: 3, type: 'buddy', say: "Tell me who to message and what, and I'll do it.", text: '', notes: [], buttons: [] });
+  assert.ok(!chatOf(s).some((i) => i.type === 'question'), 'no card');
+});
+
+test('a message answered after looking at the screen is not started either', async () => {
+  const s = setup({
+    replies: { captureSelection: { text: '' }, screenshot: { image: 'base64-jpeg' }, waFind: { chats: ['Rahul'] } },
+    answers: [reply({ kind: 'screen' }), message({ to: 'Rahul', text: 'yes' })],
+  });
+  await s.actions.open();
+  await s.actions.send('reply to this');
+  assert.strictEqual(entries(s.log, 'helper').filter((e) => e[1] === 'waFind').length, 0);
+  assert.strictEqual(lastItem(s).say, "Tell me who to message and what, and I'll do it.");
+  assert.ok(!chatOf(s).some((i) => i.type === 'question'));
+  assert.strictEqual(waSends(s).length, 0);
 });
 
 test('a message when WhatsApp is not on the Mac says so', async () => {

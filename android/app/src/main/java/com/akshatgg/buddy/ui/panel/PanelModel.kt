@@ -96,6 +96,8 @@ private const val VOICE_OFF = "Voice isn't set up yet."
 private const val BOX_CHANGED = "That box has changed since, so I left it."
 private const val NOT_SENT = "Okay, not sent."
 private const val IN_WHATSAPP = "It's in WhatsApp, ready for you to send."
+// A "message" answer to a second step: who and what may be someone else's words, read in their box or on the screen.
+private const val MESSAGE_ASK = "Tell me who to message and what, and I'll do it."
 
 private enum class From { NOTHING, SELECTION, BOX }
 
@@ -389,10 +391,12 @@ class PanelModel(
             facts = facts.facts().map { it.text },
             appName = c.app.ifEmpty { null },
             userName = firstName().trim().ifEmpty { null },
+            canMessage = true, // this app can message on WhatsApp
         )
         val sent = c.selection
         val selection = sent.ifEmpty { null }
         var from = if (sent.isEmpty()) From.NOTHING else From.SELECTION
+        var second = false // whether the answer is to a second step
         var reply = askChat(base.copy(selection = selection, step = 1))
         if (c !== chat) return Outcome.GONE
         // Facts come from this first answer only: the second one has read the box or the screen, whose text could
@@ -410,6 +414,7 @@ class PanelModel(
             reply = askChat(base.copy(box = box.text, step = 2)) // the box takes the place of the selection
             if (c !== chat) return Outcome.GONE
             from = From.BOX
+            second = true
         } else if (reply.kind == "screen") {
             if (!shown) {
                 add(c) { BuddySaid(it, LOOK_AGAIN, "", emptyList(), emptyList()) }
@@ -422,12 +427,19 @@ class PanelModel(
             publish()
             reply = askChat(base.copy(selection = selection, image = image, step = 2))
             if (c !== chat) return Outcome.GONE
+            second = true
         }
         busy = false // the answer is in: what is left is Buddy's own work
         publish()
         if (reply.kind == "box" || reply.kind == "screen") return stop(c, "not_found", NOT_FOUND)
         // The selection went with this message: the next one goes without it.
         if (c.selection == sent) c.selection = ""
+        // A message only from a first answer: a second one has read their box or the screen, whose words (a mail
+        // someone sent them, a web page) could say who to message and what. Nobody is looked up; Buddy asks them.
+        if (second && reply.kind == "message") {
+            add(c) { BuddySaid(it, MESSAGE_ASK, "", emptyList(), emptyList()) }
+            return Outcome.ANSWERED
+        }
         return finish(c, reply, from, sent)
     }
 

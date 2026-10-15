@@ -56,6 +56,7 @@ internal fun chatPrompt(shared: Shared, input: AskInput): Prompt {
     val who = listOfNotNull(appName.ifEmpty { null }?.let { "The app they are in: $it" }, userName.ifEmpty { null }?.let { "Their first name: $it" })
     if (who.isNotEmpty()) parts += who.joinToString("\n")
     if (facts.isNotEmpty()) parts += "What you know about them:\n" + facts.joinToString("\n") { "- $it" }
+    if (input.canMessage == true) parts += "Buddy can message people on WhatsApp from here."
     if (history.isNotEmpty()) parts += "Chat so far (oldest first):\n" + history.joinToString("\n")
     if (selection.isNotEmpty()) parts += "Selected text:\n${quoted(selection)}"
     if (box.isNotEmpty()) parts += "Their text box:\n${quoted(box)}"

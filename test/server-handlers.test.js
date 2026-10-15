@@ -355,6 +355,15 @@ test('ask: a chat is counted, answered with the chat prompt, and comes back read
   assert.ok(!s.db.state.calls.includes('refundRequest'));
 });
 
+test('ask: a chat from an app that can message on WhatsApp says so to the AI; one that does not say it, does not', async () => {
+  const line = 'Buddy can message people on WhatsApp from here.';
+  const s = setup({ stored: freeDaily(5), reply: chatReply('answer', { text: 'Hi!' }) });
+  await s.run(ask, 'POST', { body: { action: 'chat', message: 'message priya hi', canMessage: true, step: 1 } });
+  await s.run(ask, 'POST', { body: { action: 'chat', message: 'message priya hi', step: 1 } });
+  assert.ok(s.completes[0].user.includes(line));
+  assert.ok(!s.completes[1].user.includes(line), 'an older app, or the iPhone web app');
+});
+
 test('ask: a chat whose first answer wants the text box or the screen is given back: one question costs one request', async () => {
   for (const kind of ['box', 'screen']) {
     for (const step of [undefined, 1]) {

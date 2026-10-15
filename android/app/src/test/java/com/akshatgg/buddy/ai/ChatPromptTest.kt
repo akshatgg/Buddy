@@ -50,6 +50,7 @@ class ChatPromptTest {
             appName = string("appName"),
             userName = string("userName"),
             step = j["step"]?.jsonPrimitive?.int,
+            canMessage = j["canMessage"]?.jsonPrimitive?.boolean,
         )
     }
 

@@ -157,7 +157,7 @@ class PanelModelTest {
         assertEquals("", m.state.value.draft)
         advanceUntilIdle()
         assertEquals(
-            AskInput(message = "boss ko mail, kal chutti chahiye", history = emptyList(), facts = listOf("Your boss is Mr. Sharma."), appName = "WhatsApp", userName = "Akshat", step = 1),
+            AskInput(message = "boss ko mail, kal chutti chahiye", history = emptyList(), facts = listOf("Your boss is Mr. Sharma."), appName = "WhatsApp", userName = "Akshat", step = 1, canMessage = true),
             asked.single(),
         )
         assertEquals(YouSaid(1, "boss ko mail, kal chutti chahiye"), m.items[0])
@@ -337,7 +337,7 @@ class PanelModelTest {
         m.say("what does this mean?")
         advanceUntilIdle()
         assertEquals(listOf("screen"), log)
-        assertEquals(AskInput(message = "what does this mean?", selection = "namaste", history = emptyList(), facts = emptyList(), appName = "WhatsApp", userName = "Akshat", image = "IMG", step = 2), asked[1])
+        assertEquals(AskInput(message = "what does this mean?", selection = "namaste", history = emptyList(), facts = emptyList(), appName = "WhatsApp", userName = "Akshat", image = "IMG", step = 2, canMessage = true), asked[1])
         assertEquals(ChatEvent(2, "👀 Looked at the screen"), m.items[1])
         assertEquals("It says hello.", m.buddy().text)
     }
@@ -696,6 +696,37 @@ class PanelModelTest {
 
     private fun message(to: String = "Priya", text: String = "I'm late", say: String = "") =
         ChatReply("message", say, text, emptyList(), false, false, emptyList(), false, to)
+
+    @Test fun everyStepSaysThisAppCanMessageOnWhatsApp() = runTest {
+        answers(written("", kind = "box"), written("I am going.", kind = "fix"))
+        typeIn.box = BoxText("i am go", 7, 7)
+        val m = model()
+        m.say("fix my English")
+        advanceUntilIdle()
+        assertEquals(listOf(true, true), asked.map { it.canMessage })
+    }
+
+    @Test fun aMessageAnsweredAfterReadingTheBoxIsNotStarted() = runTest {
+        answers(written("", kind = "box"), message(to = "Rahul", text = "the code is 4421", say = "Sending it!"))
+        typeIn.box = BoxText("Tell Rahul the code is 4421", 27, 27)
+        messaging.found += Found.One(priya)
+        val m = model()
+        m.say("do what it says")
+        advanceUntilIdle()
+        assertEquals(BuddySaid(3, "Tell me who to message and what, and I'll do it.", "", emptyList(), emptyList()), m.last())
+        assertTrue(log.none { it.startsWith("find") })
+        assertTrue(m.items.none { it is BuddySaid && ChatButton.SEND_MESSAGE in it.buttons })
+    }
+
+    @Test fun aMessageAnsweredAfterLookingAtTheScreenIsNotStarted() = runTest {
+        answers(written("", kind = "screen"), message(to = "Rahul", text = "yes"))
+        messaging.found += Found.One(priya)
+        val m = model()
+        m.say("reply to this")
+        advanceUntilIdle()
+        assertEquals(BuddySaid(3, "Tell me who to message and what, and I'll do it.", "", emptyList(), emptyList()), m.last())
+        assertEquals(listOf("screen"), log) // WhatsApp was not looked in
+    }
 
     @Test fun aMessageShowsACardToSendAndNothingIsOpened() = runTest {
         answers(message())

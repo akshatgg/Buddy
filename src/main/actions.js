@@ -63,6 +63,8 @@ const NO_PROJECT = 'Add a project folder in Settings → Claude Code first.';
 const MESSAGE_ELSEWHERE = 'I can message on WhatsApp from the Mac and Android apps for now.';
 const MESSAGE_WAITS = "It's in WhatsApp, ready for you to send.";
 const MESSAGE_UNSURE = "I'm not sure it went. Check WhatsApp.";
+// A "message" answer to a second step: who and what may be someone else's words, read in their box or on the screen.
+const MESSAGE_ASK = "Tell me who to message and what, and I'll do it.";
 const UNKNOWN_END = ['timeout', 'helper_exit'];
 
 /** The Settings section where the fix for an error is, or undefined for Settings' start. */
@@ -389,9 +391,11 @@ function createActions({
   async function answer(c, you) {
     const asked = { message: you.text, history: historyBefore(c, you), facts: memory.facts(), appName: c.app?.name || '', userName: firstName() };
     if (jobs?.projects().length) asked.projects = jobs.projects().map((p) => p.name); // only when there are any
+    if (system === 'darwin') asked.canMessage = true; // the Mac can message on WhatsApp; Windows cannot (yet)
     const sent = c.selection;
     const selection = sent ? { selection: sent } : {};
     let from = sent ? 'selection' : null; // where the text the answer works on came from
+    let second = false; // whether the answer is to a second step
     let reply = await ask({ ...asked, ...selection, step: 1 });
     if (c !== chat) return false; // closed meanwhile: this answer belongs to a chat that is over
     // Facts come from this first answer only: the second one has read the person's box or screen, whose text (a mail
@@ -405,6 +409,7 @@ function createActions({
       reply = await ask({ ...asked, box, step: 2 }); // the box takes the place of the selection
       if (c !== chat) return false;
       from = 'box';
+      second = true;
     } else if (reply.kind === 'screen') {
       if (!c.app) return stop(c, 'no_app', 'Open me from the app you want me to check.');
       if (!present(c)) {
@@ -423,12 +428,19 @@ function createActions({
       push(c);
       reply = await ask({ ...asked, ...selection, image, step: 2 });
       if (c !== chat) return false;
+      second = true;
     }
     c.busy = false; // the answer is in: what is left is Buddy's own work
     if (reply.kind === 'box' || reply.kind === 'screen') return stop(c, 'not_found', "I couldn't find it. Select the text and ask me again.");
     // The selection went with this message: the next one goes without it, unless the person selects something again
     // (an opening meanwhile may have read a new one, which stays).
     if (c.selection === sent) c.selection = '';
+    // A message only from a first answer: a second one has read their box or their screen, whose words (a mail someone
+    // sent them, a web page) could say who to message and what. Nothing is searched in WhatsApp; Buddy asks them.
+    if (second && reply.kind === 'message') {
+      add(c, { type: 'buddy', say: MESSAGE_ASK, text: '', notes: [], buttons: [] });
+      return true;
+    }
     return finish(c, reply, from);
   }
 

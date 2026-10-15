@@ -142,6 +142,10 @@ const CHAT_INPUTS = [
   { message: 'hi', appName: `Google\nChrome ${'c'.repeat(200)}`, userName: ` ${'n'.repeat(150)} ` },
   { message: 'hi', appName: '  ', userName: '' },
   { message: 'hi', appName: `Notes${SPACES}`, userName: `\u00a0Akshat\u2003Gupta ` },
+  // The Android app can message on WhatsApp, and says so.
+  { message: 'message priya on whatsapp im late', canMessage: true, facts: ['You work at Infosys.'], history: [{ from: 'you', text: 'hi' }] },
+  { message: 'fix my English', box: 'i am go', canMessage: true, step: 2 },
+  { message: 'hi', canMessage: false },
 ];
 
 /** Model answers, and what parseChat reads in them. */

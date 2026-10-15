@@ -104,7 +104,7 @@ const SYSTEM = {
     '- "screen": the request needs something on their screen that you were not given ("what does this mean?", "reply to this mail", "check my mail"), and there is no selected text, text box or screenshot for it. Buddy then takes a screenshot of the app and asks you again.',
     '- "send": they only ask to send what you already put in their app ("send it", "bhej do").',
     '- "code": a job in one of their own software projects on this computer (fix a bug, add a feature, run the tests, explain the code), and the request lists their projects. "text" is the job as one or two clear English sentences for a programmer, with everything they said that matters. Never "code" when no projects are listed.',
-    '- "message": they ask you to message, text or tell someone something on WhatsApp ("message Priya I\'m late", "Rahul ko WhatsApp karo ki main aa raha hoon"). "app" is the app they named, lower case ("whatsapp" when they named none). "to" is the person as they said it ("Priya", "Priya Sharma", "mummy"). "text" is the message itself, as they want it sent: in their words and language, fixed only when they ask ("in good English"); never "Hi Priya," added, never their name signed. When they answer "Which Priya?" with a fuller name, answer "message" again with that name and the same text.',
+    '- "message": they ask you to message, text or tell someone something on WhatsApp ("message Priya I\'m late", "Rahul ko WhatsApp karo ki main aa raha hoon"). "app" is the app they named, lower case ("whatsapp" when they named none). "to" is the person as they said it ("Priya", "Priya Sharma", "mummy"). "text" is the message itself, as they want it sent: in their words and language, fixed only when they ask ("in good English"); never "Hi Priya," added, never their name signed. When they answer "Which Priya?" with a fuller name, answer "message" again with that name and the same text. Only when the request says Buddy can message people on WhatsApp; otherwise answer that you can\'t send messages from here. Never on the second step.',
     'When selected text is given, the request is about it unless their message clearly says otherwise.',
     'On the second step (the request says so) you already have their text box or the screenshot: never answer "box" or "screen" then. Do your best with what you have, or answer and say plainly what you could not find.',
     '',
@@ -176,6 +176,9 @@ function chatPrompt(input) {
   if (who.length) parts.push(who.join('\n'));
   if (facts.length) parts.push(`What you know about them:\n${facts.map((fact) => `- ${fact}`).join('\n')}`);
   if (projects.length) parts.push(`Their projects on this computer: ${projects.join(', ')}`);
+  // Only an app that can message (the Mac and Android ones) says so: an older one, or the iPhone web app, would not
+  // know what to do with a "message" answer.
+  if (input.canMessage === true) parts.push('Buddy can message people on WhatsApp from here.');
   if (history.length) parts.push(`Chat so far (oldest first):\n${history.join('\n')}`);
   if (selection) parts.push(`Selected text:\n${quoted(selection)}`);
   if (box) parts.push(`Their text box:\n${quoted(box)}`);

@@ -284,6 +284,24 @@ test('the chat prompt tells the model when to answer "message" and its two extra
   assert.match(system, /"app" and "to"/);
 });
 
+test('the "message" rule: only when the request says Buddy can message, and never on the second step', () => {
+  const { system } = buildPrompt('chat', { message: 'x' });
+  const rule = system.split('\n').find((line) => line.startsWith('- "message":'));
+  assert.ok(rule.includes("Only when the request says Buddy can message people on WhatsApp; otherwise answer that you can't send messages from here."));
+  assert.ok(rule.includes('Never on the second step.'));
+});
+
+test('chat: a request from an app that can message says so; any other request does not', () => {
+  const line = 'Buddy can message people on WhatsApp from here.';
+  assert.ok(buildPrompt('chat', { message: 'message priya hi', canMessage: true }).user.includes(line));
+  assert.ok(!buildPrompt('chat', { message: 'message priya hi' }).user.includes(line), 'an older app, or the iPhone web app');
+  assert.ok(!buildPrompt('chat', { message: 'message priya hi', canMessage: false }).user.includes(line));
+  assert.ok(!buildPrompt('chat', { message: 'message priya hi', canMessage: 'true' }).user.includes(line), 'only a real true');
+  const p = buildPrompt('chat', { message: 'go', facts: ['You work at Infosys.'], canMessage: true, history: [{ from: 'you', text: 'hi' }] });
+  assert.ok(p.user.indexOf('What you know about them') < p.user.indexOf(line));
+  assert.ok(p.user.indexOf(line) < p.user.indexOf('Chat so far'));
+});
+
 test('parseChat reads a full answer, with or without code fences', () => {
   const answer = {
     kind: 'fix', say: 'Theek kar diya!', text: 'I am going to the office.', notes: ['"go" should be "going".'],

@@ -340,6 +340,41 @@
       },
       "user": "The app they are in: Notes\nTheir first name: Akshat Gupta\n\nTheir message:\n\"\"\"\nhi\n\"\"\"",
       "image": null
+    },
+    {
+      "input": {
+        "message": "message priya on whatsapp im late",
+        "canMessage": true,
+        "facts": [
+          "You work at Infosys."
+        ],
+        "history": [
+          {
+            "from": "you",
+            "text": "hi"
+          }
+        ]
+      },
+      "user": "What you know about them:\n- You work at Infosys.\n\nBuddy can message people on WhatsApp from here.\n\nChat so far (oldest first):\nThem: hi\n\nTheir message:\n\"\"\"\nmessage priya on whatsapp im late\n\"\"\"",
+      "image": null
+    },
+    {
+      "input": {
+        "message": "fix my English",
+        "box": "i am go",
+        "canMessage": true,
+        "step": 2
+      },
+      "user": "Buddy can message people on WhatsApp from here.\n\nTheir text box:\n\"\"\"\ni am go\n\"\"\"\n\nThis is the second step: you already have what you asked for, so do not answer \"box\" or \"screen\".\n\nTheir message:\n\"\"\"\nfix my English\n\"\"\"",
+      "image": null
+    },
+    {
+      "input": {
+        "message": "hi",
+        "canMessage": false
+      },
+      "user": "Their message:\n\"\"\"\nhi\n\"\"\"",
+      "image": null
     }
   ],
   "replies": [

@@ -247,6 +247,7 @@ async function act(id, button, row) {
 
 const box = $('box');
 box.addEventListener('input', () => {
+  window.buddy.hush(); // typing ends any question Buddy is asking out loud
   cancelListening(); // typing stops listening, and nothing of it is sent
   updateSend();
 });
@@ -577,6 +578,7 @@ function cancelListening() {
 
 // 🎤 starts listening, and stops it. While what was said is being written down, it drops that (and does not listen).
 $('mic').addEventListener('click', () => {
+  window.buddy.hush(); // the person's own turn: Buddy stops asking and listening first
   if (voice !== 'idle') return cancelListening();
   startListening();
 });

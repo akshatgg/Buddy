@@ -37,9 +37,42 @@ interface Spotter {
 
 fun interface Spotters { fun make(grammar: List<String>): Spotter }
 
-/** Vosk on the device: the model is loaded once, a recognizer is made for each question. */
-class VoskSpotters(private val model: VoiceModel) : Spotters {
-    private val vosk: Model by lazy { Model(model.folder().absolutePath) }
+/** A loaded model that makes a recognizer for each question, and is let go of when it is replaced. */
+interface LoadedSpotters : Spotters {
+    fun close()
+}
+
+/**
+ * The model is loaded ONCE for the whole process and reused by every question (a Vosk model is tens of MB of native
+ * memory; loading one for each question, never freed, runs the phone out of it). `ready()` says the model's folder is
+ * there; `generation()` changes when that folder is replaced, which closes the old model and loads the new one on the next
+ * use. `warm()` loads it ahead (when the question starts being spoken), so that the first "yes" is not lost to the load.
+ */
+class SharedSpotters(
+    private val ready: () -> Boolean,
+    private val generation: () -> Int,
+    private val load: () -> LoadedSpotters,
+) {
+    private var loaded: LoadedSpotters? = null
+    private var loadedGeneration = 0
+
+    /** The model's spotters, loaded if they are not yet; null while the model is not ready. A failed load is tried again next time. */
+    @Synchronized fun get(): Spotters? {
+        if (!ready()) return null
+        val now = generation()
+        loaded?.let { if (loadedGeneration == now) return it }
+        loaded?.let { runCatching { it.close() } }
+        loaded = null
+        return load().also { loaded = it; loadedGeneration = now }
+    }
+
+    /** Loads the model now if it is there; a failure is left for the question to find. */
+    fun warm() { runCatching { get() } }
+}
+
+/** Vosk on the device: the model loaded from its folder, a recognizer made for each question. */
+class VoskSpotters(folder: java.io.File) : LoadedSpotters {
+    private val vosk = Model(folder.absolutePath)
 
     override fun make(grammar: List<String>): Spotter {
         val json = Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.serializer<String>()), grammar)
@@ -51,4 +84,6 @@ class VoskSpotters(private val model: VoiceModel) : Spotters {
             override fun close() { recognizer.close() }
         }
     }
+
+    override fun close() { vosk.close() }
 }

@@ -33,7 +33,13 @@ const HEARD = [['yes', 'send'], ['Haan.', 'call'], ['ok send it', 'send'], ['sen
     'haan nahi', 'no problem', "okay don't", 'abhi nahi'].map((t) => [t, 'send']), ['yes send it', 'send'], ['haan', 'send'], ['haan ji', 'send'],
   ['okay send it please', 'send'], ['yes call now', 'call'], ['please', 'send'],
   ...['haan bhej do', 'bhej do', 'haan ji bhejo', 'bhejdo', 'bhejna', 'bhejiye', 'mat bhejo', 'bhej mat', 'nahi bhejo', 'abhi mat bhejo'].map((t) => [t, 'send']),
-  ...['haan bhej do', 'bhej do', 'bhejo', 'call karo', 'haan call kar do', 'kar do', 'haan kar do'].map((t) => [t, 'call'])];
+  ...['haan bhej do', 'bhej do', 'bhejo', 'call karo', 'haan call kar do', 'kar do', 'haan kar do'].map((t) => [t, 'call']),
+  ...['ha', 'ha ha', 'ha ha ha', 'ha send it', 'haan ha'].map((t) => [t, 'send'])];
+// [text, verb, a word of the card's grammar is missing from the model]: should the server hear it (wantsServer).
+const WANTS = [['yes [unk]', 'send', false], ['haan <unk>', 'send', false], ['[unk] send', 'send', false], ['[unk] call', 'call', false],
+  ['[unk] call', 'send', false], ['no [unk]', 'send', true], ['yes no [unk]', 'send', false], ['[unk]', 'send', true], ['[unk] it', 'send', false],
+  ['[unk] it', 'send', true], ['yes', 'send', true], ['', 'send', true], ['yes banana', 'send', false], ['yes [unk]', 'call', true],
+  ['haan [unk] ji', 'send', false], ['[unk] please', 'call', true]];
 const QUESTIONS = [{ kind: 'message', name: 'Priya Sharma', text: "I'm running late" }, { kind: 'message', name: 'Priya', text: 'Kahan ho? ' }, { kind: 'message', name: 'Priya', text: ' ' },
   { kind: 'call', name: 'Prince Narasimhan', how: 'phone' }, { kind: 'call', name: 'Prince', how: 'whatsapp' }, { kind: 'call', name: 'Prince', how: 'whatsapp_video' }];
 const LINE_ITEMS = [[{ type: 'buddy', say: 'Okay!', text: 'x' }, { type: 'buddy', say: '', text: 'Which Priya: A or B? Tell me the full name.' },
@@ -47,6 +53,7 @@ function buildVoiceCases() {
     voiceModel: require('../shared/voice-model').VOICE_MODEL,
     note: 'Made by tools/sync-android-shared.js from shared/voice-words.js. Do not edit: run npm run sync:android.',
     heard: HEARD.map(([text, verb]) => ({ text, verb, words: voice.heardWords(text, verb), answer: voice.heardAnswer(text, verb) })),
+    wantsServer: WANTS.map(([text, verb, missing]) => ({ text, verb, missing, wants: voice.wantsServer(text, verb, missing) })),
     grammar: KNOWN.flatMap((known) => voice.VERBS.map((verb) => ({ verb, known, ...voice.answerGrammar(verb, known && new Set(known)) }))),
     questions: QUESTIONS.map((card) => ({ card, said: voice.spokenQuestion(card) })),
     lines: LINE_ITEMS.map((items) => ({ items, said: voice.spokenLines(items) })),

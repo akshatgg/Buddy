@@ -54,12 +54,14 @@ class PhoneTalkBack(
     private val ears: Ears,
     private val model: VoiceModel,
     private val transcribe: suspend (ByteArray, String) -> String,
+    private val warm: () -> Unit = {}, // loads the model ahead; must not block
 ) : TalkBack {
     @Volatile private var stopped = false
     private val inFlight = java.util.Collections.synchronizedSet(HashSet<Deferred<*>>())
 
     override suspend fun say(text: String) {
         stopped = false
+        warm() // the ears load while the question is spoken, so that the first "yes" is not lost to the load
         speaker.say(text)
     }
 

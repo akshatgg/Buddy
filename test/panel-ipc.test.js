@@ -64,13 +64,13 @@ function setup(actions = {}, { platform = 'darwin', mic = 'granted', openFails =
   return { handlers, listeners, calls, fromPanel: { sender: PANEL_PAGE } };
 }
 
-test('the panel asks through eight channels and tells main nine things; the old ones are gone', () => {
+test('the panel asks through eight channels and tells main ten things; the old ones are gone', () => {
   const s = setup();
   assert.deepStrictEqual(Object.keys(s.handlers).sort(), [
     'panel:act', 'panel:claude-open', 'panel:claude-sessions', 'panel:claude-talk', 'panel:drop-selection', 'panel:mic-access', 'panel:send', 'panel:transcribe',
   ]);
   assert.deepStrictEqual(Object.keys(s.listeners).sort(), [
-    'panel:claude-close', 'panel:close', 'panel:listening', 'panel:open-settings', 'panel:resize-end', 'panel:resize-move', 'panel:resize-start',
+    'panel:claude-close', 'panel:close', 'panel:hush', 'panel:listening', 'panel:open-settings', 'panel:resize-end', 'panel:resize-move', 'panel:resize-start',
     'panel:size-toggle', 'panel:voice-level',
   ]);
 });
@@ -230,6 +230,15 @@ test('only the panel page tells the buddy about listening', () => {
   s.listeners['panel:listening'](SOMEONE_ELSE, true);
   s.listeners['panel:voice-level'](SOMEONE_ELSE, 0.5);
   assert.deepStrictEqual(s.calls, []);
+});
+
+test('the panel page pressing 🎤 or typing hushes Buddy; nobody else can', () => {
+  let hushed = 0;
+  const s = setup({ hushVoice: () => { hushed += 1; } });
+  s.listeners['panel:hush'](SOMEONE_ELSE);
+  assert.strictEqual(hushed, 0);
+  s.listeners['panel:hush'](s.fromPanel);
+  assert.strictEqual(hushed, 1);
 });
 
 test('Open Settings for the microphone: Settings → Permissions on the Mac', () => {

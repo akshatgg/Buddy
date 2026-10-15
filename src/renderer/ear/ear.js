@@ -127,7 +127,7 @@ function hear({ grammar, needsServer, decisive }) {
       await pause(AFTER_SPEAKING_MS); // nothing is listened to for 300 ms, so the question's tail is never an answer
       if (over()) return;
       // No recogniser (no model yet, or it would not load): the server must hear the answer, whatever main said.
-      const turn = EarCore.createAnswerTurn({ decisive, needsServer: Boolean(needsServer) || !model });
+      const turn = EarCore.createAnswerTurn({ decisive, needsServer: Boolean(needsServer) || !model, timing });
       const decided = (d) => {
         clearTimeout(deadlineTimer);
         finish(d.audio ? { audio: Wav.base64(keeper.all()) } : { text: d.text });
@@ -143,26 +143,30 @@ function hear({ grammar, needsServer, decisive }) {
           if (d && !over()) decided(d);
         });
       }
-      deadlineTimer = setTimeout(async () => {
-        if (over()) return;
+      // The answer is over: the recogniser's last word is taken, then the words if decisive, else the recording when the
+      // server must hear it and a voice was heard, else nothing. Once, whether it is the quiet or the deadline that comes first.
+      let ending = false;
+      const endAnswer = async () => {
+        if (over() || ending) return;
+        ending = true;
         if (rec) {
           const gotIt = new Promise((resolve) => { resultWaiter = resolve; setTimeout(resolve, FINAL_WAIT_MS); });
           try { rec.retrieveFinalResult(); } catch { /* the recogniser is gone */ }
           await gotIt;
         }
         if (!over()) decided(turn.timeUp(lastFinal));
-      }, ANSWER_MS);
+      };
+      deadlineTimer = setTimeout(endAnswer, ANSWER_MS);
       onChunk = (chunk) => {
-        if (over()) return;
+        if (over() || ending) return;
         samples += chunk.length;
         const level = VoiceTiming.levelOf(chunk);
-        turn.level(level);
         keeper.add(EarCore.toPcm16(chunk));
         if (rec) {
           try { rec.acceptWaveformFloat(chunk, RATE); } catch { /* the recogniser is gone */ }
-        } else if (timing.feed(level, samples / 16) !== 'listen') {
-          decided(turn.timeUp('')); // without the recogniser a quick answer does not wait the 8 s out
         }
+        // Quiet after the voice ends an undecided answer; so does 8 s without any voice, which is a no with no server call.
+        if (turn.feed(level, samples / 16) !== 'listen') endAnswer();
       };
     } catch {
       finish({ text: '' }); // any error is a no

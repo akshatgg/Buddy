@@ -79,7 +79,7 @@ class PanelActivity : ComponentActivity(), ChatHost {
                 val voice = remember { AppGraph.instance.voiceFactory(applicationContext) }
                 val on = remember(signedIn) { callbacks(signedIn) }
                 PanelScreen(state, buddyName, on, full) {
-                    MicButton(voice, onWords = model::voiceWords, onError = model::voiceError)
+                    MicButton(voice, onWords = model::voiceWords, onError = model::voiceError, onPress = model::hushVoice)
                 }
             }
         }

@@ -292,6 +292,7 @@ class PanelModel(
     // ---- the box ----
 
     fun setDraft(text: String) {
+        if (text != draft) hush(chat) // typing ends any question Buddy is asking out loud
         draft = text
         boxError = null
         publish()
@@ -359,9 +360,15 @@ class PanelModel(
         talk(c, you.id)
     }
 
-    /** A send or call waiting for the unlock is let go of: nothing is sent or called. True when there was one. */
-    private fun cancelUnlock(c: Chat): Boolean {
-        if (c.unlocking == null) return false
+    /** The person pressed the 🎤: Buddy stops asking and listening first, and an answer that comes late presses nothing. */
+    fun hushVoice() = hush(chat)
+
+    /**
+     * A send or call waiting for the unlock is let go of: nothing is sent or called. True when there was one. With `only`,
+     * just the wait of that card (Not now on it); without, any wait (a new message, closing).
+     */
+    private fun cancelUnlock(c: Chat, only: Int? = null): Boolean {
+        if (c.unlocking == null || (only != null && c.unlocking != only)) return false
         c.unlocking = null
         workJob?.cancel()
         workJob = null
@@ -1099,7 +1106,9 @@ class PanelModel(
             ChatButton.SEND_MESSAGE -> inApp { sendMessage(c, id) }
             ChatButton.CALL -> inApp { placeCall(c, id) }
             ChatButton.NOT_NOW -> {
-                if (working && !cancelUnlock(c)) return // being sent or called now (but not while it only waits for the unlock)
+                // Being sent or called now: too late. While a card only waits for the unlock, Not now on that card ends the wait
+                // and Not now on another card leaves it alone.
+                if (working && !cancelUnlock(c, id) && c.unlocking == null) return
                 // A call card is the one with Call: "not now" whether or not its call is still kept.
                 val call = ChatButton.CALL in buttons || c.calls.containsKey(id)
                 c.calls.remove(id)

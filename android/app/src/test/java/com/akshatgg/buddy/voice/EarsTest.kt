@@ -116,6 +116,55 @@ class EarsTest {
         assertEquals(emptyList<String>(), sentToServer)
     }
 
+    @Test fun aYesNextToAWordNotMadeOutIsHeardByTheServerNotDecidedNoOnTheDevice() = runTest {
+        for ((server, expected) in listOf("haan bhejo" to Heard.YES, "haan nahi" to Heard.NO, "" to Heard.NO, "mumble" to Heard.NO)) {
+            sentToServer.clear()
+            serverSays = { server }
+            val e = ears(speech(20), FakeSpotter(mapOf(5 to said("haan [unk]")), said("")))
+            assertEquals(server, expected, e.hear("send"))
+            assertEquals(server, listOf("audio/wav"), sentToServer)
+        }
+    }
+
+    @Test fun aNoWordWithAnUnknownWordIsDecidedOnTheDeviceAndNothingGoesToTheServer() = runTest {
+        serverSays = { "yes" }
+        assertEquals(Heard.NO, ears(speech(20), FakeSpotter(mapOf(5 to said("no [unk]")), said(""))).hear("send"))
+        assertEquals(emptyList<String>(), sentToServer)
+    }
+
+    @Test fun aMissingGrammarWordSendsAnUnknownResultToTheServer() = runTest {
+        serverSays = { "yes" }
+        // "it [unk]" is a no on the device, but a word of the grammar is missing, so the server hears it.
+        assertEquals(Heard.YES, ears(speech(20), FakeSpotter(mapOf(5 to said("it [unk]")), said("")), missing = setOf("nahi")).hear("send"))
+        assertEquals(listOf("audio/wav"), sentToServer)
+        sentToServer.clear()
+        assertEquals(Heard.NO, ears(speech(20), FakeSpotter(mapOf(5 to said("it [unk]")), said(""))).hear("send"))
+        assertEquals(emptyList<String>(), sentToServer)
+    }
+
+    @Test fun withTheModelAnUndecidedAnswerEndsOnQuietAfterTheVoiceNotAtEightSeconds() = runTest {
+        serverSays = { "haan send it" }
+        val mic = speechThenQuiet(6, 60)
+        val spotter = FakeSpotter(emptyMap(), said("[unk]"))
+        assertEquals(Heard.YES, ears(mic, spotter, missing = setOf("nahi")).hear("send"))
+        assertTrue("ended after ${mic.reads} chunks, not at 80", mic.reads < 30)
+        assertEquals(listOf("audio/wav"), sentToServer)
+        assertTrue(spotter.closed)
+        // and with no word missing, the final result alone is judged: unclear is no, with no server
+        sentToServer.clear()
+        val mic2 = speechThenQuiet(6, 60)
+        assertEquals(Heard.NO, ears(mic2, FakeSpotter(emptyMap(), said("[unk]"))).hear("send"))
+        assertTrue(mic2.reads < 30)
+        assertEquals(emptyList<String>(), sentToServer)
+    }
+
+    @Test fun theFinalResultAtTheQuietIsUsedBeforeTheServer() = runTest {
+        serverSays = { "no" }
+        val mic = speechThenQuiet(6, 60)
+        assertEquals(Heard.YES, ears(mic, FakeSpotter(emptyMap(), said("haan")), missing = setOf("nahi")).hear("send"))
+        assertEquals(emptyList<String>(), sentToServer)
+    }
+
     @Test fun aServerFailureIsNo() = runTest {
         serverSays = { throw BuddyError("network", "down") }
         assertEquals(Heard.NO, ears(speechThenQuiet(6, 20), spotters = false).hear("send"))
@@ -144,6 +193,10 @@ class EarsTest {
         assertNull(turn.result("[unk]"))
         assertEquals(Decision.Words("yes please"), turn.result("yes please"))
         assertEquals(Decision.Words(""), turn.timeUp(""))
+        val mixed = AnswerTurn("send", needsServer = false).also { it.level(0.3f) }
+        assertEquals(Decision.Recording, mixed.result("yes [unk]"))
+        assertEquals(Decision.Words("no [unk]"), mixed.result("no [unk]"))
+        assertEquals(Decision.Words("yes [unk]"), AnswerTurn("send", needsServer = false).result("yes [unk]")) // no voice, no server
         val server = AnswerTurn("send", needsServer = true).also { it.level(0.3f) }
         assertEquals(Decision.Recording, server.timeUp(""))
     }

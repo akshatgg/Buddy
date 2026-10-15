@@ -32,10 +32,12 @@ class PhoneTalkBackTest {
         download = { _, _, _ -> fetches++; throw BuddyError("network", "x") }, scope = scope,
     )
 
+    private var warms = 0
+
     private fun talk(scope: CoroutineScope, speaker: Speaker = FakeSpeaker(), mic: FakeMic, spotter: FakeSpotter? = null): PhoneTalkBack {
         val t: suspend (ByteArray, String) -> String = { _, _ -> serverSays() }
         val ears = Ears({ mic }, { spotter?.let { s -> Spotters { s } } }, { emptySet() }, t)
-        return PhoneTalkBack(speaker, ears, model(scope), t)
+        return PhoneTalkBack(speaker, ears, model(scope), t, warm = { warms++ })
     }
 
     private fun speech(chunks: Int) = FakeMic(List(chunks) { 0.3f to 1_600 })
@@ -90,5 +92,11 @@ class PhoneTalkBackTest {
         t.stop()
         assertEquals(Heard.NO, a.await())
         assertEquals(Heard.NO, b.await())
+    }
+
+    @Test fun theModelStartsLoadingWhenTheQuestionStartsBeingSpoken() = runTest {
+        val t = talk(this, mic = speech(1))
+        t.say("Send it?")
+        assertEquals(1, warms)
     }
 }

@@ -7,10 +7,12 @@
  * port (voice/VoiceWords.kt), checked against the cases tools/sync-android-shared.js writes out.
  */
 
-const YES_WORDS = ['yes', 'yeah', 'haan', 'ha', 'okay'];
+const YES_WORDS = ['yes', 'yeah', 'haan', 'okay'];
 const NO_WORDS = ['no', 'nahi', 'na', 'cancel', "don't", 'stop', 'not', 'mat', 'nope', 'nah', 'wait'];
 // A yes is only these words (the yes words, the card's verb and these): any other word, "not" and "later" too, makes it a no.
 const FILLERS = ['it', 'please', 'ji', 'now', 'do', 'karo', 'kar', 'de'];
+// The fillers the on-device model knows, so they are in its grammar too ("do" and "now" are left out: too close to "don't" and "not").
+const GRAMMAR_FILLERS = ['it', 'please', 'ji', 'de'];
 const VERBS = ['send', 'call']; // a card's own word is a yes for that card only
 // The same word as a recognizer or Whisper may write it.
 const SAME = { ok: 'okay', dont: "don't", nahin: 'nahi', haa: 'haan', han: 'haan', nope: 'no', nah: 'no' };
@@ -60,8 +62,20 @@ function heardAnswer(text, verb) {
   return heardWords(text, verb) ?? 'no';
 }
 
+/**
+ * Whether an answer the device made out must be heard by the server instead of being judged here: it has a word not made
+ * out ([unk]) next to a yes word or the card's verb (and no no word), or a word of this card's grammar is missing from the
+ * model (`someMissing`) so the unknown word may be one of those. The device alone never turns such an answer into a no.
+ */
+function wantsServer(text, verb, someMissing = false) {
+  const words = wordsOf(text);
+  if (!words.includes(UNK) || words.every((w) => w === UNK)) return false;
+  if (words.some((w) => NO_WORDS.includes(w))) return false;
+  return someMissing || words.some((w) => YES_WORDS.includes(w) || w === verb);
+}
+
 function answerGrammar(verb, known = null) {
-  const all = [...YES_WORDS, verb, ...(verb === 'send' ? BHEJ : []), ...NO_WORDS];
+  const all = [...YES_WORDS, verb, ...(verb === 'send' ? BHEJ : []), ...GRAMMAR_FILLERS, ...NO_WORDS];
   const kept = known ? all.filter((w) => known.has(w)) : all;
   return { grammar: [...kept, '[unk]'], missing: all.filter((w) => !kept.includes(w)) };
 }
@@ -109,6 +123,6 @@ function callingLine(name) {
 }
 
 module.exports = {
-  YES_WORDS, NO_WORDS, VERBS, SPOKEN_MAX, ANSWER_MS, UNLOCK_WAIT_MS, MAX_FOLLOW_UPS, VOICE_LINES,
-  heardWords, heardAnswer, answerGrammar, spokenQuestion, spokenLines, asksBack, unlockLine, callingLine,
+  YES_WORDS, NO_WORDS, VERBS, FILLERS, BHEJ, SPOKEN_MAX, ANSWER_MS, UNLOCK_WAIT_MS, MAX_FOLLOW_UPS, VOICE_LINES,
+  heardWords, heardAnswer, wantsServer, answerGrammar, GRAMMAR_FILLERS, spokenQuestion, spokenLines, asksBack, unlockLine, callingLine,
 };

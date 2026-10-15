@@ -15,14 +15,22 @@ sealed interface Decision {
 /**
  * One spoken answer: decided on a final result with a yes or no word, else at the deadline. At the deadline the words
  * Vosk had are used if decisive; else, when the server must hear it (no model, or a word the model lacks) and a voice
- * was heard, the recording; else it is nothing, which is a no.
+ * was heard, the recording; else it is nothing, which is a no. With the model, an undecided answer ends on quiet after the
+ * voice (not at 8 s), and takes the model's final result first.
  */
 class AnswerTurn(private val verb: String, private val needsServer: Boolean) {
     private var voice = false
 
     fun level(level: Float) { if (!level.isNaN() && level >= SpeechEnd.SPEECH_LEVEL) voice = true }
 
-    fun result(text: String): Decision? = VoiceWords.words(text, verb)?.let { Decision.Words(text) }
+    /**
+     * A decisive result. Not when a yes word sits next to a word not made out (or a word of the grammar is missing from the
+     * model): then the server writes the recording down, if a voice was heard, and the words there decide.
+     */
+    fun result(text: String): Decision? {
+        if (VoiceWords.words(text, verb) == null) return null
+        return if (voice && VoiceWords.wantsServer(text, verb, needsServer)) Decision.Recording else Decision.Words(text)
+    }
 
     fun timeUp(finalText: String): Decision =
         result(finalText) ?: if (needsServer && voice) Decision.Recording else Decision.Words("")
@@ -64,8 +72,11 @@ class Ears(
                 if (decision == null && samples >= VoiceWords.ANSWER_MS * 16) {
                     decision = turn.timeUp(spotter?.let { parseVosk(it.finish()).text } ?: "")
                 }
-                // Without the model a quick "haan" does not wait the 8 s out.
-                if (decision == null && spotter == null && end.feed(level, samples / 16) != End.LISTEN) decision = turn.timeUp("")
+                // Quiet after the voice ends an undecided answer (the final result first, then the server if still undecided);
+                // 8 s with no voice at all is a no, with no server call.
+                if (decision == null && end.feed(level, samples / 16) != End.LISTEN) {
+                    decision = turn.timeUp(spotter?.let { parseVosk(it.finish()).text } ?: "")
+                }
             }
             ensureActive() // after a stop nothing is written down and nothing goes to the server
             when (val d = decision ?: turn.timeUp("")) {

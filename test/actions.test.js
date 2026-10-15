@@ -2506,6 +2506,22 @@ test('Not now pressed while Buddy asks: nothing sent, and the late yes does noth
   assert.strictEqual(waSends(s).length, 0);
 });
 
+test('the person pressing the panel 🎤 or typing while Buddy asks hushes Buddy first; a late yes presses nothing', async () => {
+  const s = setup({ answers: [message()], talk: { answers: ['wait'], stubborn: true }, replies: WA });
+  await s.actions.open();
+  await s.actions.send('message priya hi', { spoken: true });
+  await settle();
+  const stops = entries(s.log, 'stop').length;
+  s.actions.hushVoice();
+  assert.ok(entries(s.log, 'stop').length > stops, 'Buddy stopped asking');
+  const before = JSON.stringify(chatOf(s));
+  s.talkBack.answerLate('yes');
+  await settle();
+  assert.strictEqual(JSON.stringify(chatOf(s)), before, 'the late yes changed nothing');
+  assert.strictEqual(waSends(s).length, 0);
+  assert.deepStrictEqual(chatOf(s).find((i) => i.id === 2).buttons, ['send-message', 'not-now'], 'the card is still there for the person');
+});
+
 test('a new message while Buddy asks ends the question; the first card stays and a late yes presses nothing', async () => {
   const s = setup({ answers: [message(), reply({ text: 'ok' })], talk: { answers: ['wait'], stubborn: true }, replies: WA });
   await s.actions.open();

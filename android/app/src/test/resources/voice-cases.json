@@ -14,6 +14,13 @@
     },
     "missing": [
       "nahi",
+      "bhej",
+      "bhejo",
+      "bhejdo",
+      "bhejna",
+      "bhejiye",
+      "karo",
+      "kar",
       "aarav",
       "priya"
     ]
@@ -349,6 +356,134 @@
       "verb": "call",
       "words": "yes",
       "answer": "yes"
+    },
+    {
+      "text": "ha",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "ha ha",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "ha ha ha",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "ha send it",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "haan ha",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    }
+  ],
+  "wantsServer": [
+    {
+      "text": "yes [unk]",
+      "verb": "send",
+      "missing": false,
+      "wants": true
+    },
+    {
+      "text": "haan <unk>",
+      "verb": "send",
+      "missing": false,
+      "wants": true
+    },
+    {
+      "text": "[unk] send",
+      "verb": "send",
+      "missing": false,
+      "wants": true
+    },
+    {
+      "text": "[unk] call",
+      "verb": "call",
+      "missing": false,
+      "wants": true
+    },
+    {
+      "text": "[unk] call",
+      "verb": "send",
+      "missing": false,
+      "wants": false
+    },
+    {
+      "text": "no [unk]",
+      "verb": "send",
+      "missing": true,
+      "wants": false
+    },
+    {
+      "text": "yes no [unk]",
+      "verb": "send",
+      "missing": false,
+      "wants": false
+    },
+    {
+      "text": "[unk]",
+      "verb": "send",
+      "missing": true,
+      "wants": false
+    },
+    {
+      "text": "[unk] it",
+      "verb": "send",
+      "missing": false,
+      "wants": false
+    },
+    {
+      "text": "[unk] it",
+      "verb": "send",
+      "missing": true,
+      "wants": true
+    },
+    {
+      "text": "yes",
+      "verb": "send",
+      "missing": true,
+      "wants": false
+    },
+    {
+      "text": "",
+      "verb": "send",
+      "missing": true,
+      "wants": false
+    },
+    {
+      "text": "yes banana",
+      "verb": "send",
+      "missing": false,
+      "wants": false
+    },
+    {
+      "text": "yes [unk]",
+      "verb": "call",
+      "missing": true,
+      "wants": true
+    },
+    {
+      "text": "haan [unk] ji",
+      "verb": "send",
+      "missing": false,
+      "wants": true
+    },
+    {
+      "text": "[unk] please",
+      "verb": "call",
+      "missing": true,
+      "wants": true
     }
   ],
   "grammar": [
@@ -359,7 +494,6 @@
         "yes",
         "yeah",
         "haan",
-        "ha",
         "okay",
         "send",
         "bhej",
@@ -367,6 +501,10 @@
         "bhejdo",
         "bhejna",
         "bhejiye",
+        "it",
+        "please",
+        "ji",
+        "de",
         "no",
         "nahi",
         "na",
@@ -389,9 +527,12 @@
         "yes",
         "yeah",
         "haan",
-        "ha",
         "okay",
         "call",
+        "it",
+        "please",
+        "ji",
+        "de",
         "no",
         "nahi",
         "na",
@@ -429,12 +570,15 @@
       "missing": [
         "yeah",
         "haan",
-        "ha",
         "bhej",
         "bhejo",
         "bhejdo",
         "bhejna",
         "bhejiye",
+        "it",
+        "please",
+        "ji",
+        "de",
         "nahi",
         "na",
         "don't",
@@ -466,8 +610,11 @@
       "missing": [
         "yeah",
         "haan",
-        "ha",
         "call",
+        "it",
+        "please",
+        "ji",
+        "de",
         "nahi",
         "na",
         "don't",

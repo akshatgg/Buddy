@@ -94,6 +94,10 @@ function registerPanelIpc({
   ipcMain.on('panel:listening', (event, on) => {
     if (fromPanel(event.sender)) ui.listening(Boolean(on));
   });
+  // The person pressed the panel's 🎤 or typed in its box: Buddy stops asking and listening first (a late yes presses nothing).
+  ipcMain.on('panel:hush', (event) => {
+    if (fromPanel(event.sender)) actions.hushVoice();
+  });
   ipcMain.on('panel:voice-level', (event, level) => {
     if (!fromPanel(event.sender) || typeof level !== 'number' || Number.isNaN(level)) return;
     ui.voiceLevel(Math.min(1, Math.max(0, level)));

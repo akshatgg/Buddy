@@ -2,11 +2,11 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const {
-  heardWords, heardAnswer, answerGrammar, spokenQuestion, spokenLines, asksBack, unlockLine, callingLine, VOICE_LINES,
+  heardWords, heardAnswer, wantsServer, answerGrammar, spokenQuestion, spokenLines, asksBack, unlockLine, callingLine, VOICE_LINES,
 } = require('../shared/voice-words');
 
 test('a yes word, or the card\'s own verb, is yes; any no word wins; nothing decisive is no', () => {
-  for (const said of ['yes', 'Yes!', 'yeah send it', 'Haan.', 'ha', 'okay', 'OK', 'send']) assert.strictEqual(heardAnswer(said, 'send'), 'yes', said);
+  for (const said of ['yes', 'Yes!', 'yeah send it', 'Haan.', 'okay', 'OK', 'send']) assert.strictEqual(heardAnswer(said, 'send'), 'yes', said);
   for (const said of ['call', 'yes call']) assert.strictEqual(heardAnswer(said, 'call'), 'yes', said);
   for (const said of ['no', 'Nahi.', 'nahin', 'na', 'cancel', "don't", 'Don’t send it', 'stop', 'yes no', 'no, send it']) {
     assert.strictEqual(heardAnswer(said, 'send'), 'no', said);
@@ -14,6 +14,21 @@ test('a yes word, or the card\'s own verb, is yes; any no word wins; nothing dec
   for (const said of ['', '[unk]', 'maybe', 'what', 'call', 'later']) assert.strictEqual(heardAnswer(said, 'send'), 'no', said);
   assert.strictEqual(heardAnswer('send', 'call'), 'no', 'a message\'s verb is not a yes for a call');
   assert.strictEqual(heardAnswer('call', 'send'), 'no');
+});
+
+test('laughter is no: "ha" is not a yes word, "haan" still is', () => {
+  for (const said of ['ha', 'ha ha', 'ha ha ha', 'ha send it']) assert.strictEqual(heardAnswer(said, 'send'), 'no', said);
+  assert.strictEqual(heardAnswer('haan', 'send'), 'yes');
+  assert.ok(!answerGrammar('send', null).grammar.includes('ha'));
+});
+
+test('a yes next to a word not made out, or any missing grammar word, goes to the server, never to a no on the device', () => {
+  for (const [said, verb, missing, wants] of [
+    ['yes [unk]', 'send', false, true], ['haan <unk>', 'send', false, true], ['[unk] send', 'send', false, true], ['[unk] call', 'call', false, true],
+    ['[unk] call', 'send', false, false], ['no [unk]', 'send', true, false], ['yes no [unk]', 'send', false, false],
+    ['[unk]', 'send', true, false], ['[unk] it', 'send', false, false], ['[unk] it', 'send', true, true], ['yes', 'send', true, false],
+    ['', 'send', true, false], ['yes banana', 'send', false, false],
+  ]) assert.strictEqual(wantsServer(said, verb, missing), wants, `${said} / ${verb} / missing ${missing}`);
 });
 
 test('a yes is only words that all mean yes: a negation or any other word is no', () => {
@@ -48,11 +63,11 @@ test('heardWords tells "nothing decisive yet" (null) from a no', () => {
 
 test('the grammar keeps the words the model knows, then [unk], and says which it lacks', () => {
   assert.deepStrictEqual(answerGrammar('send', null).grammar,
-    ['yes', 'yeah', 'haan', 'ha', 'okay', 'send', 'bhej', 'bhejo', 'bhejdo', 'bhejna', 'bhejiye', 'no', 'nahi', 'na', 'cancel', "don't", 'stop', 'not', 'mat', 'nope', 'nah', 'wait', '[unk]']);
+    ['yes', 'yeah', 'haan', 'okay', 'send', 'bhej', 'bhejo', 'bhejdo', 'bhejna', 'bhejiye', 'it', 'please', 'ji', 'de', 'no', 'nahi', 'na', 'cancel', "don't", 'stop', 'not', 'mat', 'nope', 'nah', 'wait', '[unk]']);
   const known = new Set(['yes', 'yeah', 'okay', 'call', 'no', 'cancel', "don't", 'stop']);
   assert.deepStrictEqual(answerGrammar('call', known), {
     grammar: ['yes', 'yeah', 'okay', 'call', 'no', 'cancel', "don't", 'stop', '[unk]'],
-    missing: ['haan', 'ha', 'nahi', 'na', 'not', 'mat', 'nope', 'nah', 'wait'],
+    missing: ['haan', 'it', 'please', 'ji', 'de', 'nahi', 'na', 'not', 'mat', 'nope', 'nah', 'wait'],
   });
 });
 

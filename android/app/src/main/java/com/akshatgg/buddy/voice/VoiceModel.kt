@@ -38,6 +38,10 @@ class VoiceModel(
 
     private var running = false
 
+    /** Counts the times the model's folder was replaced: a model loaded from an earlier folder is stale. */
+    @Volatile var generation = 0
+        private set
+
     /** The model's folder is there and its "ok" file holds the SHA-256 this app expects. */
     fun ready(): Boolean = runCatching { File(folder(), OK).readText().trim() == spec.sha256 }.getOrDefault(false)
 
@@ -68,6 +72,7 @@ class VoiceModel(
                 throw BuddyError("model_failed", "Couldn't save the voice model.")
             }
             File(target, OK).writeText(spec.sha256)
+            generation++
             _state.value = ModelState.Ready
         } catch (e: Throwable) {
             _state.value = ModelState.Failed

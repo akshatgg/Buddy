@@ -19,11 +19,14 @@ data class SpokenItem(val type: String, val say: String = "", val text: String =
  * answer means, what the recognizer listens for, and what Buddy says for a card and around it.
  */
 object VoiceWords {
-    val YES = listOf("yes", "yeah", "haan", "ha", "okay")
+    val YES = listOf("yes", "yeah", "haan", "okay")
     val NO = listOf("no", "nahi", "na", "cancel", "don't", "stop", "not", "mat", "nope", "nah", "wait")
 
     // A yes is only these words (the yes words, the card's verb and these): any other word makes it a no.
     private val FILLERS = listOf("it", "please", "ji", "now", "do", "karo", "kar", "de")
+
+    // The fillers the on-device model knows, so they are in its grammar too ("do" and "now" are left out: too close to "don't" and "not").
+    private val GRAMMAR_FILLERS = listOf("it", "please", "ji", "de")
 
     // The same word as a recognizer or Whisper may write it.
     private val BHEJ = listOf("bhej", "bhejo", "bhejdo", "bhejna", "bhejiye")
@@ -69,8 +72,20 @@ object VoiceWords {
     /** Anything unclear is a no. */
     fun heard(text: String, verb: String): Heard = words(text, verb) ?: Heard.NO
 
+    /**
+     * Whether an answer the device made out must be heard by the server instead of being judged here: a word not made out
+     * ([unk]) next to a yes word or the card's verb (and no no word), or any word of this card's grammar missing from the
+     * model (`someMissing`). The device alone never turns such an answer into a no.
+     */
+    fun wantsServer(text: String, verb: String, someMissing: Boolean = false): Boolean {
+        val words = wordsOf(text)
+        if (UNK !in words || words.all { it == UNK }) return false
+        if (words.any { it in NO }) return false
+        return someMissing || words.any { it in YES || it == verb }
+    }
+
     fun grammar(verb: String, known: Set<String>?): Grammar {
-        val all = YES + verb + (if (verb == "send") BHEJ else emptyList()) + NO
+        val all = YES + verb + (if (verb == "send") BHEJ else emptyList()) + GRAMMAR_FILLERS + NO
         val kept = if (known != null) all.filter { it in known } else all
         return Grammar(kept + "[unk]", all.filter { it !in kept })
     }

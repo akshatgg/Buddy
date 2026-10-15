@@ -50,6 +50,7 @@ import com.akshatgg.buddy.voice.MediaRecorderRecorder
 import com.akshatgg.buddy.voice.PhoneTalkBack
 import com.akshatgg.buddy.voice.TalkBack
 import com.akshatgg.buddy.voice.TtsSpeaker
+import com.akshatgg.buddy.voice.SharedSpotters
 import com.akshatgg.buddy.voice.VoskSpotters
 import com.akshatgg.buddy.voice.Voice
 import com.akshatgg.buddy.voice.VoiceModel
@@ -113,14 +114,19 @@ class AppGraph(
      * Buddy's voice and ears for a spoken chat (voice/TalkBack.kt): TextToSpeech, and yes or no on the phone. The model
      * is fetched in the background the first time Buddy asks out loud; until it is there, the answer goes to the server.
      */
+    /** The one Vosk model of this process, loaded when first needed and reused for every question (voice/Spotter.kt). */
+    val spotters: SharedSpotters by lazy {
+        SharedSpotters(ready = voiceModel::ready, generation = { voiceModel.generation }, load = { VoskSpotters(voiceModel.folder()) })
+    }
     val talkBack: TalkBack by lazy {
         val ears = Ears(
             mic = { AudioRecordSource() },
-            spotters = { if (voiceModel.ready()) VoskSpotters(voiceModel) else null },
+            spotters = { spotters.get() },
             missing = { shared.voiceModelMissing }, // words the model lacks: not offered, and the server hears the answer too
             transcribe = { audio, mime -> cloud.transcribe(audio, mime) },
         )
-        PhoneTalkBack(TtsSpeaker(appContext), ears, voiceModel) { audio, mime -> cloud.transcribe(audio, mime) }
+        PhoneTalkBack(TtsSpeaker(appContext), ears, voiceModel, { audio, mime -> cloud.transcribe(audio, mime) },
+            warm = { scope.launch(Dispatchers.Default) { spotters.warm() } })
     }
     val lock: Lock by lazy { KeyguardLock(appContext) }
 

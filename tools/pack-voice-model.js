@@ -15,7 +15,10 @@ const { execFileSync } = require('node:child_process');
 
 const NAME = 'vosk-model-small-en-in-0.4';
 const UPSTREAM = `https://alphacephei.com/vosk/models/${NAME}.zip`;
-const CHECK = ['haan', 'nahi', 'na', 'ha', "don't", 'aarav', 'anaya', 'rahul', 'priya'];
+const { YES_WORDS, NO_WORDS, VERBS, FILLERS, BHEJ } = require('../shared/voice-words');
+// Every word the yes/no grammar can hold (yes and no words, the verbs, the Hinglish "send" words), the fillers a yes may
+// hold, and the default buddy names: the model is asked about all of them, and shared/voice-model.js keeps those it lacks.
+const CHECK = [...new Set([...YES_WORDS, ...NO_WORDS, ...VERBS, ...BHEJ, ...FILLERS, 'aarav', 'anaya', 'rahul', 'priya'])];
 const OUT = path.join(__dirname, '..', 'release', 'voice-model');
 
 function sha256(file) {
@@ -71,4 +74,5 @@ async function main() {
   }
 }
 
-main().catch((e) => fail(String(e && e.message || e)));
+if (require.main === module) main().catch((e) => fail(String(e && e.message || e)));
+module.exports = { CHECK };

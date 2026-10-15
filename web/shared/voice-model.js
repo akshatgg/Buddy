@@ -13,6 +13,6 @@ const VOICE_MODEL = {
   tgz: { url: `${BASE}/vosk-model-small-en-in-0.4.tar.gz`, sha256: '3d3fc1bcc93f458fd87e683a2f8c42f82aaba5a7fd7733ae65e7ea5395597016', bytes: 37562490 },
   // Words the app's grammar uses that this model does not know (printed by tools/pack-voice-model.js): an answer with one
   // of them is also sent to the server. Both apps drop them from the grammar.
-  missing: ['nahi', 'aarav', 'priya'],
+  missing: ['nahi', 'bhej', 'bhejo', 'bhejdo', 'bhejna', 'bhejiye', 'karo', 'kar', 'aarav', 'priya'],
 };
 module.exports = { VOICE_MODEL };

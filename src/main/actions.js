@@ -1255,7 +1255,15 @@ function createActions({
     push(c);
   }
 
-  return { open, toggle, dismiss, send, act, dropSelection, transcribe, state: () => stateOf(chat) };
+  /**
+   * The person starts the panel's 🎤 or types in its box: whatever Buddy is asking, saying or listening for stops first, and an
+   * answer that comes late presses nothing.
+   */
+  function hushVoice() {
+    hush(chat);
+  }
+
+  return { open, toggle, dismiss, send, act, dropSelection, transcribe, hushVoice, state: () => stateOf(chat) };
 }
 
 module.exports = { createActions, sectionFor, COPIED };

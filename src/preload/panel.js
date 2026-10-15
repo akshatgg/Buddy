@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('buddy', {
   micAccess: () => ipcRenderer.invoke('panel:mic-access'),
   transcribe: (audio, mime) => ipcRenderer.invoke('panel:transcribe', audio, mime),
   listening: (on) => ipcRenderer.send('panel:listening', Boolean(on)),
+  hush: () => ipcRenderer.send('panel:hush'),
   voiceLevel: (level) => ipcRenderer.send('panel:voice-level', level),
   // Claude mode: the Claude Code sessions running now, one of them shown as it goes, and words typed into its terminal.
   claudeSessions: () => ipcRenderer.invoke('panel:claude-sessions'),

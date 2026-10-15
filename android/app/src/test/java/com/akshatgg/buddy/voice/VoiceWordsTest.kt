@@ -30,6 +30,21 @@ class VoiceWordsTest {
         }
     }
 
+    @Test fun everyWantsServerCaseMeansWhatTheJavaScriptSays() {
+        assertTrue(cases("wantsServer").size >= 10)
+        for (c in cases("wantsServer")) {
+            val wants = c.getValue("wants").jsonPrimitive.content.toBoolean()
+            val missing = c.getValue("missing").jsonPrimitive.content.toBoolean()
+            assertEquals(c.str("text"), wants, VoiceWords.wantsServer(c.str("text"), c.str("verb"), missing))
+        }
+    }
+
+    @Test fun laughterIsNoAndHaanIsStillYes() {
+        for (said in listOf("ha", "ha ha", "ha ha ha", "ha send it")) assertEquals(said, Heard.NO, VoiceWords.heard(said, "send"))
+        assertEquals(Heard.YES, VoiceWords.heard("haan", "send"))
+        assertTrue("ha" !in VoiceWords.grammar("send", null).phrases)
+    }
+
     @Test fun everyGrammarCaseListsTheSameWords() {
         for (c in cases("grammar")) {
             val known = c["known"].let { if (it == null || it is JsonNull) null else it.jsonArray.strings().toSet() }

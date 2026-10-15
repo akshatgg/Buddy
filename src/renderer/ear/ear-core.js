@@ -39,16 +39,38 @@ const EarCore = (() => {
   }
 
   /**
+   * A copy of voice-words.js wantsServer(): a word not made out next to a yes word (or the card's verb), with no no word, or
+   * any missing word of the card's grammar (`someMissing`): the server hears it, the device alone never decides it a no.
+   */
+  function wantsServer(text, decisive, someMissing) {
+    const words = wordsOf(text);
+    if (!words.includes(UNK) || words.every((w) => w === UNK)) return false;
+    if (words.some((w) => decisive.no.includes(w))) return false;
+    return Boolean(someMissing) || words.some((w) => decisive.yes.includes(w));
+  }
+
+  /**
    * One short answer. `result(text)` is what to do with a final result from the recognizer: a decisive one ends it.
-   * `timeUp(finalText)` at the deadline: the words if decisive, else the recording when the server must hear it AND a
+   * A result with a yes word next to a word not made out (or with a word of the grammar missing from the model) is not
+   * judged here: when a voice was heard it asks for the recording, which the server writes down. `feed(level, ms)` takes the
+   * microphone's level and, with a `timing` (VoiceTiming's), says whether the answer is over by itself: quiet after the
+   * voice, nothing said for 8 s, or too long. `timeUp(finalText)` at that point or the deadline: the words if decisive, else the recording when the server must hear it AND a
    * voice was heard (nothing is sent to the server for silence), else the words as they are.
    */
-  function createAnswerTurn({ decisive, needsServer }) {
+  function createAnswerTurn({ decisive, needsServer, timing = null }) {
     let voice = false;
-    const result = (text) => (isDecisive(text, decisive) ? { text } : null);
+    const level = (x) => {
+      if (Number.isFinite(x) && x >= SPEECH_LEVEL) voice = true;
+    };
+    const result = (text) => {
+      if (!isDecisive(text, decisive)) return null;
+      return voice && wantsServer(text, decisive, needsServer) ? { audio: true } : { text };
+    };
     return {
-      level(x) {
-        if (Number.isFinite(x) && x >= SPEECH_LEVEL) voice = true;
+      level,
+      feed(x, ms) {
+        level(x);
+        return timing ? timing.feed(x, ms) : 'listen';
       },
       result,
       timeUp(finalText) {

@@ -267,6 +267,58 @@ class VoiceSafetyTest {
         }
     }
 
+    @Test fun notNowOnAnotherCardLeavesTheUnlockWaitOfThisOneAlone() = runTest {
+        talk.stopCompletes = false
+        val unanswered = CompletableDeferred<Heard>()
+        talk.hearing = unanswered // card B (id 2) is asked and not answered yet
+        val m = askedCard("first")
+        talk.hearing = null
+        talk.answers += Heard.YES
+        lock.isLocked = true
+        lock.gate = CompletableDeferred()
+        replies += message(text = "second")
+        messaging.found += Found.One(priya)
+        m.sendSpoken("message Priya second") // card A (id 4) is asked, a yes presses Send, and it waits for the unlock
+        advanceUntilIdle()
+        assertTrue(log.any { it.startsWith("say Unlock your phone") })
+        m.press(2, ChatButton.NOT_NOW) // B's Not now, not A's
+        advanceUntilIdle()
+        assertEquals(emptyList<ChatButton>(), m.item(2).buttonList())
+        lock.gate!!.complete(true)
+        advanceUntilIdle()
+        assertEquals("A still went after the unlock", listOf("send Priya Sharma: second"), log.filter { it.startsWith("send ") })
+        unanswered.complete(Heard.NO) // B's old question ends, late and for nothing
+        advanceUntilIdle()
+    }
+
+    @Test fun notNowOnTheCardWaitingForTheUnlockStillCancelsItsWaitOnly() = runTest {
+        val m = waitingAtTheUnlock(call = false)
+        m.press(2, ChatButton.NOT_NOW)
+        advanceUntilIdle()
+        lock.gate!!.complete(true)
+        advanceUntilIdle()
+        assertEquals(0, m.sent())
+        assertEquals(emptyList<ChatButton>(), m.item(2).buttonList())
+    }
+
+    // 6
+    @Test fun theMicOrTypingWhileBuddyAsksHushesBuddyAndALateYesPressesNothing() = runTest {
+        for (how in listOf("mic", "typing")) {
+            log.clear()
+            talk.stopCompletes = false
+            val gate = CompletableDeferred<Heard>()
+            talk.hearing = gate
+            val m = askedCard()
+            val stops = log.count { it == "stop" }
+            if (how == "mic") m.hushVoice() else m.setDraft("h")
+            assertTrue(how, log.count { it == "stop" } > stops)
+            gate.complete(Heard.YES)
+            advanceUntilIdle()
+            assertEquals(how, 0, m.sent())
+            assertEquals(how, listOf(ChatButton.SEND_MESSAGE, ChatButton.NOT_NOW), m.item(2).buttonList())
+        }
+    }
+
     // 9
     @Test fun aSpokenYesGoesThroughTheSamePressAsTheButton() = runTest {
         // Spoken

@@ -32,7 +32,7 @@ private fun noMicrophone() = BuddyError("no_microphone", "Buddy needs the microp
 
 /**
  * What the 🎤 button's presses do, in plain Kotlin so that it is tested on the JVM: 🎤 starts recording, and with it
- * the 60 s stop; ■ stops; leaving the screen cancels. The words go to `onWords`, a failure to `onError`; a dropped step
+ * the 60 s stop; ■ stops; leaving the screen cancels. The words it hears start a spoken chat when nothing is typed (PanelModel.voiceWords). The words go to `onWords`, a failure to `onError`; a dropped step
  * says nothing.
  */
 class MicPresses(

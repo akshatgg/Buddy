@@ -75,7 +75,7 @@ class PanelActivity : ComponentActivity(), ChatHost {
                 val state by model.state.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
                 val user by AppGraph.instance.account.user.collectAsStateWithLifecycle()
                 val signedIn = user != null
-                // One recorder for this screen; its words go into the box, its refusals become a line in the chat.
+                // One recorder for this screen; its words go into the box, or, with nothing typed, start a spoken chat (Buddy answers out loud); its refusals become a line in the chat.
                 val voice = remember { AppGraph.instance.voiceFactory(applicationContext) }
                 val on = remember(signedIn) { callbacks(signedIn) }
                 PanelScreen(state, buddyName, on, full) {

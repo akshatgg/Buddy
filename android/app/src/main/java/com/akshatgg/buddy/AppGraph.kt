@@ -42,7 +42,15 @@ import com.akshatgg.buddy.ui.common.installer
 import com.akshatgg.buddy.ui.settings.mayBeRestricted
 import com.akshatgg.buddy.update.ApkInstaller
 import com.akshatgg.buddy.update.Updater
+import com.akshatgg.buddy.voice.AudioRecordSource
+import com.akshatgg.buddy.voice.Ears
+import com.akshatgg.buddy.voice.KeyguardLock
+import com.akshatgg.buddy.voice.Lock
 import com.akshatgg.buddy.voice.MediaRecorderRecorder
+import com.akshatgg.buddy.voice.PhoneTalkBack
+import com.akshatgg.buddy.voice.TalkBack
+import com.akshatgg.buddy.voice.TtsSpeaker
+import com.akshatgg.buddy.voice.VoskSpotters
 import com.akshatgg.buddy.voice.Voice
 import com.akshatgg.buddy.voice.VoiceModel
 import java.io.File
@@ -100,6 +108,21 @@ class AppGraph(
     val voiceFactory: (Context) -> Voice = { c ->
         Voice(MediaRecorderRecorder(c), { cloud.transcribe(it) }, { cloud.voiceOn() }, c.cacheDir, mood = BubbleBus::mood)
     }
+
+    /**
+     * Buddy's voice and ears for a spoken chat (voice/TalkBack.kt): TextToSpeech, and yes or no on the phone. The model
+     * is fetched in the background the first time Buddy asks out loud; until it is there, the answer goes to the server.
+     */
+    val talkBack: TalkBack by lazy {
+        val ears = Ears(
+            mic = { AudioRecordSource() },
+            spotters = { if (voiceModel.ready()) VoskSpotters(voiceModel) else null },
+            known = { null }, // the model has no words list: every grammar word is offered, an unknown one comes back [unk] (a no)
+            transcribe = { audio, mime -> cloud.transcribe(audio, mime) },
+        )
+        PhoneTalkBack(TtsSpeaker(appContext), ears, voiceModel) { audio, mime -> cloud.transcribe(audio, mime) }
+    }
+    val lock: Lock by lazy { KeyguardLock(appContext) }
 
     /** How the panel and the Fix sheet ask the AI: through the router, unless a test answers instead. */
     val ask: suspend (Action, AskInput) -> Answer = ask ?: router::ask

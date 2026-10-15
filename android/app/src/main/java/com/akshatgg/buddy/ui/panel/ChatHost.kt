@@ -98,6 +98,8 @@ class ChatViewModel : ViewModel() {
         bubble = BubbleBus::send,
         typeIn = graph.typeIn,
         facts = graph.facts,
+        talkBack = graph.talkBack,
+        lock = graph.lock,
         hands = hands,
         messaging = Messenger(graph.whatsApp, ServiceChatScreen(app), contactsAllowed = hands.contacts),
         apps = AppOpener(graph.launcher),

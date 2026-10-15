@@ -27,7 +27,8 @@ const LINES_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', '
 const VOICE_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'voice-cases.json');
 const voice = require('../shared/voice-words');
 const HEARD = [['yes', 'send'], ['Haan.', 'call'], ['ok send it', 'send'], ['send', 'call'], ['call', 'call'], ['no, send it', 'send'],
-  ['Don’t', 'call'], ['nahin', 'send'], ['[unk] [unk]', 'send'], ['', 'call'], ['maybe later', 'send'], ['yes no', 'call'],
+  ['Don’t', 'call'], ['nahin', 'send'], ['[unk] [unk]', 'send'], ['', 'call'], ['maybe later', 'send'],
+  ...['[unk] bhejo', '[unk] send it', 'yes [unk]', 'haan [unk]', '[unk]', '<unk> yes', 'bhej do'].map((t) => [t, 'send']), ['yes no', 'call'],
   ...['do not send it', 'do not call', 'Okay, not now', 'not okay', 'haan mat bhejo', 'nope, send', 'wait, send it', 'never mind okay', 'not yet',
     'haan nahi', 'no problem', "okay don't", 'abhi nahi'].map((t) => [t, 'send']), ['yes send it', 'send'], ['haan', 'send'], ['haan ji', 'send'],
   ['okay send it please', 'send'], ['yes call now', 'call'], ['please', 'send'],

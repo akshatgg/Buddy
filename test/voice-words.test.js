@@ -30,6 +30,14 @@ test('a yes is only words that all mean yes: a negation or any other word is no'
   assert.strictEqual(heardWords('please', 'send'), null);
 });
 
+test('a word Buddy could not make out ([unk]) is never a yes', () => {
+  for (const said of ['[unk] bhejo', '[unk] send it', 'yes [unk]', 'haan [unk]', '[unk]', '<unk> yes', 'YES [UNK]', 'unk bhej do', 'haan <unk> ji']) {
+    assert.strictEqual(heardAnswer(said, 'send'), 'no', said);
+  }
+  assert.strictEqual(heardWords('yes [unk]', 'send'), 'no');
+  for (const said of ['yes', 'haan', 'send it', 'bhej do']) assert.strictEqual(heardAnswer(said, 'send'), 'yes', said);
+});
+
 test('heardWords tells "nothing decisive yet" (null) from a no', () => {
   assert.strictEqual(heardWords('[unk] [unk]', 'send'), null);
   assert.strictEqual(heardWords('', 'call'), null);

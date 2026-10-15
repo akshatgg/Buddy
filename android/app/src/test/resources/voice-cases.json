@@ -82,6 +82,48 @@
       "answer": "no"
     },
     {
+      "text": "[unk] bhejo",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "[unk] send it",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "yes [unk]",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "haan [unk]",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "[unk]",
+      "verb": "send",
+      "words": null,
+      "answer": "no"
+    },
+    {
+      "text": "<unk> yes",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "bhej do",
+      "verb": "send",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
       "text": "yes no",
       "verb": "call",
       "words": "no",

@@ -33,6 +33,7 @@ object VoiceWords {
     private val DONE = Regex("^(✅|📞|📹)\\s*")
     private val NO_INTERNET_CODES = listOf("network", "timeout")
 
+    private const val UNK = "unk" // a word the recognizer could not make out: never allowed, so never a yes
     const val SENT = "Sent."
     const val NOT_SENT = "Okay, not sent."
     const val NOT_NOW = "Okay, not now."
@@ -44,11 +45,11 @@ object VoiceWords {
     const val MAX_FOLLOW_UPS = 2
     const val SPOKEN_MAX = 240
 
-    /** The words said, lower case, punctuation and [unk] gone, each as the lists write it. */
+    /** The words said, lower case, punctuation gone, a word not made out ([unk], <unk>) kept as "unk", each as the lists write it. */
     private fun wordsOf(text: String): List<String> =
         text.lowercase()
             .replace('’', '\'').replace('‘', '\'')
-            .replace("[unk]", " ")
+            .replace(Regex("[\\[<]\\s*unk\\s*[\\]>]"), " unk ")
             .replace(Regex("[^a-z' ]+"), " ")
             .split(Regex("\\s+"))
             .map { it.trim('\'') }
@@ -58,7 +59,7 @@ object VoiceWords {
     /** Yes, no, or null when nothing decisive was said. Any other word, or any no word, is a no. */
     fun words(text: String, verb: String): Heard? {
         val words = wordsOf(text)
-        if (words.isEmpty()) return null
+        if (words.isEmpty() || words.all { it == UNK }) return null // nothing made out yet
         if (words.any { it in NO }) return Heard.NO
         fun isYes(w: String) = w in YES || w == verb
         if (!words.all { isYes(it) || it in FILLERS }) return Heard.NO

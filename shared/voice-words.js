@@ -17,6 +17,7 @@ const SAME = { ok: 'okay', dont: "don't", nahin: 'nahi', haa: 'haan', han: 'haan
 // The Hinglish ways to say "send": the same word for a message card (and no yes at all for a call card).
 const BHEJ = ['bhej', 'bhejo', 'bhejdo', 'bhejna', 'bhejiye'];
 for (const w of BHEJ) SAME[w] = 'send';
+const UNK = 'unk'; // a word the recognizer could not make out: never allowed, so never a yes
 const SPOKEN_MAX = 240; // a line of Buddy's own longer than this is only shown
 const ANSWER_MS = 8000; // nothing decisive heard this long after the question: no
 const UNLOCK_WAIT_MS = 60000;
@@ -33,12 +34,12 @@ const VOICE_LINES = {
   didntCall: "I didn't call.",
 };
 
-/** The words said, lower case, punctuation and [unk] gone, each as the lists write it. */
+/** The words said, lower case, punctuation gone, a word not made out ([unk], <unk>) kept as 'unk', each as the lists write it. */
 function wordsOf(text) {
   return String(text || '')
     .toLowerCase()
     .replace(/[’‘]/g, "'")
-    .replace(/\[unk\]/g, ' ')
+    .replace(/[[<]\s*unk\s*[\]>]/g, ' unk ')
     .replace(/[^a-z' ]+/g, ' ')
     .split(/\s+/)
     .map((w) => w.replace(/^'+|'+$/g, ''))
@@ -48,7 +49,7 @@ function wordsOf(text) {
 
 function heardWords(text, verb) {
   const words = wordsOf(text);
-  if (!words.length) return null;
+  if (!words.length || words.every((w) => w === UNK)) return null; // nothing made out yet
   if (words.some((w) => NO_WORDS.includes(w))) return 'no';
   const isYes = (w) => YES_WORDS.includes(w) || w === verb;
   if (!words.every((w) => isYes(w) || FILLERS.includes(w))) return 'no';

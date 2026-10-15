@@ -18,7 +18,7 @@
  */
 
 const { BuddyError } = require('../../shared/errors');
-const { LIMITS, MESSAGE_ELSEWHERE } = require('../../shared/prompts');
+const { LIMITS, MESSAGE_ELSEWHERE, ELSEWHERE } = require('../../shared/prompts');
 const { pickChat, pickLine, sameName } = require('../../shared/message-pick');
 const { AI_TIMEOUT_MS } = require('./ai');
 const { TRANSCRIBE_TIMEOUT_MS } = require('./cloud');
@@ -477,6 +477,10 @@ function createActions({
   /** The final answer: what it shows, and what Buddy does in the app. */
   async function finish(c, reply, from) {
     if (reply.kind === 'message') return startMessage(c, reply);
+    if (['call', 'open', 'calls', 'notifs'].includes(reply.kind)
+      && (system === 'win32' || reply.kind === 'calls' || reply.kind === 'notifs' || (reply.kind === 'call' && reply.how === 'phone'))) {
+      return elsewhere(c, reply);
+    }
     if (reply.kind === 'code') return startCode(c, reply);
     if (reply.kind === 'send') {
       add(c, { type: 'question', text: 'Send it?', buttons: ['send', 'not-now'] });
@@ -665,6 +669,19 @@ function createActions({
     ui.bubble('Sent ✅');
     if (c === chat) ui.mood('celebrate'); // not for a chat closed meanwhile (Buddy turned off), as in talk()
     push(c);
+  }
+
+  /**
+   * A call, an app to open, or their phone's calls or notifications, where this computer cannot do it: one line that
+   * says where it can. The AI's own `say` is left out, as it may promise what this line says cannot be done here.
+   */
+  function elsewhere(c, reply) {
+    let text = ELSEWHERE.open;
+    if (reply.kind === 'calls') text = ELSEWHERE.calls;
+    else if (reply.kind === 'notifs') text = ELSEWHERE.notifs;
+    else if (reply.kind === 'call') text = reply.how === 'phone' ? ELSEWHERE.phoneCall : ELSEWHERE.whatsAppCall;
+    add(c, { type: 'buddy', say: '', text, notes: [], buttons: [] });
+    return true;
   }
 
   /**

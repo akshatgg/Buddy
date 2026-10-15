@@ -2404,3 +2404,34 @@ test('on Windows a message says it works on the Mac and Android for now', async 
   assert.strictEqual(chatOf(s).at(-1).text, 'I can message on WhatsApp from the Mac and Android apps for now.');
   assert.strictEqual(entries(s.log, 'helper').filter((e) => e[1] === 'waFind').length, 0);
 });
+
+// Calls, apps and the phone's calls where this computer cannot do them
+
+const calling = (fields = {}) => reply({ kind: 'call', to: 'Prince', how: 'phone', ...fields });
+const said = (id, text) => ({ id, type: 'buddy', say: '', text, notes: [], buttons: [] });
+
+test('a phone call, the phone\'s calls and its notifications, on the Mac and on Windows, say they are on the phone', async () => {
+  for (const windows of [false, true]) {
+    const s = setup({ windows, answers: [calling({ say: 'Calling him!' }), reply({ kind: 'calls', what: 'missed' }), reply({ kind: 'calls', what: 'now' }), reply({ kind: 'notifs', app: 'Instagram' })] });
+    await s.actions.open();
+    await s.actions.send('call prince');
+    assert.deepStrictEqual(lastItem(s), said(2, 'I can only make phone calls from your phone.'), `windows: ${windows}`);
+    await s.actions.send('any missed calls?');
+    assert.deepStrictEqual(lastItem(s), said(4, 'I can only see calls on your phone.'));
+    await s.actions.send('who is calling me?');
+    assert.deepStrictEqual(lastItem(s), said(6, 'I can only see calls on your phone.'));
+    await s.actions.send('what is the instagram notification about?');
+    assert.deepStrictEqual(lastItem(s), said(8, 'I can only read notifications on your phone.'));
+    assert.strictEqual(entries(s.log, 'helper').filter((e) => e[1].startsWith('wa')).length, 0);
+    assert.strictEqual(moods(s.log).at(-1), 'happy');
+  }
+});
+
+test('on Windows a WhatsApp call and opening an app say where they work', async () => {
+  const s = setup({ windows: true, answers: [calling({ how: 'whatsapp_video' }), reply({ kind: 'open', app: 'YouTube' })] });
+  await s.actions.open();
+  await s.actions.send('video call prince on whatsapp');
+  assert.deepStrictEqual(lastItem(s), said(2, 'I can make WhatsApp calls from the Mac and Android apps for now.'));
+  await s.actions.send('open youtube');
+  assert.deepStrictEqual(lastItem(s), said(4, 'I can open apps on the Mac and Android for now.'));
+});

@@ -7,7 +7,7 @@
 // An item: { id, type: 'you' | 'buddy' | 'event' | 'error', say, text, notes, buttons }, and `fact` on a fact that was
 // remembered (Undo forgets it), `you` on an error (the message that Try again sends again).
 
-import { LIMITS, CHAT_LIMITS, MESSAGE_ELSEWHERE } from './shared/prompts.js';
+import { LIMITS, CHAT_LIMITS, MESSAGE_ELSEWHERE, ELSEWHERE } from './shared/prompts.js';
 
 export const EMPTY = 'Tell me what to do first.';
 export const TOO_LONG = `That message is too long (over ${LIMITS.instruction} characters). Try a shorter one.`;
@@ -47,6 +47,10 @@ export function answerItem(reply) {
   if (reply.kind === 'box' || reply.kind === 'screen') return item(CANT_SEE);
   if (reply.kind === 'send') return item(CANT_SEND);
   if (reply.kind === 'message') return item(MESSAGE_ELSEWHERE);
+  if (reply.kind === 'call') return item(reply.how === 'phone' ? ELSEWHERE.phoneCall : ELSEWHERE.whatsAppCall);
+  if (reply.kind === 'open') return item(ELSEWHERE.open);
+  if (reply.kind === 'calls') return item(ELSEWHERE.calls);
+  if (reply.kind === 'notifs') return item(ELSEWHERE.notifs);
   if (!reply.say && !reply.text && !reply.notes.length) return item(NO_ANSWER);
   return item(reply.say, reply.text, reply.notes);
 }

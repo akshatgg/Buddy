@@ -1,0 +1,311 @@
+{
+  "note": "Made by tools/sync-android-shared.js from shared/voice-words.js. Do not edit: run npm run sync:android.",
+  "heard": [
+    {
+      "text": "yes",
+      "verb": "send",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "Haan.",
+      "verb": "call",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "ok send it",
+      "verb": "send",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "send",
+      "verb": "call",
+      "words": null,
+      "answer": "no"
+    },
+    {
+      "text": "call",
+      "verb": "call",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "no, send it",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "Don’t",
+      "verb": "call",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "nahin",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "[unk] [unk]",
+      "verb": "send",
+      "words": null,
+      "answer": "no"
+    },
+    {
+      "text": "",
+      "verb": "call",
+      "words": null,
+      "answer": "no"
+    },
+    {
+      "text": "maybe later",
+      "verb": "send",
+      "words": null,
+      "answer": "no"
+    },
+    {
+      "text": "yes no",
+      "verb": "call",
+      "words": "no",
+      "answer": "no"
+    }
+  ],
+  "grammar": [
+    {
+      "verb": "send",
+      "known": null,
+      "grammar": [
+        "yes",
+        "yeah",
+        "haan",
+        "ha",
+        "okay",
+        "send",
+        "no",
+        "nahi",
+        "na",
+        "cancel",
+        "don't",
+        "stop",
+        "[unk]"
+      ],
+      "missing": []
+    },
+    {
+      "verb": "call",
+      "known": null,
+      "grammar": [
+        "yes",
+        "yeah",
+        "haan",
+        "ha",
+        "okay",
+        "call",
+        "no",
+        "nahi",
+        "na",
+        "cancel",
+        "don't",
+        "stop",
+        "[unk]"
+      ],
+      "missing": []
+    },
+    {
+      "verb": "send",
+      "known": [
+        "yes",
+        "okay",
+        "send",
+        "no",
+        "cancel",
+        "stop"
+      ],
+      "grammar": [
+        "yes",
+        "okay",
+        "send",
+        "no",
+        "cancel",
+        "stop",
+        "[unk]"
+      ],
+      "missing": [
+        "yeah",
+        "haan",
+        "ha",
+        "nahi",
+        "na",
+        "don't"
+      ]
+    },
+    {
+      "verb": "call",
+      "known": [
+        "yes",
+        "okay",
+        "send",
+        "no",
+        "cancel",
+        "stop"
+      ],
+      "grammar": [
+        "yes",
+        "okay",
+        "no",
+        "cancel",
+        "stop",
+        "[unk]"
+      ],
+      "missing": [
+        "yeah",
+        "haan",
+        "ha",
+        "call",
+        "nahi",
+        "na",
+        "don't"
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "card": {
+        "kind": "message",
+        "name": "Priya Sharma",
+        "text": "I'm running late"
+      },
+      "said": "To Priya Sharma: I'm running late. Send it?"
+    },
+    {
+      "card": {
+        "kind": "message",
+        "name": "Priya",
+        "text": "Kahan ho? "
+      },
+      "said": "To Priya: Kahan ho? Send it?"
+    },
+    {
+      "card": {
+        "kind": "call",
+        "name": "Prince Narasimhan",
+        "how": "phone"
+      },
+      "said": "Call Prince Narasimhan?"
+    },
+    {
+      "card": {
+        "kind": "call",
+        "name": "Prince",
+        "how": "whatsapp"
+      },
+      "said": "WhatsApp call Prince?"
+    },
+    {
+      "card": {
+        "kind": "call",
+        "name": "Prince",
+        "how": "whatsapp_video"
+      },
+      "said": "WhatsApp video call Prince?"
+    }
+  ],
+  "lines": [
+    {
+      "items": [
+        {
+          "type": "buddy",
+          "say": "Okay!",
+          "text": "x"
+        },
+        {
+          "type": "buddy",
+          "say": "",
+          "text": "Which Priya: A or B? Tell me the full name."
+        },
+        {
+          "type": "buddy",
+          "say": "",
+          "text": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+        },
+        {
+          "type": "event",
+          "text": "✅ Opened YouTube"
+        },
+        {
+          "type": "event",
+          "text": "📝 Remembered: x"
+        },
+        {
+          "type": "error",
+          "text": "x",
+          "code": "network"
+        },
+        {
+          "type": "error",
+          "text": "Sign in to use Buddy.",
+          "code": "signed_out"
+        },
+        {
+          "type": "question",
+          "text": "q"
+        }
+      ],
+      "said": [
+        "Okay!",
+        "Which Priya: A or B? Tell me the full name.",
+        "Opened YouTube",
+        "I can't reach the internet right now.",
+        "Sign in to use Buddy."
+      ]
+    }
+  ],
+  "asksBack": [
+    {
+      "line": "Who should I call?",
+      "asks": true
+    },
+    {
+      "line": "I found lots of apps called a. Tell me the full name.",
+      "asks": true
+    },
+    {
+      "line": "I couldn't find YouTube on this phone.",
+      "asks": false
+    },
+    {
+      "line": "",
+      "asks": false
+    }
+  ],
+  "unlock": [
+    {
+      "device": "phone",
+      "kind": "message",
+      "name": "Priya Sharma",
+      "said": "Unlock your phone and I'll send it to Priya Sharma."
+    },
+    {
+      "device": "phone",
+      "kind": "call",
+      "name": "Priya Sharma",
+      "said": "Unlock your phone and I'll call Priya Sharma."
+    },
+    {
+      "device": "Mac",
+      "kind": "message",
+      "name": "Priya Sharma",
+      "said": "Unlock your Mac and I'll send it."
+    },
+    {
+      "device": "Mac",
+      "kind": "call",
+      "name": "Priya Sharma",
+      "said": "Unlock your Mac and I'll call Priya Sharma."
+    }
+  ]
+}

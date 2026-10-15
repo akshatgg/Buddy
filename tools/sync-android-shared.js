@@ -24,6 +24,30 @@ const TO = path.join(ROOT, 'android', 'app', 'src', 'main', 'assets', 'shared.js
 const CASES_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'chat-cases.json');
 const PICK_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'pick-cases.json');
 const LINES_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'line-cases.json');
+const VOICE_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'voice-cases.json');
+const voice = require('../shared/voice-words');
+const HEARD = [['yes', 'send'], ['Haan.', 'call'], ['ok send it', 'send'], ['send', 'call'], ['call', 'call'], ['no, send it', 'send'],
+  ['Don’t', 'call'], ['nahin', 'send'], ['[unk] [unk]', 'send'], ['', 'call'], ['maybe later', 'send'], ['yes no', 'call']];
+const QUESTIONS = [{ kind: 'message', name: 'Priya Sharma', text: "I'm running late" }, { kind: 'message', name: 'Priya', text: 'Kahan ho? ' },
+  { kind: 'call', name: 'Prince Narasimhan', how: 'phone' }, { kind: 'call', name: 'Prince', how: 'whatsapp' }, { kind: 'call', name: 'Prince', how: 'whatsapp_video' }];
+const LINE_ITEMS = [[{ type: 'buddy', say: 'Okay!', text: 'x' }, { type: 'buddy', say: '', text: 'Which Priya: A or B? Tell me the full name.' },
+  { type: 'buddy', say: '', text: 'y'.repeat(241) }, { type: 'event', text: '✅ Opened YouTube' }, { type: 'event', text: '📝 Remembered: x' },
+  { type: 'error', text: 'x', code: 'network' }, { type: 'error', text: 'Sign in to use Buddy.', code: 'signed_out' }, { type: 'question', text: 'q' }]];
+const ASKS = ['Who should I call?', 'I found lots of apps called a. Tell me the full name.', "I couldn't find YouTube on this phone.", ''];
+const KNOWN = [null, ['yes', 'okay', 'send', 'no', 'cancel', 'stop']];
+
+function buildVoiceCases() {
+  return {
+    note: 'Made by tools/sync-android-shared.js from shared/voice-words.js. Do not edit: run npm run sync:android.',
+    heard: HEARD.map(([text, verb]) => ({ text, verb, words: voice.heardWords(text, verb), answer: voice.heardAnswer(text, verb) })),
+    grammar: KNOWN.flatMap((known) => voice.VERBS.map((verb) => ({ verb, known, ...voice.answerGrammar(verb, known && new Set(known)) }))),
+    questions: QUESTIONS.map((card) => ({ card, said: voice.spokenQuestion(card) })),
+    lines: LINE_ITEMS.map((items) => ({ items, said: voice.spokenLines(items) })),
+    asksBack: ASKS.map((line) => ({ line, asks: voice.asksBack(line) })),
+    unlock: [['phone', 'message'], ['phone', 'call'], ['Mac', 'message'], ['Mac', 'call']]
+      .map(([device, kind]) => ({ device, kind, name: 'Priya Sharma', said: voice.unlockLine(device, kind, 'Priya Sharma') })),
+  };
+}
 
 /** The message buildPrompt refuses `input` with. */
 function refusal(action, input) {
@@ -222,11 +246,11 @@ function buildLineCases() {
 }
 
 if (require.main === module) {
-  for (const [to, made] of [[TO, buildShared()], [CASES_TO, buildChatCases()], [PICK_TO, buildPickCases()], [LINES_TO, buildLineCases()]]) {
+  for (const [to, made] of [[TO, buildShared()], [CASES_TO, buildChatCases()], [PICK_TO, buildPickCases()], [LINES_TO, buildLineCases()], [VOICE_TO, buildVoiceCases()]]) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.writeFileSync(to, `${JSON.stringify(made, null, 2)}\n`);
     console.log(`wrote ${path.relative(ROOT, to)}`);
   }
 }
 
-module.exports = { buildShared, buildChatCases, buildPickCases, buildLineCases, TO, CASES_TO, PICK_TO, LINES_TO };
+module.exports = { buildShared, buildChatCases, buildPickCases, buildLineCases, TO, CASES_TO, PICK_TO, LINES_TO, VOICE_TO, buildVoiceCases };

@@ -32,6 +32,12 @@ import com.akshatgg.buddy.typing.Edit
 import com.akshatgg.buddy.typing.PutMode
 import com.akshatgg.buddy.typing.TextEdit
 import com.akshatgg.buddy.typing.TypeIn
+import com.akshatgg.buddy.voice.Heard
+import com.akshatgg.buddy.voice.Lock
+import com.akshatgg.buddy.voice.SpokenCard
+import com.akshatgg.buddy.voice.SpokenItem
+import com.akshatgg.buddy.voice.TalkBack
+import com.akshatgg.buddy.voice.VoiceWords
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -168,6 +174,8 @@ class PanelModel(
     private val now: () -> Long = System::currentTimeMillis,
     private val maxMessage: Int = 1000,
     private val maxSelection: Int = 8000,
+    private val talkBack: TalkBack = TalkBack.SILENT,
+    private val lock: Lock = Lock.OPEN,
 ) {
     private class Chat(val app: String, val greeting: String) {
         val items = mutableListOf<ChatItem>()
@@ -182,6 +190,11 @@ class PanelModel(
         val messages = HashMap<Int, Pair<Person, String>>() // a message card's person and text, until it is sent
         val calls = HashMap<Int, CallCard>() // a call card's who, until it is called
         val offRecord = HashSet<Int>() // lines kept out of the chat sent to the AI: who called or wrote
+        var spoken = false // the last message was said out loud: Buddy answers out loud
+        var asking: Int? = null // the card whose question Buddy is asking out loud now
+        var followUps = 0 // spoken follow-ups in a row, for a "which one?"
+        var speaking = false // Buddy is speaking an answer
+        var voice = 0 // goes up whenever speech is ended: older speech steps stop at once
     }
 
     private val current = MutableStateFlow(PanelState())
@@ -243,6 +256,7 @@ class PanelModel(
      * of. Text Buddy is putting in the app, having stepped aside for it, still goes in.
      */
     fun close() {
+        hush(chat)
         if (busy) {
             running?.let {
                 running = null
@@ -258,6 +272,7 @@ class PanelModel(
 
     /** A new chat in place of the last one, whose answer, if it is still on its way, is dropped. */
     private fun newChat(app: String) {
+        hush(chat)
         running?.let {
             running = null
             it.cancel()
@@ -278,11 +293,15 @@ class PanelModel(
         publish()
     }
 
-    /** Words the person said (voice): into the box after what is there, to send when they want. */
+    /**
+     * Words the person said into the 🎤: with nothing typed (and no answer on its way) they go at once, as a spoken
+     * message; else into the box after what is there, to send when they want.
+     */
     fun voiceWords(text: String) {
         val words = text.trim()
         if (words.isEmpty()) return
         val typed = draft.trimEnd()
+        if (typed.isEmpty() && !busy) return sendSpoken(words)
         setDraft(if (typed.isEmpty()) words else "$typed $words")
     }
 
@@ -304,11 +323,16 @@ class PanelModel(
     }
 
     /** The message in the box. An empty one with a selection means "fix this". One at a time: the next waits. */
-    fun send() {
+    fun send() = sendText(draft, spoken = false, followUp = false, fromBox = true)
+
+    /** A message said out loud: Buddy answers out loud too, and asks a card's question. Same checks as `send()`. */
+    fun sendSpoken(text: String) = sendText(text, spoken = true, followUp = false, fromBox = false)
+
+    private fun sendText(raw: String, spoken: Boolean, followUp: Boolean, fromBox: Boolean) {
         if (busy) return
         val c = chat
-        var text = draft.trim()
-        if (text.isEmpty() && c.selection.isNotBlank()) text = "Fix this."
+        var text = raw.trim()
+        if (text.isEmpty() && fromBox && c.selection.isNotBlank()) text = "Fix this."
         if (text.isEmpty()) return
         // The AI's limits, before the message joins the chat: the person keeps their words to make shorter.
         if (text.length > maxMessage) {
@@ -321,10 +345,23 @@ class PanelModel(
             publish()
             return
         }
-        draft = ""
+        hush(c)
+        if (fromBox) draft = ""
         boxError = null
+        c.spoken = spoken
+        c.followUps = if (followUp) c.followUps + 1 else 0
         val you = add(c) { YouSaid(it, text) }
         talk(c, you.id)
+    }
+
+    /** Any speech or question Buddy has out loud ends: nothing it hears afterwards counts. */
+    private fun hush(c: Chat) {
+        val asking = c.asking != null
+        c.voice++
+        if (asking || c.speaking) talkBack.stop()
+        c.asking = null
+        c.speaking = false
+        if (asking && c === chat) mood(Mood.IDLE)
     }
 
     private fun <T : ChatItem> add(c: Chat, make: (Int) -> T): T {
@@ -391,7 +428,64 @@ class PanelModel(
                     publish()
                 }
             }
+            // Out loud, for a spoken message: what the answer added, then a card's question.
+            if (c.spoken && c === chat) speakAnswer(c, youId)
         }
+    }
+
+    private suspend fun speakAnswer(c: Chat, youId: Int) {
+        val epoch = c.voice
+        c.speaking = true
+        try {
+            val added = c.items.dropWhile { it.id != youId }.drop(1)
+            val card = added.lastOrNull { it.id in c.messages || it.id in c.calls }
+            val lines = VoiceWords.spoken(added.filter { it.id != card?.id }.map(::spokenItem))
+            for (line in lines) {
+                talkBack.say(line)
+                if (c !== chat || c.voice != epoch) return
+            }
+            if (card != null) return askAloud(c, card.id, epoch)
+            val last = lines.lastOrNull() ?: return
+            if (!VoiceWords.asksBack(last) || c.followUps >= VoiceWords.MAX_FOLLOW_UPS) return
+            val words = talkBack.listen() ?: return
+            if (c === chat && c.voice == epoch && !busy) {
+                c.speaking = false
+                sendText(words, spoken = true, followUp = true, fromBox = false)
+            }
+        } finally {
+            if (c.voice == epoch) c.speaking = false
+        }
+    }
+
+    private fun spokenItem(item: ChatItem) = when (item) {
+        is BuddySaid -> SpokenItem("buddy", item.say, item.text)
+        is ChatEvent -> SpokenItem("event", text = item.text)
+        is ChatError -> SpokenItem("error", text = item.text, code = item.code)
+        is YouSaid -> SpokenItem("you", text = item.text)
+    }
+
+    /**
+     * "To Priya Sharma: … Send it?" or "Call Prince Sharma?" out loud, then the answer: a yes presses the card's own
+     * button, once, and only while this card's question is the one being asked; anything else is Not now.
+     */
+    private suspend fun askAloud(c: Chat, id: Int, epoch: Int) {
+        val call = c.calls[id]
+        val question = when (call) {
+            is CallCard.Phone -> VoiceWords.question(SpokenCard.Call(call.callee.name, "phone"))
+            is CallCard.WhatsApp -> VoiceWords.question(SpokenCard.Call(call.person.name, if (call.video) "whatsapp_video" else "whatsapp"))
+            null -> c.messages[id]?.let { (person, text) -> VoiceWords.question(SpokenCard.Message(person.name, text)) } ?: return
+        }
+        val verb = if (call != null) "call" else "send"
+        c.asking = id
+        talkBack.say(question)
+        if (c.asking != id || c !== chat || c.voice != epoch) return
+        mood(Mood.THINKING) // listening: Android's head has no listening face
+        val heard = talkBack.hear(verb)
+        if (c.asking != id || c !== chat || c.voice != epoch) return
+        c.asking = null
+        mood(Mood.IDLE)
+        val yes = if (verb == "call") ChatButton.CALL else ChatButton.SEND_MESSAGE
+        pressOn(c, id, if (heard == Heard.YES) yes else ChatButton.NOT_NOW, spoken = true)
     }
 
     /** One chat request, with the AI's deadline. An answer that came without its reading is a written one. */
@@ -668,6 +762,7 @@ class PanelModel(
      */
     private suspend fun placeCall(c: Chat, id: Int) {
         val first = c.calls[id] ?: return
+        if (!unlockedFor(c, id, "call", nameOf(first))) return
         if (first is CallCard.WhatsApp) hands.stepAside() // nothing called yet: should it throw, the card stays
         // Taken off the card before calling, and put back only when it did not call: should the call throw, whether it
         // rang is not known, and the card must not call a second time.
@@ -682,28 +777,34 @@ class PanelModel(
             Log.w("Buddy", "call: unexpected ${e.javaClass.simpleName}")
             Called.Unsure
         }
+        var aloud = ""
         when (called) {
             Called.Done -> {
                 replaceItem(c, ChatEvent(id, calledLine(card)))
                 mood(Mood.HAPPY)
+                aloud = VoiceWords.calling(nameOf(card))
             }
             Called.Unsure -> {
                 val line = if (card is CallCard.Phone) PHONE_CALL_UNSURE else CALL_UNSURE
                 replaceItem(c, ChatEvent(id, line))
                 say(line)
+                aloud = line
             }
             is Called.Ended -> {
                 replaceItem(c, ChatEvent(id, called.line))
                 say(called.line)
+                aloud = called.line
             }
             is Called.Failed -> {
                 c.calls[id] = card
                 val code = called.code ?: "call_failed"
                 add(c) { ChatError(it, called.line, code, if (code in SETTINGS_ERRORS) listOf(ChatButton.SETTINGS) else emptyList()) }
                 say(called.line)
+                aloud = called.line
             }
         }
         publish()
+        if (c.spoken) talkBack.say(aloud)
     }
 
     private fun calledLine(card: CallCard) = when (card) {
@@ -724,19 +825,23 @@ class PanelModel(
      */
     private suspend fun sendMessage(c: Chat, id: Int) {
         val (person, text) = c.messages[id] ?: return
+        if (!unlockedFor(c, id, "message", person.name)) return
         hands.stepAside()
+        var aloud = ""
         when (val sent = messaging.send(person, text)) {
             Sent.Done -> {
                 c.messages.remove(id)
                 replaceItem(c, ChatEvent(id, "✅ Sent to ${person.name}"))
                 say("Sent ✅")
                 mood(Mood.HAPPY)
+                aloud = VoiceWords.SENT
             }
             Sent.Unsure -> {
                 // Pressed, or maybe pressed: no red error and no second Send, only the line to check WhatsApp.
                 c.messages.remove(id)
                 replaceItem(c, ChatEvent(id, NOT_SURE))
                 say(NOT_SURE)
+                aloud = NOT_SURE
             }
             is Sent.Failed -> {
                 if (sent.inWhatsApp) {
@@ -747,9 +852,37 @@ class PanelModel(
                 val code = sent.code ?: "message_failed"
                 add(c) { ChatError(it, sent.line, code, if (code in SETTINGS_ERRORS) listOf(ChatButton.SETTINGS) else emptyList()) }
                 say(sent.line)
+                aloud = sent.line
             }
         }
         publish()
+        if (c.spoken) talkBack.say(aloud)
+    }
+
+    private fun nameOf(card: CallCard) = when (card) {
+        is CallCard.Phone -> card.callee.name
+        is CallCard.WhatsApp -> card.person.name
+    }
+
+    /**
+     * A locked phone: Buddy asks for the unlock and waits a minute (the spec's locked rule, for calls too). Still
+     * locked: the card goes, and says so. True when it may go on (the card still there, in this chat).
+     */
+    private suspend fun unlockedFor(c: Chat, id: Int, kind: String, name: String): Boolean {
+        if (!lock.locked()) return true
+        val ask = VoiceWords.unlockLine("phone", kind, name)
+        say(ask)
+        if (c.spoken) talkBack.say(ask)
+        if (lock.unlocked(VoiceWords.UNLOCK_WAIT_MS)) {
+            return c === chat && (c.messages.containsKey(id) || c.calls.containsKey(id))
+        }
+        c.messages.remove(id)
+        c.calls.remove(id)
+        val gave = if (kind == "call") VoiceWords.DIDNT_CALL else VoiceWords.DIDNT_SEND
+        replaceItem(c, ChatEvent(id, gave))
+        publish()
+        if (c.spoken) talkBack.say(gave)
+        return false
     }
 
     /**
@@ -886,7 +1019,13 @@ class PanelModel(
 
     /** A button on a line of the chat. Only a button the line shows can be pressed. */
     fun press(id: Int, button: ChatButton) {
-        val c = chat
+        hush(chat) // the person's own press ends any question Buddy is asking out loud
+        pressOn(chat, id, button, spoken = false)
+    }
+
+    /** The one press path: the person's button, or their spoken yes or no (`spoken`), for the card in chat `c`. */
+    private fun pressOn(c: Chat, id: Int, button: ChatButton, spoken: Boolean) {
+        if (c !== chat) return
         val item = c.items.firstOrNull { it.id == id } ?: return
         val buttons = when (item) {
             is BuddySaid -> item.buttons
@@ -927,6 +1066,7 @@ class PanelModel(
                 val line = if (call) NOT_NOW_CALL else NOT_SENT
                 replaceItem(c, ChatEvent(id, line))
                 publish()
+                if (spoken) scope.launch { talkBack.say(if (call) VoiceWords.NOT_NOW else VoiceWords.NOT_SENT) }
             }
             ChatButton.RETRY -> {
                 if (busy) return

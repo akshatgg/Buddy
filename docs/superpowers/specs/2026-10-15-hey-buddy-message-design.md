@@ -24,6 +24,23 @@ Decisions the owner made:
 The same message can be typed into the chat panel ("message Priya on WhatsApp I'm late"). Then the panel shows the
 card **To Priya Sharma: I'm running late [Send] [Cancel]** instead of asking out loud.
 
+## Changes after reading the code (2026-10-15, same day)
+
+- **Ask first, then open.** Buddy finds the person, asks "To Priya Sharma: … Send it?", and only on yes opens the chat,
+  checks its name, puts the text in and presses Send, in one go. Nothing is left half-done in WhatsApp when the answer
+  is no. This replaces "opens WhatsApp … then says" in step 3 above.
+- **"Which Priya?" is answered in words**, typed or said ("Priya Sharma"), not with buttons. The words go back to the
+  brain like any message, which gives a fuller name.
+- **Android finds the number through WhatsApp's own contact rows** (`ContactsContract.Data` with mime type
+  `vnd.android.cursor.item/vnd.com.whatsapp.profile`, or `…w4b.profile` for WhatsApp Business). Their `data1` is
+  `<number>@s.whatsapp.net`, so no number formatting is needed.
+- **Mac WhatsApp, found on the owner's Mac (WhatsApp 26.41):** the search box is `TokenizedSearchBar_TextView`, chat
+  list rows are buttons inside `ChatListView_TableView` whose description starts with the chat name, the open chat's
+  name is the description of `NavigationBar_HeaderViewButton`, and the message box is `ChatBar_ComposerTextView`. With
+  its window closed, the menu item WhatsApp → "Open main window" brings it back. Descriptions start with U+200E (a
+  left-to-right mark), which is stripped.
+- **Locked phone or Mac moves to PR 2.** In PR 1 the person is typing in the panel, so the device is unlocked.
+
 ## Three pieces, three PRs
 
 Each PR works on its own and ships in a release.

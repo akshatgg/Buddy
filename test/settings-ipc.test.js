@@ -73,6 +73,7 @@ function setup({
   // "Hey <name>" (wake.js): a stand-in that notes refresh() and answers `wakeHeard` wakes (after `wakeGate`, a promise, if given).
   wakeHeard = 2, wakeGate = null, wakeState = { on: true, line: 'Listening' },
 } = {}) {
+  let wakeChanged = null;
   const data = { ...structuredClone(DEFAULTS), ...stored };
   const store = {
     get: (key) => data[key],
@@ -198,6 +199,7 @@ function setup({
     wake: {
       refresh: () => calls.push(['wakeRefresh']),
       state: () => wakeState,
+      onChange: (fn) => { wakeChanged = fn; },
       async test(onHeard) {
         calls.push(['wakeTest']);
         onHeard();
@@ -211,7 +213,7 @@ function setup({
   });
   const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
   const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
-  return { call, callFromWelcome, handlers, store, keys, calls, claudeCalls, opened, ipc, shortcutNow: () => current, keyWatch, sent, memory };
+  return { call, callFromWelcome, handlers, store, keys, wakeChange: () => wakeChanged?.(), calls, claudeCalls, opened, ipc, shortcutNow: () => current, keyWatch, sent, memory };
 }
 
 test('settings:get answers the settings without positions or lastDisplayId, the buddies and the providers', async () => {
@@ -1484,7 +1486,26 @@ test('the snapshot has the wake row: its state and its worded lines', async () =
     heard: 'Heard you ✓',
     sayNow: 'Say "Hey Rahul" now.',
     notHeard: 'I didn\'t hear "Hey Rahul". Try again.',
+    hint: "If Test it doesn't hear you, try another spelling of the name.",
+    percent: null,
   });
+});
+
+test('a long name: the row names the same three words that are listened for', async () => {
+  const s = setup({ stored: { buddyName: 'Sir Reginald Of Wessex' } });
+  const r = (await s.call('settings:get')).wake;
+  assert.strictEqual(r.label, 'Listen for "Hey Sir Reginald Of"');
+  assert.strictEqual(r.sayNow, 'Say "Hey Sir Reginald Of" now.');
+});
+
+test('a change of the wake state (download progress, finish, failure) is pushed to Settings live', async () => {
+  const s = setup({ stored: { buddyName: 'Rahul', wakeOn: false }, wakeState: { on: false, line: "Couldn't get Buddy's ears ready. Check the internet and try again." } });
+  s.wakeChange();
+  await tick();
+  const [target, channel, payload] = s.sent.at(-1);
+  assert.deepStrictEqual([target, channel], ['settings', 'wake:changed']);
+  assert.strictEqual(payload.wakeOn, false);
+  assert.strictEqual(payload.wake.line, "Couldn't get Buddy's ears ready. Check the internet and try again.");
 });
 
 test('settings:wake-test answers how many times it heard the phrase, and one test runs at a time', async () => {

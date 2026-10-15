@@ -39,35 +39,29 @@ const MODEL_WAIT_MS = 3000; // a model not ready in 3 s is not waited for: the a
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-let mic = null; // { ctx, stream, source, processor } while the microphone is open
-let onChunk = null; // where each buffer of microphone samples goes
 let modelPromise = null; // the recogniser's model, loaded once per window
 let current = null; // the command running: { finish(result) }, so a stop can end it
 let queue = Promise.resolve();
 let stopped = 0; // counts stops: a command queued before one never opens the microphone
 
-async function openMic() {
+// Every caller (a command, the wake loop) opens its own microphone and closes only that one (EarCore.createMicPool).
+const mics = EarCore.createMicPool(async (deliver) => {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
   const ctx = new AudioContext({ sampleRate: RATE });
   const source = ctx.createMediaStreamSource(stream);
   const processor = ctx.createScriptProcessor(2048, 1, 1);
-  processor.onaudioprocess = (e) => {
-    if (onChunk) onChunk(new Float32Array(e.inputBuffer.getChannelData(0)));
-  };
+  processor.onaudioprocess = (e) => deliver(new Float32Array(e.inputBuffer.getChannelData(0)));
   source.connect(processor);
   processor.connect(ctx.destination); // silent: its output buffer is left empty; the node only runs when connected
-  mic = { ctx, stream, source, processor };
-}
-
-function closeMic() {
-  onChunk = null;
-  const m = mic;
-  mic = null;
-  if (!m) return;
-  try { m.processor.onaudioprocess = null; m.source.disconnect(); m.processor.disconnect(); } catch { /* already apart */ }
-  try { m.stream.getTracks().forEach((t) => t.stop()); } catch { /* already stopped */ }
-  try { m.ctx.close(); } catch { /* already closed */ }
-}
+  return {
+    release() {
+      try { processor.onaudioprocess = null; source.disconnect(); processor.disconnect(); } catch { /* already apart */ }
+      try { stream.getTracks().forEach((t) => t.stop()); } catch { /* already stopped */ }
+      try { ctx.close(); } catch { /* already closed */ }
+    },
+  };
+});
+const openMic = () => mics.acquire(); // a handle: set `onChunk` to hear it, `close()` to let go of it
 
 function loadModel() {
   if (!modelPromise) {
@@ -110,6 +104,7 @@ function say({ text }) {
 
 function hear({ grammar, needsServer, decisive }) {
   let rec = null;
+  let h = null; // this command's own microphone
   let deadlineTimer = null;
   return command(async (finish, over) => {
     const keeper = new EarCore.PcmKeeper(ANSWER_KEEP_S * RATE);
@@ -122,8 +117,8 @@ function hear({ grammar, needsServer, decisive }) {
       // so it is usually there. Waiting for it with the microphone open would lose the start of the answer.
       const model = grammar ? await Promise.race([loadModel(), pause(MODEL_WAIT_MS).then(() => null)]) : null;
       if (over()) return;
-      await openMic(); // opened only now
-      if (over()) { closeMic(); return; } // stopped while the microphone was being asked for: let go of at once
+      h = await openMic(); // opened only now
+      if (over()) { h.close(); return; } // stopped while the microphone was being asked for: let go of at once
       await pause(AFTER_SPEAKING_MS); // nothing is listened to for 300 ms, so the question's tail is never an answer
       if (over()) return;
       // No recogniser (no model yet, or it would not load): the server must hear the answer, whatever main said.
@@ -157,7 +152,7 @@ function hear({ grammar, needsServer, decisive }) {
         if (!over()) decided(turn.timeUp(lastFinal));
       };
       deadlineTimer = setTimeout(endAnswer, ANSWER_MS);
-      onChunk = (chunk) => {
+      h.onChunk = (chunk) => {
         if (over() || ending) return;
         samples += chunk.length;
         const level = VoiceTiming.levelOf(chunk);
@@ -174,21 +169,22 @@ function hear({ grammar, needsServer, decisive }) {
   }).then((result) => {
     // The microphone and the recogniser are let go of at the end of every command.
     clearTimeout(deadlineTimer);
-    closeMic();
+    if (h) h.close();
     if (rec) { try { rec.remove(); } catch { /* gone */ } }
     return result;
   });
 }
 
 function listen({ quietMs, nothingMs, maxMs }) {
+  let h = null; // this command's own microphone
   return command(async (finish, over) => {
     const timing = VoiceTiming.createVoiceTiming({ quietMs, nothingMs, maxMs });
     const keeper = new EarCore.PcmKeeper(Math.ceil((maxMs / 1000 + 1) * RATE));
     let samples = 0;
     try {
-      await openMic();
-      if (over()) { closeMic(); return; }
-      onChunk = (chunk) => {
+      h = await openMic();
+      if (over()) { h.close(); return; }
+      h.onChunk = (chunk) => {
         if (over()) return;
         samples += chunk.length;
         keeper.add(EarCore.toPcm16(chunk));
@@ -199,7 +195,7 @@ function listen({ quietMs, nothingMs, maxMs }) {
       finish({});
     }
   }).then((result) => {
-    closeMic();
+    if (h) h.close();
     return result;
   });
 }
@@ -220,13 +216,17 @@ let wakeRun = null; // the loop running now: { over, stop() }
 let commands = 0; // commands queued or running
 let resumeTimer = null;
 
-function stopWake() {
+// `finishRequest`: a command is starting while a request after the phrase is being listened to. It is not dropped: what was
+// said so far goes to main as it is (main answers it, or says it is busy). Any other end of the loop cancels it, on purpose.
+function stopWake({ finishRequest = false } = {}) {
   clearTimeout(resumeTimer);
   resumeTimer = null;
   if (!wakeRun) return;
   const run = wakeRun;
   wakeRun = null;
+  const audio = finishRequest && run.request ? EarCore.finishRequest(run.request, () => Wav.base64(run.keeper.from(run.request.fromSample))) : null;
   run.stop();
+  if (finishRequest && run.request) window.ear.request(audio); // null audio is "heard the name, nothing after"
 }
 
 function maybeResumeWake(delay) {
@@ -237,24 +237,25 @@ function maybeResumeWake(delay) {
 }
 
 function startWake(args) {
-  const run = { over: false, rec: null, stop: null };
+  const run = { over: false, rec: null, stop: null, mic: null, request: null, keeper: null };
   run.stop = () => {
     run.over = true;
-    onChunk = null;
     if (run.rec) { try { run.rec.remove(); } catch { /* gone */ } run.rec = null; }
-    closeMic();
+    if (run.mic) run.mic.close(); // only its own microphone
   };
   wakeRun = run;
   (async () => {
     const model = await loadModel();
     if (run.over) return;
     if (!model) { stopWake(); return; } // no ears yet: main starts the loop again when the model is there
-    await openMic();
-    if (run.over) { closeMic(); return; }
+    const mic = await openMic();
+    run.mic = mic;
+    if (run.over) { mic.close(); return; } // stopped while the microphone was being asked for
     const keeper = new EarCore.PcmKeeper(WAKE_KEEP_S * RATE);
+    run.keeper = keeper;
     const turn = EarCore.createWakeTurn({ phrase: args.phrase, floor: args.floor });
     let keptFrom = 0;
-    let request = null; // while the request after a wake is being listened to: { fromSample, timing }
+    let request = null; // while the request after a wake is being listened to: { fromSample, timing } (also run.request)
     const fresh = () => {
       if (run.rec) { try { run.rec.remove(); } catch { /* gone */ } }
       keptFrom = keeper.total;
@@ -268,6 +269,7 @@ function startWake(args) {
         if (args.testOnly) { fresh(); return; }
         const timing = VoiceTiming.createVoiceTiming(args.request);
         request = { fromSample: woke.fromSample, timing };
+        run.request = request;
         if (woke.follows) {
           // What was said after the phrase in the same breath is already there: it counts as voice, up to now.
           const ms = (keeper.total - woke.fromSample) / 16;
@@ -279,7 +281,7 @@ function startWake(args) {
     };
     const startOf = new WeakMap();
     fresh();
-    onChunk = (chunk) => {
+    mic.onChunk = (chunk) => {
       if (run.over) return;
       keeper.add(EarCore.toPcm16(chunk));
       if (!request) {
@@ -290,6 +292,7 @@ function startWake(args) {
       if (request.timing.feed(VoiceTiming.levelOf(chunk), ms) === 'listen') return;
       const audio = request.timing.heardVoice() ? Wav.base64(keeper.from(request.fromSample)) : null;
       request = null;
+      run.request = null;
       fresh();
       window.ear.request(audio);
     };
@@ -306,7 +309,7 @@ window.ear.onDo(({ id, cmd, args }) => {
   // One command at a time, in the order sent.
   const stopsBefore = stopped;
   commands += 1;
-  stopWake(); // the microphone is the command's now
+  stopWake({ finishRequest: true }); // the microphone is the command's now; a request being listened to is sent as it is
   queue = queue.then(async () => {
     let result;
     try {
@@ -325,8 +328,7 @@ loadModel(); // and once when the window loads
 window.ear.onStop(() => {
   stopped += 1; // commands still queued behind the running one are flushed
   speechSynthesis.cancel();
-  if (current) current.finish({ stopped: true });
-  closeMic();
+  if (current) current.finish({ stopped: true }); // the command lets go of its own microphone as it ends
   stopWake();
   maybeResumeWake(WAKE_RESUME_MS);
 });

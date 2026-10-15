@@ -1271,11 +1271,12 @@ function createActions({
 
   /**
    * Words said after "Hey <name>": the same path as the panel's 🎤, which sends what was said as a spoken message. The
-   * panel's chat opens first when it is hidden. A chat that is still answering is not interrupted (the words are dropped).
+   * panel's chat opens first when it is hidden. A chat that is still answering is not interrupted: the words are not sent, and
+   * `{ busy: true }` says so, so that Buddy can tell the person (wake.js).
    */
   async function sayToBuddy(words) {
     if (!ui.isPanelVisible()) await open();
-    if (chat.busy) return {};
+    if (chat.busy) return { busy: true };
     return send(words, { spoken: true });
   }
 

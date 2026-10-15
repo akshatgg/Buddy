@@ -11,6 +11,7 @@ const { aiSection } = require('../free-state');
 const { isTap, tapKeys } = require('../../renderer/common/shortcut-keys');
 const { cleanFact } = require('../../../shared/memory-rules');
 const { WAKE_LINES } = require('../../../shared/voice-words');
+const { shownName, SPELLING_HINT } = require('../wake');
 const { PROVIDER_ID: CLAUDE_ID, MODELS: CLAUDE_MODELS, MODEL_LABELS, GET_URL } = require('../claude/find');
 
 const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models', 'listenOnOpen', 'tagOn', 'wakeOn', 'home', 'notchLook'];
@@ -82,6 +83,8 @@ function registerSettingsIpc({
   wake = null,
 }) {
   let wakeTesting = false; // "Test it" is listening now
+  // The model download's progress, its end or failure (which also turns the switch off): the open Settings follows live.
+  wake?.onChange?.(() => windows.send('settings', 'wake:changed', { wakeOn: store.get('wakeOn') === true, wake: wakeSection(store.get('buddyName')) }));
   // The Settings and Welcome windows only: the Admin window has calls of its own (ipc/admin.js).
   const handle = guarded(ipcMain, (webContents) => windows.owns(webContents, 'settings') || windows.owns(webContents, 'onboarding'));
   // Finishing the Welcome is for the Welcome window only: the Settings window has no business doing it.
@@ -125,8 +128,9 @@ function registerSettingsIpc({
   }
 
   /** The "Hey <name>" row: whether it listens, why not, and the lines worded for the name (the page has no shared/). */
-  function wakeSection(name) {
+  function wakeSection(buddyName) {
     const state = wake?.state() ?? { on: false, line: null };
+    const name = shownName(buddyName); // the same (at most) three words that are listened for
     return {
       on: state.on === true,
       line: state.line ?? null,
@@ -136,6 +140,8 @@ function registerSettingsIpc({
       heard: WAKE_LINES.heard,
       sayNow: WAKE_LINES.sayNow(name),
       notHeard: WAKE_LINES.notHeard(name),
+      hint: SPELLING_HINT, // under the switch while it listens
+      percent: state.percent ?? null, // the model download, while it runs
     };
   }
 

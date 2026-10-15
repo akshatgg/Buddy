@@ -113,3 +113,50 @@ test('the wake turn says where the request begins: after the phrase, counted in 
   assert.strictEqual(turn.result({ result: [] }, 0), null);
   assert.strictEqual(turn.result(null, 0), null);
 });
+
+// The microphone: every caller owns its handle and closes only that one.
+function fakeMics() {
+  const opened = [];
+  const open = async (deliver) => {
+    const raw = { deliver, stopped: false, release() { raw.stopped = true; } };
+    opened.push(raw);
+    return raw;
+  };
+  return { opened, pool: EarCore.createMicPool(open) };
+}
+
+test('mic pool: closing one handle stops only its own stream', async () => {
+  const { opened, pool } = fakeMics();
+  const a = await pool.acquire();
+  const b = await pool.acquire();
+  assert.strictEqual(pool.size(), 2);
+  a.close();
+  assert.deepStrictEqual(opened.map((o) => o.stopped), [true, false]);
+  assert.strictEqual(pool.size(), 1);
+  a.close(); // twice is harmless
+  b.close();
+  assert.deepStrictEqual(opened.map((o) => o.stopped), [true, true]);
+  assert.strictEqual(pool.size(), 0, 'no stream is left open');
+});
+
+test('mic pool: each handle gets only its own chunks, none after close', async () => {
+  const { opened, pool } = fakeMics();
+  const a = await pool.acquire();
+  const b = await pool.acquire();
+  const got = { a: [], b: [] };
+  a.onChunk = (c) => got.a.push(c);
+  b.onChunk = (c) => got.b.push(c);
+  opened[0].deliver(1);
+  opened[1].deliver(2);
+  a.close();
+  opened[0].deliver(3);
+  assert.deepStrictEqual(got, { a: [1], b: [2] });
+});
+
+test('finishRequest: a request cut off by a command is sent when a voice was heard, else there is nothing to send', () => {
+  const heard = { timing: { heardVoice: () => true } };
+  const quiet = { timing: { heardVoice: () => false } };
+  assert.strictEqual(EarCore.finishRequest(heard, () => 'AUDIO'), 'AUDIO');
+  assert.strictEqual(EarCore.finishRequest(quiet, () => 'AUDIO'), null);
+  assert.strictEqual(EarCore.finishRequest(null, () => 'AUDIO'), null);
+});

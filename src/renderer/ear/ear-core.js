@@ -145,7 +145,41 @@ const EarCore = (() => {
     }
   }
 
-  return { isDecisive, createAnswerTurn, createWakeTurn, toPcm16, PcmKeeper };
+  /**
+   * Microphones, one per caller. `open(deliver)` opens a real one and calls deliver(chunk) for each buffer; it answers
+   * { release() }. acquire() gives a handle of its own: set `onChunk` to hear it, `close()` lets go of that stream only (twice is
+   * harmless). So the wake loop and a command never close each other's microphone, and none is left open.
+   */
+  function createMicPool(open) {
+    const live = new Set();
+    return {
+      async acquire() {
+        let handle = null;
+        const raw = await open((chunk) => { if (handle && handle.onChunk) handle.onChunk(chunk); });
+        handle = {
+          onChunk: null,
+          closed: false,
+          close() {
+            if (handle.closed) return;
+            handle.closed = true;
+            handle.onChunk = null;
+            live.delete(handle);
+            raw.release();
+          },
+        };
+        live.add(handle);
+        return handle;
+      },
+      size: () => live.size,
+    };
+  }
+
+  /** The recording of a wake request that a command cut off: sent when a voice was heard in it, else there is nothing to send. */
+  function finishRequest(request, audioOf) {
+    return request && request.timing.heardVoice() ? audioOf() : null;
+  }
+
+  return { isDecisive, createAnswerTurn, createWakeTurn, toPcm16, PcmKeeper, createMicPool, finishRequest };
 })();
 
 if (typeof module !== 'undefined') module.exports = EarCore;

@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { ACTIONS, buildPrompt, parseCheck, parseChat, LIMITS } = require('../shared/prompts');
+const { ACTIONS, buildPrompt, parseCheck, parseChat, LIMITS, ELSEWHERE, CALL_ONLY } = require('../shared/prompts');
 
 test('write: uses the instruction as the user turn and the chosen tone', () => {
   const p = buildPrompt('write', { instruction: '  boss ko mail likho kal chutti chahiye ', tone: 'friendly' });
@@ -221,7 +221,7 @@ test('chat: the system prompt asks for the JSON and gives every rule', () => {
   assert.match(system, /You are Buddy/);
   assert.match(system, /JSON only/);
   assert.match(system, /"kind"/);
-  for (const kind of ['write', 'fix', 'answer', 'box', 'screen', 'send', 'code', 'message']) assert.match(system, new RegExp(`"${kind}"`), kind);
+  for (const kind of ['write', 'fix', 'answer', 'box', 'screen', 'send', 'code', 'message', 'call', 'open', 'calls', 'notifs']) assert.match(system, new RegExp(`"${kind}"`), kind);
   for (const field of ['say', 'text', 'notes', 'doIt', 'send', 'remember', 'again']) assert.match(system, new RegExp(`"${field}"`), field);
   assert.match(system, /all eight fields/);
   assert.match(system, /"again": true or false/, 'the JSON shape has it');
@@ -406,4 +406,86 @@ test('chat: the system prompt has the "code" kind and its rule', () => {
 test('parseChat reads "code" with its task as the text, and never with doIt, send, notes or again', () => {
   const r = parseChat(answerOf({ kind: 'code', say: 'On it!', text: 'Fix the login bug in src/login.js.', doIt: true, send: true, notes: ['x'], again: true }));
   assert.deepStrictEqual(r, { kind: 'code', say: 'On it!', text: 'Fix the login bug in src/login.js.', notes: [], doIt: false, send: false, remember: [], again: false });
+});
+
+test('parseChat reads "call": who, and how (a phone call when not said), never text, doIt, send, notes or again', () => {
+  const r = parseChat(answerOf({ kind: 'call', to: 'Prince', how: 'WhatsApp_Video', say: 'Calling!', text: 'x', doIt: true, send: true, notes: ['n'], again: true }));
+  assert.deepStrictEqual(r, { kind: 'call', say: 'Calling!', text: '', notes: [], doIt: false, send: false, remember: [], again: false, to: 'Prince', how: 'whatsapp_video' });
+  assert.strictEqual(parseChat(answerOf({ kind: 'call', to: 'Prince' })).how, 'phone');
+  assert.strictEqual(parseChat(answerOf({ kind: 'call', to: 'Prince', how: 'whatsapp' })).how, 'whatsapp');
+});
+
+test('parseChat: a call with nobody to call asks who; a call by another app says how Buddy can call', () => {
+  const plain = { kind: 'answer', say: '', notes: [], doIt: false, send: false, remember: [], again: false };
+  assert.deepStrictEqual(parseChat(answerOf({ kind: 'call', to: '  ', how: 'phone' })), { ...plain, text: 'Who should I call?' });
+  assert.deepStrictEqual(parseChat(answerOf({ kind: 'call', to: 'Prince', how: 'facetime' })), { ...plain, text: CALL_ONLY });
+  assert.strictEqual(CALL_ONLY, 'I can call by phone or on WhatsApp for now.');
+});
+
+test('parseChat reads "open": the app as they said it', () => {
+  assert.deepStrictEqual(parseChat(answerOf({ kind: 'open', app: ' YouTube ', say: 'Opening it!', text: 'x', doIt: true })), {
+    kind: 'open', say: 'Opening it!', text: '', notes: [], doIt: false, send: false, remember: [], again: false, app: 'YouTube',
+  });
+  assert.deepStrictEqual(parseChat(answerOf({ kind: 'open', app: '' })), {
+    kind: 'answer', say: '', text: 'Which app should I open?', notes: [], doIt: false, send: false, remember: [], again: false,
+  });
+});
+
+test('parseChat reads "calls": who is calling now, or the missed calls', () => {
+  const base = { kind: 'calls', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false };
+  assert.deepStrictEqual(parseChat(answerOf({ kind: 'calls', what: 'Missed' })), { ...base, what: 'missed' });
+  for (const what of ['now', '', 'today', undefined]) assert.deepStrictEqual(parseChat(answerOf({ kind: 'calls', what })), { ...base, what: 'now' }, String(what));
+});
+
+test('parseChat reads "notifs": the app they named, or every app', () => {
+  const base = { kind: 'notifs', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false };
+  assert.deepStrictEqual(parseChat(answerOf({ kind: 'notifs', app: ' Instagram ', text: 'x', doIt: true })), { ...base, app: 'Instagram' });
+  assert.deepStrictEqual(parseChat(answerOf({ kind: 'notifs' })), { ...base, app: '' });
+});
+
+test('parseChat keeps what they remembered on a call, an open, a calls and a notifs answer', () => {
+  for (const fields of [{ kind: 'call', to: 'Mom' }, { kind: 'open', app: 'Camera' }, { kind: 'calls', what: 'now' }, { kind: 'notifs', app: '' }]) {
+    assert.deepStrictEqual(parseChat(answerOf({ ...fields, remember: ['Your mother is Sunita.'] })).remember, ['Your mother is Sunita.']);
+  }
+});
+
+test('the chat prompt says when to answer "call", "open", "calls" and "notifs", their fields, and the lines for elsewhere', () => {
+  const { system } = buildPrompt('chat', { message: 'x' });
+  const rule = (kind) => system.split('\n').find((line) => line.startsWith(`- "${kind}":`));
+  assert.match(system, /For "call", also give "to" and "how"/);
+  assert.match(system, /For "open", also give "app"/);
+  assert.match(system, /For "calls", also give "what"/);
+  assert.match(system, /For "notifs", also give "app"/);
+  assert.ok(rule('call').includes('Only when the request says Buddy can make calls'));
+  assert.ok(rule('call').includes(`"${ELSEWHERE.phoneCall}"`));
+  assert.ok(rule('call').includes(`"${ELSEWHERE.whatsAppCall}"`));
+  assert.ok(rule('open').includes('Only when the request says Buddy can open apps'));
+  assert.ok(rule('open').includes(`"${ELSEWHERE.open}"`));
+  assert.ok(rule('calls').includes('Only when the request says Buddy can see their calls'));
+  assert.ok(rule('calls').includes(`"${ELSEWHERE.calls}"`));
+  assert.ok(rule('notifs').includes('Only when the request says Buddy can read their notifications'));
+  assert.ok(rule('notifs').includes(`"${ELSEWHERE.notifs}"`));
+  for (const kind of ['call', 'open', 'calls', 'notifs']) assert.ok(rule(kind).endsWith('Never on the second step.'), kind);
+  assert.match(system, /For "box", "screen", "send", "call", "open", "calls" and "notifs", ""\./);
+});
+
+test('chat: an app that can call, open apps, see calls or read notifications says so, one line each, after the message line', () => {
+  const lines = ['Buddy can make calls from here.', 'Buddy can open apps from here.', 'Buddy can see their calls from here.', 'Buddy can read their notifications from here.'];
+  const all = buildPrompt('chat', { message: 'hi', canMessage: true, canCall: true, canOpen: true, canSeeCalls: true, canReadNotifs: true }).user;
+  const at = lines.map((line) => all.indexOf(line));
+  assert.ok(at.every((i) => i > all.indexOf('Buddy can message people on WhatsApp from here.')));
+  assert.deepStrictEqual([...at].sort((a, b) => a - b), at, 'in this order');
+  assert.ok(at[3] < all.indexOf('Their message'));
+  const none = buildPrompt('chat', { message: 'hi', canCall: 'true', canOpen: 1, canSeeCalls: false, canReadNotifs: 'yes' }).user;
+  for (const line of lines) assert.ok(!none.includes(line), line);
+});
+
+test('ELSEWHERE says where each thing can be done', () => {
+  assert.deepStrictEqual(ELSEWHERE, {
+    phoneCall: 'I can only make phone calls from your phone.',
+    whatsAppCall: 'I can make WhatsApp calls from the Mac and Android apps for now.',
+    open: 'I can open apps on the Mac and Android for now.',
+    calls: 'I can only see calls on your phone.',
+    notifs: 'I can only read notifications on your phone.',
+  });
 });

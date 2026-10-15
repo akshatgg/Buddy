@@ -243,9 +243,10 @@ class CloudClientTest {
         val input = AskInput(
             message = "fix this", selection = "i am go", history = listOf(ChatTurn("you", "hi"), ChatTurn("buddy", "Hello!")),
             facts = listOf("Your boss is Mr. Sharma."), appName = "Gmail", userName = "Akshat", step = 1, canMessage = true,
+            canCall = true, canOpen = true, canSeeCalls = true, canReadNotifs = true,
         )
         assertEquals("{\"kind\":\"answer\"}", cloud.ask(Action.CHAT, input).text)
-        val body = """{"action":"chat","message":"fix this","selection":"i am go","history":[{"from":"you","text":"hi"},{"from":"buddy","text":"Hello!"}],"facts":["Your boss is Mr. Sharma."],"appName":"Gmail","userName":"Akshat","step":1,"canMessage":true}"""
+        val body = """{"action":"chat","message":"fix this","selection":"i am go","history":[{"from":"you","text":"hi"},{"from":"buddy","text":"Hello!"}],"facts":["Your boss is Mr. Sharma."],"appName":"Gmail","userName":"Akshat","step":1,"canMessage":true,"canCall":true,"canOpen":true,"canSeeCalls":true,"canReadNotifs":true}"""
         assertEquals(Json.parseToJsonElement(body), Json.parseToJsonElement(toServer().single().body!!))
     }
 

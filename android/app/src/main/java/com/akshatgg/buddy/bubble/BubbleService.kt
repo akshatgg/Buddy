@@ -126,6 +126,7 @@ class BubbleService : LifecycleService() {
         }
         watchOverlayPermission()
         listenToScreen()
+        AppGraph.instance.ringWatch.start() // who is calling, when asked (calls/Ringing.kt)
         claudeWatch.start()
         // Where Clawd walks with the head: the admin's choice, from Buddy's server (on the head for someone signed out).
         lifecycleScope.launch {
@@ -199,6 +200,7 @@ class BubbleService : LifecycleService() {
         glide?.cancel()
         overlayWatcher?.let { getSystemService(AppOpsManager::class.java).stopWatchingMode(it) }
         overlayWatcher = null
+        AppGraph.instance.ringWatch.stop()
         screenReceiver?.let { unregisterReceiver(it) }
         screenReceiver = null
         speech?.hide()

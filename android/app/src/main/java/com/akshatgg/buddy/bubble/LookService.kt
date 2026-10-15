@@ -18,6 +18,8 @@ import android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTE
 import android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY
 import androidx.core.os.BundleCompat
 import com.akshatgg.buddy.AppGraph
+import com.akshatgg.buddy.calls.Confirm
+import com.akshatgg.buddy.calls.WhatsAppCallScreen
 import com.akshatgg.buddy.message.ChatState
 import com.akshatgg.buddy.message.WhatsAppScreen
 import com.akshatgg.buddy.typing.BoxText
@@ -236,6 +238,69 @@ class LookService : AccessibilityService() {
         } finally {
             recycle(root)
         }
+    }
+
+    private val whatsAppCalls = WhatsAppCallScreen(
+        whatsApp,
+        byId = { root, id -> root.findAccessibilityNodeInfosByViewId(id).orEmpty() },
+        text = { it.text?.toString() }, describe = { it.contentDescription?.toString() },
+        kids = { n -> (0 until n.childCount).mapNotNull { n.getChild(it) } },
+        idOf = { it.viewIdResourceName }, kind = { it.className?.toString() },
+    )
+
+    /**
+     * Presses the voice or video call button in the open WhatsApp chat, only when the screen it is found on still shows
+     * `name`'s chat. False when anything is off, it is not there, or it did not take the press. Off the main thread.
+     */
+    fun pressWhatsAppCall(app: String, name: String, video: Boolean): Boolean {
+        val root = appRoot(app) ?: return false
+        try {
+            val button = whatsAppCalls.callButtonFor(root, app, name, video) ?: return false
+            return button.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        } finally {
+            recycle(root)
+        }
+    }
+
+    /**
+     * WhatsApp's own "Call …?" question: answered (its Call pressed) only when `press` (the first time Buddy sees it)
+     * and it names `name`. The question is a window of its own, so every window of `app` is looked in, not only the
+     * first. Off the main thread.
+     */
+    fun whatsAppCallQuestion(app: String, name: String, press: Boolean): Confirm {
+        val roots = appRoots(app)
+        try {
+            val root = roots.firstOrNull(whatsAppCalls::asks) ?: return Confirm.NONE
+            return whatsAppCalls.answer(root, name, press) { it.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
+        } finally {
+            roots.forEach(::recycle)
+        }
+    }
+
+    /**
+     * The open WhatsApp chat in any of `app`'s windows, so that one behind a question of WhatsApp's still counts: a
+     * call has started only when no window shows the chat any more. Null when none does. Off the main thread.
+     */
+    fun whatsAppChatBehind(app: String): ChatState? {
+        val roots = appRoots(app)
+        try {
+            return roots.firstNotNullOfOrNull { whatsApp.chat(it, app) }
+        } finally {
+            roots.forEach(::recycle)
+        }
+    }
+
+    /** The roots of every interactive window of app `app` (else the active one, when it is the app's). The caller recycles them. */
+    private fun appRoots(app: String): List<AccessibilityNodeInfo> {
+        val roots = mutableListOf<AccessibilityNodeInfo>()
+        for (window in windows) {
+            val root = window.root ?: continue
+            if (root.packageName?.toString() == app) roots += root else recycle(root)
+        }
+        if (roots.isNotEmpty()) return roots
+        val active = rootInActiveWindow ?: return roots
+        if (active.packageName?.toString() == app) roots += active else recycle(active)
+        return roots
     }
 
     /** The label of the app the person was last in, or null. */

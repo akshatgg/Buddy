@@ -1,0 +1,122 @@
+[
+  {
+    "asked": "Prince",
+    "names": [
+      "Prince Sharma"
+    ],
+    "where": "phone",
+    "pick": {
+      "kind": "one",
+      "name": "Prince Sharma"
+    },
+    "contact": null,
+    "app": null
+  },
+  {
+    "asked": "Prince",
+    "names": [
+      "Prince Sharma",
+      "Prince Kumar"
+    ],
+    "where": "phone",
+    "pick": {
+      "kind": "choose",
+      "names": [
+        "Prince Sharma",
+        "Prince Kumar"
+      ]
+    },
+    "contact": "Which Prince: Prince Sharma or Prince Kumar? Tell me the full name.",
+    "app": "Which one: Prince Sharma or Prince Kumar?"
+  },
+  {
+    "asked": "Zoya",
+    "names": [
+      "Prince Sharma"
+    ],
+    "where": "phone",
+    "pick": {
+      "kind": "none"
+    },
+    "contact": "I couldn't find Zoya in your contacts.",
+    "app": "I couldn't find Zoya on this phone."
+  },
+  {
+    "asked": "YouTube",
+    "names": [
+      "YouTube",
+      "YouTube Music"
+    ],
+    "where": "phone",
+    "pick": {
+      "kind": "one",
+      "name": "YouTube"
+    },
+    "contact": null,
+    "app": null
+  },
+  {
+    "asked": "you",
+    "names": [
+      "YouTube",
+      "YouTube Music"
+    ],
+    "where": "phone",
+    "pick": {
+      "kind": "choose",
+      "names": [
+        "YouTube",
+        "YouTube Music"
+      ]
+    },
+    "contact": "Which you: YouTube or YouTube Music? Tell me the full name.",
+    "app": "Which one: YouTube or YouTube Music?"
+  },
+  {
+    "asked": "you",
+    "names": [
+      "YouTube",
+      "YouTube Music",
+      "YouTube Kids"
+    ],
+    "where": "Mac",
+    "pick": {
+      "kind": "choose",
+      "names": [
+        "YouTube",
+        "YouTube Music",
+        "YouTube Kids"
+      ]
+    },
+    "contact": "Which you: YouTube, YouTube Music or YouTube Kids? Tell me the full name.",
+    "app": "Which one: YouTube, YouTube Music or YouTube Kids?"
+  },
+  {
+    "asked": "YouTube",
+    "names": [
+      "Safari"
+    ],
+    "where": "Mac",
+    "pick": {
+      "kind": "none"
+    },
+    "contact": "I couldn't find YouTube in your contacts.",
+    "app": "I couldn't find YouTube on this Mac."
+  },
+  {
+    "asked": "a",
+    "names": [
+      "A b",
+      "A c",
+      "A d",
+      "A e",
+      "A f"
+    ],
+    "where": "Mac",
+    "pick": {
+      "kind": "many"
+    },
+    "contact": "I found lots of people called a. Tell me the full name.",
+    "app": "I found lots of apps called a. Tell me the full name."
+  }
+]

@@ -6,6 +6,7 @@ import {
   createChat, chatRequest, historyBefore, answerItem, canSend, failureText,
   EMPTY, TOO_LONG, CANT_SEE, CANT_SEND, MESSAGE_ELSEWHERE, NO_ANSWER, FAILED, FORGOT,
 } from '../web/public/app/chat-core.js';
+import { ELSEWHERE } from '../web/public/app/shared/prompts.js';
 import { ApiError } from '../web/public/app/api.js';
 import { createMemory } from '../web/public/app/memory.js';
 import { createStore } from '../web/public/app/store.js';
@@ -74,6 +75,16 @@ test('an answer that wants the text box or the screen, or to send, says what the
   assert.strictEqual(answerItem(chat({ kind: 'answer' }).chat).say, NO_ANSWER);
   assert.deepStrictEqual(answerItem(chat({ kind: 'answer', text: 'Kal = tomorrow.' }).chat).buttons, ['copy', 'share']);
   assert.deepStrictEqual(answerItem(chat({ kind: 'code', say: 'On it!', text: 'Fix the bug.' }).chat).text, 'Fix the bug.');
+});
+
+test('a call, an app to open, the phone\'s calls or its notifications say where Buddy can do them', () => {
+  const line = (say) => ({ type: 'buddy', say, text: '', notes: [], buttons: [] });
+  assert.deepStrictEqual(answerItem(chat({ kind: 'call', to: 'Prince', how: 'phone', say: 'Calling!' }).chat), line(ELSEWHERE.phoneCall));
+  assert.deepStrictEqual(answerItem(chat({ kind: 'call', to: 'Prince', how: 'whatsapp' }).chat), line(ELSEWHERE.whatsAppCall));
+  assert.deepStrictEqual(answerItem(chat({ kind: 'call', to: 'Prince', how: 'whatsapp_video' }).chat), line(ELSEWHERE.whatsAppCall));
+  assert.deepStrictEqual(answerItem(chat({ kind: 'open', app: 'YouTube' }).chat), line(ELSEWHERE.open));
+  assert.deepStrictEqual(answerItem(chat({ kind: 'calls', what: 'missed' }).chat), line(ELSEWHERE.calls));
+  assert.deepStrictEqual(answerItem(chat({ kind: 'notifs', app: '' }).chat), line(ELSEWHERE.notifs));
 });
 
 test('a box answer leaves the buddy idle, not happy', async () => {

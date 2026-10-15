@@ -7,8 +7,9 @@ const prompts = require('../shared/prompts');
 const { PROVIDER_IDS } = require('../shared/providers');
 const memoryRules = require('../shared/memory-rules');
 const memorySync = require('../shared/memory-sync');
-const { buildShared, buildChatCases, buildPickCases, TO, CASES_TO, PICK_TO } = require('../tools/sync-android-shared');
+const { buildShared, buildChatCases, buildPickCases, buildLineCases, TO, CASES_TO, PICK_TO, LINES_TO } = require('../tools/sync-android-shared');
 const { pickChat, pickLine } = require('../shared/message-pick');
+const { contactLine, appLine } = require('../shared/pick-lines');
 
 test('android shared.json is up to date with shared/ (run `npm run sync:android` after changing shared/)', () => {
   assert.equal(fs.readFileSync(TO, 'utf8'), `${JSON.stringify(buildShared(), null, 2)}\n`);
@@ -73,5 +74,16 @@ test('the pick cases the Kotlin port is checked against are up to date (run `npm
   for (const { asked, names, pick, line } of cases) {
     assert.deepEqual(pickChat(asked, names), pick);
     assert.deepEqual(pickLine(asked, pick), line);
+  }
+});
+
+test('the line cases the Kotlin port is checked against are up to date (run `npm run sync:android`)', () => {
+  assert.equal(fs.readFileSync(LINES_TO, 'utf8'), `${JSON.stringify(buildLineCases(), null, 2)}\n`);
+  const cases = JSON.parse(fs.readFileSync(LINES_TO, 'utf8'));
+  assert.ok(cases.length >= 6);
+  for (const { asked, names, where, pick, contact, app } of cases) {
+    assert.deepEqual(pickChat(asked, names), pick);
+    assert.deepEqual(contactLine(asked, pick), contact);
+    assert.deepEqual(appLine(asked, pick, where), app);
   }
 });

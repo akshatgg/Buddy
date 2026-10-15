@@ -12,16 +12,28 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.ActivityResultLauncher
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModel
 import com.akshatgg.buddy.AppGraph
+import com.akshatgg.buddy.apps.AppOpener
 import com.akshatgg.buddy.bubble.BubbleBus
+import com.akshatgg.buddy.calls.AndroidCallLog
+import com.akshatgg.buddy.calls.AndroidNameLookup
+import com.akshatgg.buddy.calls.AndroidPhoneState
+import com.akshatgg.buddy.calls.CallInfo
+import com.akshatgg.buddy.calls.PhoneCaller
+import com.akshatgg.buddy.calls.PhoneDialer
+import com.akshatgg.buddy.calls.ServiceCallScreen
+import com.akshatgg.buddy.calls.WhatsAppCaller
+import com.akshatgg.buddy.calls.phoneFormat
 import com.akshatgg.buddy.capture.ScreenCapture
 import com.akshatgg.buddy.core.BuddyError
 import com.akshatgg.buddy.message.Messenger
 import com.akshatgg.buddy.message.ServiceChatScreen
+import com.akshatgg.buddy.notify.NotifReader
 import com.akshatgg.buddy.ui.fix.FixActivity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -48,6 +60,9 @@ interface ChatHost {
 
     /** Where Android's answer to "Allow Buddy to access your contacts?" goes (registered by the activity). */
     val contacts: ActivityResultLauncher<String>? get() = null
+
+    /** Where Android's answer to any other permission question goes ("Allow Buddy to make and manage phone calls?"). */
+    val permission: ActivityResultLauncher<String>? get() = null
 }
 
 /**
@@ -59,6 +74,7 @@ class ChatViewModel : ViewModel() {
     var host: ChatHost? = null
     private var picture: CompletableDeferred<ActivityResult>? = null
     private val contactsAnswer = PendingAnswer(none = false)
+    private val permissionAnswer = PendingAnswer(none = false)
     private val graph = AppGraph.instance
     private val app = graph.appContext
 
@@ -73,6 +89,7 @@ class ChatViewModel : ViewModel() {
         replace = { host?.replace(it) },
         openSettings = { app.openSettingsFor(it) },
         contacts = ::contacts,
+        allow = ::allow,
     )
 
     val model = PanelModel(
@@ -83,6 +100,11 @@ class ChatViewModel : ViewModel() {
         facts = graph.facts,
         hands = hands,
         messaging = Messenger(graph.whatsApp, ServiceChatScreen(app), contactsAllowed = hands.contacts),
+        apps = AppOpener(graph.launcher),
+        phone = PhoneCaller(graph.phoneBook, PhoneDialer(app), contactsAllowed = hands.contacts, callsAllowed = { hands.allow(Manifest.permission.CALL_PHONE) }),
+        whatsAppCalls = WhatsAppCaller(graph.whatsApp, ServiceCallScreen(app)),
+        callInfo = CallInfo(AndroidPhoneState(app), { graph.ringWatch.now }, AndroidCallLog(app), AndroidNameLookup(app), allowed = hands.allow, format = phoneFormat(app)),
+        notifs = NotifReader(on = { NotificationManagerCompat.getEnabledListenerPackages(app).contains(app.packageName) }, recent = graph.notifs::recent),
         firstName = graph::firstName,
         maxMessage = graph.shared.limitInstruction,
         maxSelection = graph.shared.limitText,
@@ -107,6 +129,24 @@ class ChatViewModel : ViewModel() {
         val ask = host?.contacts ?: return false
         return contactsAnswer.ask { ask.launch(Manifest.permission.READ_CONTACTS) }
     }
+
+    /** Android's answer to a permission question other than the contacts one, from the activity that asked. */
+    fun permissionAnswered(allowed: Boolean) {
+        permissionAnswer.answered(allowed)
+    }
+
+    /**
+     * Whether Buddy holds `permission`: when it does not, the chat says why (whyLine) and Android asks the person (after
+     * two noes Android no longer asks: only the phone's settings for Buddy allow it then). Android's own say decides,
+     * after the answer too (allowedAfterAsking).
+     */
+    private suspend fun allow(permission: String): Boolean = allowedAfterAsking(
+        permission,
+        held = { ContextCompat.checkSelfPermission(app, it) == PackageManager.PERMISSION_GRANTED },
+        answer = permissionAnswer,
+        launch = host?.permission?.let { launcher -> { launcher.launch(it) } },
+        note = model::note,
+    )
 
     /**
      * One picture of the screen for the chat's "screen" step: Android asks the person first, every time; null when
@@ -148,20 +188,20 @@ class ChatViewModel : ViewModel() {
     }
 
     /**
-     * The panel was closed: an answer still on its way is let go of, and a wait for the contacts question ends as a
-     * no (nobody is left to answer it). Not when only the activity goes, on a turn of the phone: Android gives the
-     * answer to the next one then.
+     * The panel was closed: an answer still on its way is let go of, and a wait for the contacts question (or any
+     * other permission question) ends as a no (nobody is left to answer it). Not when only the activity goes, on a turn
+     * of the phone: Android gives the answer to the next one then.
      */
-    override fun onCleared() = closeForGood(model::close, contactsAnswer)
+    override fun onCleared() = closeForGood(model::close, contactsAnswer, permissionAnswer)
 }
 
 /**
- * The panel has gone for good: the chat closes first, and only then does a wait for the contacts question end as a no.
- * That wait may go on at once, on this thread, so it finds the chat already closed.
+ * The panel has gone for good: the chat closes first, and only then does each wait for a permission question end as a
+ * no. That wait may go on at once, on this thread, so it finds the chat already closed.
  */
-internal fun closeForGood(closeChat: () -> Unit, contacts: PendingAnswer<Boolean>) {
+internal fun closeForGood(closeChat: () -> Unit, vararg answers: PendingAnswer<Boolean>) {
     closeChat()
-    contacts.giveUp()
+    answers.forEach { it.giveUp() }
 }
 
 /** Android asks the person first ("Start recording or casting?"), every time: that is its rule. */

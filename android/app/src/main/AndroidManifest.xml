@@ -13,6 +13,14 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Message a friend: Buddy finds who is on WhatsApp in the phone's contacts. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Call someone: Buddy rings the contact the person chose, only after they press Call on the card. -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- CALL_PHONE would otherwise make a phone line required: Buddy also runs on tablets, which only cannot call. -->
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+    <!-- Who is calling, and missed calls: only when the person asks in the chat; nothing is kept. READ_PHONE_STATE says
+         whether the phone rings; READ_CALL_LOG gives the ringing number (Android 9 and later) and the missed calls. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <!-- Filament draws the head with OpenGL ES 3.0: a phone without it is not offered Buddy. -->
     <uses-feature android:glEsVersion="0x00030000" android:required="true" />
     <!-- The chat names the app the person is in ("Done! It's in WhatsApp ✅"): Android 11 and later show Buddy the
@@ -111,6 +119,17 @@
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
             <meta-data android:name="android.accessibilityservice" android:resource="@xml/look_service" />
+        </service>
+        <!-- Buddy can read your notifications: optional, turned on by the person in Android's Notification access
+             settings. Only Android can bind it. What it hears stays in memory (notify/Notifs.kt NotifStore). -->
+        <service
+            android:name=".notify.BuddyNotifications"
+            android:exported="true"
+            android:label="@string/notifs_service_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
         </service>
         <receiver android:name=".bubble.BootReceiver" android:exported="false">
             <intent-filter>

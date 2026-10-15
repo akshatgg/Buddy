@@ -7,14 +7,26 @@ import com.akshatgg.buddy.ai.AskInput
 import com.akshatgg.buddy.ai.ChatReply
 import com.akshatgg.buddy.ai.ChatTurn
 import com.akshatgg.buddy.ai.providers.AI_TIMEOUT_MS
+import com.akshatgg.buddy.apps.AppOpening
+import com.akshatgg.buddy.apps.Opened
 import com.akshatgg.buddy.bubble.BubbleEvent
 import com.akshatgg.buddy.bubble.Mood
+import com.akshatgg.buddy.calls.CALL_UNSURE
+import com.akshatgg.buddy.calls.CallFound
+import com.akshatgg.buddy.calls.CallTelling
+import com.akshatgg.buddy.calls.Callee
+import com.akshatgg.buddy.calls.Called
+import com.akshatgg.buddy.calls.PHONE_CALL_UNSURE
+import com.akshatgg.buddy.calls.PhoneCalling
+import com.akshatgg.buddy.calls.Told
+import com.akshatgg.buddy.calls.WhatsAppCalling
 import com.akshatgg.buddy.core.BuddyError
 import com.akshatgg.buddy.message.Found
 import com.akshatgg.buddy.message.Messaging
 import com.akshatgg.buddy.message.Person
 import com.akshatgg.buddy.message.NOT_SURE
 import com.akshatgg.buddy.message.Sent
+import com.akshatgg.buddy.notify.NotifReading
 import com.akshatgg.buddy.store.Facts
 import com.akshatgg.buddy.typing.Edit
 import com.akshatgg.buddy.typing.PutMode
@@ -24,6 +36,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,7 +46,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
 /** A button on a line of the chat. */
-enum class ChatButton { INSERT, REPLACE, COPY, SHARE, UNDO, RETRY, SETTINGS, SEND_MESSAGE, NOT_NOW }
+enum class ChatButton { INSERT, REPLACE, COPY, SHARE, UNDO, RETRY, SETTINGS, SEND_MESSAGE, NOT_NOW, CALL }
 
 /** A line of the chat. `id`s go up from 1 in each chat. */
 sealed interface ChatItem {
@@ -70,7 +84,8 @@ data class PanelState(
  * out of the app's way, keeping the chat; `screen` is one picture of the screen (base64 JPEG), null when the person
  * said no, and throws a BuddyError when it could not be taken; `replace` hands the text back to the app that opened
  * the panel on its selection (PROCESS_TEXT), which closes the panel; `openSettings` goes where the fix for the error
- * code is; `contacts` is true when Buddy may read the phone's contacts, asking the person once when it may not yet.
+ * code is; `contacts` is true when Buddy may read the phone's contacts, asking the person once when it may not yet;
+ * `allow` is true when Buddy holds the Android permission, asking the person once (with a line why) when it does not.
  */
 class PanelHands(
     val stepAside: suspend () -> Unit = {},
@@ -80,6 +95,7 @@ class PanelHands(
     val replace: (String) -> Unit = {},
     val openSettings: (String?) -> Unit = {},
     val contacts: suspend () -> Boolean = { false },
+    val allow: suspend (String) -> Boolean = { false },
 )
 
 private const val RESUME_MS = 5 * 60_000L // a panel only hidden comes back on the same chat this long after
@@ -96,14 +112,24 @@ private const val NOT_FOUND = "I couldn't find it. Select the text and ask me ag
 private const val VOICE_OFF = "Voice isn't set up yet."
 private const val BOX_CHANGED = "That box has changed since, so I left it."
 private const val NOT_SENT = "Okay, not sent."
+private const val NOT_NOW_CALL = "Okay, not now."
 private const val IN_WHATSAPP = "It's in WhatsApp, ready for you to send."
 // A "message" answer to a second step: who and what may be someone else's words, read in their box or on the screen.
 private const val MESSAGE_ASK = "Tell me who to message and what, and I'll do it."
+// The same for the answers Buddy acts on by itself (a call, an app to open, their calls or notifications).
+private const val SECOND_ASK = "Ask me that on its own, and I'll do it."
+private val ACTS = setOf("call", "open", "calls", "notifs")
 
 private enum class From { NOTHING, SELECTION, BOX }
 
 /** How a message ended: answered (happy), stopped short (idle), its text went into the app (happy already), or gone. */
 private enum class Outcome { ANSWERED, STOPPED, PUT, GONE }
+
+/** Who a Call card calls. */
+private sealed interface CallCard {
+    data class Phone(val callee: Callee) : CallCard
+    data class WhatsApp(val person: Person, val video: Boolean) : CallCard
+}
 
 /** What a put changed, for Undo and for a new version: the box's text and cursor before it, and the edit. */
 private data class PutRecord(val before: String, val beforeCursor: Int, val edit: Edit)
@@ -112,7 +138,10 @@ private data class PutRecord(val before: String, val beforeCursor: Int, val edit
  * The panel as a chat, as the Mac's actions.js on a phone (the chat panel design, and the Android chat design §2-§3):
  * the person's messages and the buddy's answers, the "box" and "screen" second steps, doing it in the app through
  * "Buddy can type for you" (TypeIn) with Undo, what Buddy learns about the person (Facts), and errors with Try again.
- * A message to someone on WhatsApp (Messaging) is a card that is sent only when the person presses Send on it.
+ * A message to someone on WhatsApp (Messaging) is a card that is sent only when the person presses Send on it; an app
+ * the person names (AppOpening) is opened at once. A phone call (PhoneCalling) or a WhatsApp call (WhatsAppCalling) is
+ * a card too: nobody is called until the person presses Call on it. "Who is calling?" and "any missed calls?"
+ * (CallTelling) are answered in a line that stays off the chat sent to the AI, as is "who messaged me?" (NotifReading).
  * One message at a time. The chat lasts until the panel is closed; a panel only hidden opens on it again within five
  * minutes, from the same app. Plain Kotlin, so that it is tested on the JVM.
  */
@@ -124,6 +153,17 @@ class PanelModel(
     private val facts: Facts,
     private val hands: PanelHands,
     private val messaging: Messaging,
+    private val apps: AppOpening = AppOpening { error("no apps") },
+    private val phone: PhoneCalling = object : PhoneCalling {
+        override suspend fun find(asked: String): CallFound = error("no phone")
+        override suspend fun call(callee: Callee): Called = error("no phone")
+    },
+    private val whatsAppCalls: WhatsAppCalling = WhatsAppCalling { _, _ -> error("no WhatsApp calls") },
+    private val callInfo: CallTelling = object : CallTelling {
+        override suspend fun ringing() = error("no calls")
+        override suspend fun missed() = error("no calls")
+    },
+    private val notifs: NotifReading = NotifReading { error("no notifications") },
     private val firstName: () -> String = { "" },
     private val now: () -> Long = System::currentTimeMillis,
     private val maxMessage: Int = 1000,
@@ -140,6 +180,8 @@ class PanelModel(
         val factOf = HashMap<Int, String>() // a "Remembered" line's fact
         val youOf = HashMap<Int, Int>() // an error's message, for Try again
         val messages = HashMap<Int, Pair<Person, String>>() // a message card's person and text, until it is sent
+        val calls = HashMap<Int, CallCard>() // a call card's who, until it is called
+        val offRecord = HashSet<Int>() // lines kept out of the chat sent to the AI: who called or wrote
     }
 
     private val current = MutableStateFlow(PanelState())
@@ -364,6 +406,7 @@ class PanelModel(
 
     private fun historyBefore(c: Chat, youId: Int): List<ChatTurn> =
         c.items.takeWhile { it.id != youId }
+            .filter { it.id !in c.offRecord }
             .mapNotNull {
                 when (it) {
                     is YouSaid -> ChatTurn("you", it.text)
@@ -393,6 +436,10 @@ class PanelModel(
             appName = c.app.ifEmpty { null },
             userName = firstName().trim().ifEmpty { null },
             canMessage = true, // this app can message on WhatsApp
+            canOpen = true, // this app can open apps
+            canCall = true, // this app can call: by phone and on WhatsApp
+            canSeeCalls = true, // this app can tell who is calling, and the missed calls
+            canReadNotifs = true, // this app can read the phone's notifications
         )
         val sent = c.selection
         val selection = sent.ifEmpty { null }
@@ -441,6 +488,12 @@ class PanelModel(
             add(c) { BuddySaid(it, MESSAGE_ASK, "", emptyList(), emptyList()) }
             return Outcome.ANSWERED
         }
+        // The same for a call, an app to open, their calls or notifications: Buddy does these by itself, so only from
+        // their own words.
+        if (second && reply.kind in ACTS) {
+            add(c) { BuddySaid(it, SECOND_ASK, "", emptyList(), emptyList()) }
+            return Outcome.ANSWERED
+        }
         return finish(c, reply, from, sent)
     }
 
@@ -462,6 +515,11 @@ class PanelModel(
     /** The final answer: what it shows, and what Buddy does in the app. */
     private suspend fun finish(c: Chat, reply: ChatReply, from: From, sent: String): Outcome {
         if (reply.kind == "message") return message(c, reply)
+        if (reply.kind == "open") return openApp(c, reply)
+        if (reply.kind == "call" && reply.how == "phone") return phoneCall(c, reply)
+        if (reply.kind == "call") return whatsAppCall(c, reply)
+        if (reply.kind == "calls") return tellCalls(c, reply)
+        if (reply.kind == "notifs") return showTold(c, notifs.read(reply.app))
         if (reply.kind == "send") {
             add(c) { BuddySaid(it, NO_SEND, "", emptyList(), emptyList()) }
             return Outcome.ANSWERED
@@ -518,6 +576,145 @@ class PanelModel(
             }
         }
         return Outcome.ANSWERED
+    }
+
+    /** "Open YouTube": opened at once, no question; the chat says it was, or which one or why not. */
+    private suspend fun openApp(c: Chat, reply: ChatReply): Outcome {
+        if (reply.say.isNotBlank()) {
+            add(c) { BuddySaid(it, reply.say, "", emptyList(), emptyList()) }
+            publish()
+        }
+        val opened = apps.open(reply.app)
+        if (c !== chat) return Outcome.GONE
+        when (opened) {
+            is Opened.Done -> add(c) { ChatEvent(it, "✅ Opened ${opened.label}") }
+            is Opened.Say -> add(c) { BuddySaid(it, "", opened.line, emptyList(), emptyList()) }
+        }
+        return Outcome.ANSWERED
+    }
+
+    /** "Call Prince": who it is (asking for the contacts first), then a card with Call and Not now. Nothing rings yet. */
+    private suspend fun phoneCall(c: Chat, reply: ChatReply): Outcome {
+        if (reply.say.isNotBlank()) {
+            add(c) { BuddySaid(it, reply.say, "", emptyList(), emptyList()) }
+            publish()
+        }
+        val found = phone.find(reply.to)
+        if (c !== chat) return Outcome.GONE
+        when (found) {
+            is CallFound.Say -> {
+                if (found.code != null) {
+                    return stop(c, found.code, found.line, if (found.code in SETTINGS_ERRORS) listOf(ChatButton.SETTINGS) else emptyList())
+                }
+                add(c) { BuddySaid(it, "", found.line, emptyList(), emptyList()) }
+            }
+            is CallFound.One -> {
+                val card = add(c) { BuddySaid(it, "", "Call ${found.callee.name}?", emptyList(), listOf(ChatButton.CALL, ChatButton.NOT_NOW)) }
+                c.calls[card.id] = CallCard.Phone(found.callee)
+            }
+        }
+        return Outcome.ANSWERED
+    }
+
+    /** "Who is calling?" / "Any missed calls?" */
+    private suspend fun tellCalls(c: Chat, reply: ChatReply): Outcome =
+        showTold(c, if (reply.what == "missed") callInfo.missed() else callInfo.ringing())
+
+    /**
+     * A line about the phone's calls or notifications: shown, but kept off the chat sent to the AI, as it names the
+     * people who called or wrote. The AI's own `say` is left out: the line is the answer.
+     */
+    private fun showTold(c: Chat, told: Told): Outcome {
+        if (c !== chat) return Outcome.GONE
+        val code = told.code
+        if (code != null) return stop(c, code, told.line, if (code in SETTINGS_ERRORS) listOf(ChatButton.SETTINGS) else emptyList())
+        val line = add(c) { BuddySaid(it, "", told.line, emptyList(), emptyList()) }
+        c.offRecord += line.id
+        return Outcome.ANSWERED
+    }
+
+    /**
+     * "WhatsApp call Prince": who it is on WhatsApp (as for a message), then a card with Call and Not now. Nothing is
+     * opened or rings until Call is pressed.
+     */
+    private suspend fun whatsAppCall(c: Chat, reply: ChatReply): Outcome {
+        if (reply.say.isNotBlank()) {
+            add(c) { BuddySaid(it, reply.say, "", emptyList(), emptyList()) }
+            publish()
+        }
+        val found = messaging.find(reply.to)
+        if (c !== chat) return Outcome.GONE
+        when (found) {
+            is Found.Say -> {
+                if (found.code != null) {
+                    return stop(c, found.code, found.line, if (found.code in SETTINGS_ERRORS) listOf(ChatButton.SETTINGS) else emptyList())
+                }
+                add(c) { BuddySaid(it, "", found.line, emptyList(), emptyList()) }
+            }
+            is Found.One -> {
+                val video = reply.how == "whatsapp_video"
+                val ask = if (video) "WhatsApp video call ${found.person.name}?" else "WhatsApp call ${found.person.name}?"
+                val card = add(c) { BuddySaid(it, "", ask, emptyList(), listOf(ChatButton.CALL, ChatButton.NOT_NOW)) }
+                c.calls[card.id] = CallCard.WhatsApp(found.person, video)
+            }
+        }
+        return Outcome.ANSWERED
+    }
+
+    /**
+     * Call on a call card: the card's own person, once. Called: the card says so. Not called, before anything was
+     * pressed: a red line says why and the card stays, to press Call again. Stopped after the call button was pressed,
+     * or not sure (the call threw too): the card says so, and goes (never a second call).
+     */
+    private suspend fun placeCall(c: Chat, id: Int) {
+        val first = c.calls[id] ?: return
+        if (first is CallCard.WhatsApp) hands.stepAside() // nothing called yet: should it throw, the card stays
+        // Taken off the card before calling, and put back only when it did not call: should the call throw, whether it
+        // rang is not known, and the card must not call a second time.
+        val card = c.calls.remove(id) ?: return
+        val called = try {
+            when (card) {
+                is CallCard.Phone -> phone.call(card.callee)
+                is CallCard.WhatsApp -> whatsAppCalls.call(card.person, card.video)
+            }
+        } catch (e: Exception) {
+            currentCoroutineContext().ensureActive() // the panel's own cancel goes on; anything else is "not sure"
+            Log.w("Buddy", "call: unexpected ${e.javaClass.simpleName}")
+            Called.Unsure
+        }
+        when (called) {
+            Called.Done -> {
+                replaceItem(c, ChatEvent(id, calledLine(card)))
+                mood(Mood.HAPPY)
+            }
+            Called.Unsure -> {
+                val line = if (card is CallCard.Phone) PHONE_CALL_UNSURE else CALL_UNSURE
+                replaceItem(c, ChatEvent(id, line))
+                say(line)
+            }
+            is Called.Ended -> {
+                replaceItem(c, ChatEvent(id, called.line))
+                say(called.line)
+            }
+            is Called.Failed -> {
+                c.calls[id] = card
+                val code = called.code ?: "call_failed"
+                add(c) { ChatError(it, called.line, code, if (code in SETTINGS_ERRORS) listOf(ChatButton.SETTINGS) else emptyList()) }
+                say(called.line)
+            }
+        }
+        publish()
+    }
+
+    private fun calledLine(card: CallCard) = when (card) {
+        is CallCard.Phone -> "📞 Calling ${card.callee.name}"
+        is CallCard.WhatsApp -> if (card.video) "📹 Video calling ${card.person.name} on WhatsApp" else "📞 Calling ${card.person.name} on WhatsApp"
+    }
+
+    /** A line in the chat that is not an answer: why Android is about to ask for a permission. */
+    fun note(text: String) {
+        add(chat) { ChatEvent(it, text) }
+        publish()
     }
 
     /**
@@ -720,10 +917,15 @@ class PanelModel(
                 }
             }
             ChatButton.SEND_MESSAGE -> inApp { sendMessage(c, id) }
+            ChatButton.CALL -> inApp { placeCall(c, id) }
             ChatButton.NOT_NOW -> {
-                if (working) return // being sent now
+                if (working) return // being sent or called now
+                // A call card is the one with Call: "not now" whether or not its call is still kept.
+                val call = ChatButton.CALL in buttons || c.calls.containsKey(id)
+                c.calls.remove(id)
                 c.messages.remove(id)
-                replaceItem(c, ChatEvent(id, NOT_SENT))
+                val line = if (call) NOT_NOW_CALL else NOT_SENT
+                replaceItem(c, ChatEvent(id, line))
                 publish()
             }
             ChatButton.RETRY -> {
@@ -755,11 +957,13 @@ class PanelModel(
          * a model that cannot be used; signed out, today's free requests used up with own keys allowed but none saved,
          * free mode turned off, a copy of Buddy that cannot sign in; Buddy off (no picture of the screen without it);
          * "Buddy can type for you" off; the microphone or the contacts not allowed (the app's own Android settings);
+         * the call permission not allowed (the same); the call log not allowed (the same); Notification access off;
          * Buddy off in Android's Accessibility settings, so it cannot press WhatsApp's Send. They come with "Open Settings".
          */
         val SETTINGS_ERRORS = setOf(
             "no_key", "bad_key", "no_credit", "bad_model", "no_vision", "signed_out", "need_key", "free_off", "not_set_up",
-            "buddy_off", "no_type", "no_microphone", "no_contacts", "no_accessibility",
+            "buddy_off", "no_type", "no_microphone", "no_contacts", "no_accessibility", "no_calls", "no_call_log",
+            "no_notifs",
         )
     }
 }

@@ -50,3 +50,6 @@ fun pickLine(asked: String, pick: Pick): String? = when (pick) {
         "Which $asked: $names? Tell me the full name."
     }
 }
+
+/** A name as names are compared (lower case, no accents or marks, single spaces), for other WhatsApp screens. */
+internal fun plainName(name: String): String = plain(name)

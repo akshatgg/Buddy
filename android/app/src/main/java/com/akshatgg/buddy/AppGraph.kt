@@ -13,14 +13,20 @@ import com.akshatgg.buddy.ai.KeySaver
 import com.akshatgg.buddy.ai.Prompts
 import com.akshatgg.buddy.ai.Router
 import com.akshatgg.buddy.ai.providers.Providers
+import com.akshatgg.buddy.apps.Launcher
+import com.akshatgg.buddy.apps.PhoneLauncher
 import com.akshatgg.buddy.bubble.BubbleBus
 import com.akshatgg.buddy.bubble.LookService
+import com.akshatgg.buddy.calls.AndroidPhoneBook
+import com.akshatgg.buddy.calls.PhoneBook
+import com.akshatgg.buddy.calls.RingWatch
 import com.akshatgg.buddy.cloud.CloudClient
 import com.akshatgg.buddy.cloud.MemorySyncer
 import com.akshatgg.buddy.core.Shared
 import com.akshatgg.buddy.message.PhoneWhatsApp
 import com.akshatgg.buddy.message.WhatsApp
 import com.akshatgg.buddy.net.Http
+import com.akshatgg.buddy.notify.NotifStore
 import com.akshatgg.buddy.net.UrlConnectionHttp
 import com.akshatgg.buddy.store.AppSettings
 import com.akshatgg.buddy.store.Facts
@@ -100,6 +106,18 @@ class AppGraph(
 
     /** Message a friend: who is on WhatsApp in the phone's contacts, and their chat (message/WhatsApp.kt). */
     val whatsApp: WhatsApp by lazy { PhoneWhatsApp(appContext) }
+
+    /** Open an app: the phone's home-screen apps (apps/Apps.kt). */
+    val launcher: Launcher by lazy { PhoneLauncher(appContext) }
+
+    /** Call someone: the phone's contacts' numbers (calls/PhoneBook.kt). */
+    val phoneBook: PhoneBook by lazy { AndroidPhoneBook(appContext) }
+
+    /** Who is calling: the ringing number, heard while the bubble runs (calls/Ringing.kt). */
+    val ringWatch: RingWatch by lazy { RingWatch(appContext) }
+
+    /** Notifications heard while Notification access is on, in memory only (notify/Notifs.kt). */
+    val notifs = NotifStore()
 
     /** What Buddy knows about the person, as the chat sees it: the memory on this phone (kept with the account too, signed in). */
     val facts: Facts get() = memory

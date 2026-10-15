@@ -18,4 +18,15 @@ class ChatHostTest {
         closeForGood({ log += "closed" }, contacts)
         assertEquals(listOf("closed", "answered false"), log)
     }
+
+    /** The same with both questions waiting (the contacts one and another, as "make calls"): both end as a no, after. */
+    @Test fun theChatClosesBeforeEveryWaitEndsAsANo() {
+        val contacts = PendingAnswer(none = false)
+        val permission = PendingAnswer(none = false)
+        val log = mutableListOf<String>()
+        CoroutineScope(Dispatchers.Unconfined).launch { log += "contacts ${contacts.ask {}}" }
+        CoroutineScope(Dispatchers.Unconfined).launch { log += "permission ${permission.ask {}}" }
+        closeForGood({ log += "closed" }, contacts, permission)
+        assertEquals(listOf("closed", "contacts false", "permission false"), log)
+    }
 }

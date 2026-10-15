@@ -2224,6 +2224,22 @@ test('two chats with the very same name: no card, Buddy asks to rename one', asy
   assert.ok(!chatOf(s).some((i) => i.type === 'question'));
 });
 
+test('a chat and a message found in it under the same name are one chat: the card shows', async () => {
+  // WhatsApp's search lists a message hit ("hi Priya" in Priya's chat) under the chat's name; only `exact` rows are chats.
+  const s = setup({ answers: [message()], replies: { waFind: { chats: ['Priya Sharma', 'Priya Sharma'], exact: ['Priya Sharma'] } } });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  assert.deepStrictEqual(chatOf(s).at(-1), { id: 2, type: 'question', text: 'To Priya Sharma: hi', buttons: ['send-message', 'not-now'] });
+});
+
+test('two chats (not message hits) with the very same name: no card, Buddy asks to rename one', async () => {
+  const s = setup({ answers: [message()], replies: { waFind: { chats: ['Priya Sharma', 'Priya Sharma', 'Rahul'], exact: ['Priya Sharma', '‎Priya Sharma', 'Rahul'] } } });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  assert.strictEqual(chatOf(s).at(-1).text, 'You have more than one chat called Priya Sharma. Rename one in WhatsApp, then ask me again.');
+  assert.ok(!chatOf(s).some((i) => i.type === 'question'));
+});
+
 test('a message when WhatsApp is not on the Mac says so', async () => {
   const s = setup({ answers: [message()], replies: { waFind: failure('no_whatsapp', 'Install WhatsApp for Mac and I can message from here.') } });
   await s.actions.open();

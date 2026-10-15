@@ -668,29 +668,33 @@ function createActions({
       add(c, { type: 'buddy', say: '', text: MESSAGE_ELSEWHERE, notes: [], buttons: [] });
       return true;
     }
-    let chats;
+    let found;
     try {
-      chats = await inApp(async () => {
+      found = await inApp(async () => {
         if (!present(c)) return null;
-        const found = await stepAside(() => helper.call('waFind', { name: reply.to }));
-        return Array.isArray(found?.chats) ? found.chats.filter((name) => typeof name === 'string') : [];
+        return (await stepAside(() => helper.call('waFind', { name: reply.to }))) || {};
       }, { wait: true });
     } catch (err) {
       failed(c, err);
       await comeBack(c);
       return false;
     }
-    if (chats === null) {
+    if (found === null) {
       // The person hid the panel meanwhile: WhatsApp is left alone, and the bubble says there is something to read.
       if (c === chat) ui.bubble(READY);
       add(c, { type: 'buddy', say: 'Open me again and ask once more, so I can look in WhatsApp.', text: '', notes: [], buttons: [] });
       return false;
     }
+    const names = (list) => (Array.isArray(list) ? list.filter((name) => typeof name === 'string') : null);
+    const chats = names(found.chats) || [];
+    // WhatsApp's search also lists a message found in a chat under that chat's name: only the rows that are chats or
+    // contacts (`exact`) can be two chats with one name. A helper from before `exact` gives every row.
+    const exact = names(found.exact) || chats;
     const pick = pickChat(reply.to, chats);
     const line = pickLine(reply.to, pick);
     if (line) {
       add(c, { type: 'buddy', say: '', text: line, notes: [], buttons: [] });
-    } else if (chats.filter((name) => sameName(name, pick.name)).length > 1) {
+    } else if (exact.filter((name) => sameName(name, pick.name)).length > 1) {
       const text = `You have more than one chat called ${pick.name}. Rename one in WhatsApp, then ask me again.`;
       add(c, { type: 'buddy', say: '', text, notes: [], buttons: [] });
     } else {

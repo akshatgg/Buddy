@@ -814,6 +814,17 @@ func chatName(_ description: String) -> String {
     return (clean.components(separatedBy: ", ").first ?? clean).trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
+/// Whether a search result row is a chat or a contact, not a message found in a chat (which WhatsApp lists under the
+/// chat's name too): its description is the name alone, or the name and its unread count ("Nisha, 1 unread message").
+func isChatRow(_ description: String) -> Bool {
+    let clean = description.unicodeScalars.filter { !directionMarks.contains($0) }.map(String.init).joined()
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let parts = clean.components(separatedBy: ", ")
+    guard let name = parts.first, !name.isEmpty else { return false }
+    if parts.count == 1 { return true }
+    return parts.count == 2 && parts[1].range(of: "^[0-9]+ unread messages?$", options: .regularExpression) != nil
+}
+
 /// A name as it is compared: no marks, no case, no accents, single spaces (shared/message-pick.js plain()).
 func plainName(_ name: String) -> String {
     chatName(name).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
@@ -875,7 +886,7 @@ func whatsAppReady() throws -> (pid_t, AXUIElement) {
 
 /// Searches WhatsApp for `name`: the result rows, by their chat names, in the order WhatsApp lists them. Only the
 /// search box is typed into, and nothing is opened.
-func waSearch(_ pid: pid_t, _ ax: AXUIElement, _ name: String, pasteBefore: Date? = nil) throws -> [(name: String, row: AXUIElement)] {
+func waSearch(_ pid: pid_t, _ ax: AXUIElement, _ name: String, pasteBefore: Date? = nil) throws -> [(name: String, row: AXUIElement, chat: Bool)] {
     guard let window = whatsAppWindow(ax), let search = axFind(window, { axId($0) == waSearchBoxId }) else { throw whatsAppNotReady }
     // The name goes into the search box or nowhere: pasted into a chat's message box it would sit there as a draft.
     guard focusOn(search, id: waSearchBoxId, pid: pid, in: ax) else { throw whatsAppNotReady }
@@ -889,15 +900,17 @@ func waSearch(_ pid: pid_t, _ ax: AXUIElement, _ name: String, pasteBefore: Date
     guard let list = axFind(window, { axId($0) == waChatListId }) else { return [] }
     // Each result is a button in the list; the filter buttons above it (All, Unread, …) and the Archived row are not.
     // The order is WhatsApp's own: it lists chats and contacts before messages, but nothing in the tree says which
-    // section a row is in, so a message found in a chat comes back as that chat's name too.
-    var rows: [(name: String, row: AXUIElement)] = []
+    // section a row is in, so a message found in a chat comes back as that chat's name too. Only its description
+    // tells: a chat's is its name (and unread count), a message's has the message after the name (`chat`).
+    var rows: [(name: String, row: AXUIElement, chat: Bool)] = []
     func walk(_ e: AXUIElement, _ depth: Int) {
         if rows.count >= 30 || depth > 8 { return }
         let id = axId(e)
         if axString(e, kAXRoleAttribute) == "AXButton" {
             if !id.hasPrefix("ChatListFilterAction_") && id != "ChatListView_archiveCell" {
-                let found = chatName(axString(e, kAXDescriptionAttribute))
-                if !found.isEmpty { rows.append((found, e)) }
+                let description = axString(e, kAXDescriptionAttribute)
+                let found = chatName(description)
+                if !found.isEmpty { rows.append((found, e, isChatRow(description))) }
             }
             return
         }
@@ -907,14 +920,16 @@ func waSearch(_ pid: pid_t, _ ax: AXUIElement, _ name: String, pasteBefore: Date
     return rows
 }
 
-/// waFind { name }: the chat names WhatsApp's search shows for `name`, at most 10. Types only into the search box.
+/// waFind { name }: the chat names WhatsApp's search shows for `name`, at most 10 (`chats`), and the names of the rows
+/// that are chats or contacts, not messages found in a chat (`exact`). Types only into the search box.
 func waFind(_ args: [String: Any]) throws -> [String: Any] {
     let name = (args["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     guard !name.isEmpty else { throw HelperError(code: "bad_request", message: "name is missing") }
     // Buddy stops waiting after 15 seconds (src/main/helper.js): no paste after 11.
     let started = Date()
     let (pid, ax) = try whatsAppReady()
-    return ["chats": try waSearch(pid, ax, name, pasteBefore: started.addingTimeInterval(11)).prefix(10).map { $0.name }]
+    let rows = try waSearch(pid, ax, name, pasteBefore: started.addingTimeInterval(11))
+    return ["chats": rows.prefix(10).map { $0.name }, "exact": rows.filter { $0.chat }.map { $0.name }]
 }
 
 /// The name in the open chat's header, "" when there is none.

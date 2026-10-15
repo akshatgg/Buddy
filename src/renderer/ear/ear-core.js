@@ -79,6 +79,35 @@ const EarCore = (() => {
     };
   }
 
+  /**
+   * A copy of voice-words.js wakeFrom(): whether Vosk's final result starts with the phrase, its words first and in order,
+   * each at least `floor` sure. `endSec` is when the last phrase word ended; `follows` whether more was said after it.
+   */
+  function wakeFrom(result, phrase, floor) {
+    const want = String(phrase || '').split(' ').filter(Boolean);
+    const got = result && Array.isArray(result.result) ? result.result : [];
+    if (!want.length || got.length < want.length) return null;
+    for (let i = 0; i < want.length; i++) {
+      if (got[i].word !== want[i] || !(got[i].conf >= floor)) return null;
+    }
+    return { endSec: got[want.length - 1].end, follows: got.length > want.length };
+  }
+
+  /**
+   * The wake loop's decision. `result(json, keptFrom)` takes a final result of a recognizer that began at sample `keptFrom`
+   * (counted from the keeper's first sample): null when it is not the phrase, else where the request begins (`fromSample`,
+   * right after the phrase) and whether it follows in the same breath.
+   */
+  function createWakeTurn({ phrase, floor }) {
+    return {
+      result(json, keptFrom) {
+        const w = wakeFrom(json, phrase, floor);
+        if (!w) return null;
+        return { follows: w.follows, fromSample: keptFrom + Math.round(w.endSec * 16000) };
+      },
+    };
+  }
+
   /** Float samples (-1 to 1) as 16-bit PCM, clipped. */
   function toPcm16(float32) {
     const out = new Int16Array(float32.length);
@@ -116,7 +145,7 @@ const EarCore = (() => {
     }
   }
 
-  return { isDecisive, createAnswerTurn, toPcm16, PcmKeeper };
+  return { isDecisive, createAnswerTurn, createWakeTurn, toPcm16, PcmKeeper };
 })();
 
 if (typeof module !== 'undefined') module.exports = EarCore;

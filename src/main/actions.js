@@ -1270,6 +1270,16 @@ function createActions({
   }
 
   /**
+   * Words said after "Hey <name>": the same path as the panel's 🎤, which sends what was said as a spoken message. The
+   * panel's chat opens first when it is hidden. A chat that is still answering is not interrupted (the words are dropped).
+   */
+  async function sayToBuddy(words) {
+    if (!ui.isPanelVisible()) await open();
+    if (chat.busy) return {};
+    return send(words, { spoken: true });
+  }
+
+  /**
    * The person starts the panel's 🎤 or types in its box: whatever Buddy is asking, saying or listening for stops first, and an
    * answer that comes late presses nothing.
    */
@@ -1277,7 +1287,7 @@ function createActions({
     hush(chat);
   }
 
-  return { open, toggle, dismiss, send, act, dropSelection, transcribe, hushVoice, state: () => stateOf(chat) };
+  return { open, toggle, dismiss, send, voice: sayToBuddy, act, dropSelection, transcribe, hushVoice, state: () => stateOf(chat) };
 }
 
 module.exports = { createActions, sectionFor, COPIED };

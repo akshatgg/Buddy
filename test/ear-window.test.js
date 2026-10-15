@@ -159,3 +159,52 @@ test('no model yet: the page gets nothing', async (t) => {
   await tick();
   assert.deepStrictEqual(await ipcMain.handlers['ear:model']({ sender: made[0].webContents }), {});
 });
+
+// ---- the wake loop ----
+
+test('wake sends ear:wake to the page; null ends it and never makes a window', async (t) => {
+  const { ear, made, tick } = setup(t);
+  await ear.wake(null);
+  assert.strictEqual(made.length, 0);
+  const args = { phrase: 'hey rahul', floor: 0.6, testOnly: false };
+  await ear.wake(args);
+  await tick();
+  assert.strictEqual(made.length, 1);
+  assert.deepStrictEqual(made[0].sent.filter(([c]) => c === 'ear:wake'), [['ear:wake', args]]);
+  await ear.wake(null);
+  assert.deepStrictEqual(made[0].sent.at(-1), ['ear:wake', null]);
+});
+
+test('the page\'s woke and request reach main\'s listeners, only from the ear\'s own page', async (t) => {
+  const { ear, made, ipcMain, tick } = setup(t);
+  await ear.wake({ phrase: 'hey rahul', floor: 0.6 });
+  await tick();
+  const seen = [];
+  ear.on('woke', () => seen.push('woke'));
+  ear.on('request', (r) => seen.push(r));
+  ipcMain.emit('ear:woke', { sender: made[0].webContents });
+  ipcMain.emit('ear:request', { sender: made[0].webContents }, { audio: 'AAAA' });
+  ipcMain.emit('ear:request', { sender: made[0].webContents }, { audio: 5 });
+  ipcMain.emit('ear:woke', { sender: {} });
+  ipcMain.emit('ear:request', { sender: {} }, { audio: 'AAAA' });
+  assert.deepStrictEqual(seen, ['woke', { audio: 'AAAA' }, { audio: null }]);
+});
+
+test('the idle close does not take the window while the loop is kept', async (t) => {
+  const { ear, made, tick } = setup(t);
+  await ear.wake({ phrase: 'hey rahul', floor: 0.6 });
+  ear.keep(true);
+  await tick();
+  t.mock.timers.tick(10 * 60 * 1000);
+  assert.strictEqual(made[0].destroyed, false);
+});
+
+test('a window that goes while the loop runs is told to the listeners', async (t) => {
+  const { ear, made, tick } = setup(t);
+  let gone = 0;
+  ear.on('gone', () => { gone += 1; });
+  await ear.wake({ phrase: 'hey rahul', floor: 0.6 });
+  await tick();
+  made[0].destroy();
+  assert.strictEqual(gone, 1);
+});

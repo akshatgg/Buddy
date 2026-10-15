@@ -347,6 +347,7 @@ async function waitFor(fn, what, ms = 8000) {
       claudeDirs: [path.join(userData, 'claude-home')],
       terminal: claudeTerminal,
       talkBack: null, // never a real ear window or a voice: the harness must stay silent
+      ear: null, // nor an ear window for "Hey <name>" (so no microphone either)
     });
     ctx.claudeTerminal = claudeTerminal;
     Object.assign(ctx, { helper, clipboard, globalShortcut, loginCalls, systemPreferences });

@@ -2787,3 +2787,12 @@ test('Send pressed while Buddy asks "Send it?": sent once, and the late yes does
   assert.strictEqual(JSON.stringify(chatOf(s)), before);
   assert.strictEqual(sendKeys(s).length, 1);
 });
+
+test('voice(words), after "Hey <name>": opens the chat and sends the words as a spoken message; the card is still asked aloud', async () => {
+  const s = setup({ answers: [message()], talk: { answers: ['no'] }, replies: WA });
+  await s.actions.voice('message priya hi');
+  await settle();
+  assert.strictEqual(chatOf(s).find((i) => i.type === 'you').text, 'message priya hi');
+  assert.deepStrictEqual(spokenOf(s), ["To Priya Sharma: hi. Send it?", 'Okay, not sent.']);
+  assert.strictEqual(waSends(s).length, 0, 'nothing is sent without a yes');
+});

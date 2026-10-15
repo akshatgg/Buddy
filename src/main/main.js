@@ -32,6 +32,7 @@ const { createPanelWindow } = require('./panel-window');
 const { createEarWindow } = require('./ear-window');
 const { createLock } = require('./lock');
 const { createTalkBack } = require('./talk-back');
+const { createWake } = require('./wake');
 const { createVoiceModel } = require('./voice-model');
 const { createSettingsWindows } = require('./settings-windows');
 const { installAppMenu } = require('./app-menu');
@@ -145,16 +146,37 @@ async function start(options = {}) {
   const feelings = createFeelings({ buddy, sleep, busy: () => actions.state().busy });
   // Buddy's ear (ear-window.js): a hidden window, made when something first speaks or listens. Its page has the microphone.
   const voiceModel = createVoiceModel({ dir: path.join(userData, 'voice-model') });
-  const ear = createEarWindow({ BrowserWindow, ipcMain, model: voiceModel });
+  // The end-to-end test passes `ear: null`, so that no ear window (and so no microphone) is ever made.
+  const ear = options.ear !== undefined ? options.ear : createEarWindow({ BrowserWindow, ipcMain, model: voiceModel });
   const lock = createLock({ powerMonitor });
   // Spoken chats are on the Mac only (Windows keeps its cards). The server writes down an answer the model cannot hear;
   // `actions` is read lazily, as it is made below. The end-to-end test passes `talkBack: null`, so that it never opens an ear or speaks (only an undefined option builds the real one).
-  const talkBack = options.talkBack !== undefined ? options.talkBack
-    : process.platform === 'darwin'
+  const rawTalkBack = options.talkBack !== undefined ? options.talkBack
+    : process.platform === 'darwin' && ear
       ? createTalkBack({ ear, model: voiceModel, transcribe: (audio, mime) => actions.transcribe(audio, mime).then((r) => r.text) })
       : null;
+  // "Hey <name>" (wake.js): the ear listens for it while the switch is on. A spoken turn of Buddy's own (say, hear, listen)
+  // pauses it, and it goes on a moment after, so that Buddy's voice is never heard as the phrase. Without an ear (Windows,
+  // the end-to-end test) there is none.
+  const wake = rawTalkBack && ear && options.wake !== null
+    ? createWake({
+      store, ear, model: voiceModel, lock, microphone, power: { isOn: () => power.isOn() }, account, cloud, powerMonitor,
+      actions: { transcribe: (...a) => actions.transcribe(...a), voice: (words) => actions.voice(words) }, talkBack: rawTalkBack,
+    })
+    : null;
+  const turned = (run) => async (...args) => {
+    wake?.turn(true);
+    try {
+      return await run(...args);
+    } finally {
+      setTimeout(() => wake?.turn(false), 1000);
+    }
+  };
+  const talkBack = rawTalkBack && wake
+    ? { ...rawTalkBack, say: turned(rawTalkBack.say), hear: turned(rawTalkBack.hear), listen: turned(rawTalkBack.listen) }
+    : rawTalkBack;
   const panel = createPanelWindow({
-    isEar: (webContents) => Boolean(ear.window()) && !ear.window().isDestroyed() && webContents === ear.window().webContents,
+    isEar: (webContents) => Boolean(ear?.window()) && !ear.window().isDestroyed() && webContents === ear.window().webContents,
     store, // the size the person made the panel
     // Its page crashed or did not load, or its window was closed: a listening there is over, and the page cannot say so.
     onGone: () => ui.listening(false),
@@ -217,7 +239,10 @@ async function start(options = {}) {
     // For the buddy's feelings, which have their own design: when the panel listens (listening(on), from its page; and
     // false when main hides the panel or its page is gone) and how loud the person speaks (voiceLevel(0..1), about 10
     // times a second). The buddy listens meanwhile, and its ear rims glow with the voice (feelings.js).
-    listening: (on) => feelings.listening(on),
+    listening: (on, from) => {
+      feelings.listening(on);
+      if (from !== 'ear') wake?.panelListening(on); // the panel's own 🎤; the ear's listening during a question is not
+    },
     voiceLevel: (level) => feelings.voiceLevel(level),
     // Open folder on a finished job: the folder in the Finder (the Explorer on Windows).
     openFolder: (folder) => shell.openPath(folder),
@@ -287,6 +312,7 @@ async function start(options = {}) {
     share.start();
     memorySync.sync(); // what the person's other devices learnt while Buddy was off
     tagWatch.refresh();
+    wake?.refresh();
     if (store.get('watchClaudeCode') !== true) return;
     watch.start().catch((err) => console.warn('[buddy] could not watch Claude Code:', err.message));
   };
@@ -322,6 +348,7 @@ async function start(options = {}) {
         watch.stop(); // the buddy goes idle if Claude Code had moved it
         share.stop();
         tagWatch.stop();
+        wake?.refresh(); // Buddy is off: the ear lets go
         buddy.hide();
       }
       tray.refresh();
@@ -365,9 +392,13 @@ async function start(options = {}) {
     if (!account.isSignedIn()) windows.close('admin');
     if (account.isSignedIn()) share.start();
     else share.stop();
+    wake?.refresh();
     tray.refresh();
   });
-  cloud.onChange(() => tray.refresh());
+  cloud.onChange(() => {
+    tray.refresh();
+    wake?.refresh(); // voice turned on or off for this person
+  });
   // Where Clawd walks with the buddy while Claude Code works: the admin's choice, from Buddy's server; on the head for
   // someone signed out.
   const clawdLook = () => buddy.clawdLook(account.isSignedIn() ? cloud.last()?.clawdLook : null);
@@ -393,7 +424,7 @@ async function start(options = {}) {
     ipcMain, panel, actions, openSettings, microphone, ui, shell, askAccessibility: () => helper.call('requestAccessibility'), claudeMode,
   });
   const settingsIpc = registerSettingsIpc({
-    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch, tagWatch,
+    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch, tagWatch, wake,
     account, cloud, memory, memorySync, microphone, canSignIn: Boolean(cloudConfig),
     home: buddy, // Settings → Buddy → Where Buddy lives: whether there is a notch, and moving Buddy when it changes
     find, // Claude Code on this computer: the fifth AI choice, with no key

@@ -92,3 +92,24 @@ test('with a model an undecided answer ends on quiet after the voice, not at 8 s
   assert.strictEqual(at, 8000);
   assert.deepStrictEqual(b.timeUp(''), { text: '' }, 'nothing said: no, and nothing to the server');
 });
+
+// ---- the wake turn ("Hey <name>") ----
+
+test('the wake turn decides as wakeFrom does, for every case Android is checked with', () => {
+  const cases = require('../android/app/src/test/resources/voice-cases.json').wake;
+  assert.ok(cases.from.length > 3);
+  for (const c of cases.from) {
+    const turn = EarCore.createWakeTurn({ phrase: c.phrase, floor: cases.floor });
+    const got = turn.result(c.said, 0);
+    if (c.wake === null) assert.strictEqual(got, null, JSON.stringify(c.said));
+    else assert.strictEqual(got.follows, c.wake.follows, JSON.stringify(c.said));
+  }
+});
+
+test('the wake turn says where the request begins: after the phrase, counted in samples from the keeper\'s start', () => {
+  const turn = EarCore.createWakeTurn({ phrase: 'hey rahul', floor: 0.6 });
+  const said = { result: [{ word: 'hey', conf: 0.9, start: 1, end: 1.2 }, { word: 'rahul', conf: 0.8, start: 1.2, end: 1.6 }, { word: 'call', conf: 0.9, start: 1.7, end: 2 }] };
+  assert.deepStrictEqual(turn.result(said, 32000), { follows: true, fromSample: 32000 + 25600 });
+  assert.strictEqual(turn.result({ result: [] }, 0), null);
+  assert.strictEqual(turn.result(null, 0), null);
+});

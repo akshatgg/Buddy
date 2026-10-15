@@ -19,6 +19,8 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
   let kept = false;
   let nextId = 1;
   const pending = new Map(); // id -> { resolve, timer }
+  const listeners = { woke: [], request: [], gone: [] }; // main's ears on the wake loop (wake.js)
+  let wakeArgs = null; // what the page was last told to listen for, sent again to a page made after a crash
 
   const mine = (sender) => Boolean(win) && !win.isDestroyed() && sender === win.webContents;
 
@@ -64,6 +66,7 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
     win = null;
     ready = null;
     goneAll();
+    if (wakeArgs) for (const fn of listeners.gone) fn(); // the loop's page is gone
   }
 
   function drop(w) {
@@ -108,6 +111,16 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
     if (win && !win.isDestroyed()) win.close();
   }
 
+  // The always-on wake loop (ear.js): the page says it heard the phrase, and sends the request that followed.
+  ipcMain.on('ear:woke', (event) => {
+    if (mine(event?.sender)) for (const fn of listeners.woke) fn();
+  });
+  ipcMain.on('ear:request', (event, msg) => {
+    if (!mine(event?.sender)) return;
+    const audio = msg && typeof msg.audio === 'string' && msg.audio ? msg.audio : null;
+    for (const fn of listeners.request) fn({ audio });
+  });
+
   ipcMain.on('ear:done', (event, msg) => {
     if (!mine(event?.sender) || !msg) return;
     settle(msg.id, msg.result && typeof msg.result === 'object' ? msg.result : {});
@@ -135,6 +148,30 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
       } else armIdle();
     },
     stop: stopPage,
+    /** Listens for events from the wake loop: 'woke', 'request' ({ audio } or { audio: null }) and 'gone' (the window went while the loop ran). */
+    on(event, fn) {
+      if (listeners[event]) listeners[event].push(fn);
+    },
+    /**
+     * Starts the always-on wake loop ({ phrase, floor, testOnly }) or, with null, ends it. It runs beside the commands:
+     * the page pauses it while one runs and goes on after. Only a window made for the loop (or already there) is used:
+     * ending the loop never makes one.
+     */
+    async wake(args) {
+      wakeArgs = args;
+      if (!args && !win) return;
+      try {
+        clearTimeout(idleTimer);
+        idleTimer = null;
+        if (!win) create();
+        const w = win;
+        await ready;
+        if (w !== win || wakeArgs !== args) return;
+        w.webContents.send('ear:wake', args);
+      } catch (err) {
+        console.error('[buddy] the ear:', err.message);
+      }
+    },
     /** Never rejects: a page that is gone answers { gone: true }. */
     async call(cmd, args) {
       clearTimeout(idleTimer);

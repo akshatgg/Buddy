@@ -206,9 +206,107 @@ function listen({ quietMs, nothingMs, maxMs }) {
 
 const COMMANDS = { say, hear, listen };
 
+// ---- the wake loop ("Hey <name>") ----
+// Runs beside the commands, not as one: main starts it (ear:wake { phrase, floor, testOnly }) and ends it (null). It owns the
+// microphone only while no command runs: a command pauses it (the microphone is let go of), and it goes on a moment after the
+// last one ends (and after a stop). The last 25 s of sound are kept; a recogniser with the grammar [phrase, "[unk]"] hears
+// them. Only an exact final result that starts with the phrase, each word sure enough, is a wake (EarCore.createWakeTurn);
+// then the request is cut from right after the phrase and carried on live (REQUEST timing, sent by main), and a fresh
+// recogniser takes over. Nothing leaves this page before the wake, and only the request's recording goes after it.
+const WAKE_KEEP_S = 25;
+const WAKE_RESUME_MS = 1000; // after a command, so that the tail of Buddy's own voice is not heard
+let wanted = null; // what main last asked for: { phrase, floor, testOnly, request } or null
+let wakeRun = null; // the loop running now: { over, stop() }
+let commands = 0; // commands queued or running
+let resumeTimer = null;
+
+function stopWake() {
+  clearTimeout(resumeTimer);
+  resumeTimer = null;
+  if (!wakeRun) return;
+  const run = wakeRun;
+  wakeRun = null;
+  run.stop();
+}
+
+function maybeResumeWake(delay) {
+  clearTimeout(resumeTimer);
+  resumeTimer = null;
+  if (!wanted || commands > 0 || wakeRun) return;
+  resumeTimer = setTimeout(() => { if (wanted && commands === 0 && !wakeRun) startWake(wanted); }, delay);
+}
+
+function startWake(args) {
+  const run = { over: false, rec: null, stop: null };
+  run.stop = () => {
+    run.over = true;
+    onChunk = null;
+    if (run.rec) { try { run.rec.remove(); } catch { /* gone */ } run.rec = null; }
+    closeMic();
+  };
+  wakeRun = run;
+  (async () => {
+    const model = await loadModel();
+    if (run.over) return;
+    if (!model) { stopWake(); return; } // no ears yet: main starts the loop again when the model is there
+    await openMic();
+    if (run.over) { closeMic(); return; }
+    const keeper = new EarCore.PcmKeeper(WAKE_KEEP_S * RATE);
+    const turn = EarCore.createWakeTurn({ phrase: args.phrase, floor: args.floor });
+    let keptFrom = 0;
+    let request = null; // while the request after a wake is being listened to: { fromSample, timing }
+    const fresh = () => {
+      if (run.rec) { try { run.rec.remove(); } catch { /* gone */ } }
+      keptFrom = keeper.total;
+      const rec = new model.KaldiRecognizer(RATE, JSON.stringify([args.phrase, '[unk]']));
+      rec.setWords(true);
+      rec.on('result', (ev) => {
+        if (run.over || request || run.rec !== rec) return;
+        const woke = turn.result(ev && ev.result, startOf.get(rec));
+        if (!woke) return;
+        window.ear.woke();
+        if (args.testOnly) { fresh(); return; }
+        const timing = VoiceTiming.createVoiceTiming(args.request);
+        request = { fromSample: woke.fromSample, timing };
+        if (woke.follows) {
+          // What was said after the phrase in the same breath is already there: it counts as voice, up to now.
+          const ms = (keeper.total - woke.fromSample) / 16;
+          for (let t = 0; t <= ms; t += 100) timing.feed(1, t);
+        }
+      });
+      startOf.set(rec, keptFrom);
+      run.rec = rec;
+    };
+    const startOf = new WeakMap();
+    fresh();
+    onChunk = (chunk) => {
+      if (run.over) return;
+      keeper.add(EarCore.toPcm16(chunk));
+      if (!request) {
+        try { run.rec.acceptWaveformFloat(chunk, RATE); } catch { /* the recogniser is gone */ }
+        return;
+      }
+      const ms = (keeper.total - request.fromSample) / 16;
+      if (request.timing.feed(VoiceTiming.levelOf(chunk), ms) === 'listen') return;
+      const audio = request.timing.heardVoice() ? Wav.base64(keeper.from(request.fromSample)) : null;
+      request = null;
+      fresh();
+      window.ear.request(audio);
+    };
+  })().catch(() => { if (wakeRun === run) stopWake(); });
+}
+
+window.ear.onWake((args) => {
+  stopWake();
+  wanted = args && args.phrase ? args : null;
+  maybeResumeWake(0);
+});
+
 window.ear.onDo(({ id, cmd, args }) => {
   // One command at a time, in the order sent.
   const stopsBefore = stopped;
+  commands += 1;
+  stopWake(); // the microphone is the command's now
   queue = queue.then(async () => {
     let result;
     try {
@@ -217,6 +315,8 @@ window.ear.onDo(({ id, cmd, args }) => {
       result = {};
     }
     window.ear.done(id, result);
+    commands -= 1;
+    maybeResumeWake(WAKE_RESUME_MS);
   });
 });
 
@@ -227,4 +327,6 @@ window.ear.onStop(() => {
   speechSynthesis.cancel();
   if (current) current.finish({ stopped: true });
   closeMic();
+  stopWake();
+  maybeResumeWake(WAKE_RESUME_MS);
 });

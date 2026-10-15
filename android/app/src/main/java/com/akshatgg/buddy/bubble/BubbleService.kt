@@ -1,6 +1,8 @@
 package com.akshatgg.buddy.bubble
 
 import android.animation.ValueAnimator
+import android.Manifest
+import android.content.pm.PackageManager
 import android.app.AppOpsManager
 import android.app.KeyguardManager
 import android.app.Notification
@@ -38,6 +40,8 @@ import com.akshatgg.buddy.R
 import com.akshatgg.buddy.store.AppSettings
 import com.akshatgg.buddy.ui.MainActivity
 import com.akshatgg.buddy.ui.panel.PanelActivity
+import com.akshatgg.buddy.voice.VoiceWords
+import com.akshatgg.buddy.voice.WakeRules
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -97,6 +101,12 @@ class BubbleService : LifecycleService() {
     )
     private var screenReceiver: BroadcastReceiver? = null
 
+    // "Hey <name>": the microphone is only ever started from an app screen (ACTION_LISTEN); see WakeControl.
+    private var listening = false // this service is a microphone one now
+    private val wakeControl by lazy {
+        WakeControl(this, AppGraph.instance, lifecycleScope, chatBusy = { AppGraph.instance.handsFree.busy }) { wav -> AppGraph.instance.handsFree.request(wav) }
+    }
+
     // The person can take "Display over other apps" away in the phone's settings while Buddy runs. Android then hides
     // the windows and refuses new ones, so the service stops, and the app says why the buddy is gone.
     private var overlayWatcher: AppOpsManager.OnOpChangedListener? = null
@@ -126,6 +136,9 @@ class BubbleService : LifecycleService() {
         }
         watchOverlayPermission()
         listenToScreen()
+        // Listening was on, and this is a restart (the phone's, or Android's): a microphone service cannot be started
+        // from the background, so the person is asked to tap, and listening begins from the app screen they open.
+        if (settings.wakeOn) needsTap()
         AppGraph.instance.ringWatch.start() // who is calling, when asked (calls/Ringing.kt)
         claudeWatch.start()
         // Where Clawd walks with the head: the admin's choice, from Buddy's server (on the head for someone signed out).
@@ -170,6 +183,9 @@ class BubbleService : LifecycleService() {
         }
         if (intent?.action == ACTION_CAPTURE) foreground(capturing = !intent.getBooleanExtra(EXTRA_DONE, false))
         if (intent?.action == ACTION_LOOK) showLook()
+        if (intent?.action == ACTION_LISTEN) startListening()
+        if (intent?.action == ACTION_WAKE) wakeChanged()
+        if (intent?.action == ACTION_TEST && listening) wakeControl.refresh(testMs = intent.getLongExtra(EXTRA_MS, 10_000L))
         return START_STICKY
     }
 
@@ -196,6 +212,7 @@ class BubbleService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        if (listening) wakeControl.stop()
         claudeWatch.stop()
         glide?.cancel()
         overlayWatcher?.let { getSystemService(AppOpsManager::class.java).stopWatchingMode(it) }
@@ -218,11 +235,12 @@ class BubbleService : LifecycleService() {
      * Be a foreground service of the special-use kind, and of the screen-capture kind too while the panel takes a
      * picture (Android 14 lets an app capture the screen only from such a service). False when Android refuses.
      */
-    private fun foreground(capturing: Boolean): Boolean {
+    private fun foreground(capturing: Boolean, microphone: Boolean = listening): Boolean {
         var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         if (capturing) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        if (microphone) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
         return try {
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), types)
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(microphone), types)
             true
         } catch (e: IllegalStateException) {
             Log.w(TAG, "bubble: not in the foreground (${e.javaClass.simpleName})") // started from the background
@@ -233,18 +251,76 @@ class BubbleService : LifecycleService() {
         }
     }
 
-    private fun notification(): Notification {
+    private fun notification(microphone: Boolean = listening): Notification {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val off = Intent(this, BubbleService::class.java).setAction(ACTION_TURN_OFF)
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.bubble_on))
-            .setContentText(getString(R.string.bubble_on_text))
+            .setContentText(if (microphone) VoiceWords.WakeLines.listening(settings.buddyName) else getString(R.string.bubble_on_text))
             .setContentIntent(open)
             .addAction(0, getString(R.string.bubble_turn_off), PendingIntent.getService(this, 0, off, PendingIntent.FLAG_IMMUTABLE))
             .setOngoing(true)
             .setShowWhen(false)
             .build()
+    }
+
+    /**
+     * Sent from an app screen that is open: becomes a microphone service and starts listening. Android refuses the
+     * microphone type unless an activity is on screen (and after a restart), and then the person is asked to tap.
+     */
+    private fun startListening() {
+        if (!settings.wakeOn || listening) return
+        // A name the model cannot hear: the switch stays on, but nothing listens, so no microphone service and no
+        // "Listening for…" (Settings says so).
+        if (!nameHeard()) return
+        if (!micAllowed()) return needsTap() // taken away in Android's settings: the line says to allow it
+        if (foreground(capturing = false, microphone = true)) {
+            listening = true
+            settings.wakeNeedsTap = false
+            wakeControl.start()
+        } else {
+            foreground(capturing = false, microphone = false) // stays the bubble it was
+            needsTap()
+        }
+    }
+
+    /** The switch or the name changed in Settings: listen for the new phrase, or stop (and stop being a microphone service). */
+    private fun wakeChanged() {
+        if (!settings.wakeOn) {
+            settings.wakeNeedsTap = false
+            if (listening) {
+                listening = false
+                wakeControl.stop()
+                foreground(capturing = false, microphone = false)
+            }
+            return
+        }
+        if (listening && !nameHeard()) { // renamed to a name the model cannot hear: no longer a microphone service
+            listening = false
+            wakeControl.stop()
+            foreground(capturing = false, microphone = false)
+            return
+        }
+        if (listening) {
+            foreground(capturing = false) // the notification names the buddy
+            wakeControl.refresh()
+        }
+    }
+
+    private fun nameHeard() = WakeRules.nameHeard(settings.buddyName, AppGraph.instance.shared.voiceModelMissing)
+
+    private fun micAllowed() = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+    private fun needsTap() {
+        settings.wakeNeedsTap = true
+        tapLine()
+    }
+
+    /** "Tap me to listen again", or, when the microphone was taken away, to allow it. */
+    private fun tapLine() {
+        if (!nameHeard()) return
+        say(if (micAllowed()) VoiceWords.WakeLines.TAP_TO_LISTEN else VoiceWords.WakeLines.MIC_NEEDED, ::openPanel)
     }
 
     /** Buddy off, as "Turn off" in the Mac's menu: it stays off, after a restart too, until the person turns it on. */
@@ -507,6 +583,9 @@ class BubbleService : LifecycleService() {
                     else -> false // ACTION_USER_PRESENT: unlocked
                 }
                 showOrHide()
+                if (intent.action == Intent.ACTION_USER_PRESENT && settings.wakeOn && settings.wakeNeedsTap) {
+                    tapLine()
+                }
             }
         }
         val filter = IntentFilter().apply {
@@ -514,7 +593,8 @@ class BubbleService : LifecycleService() {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_USER_PRESENT)
         }
-        ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        // EXPORTED on purpose: on Android 16 a not-exported receiver never hears USER_PRESENT (all three are system-only broadcasts).
+        ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
         screenReceiver = receiver
         showOrHide()
     }
@@ -530,6 +610,43 @@ class BubbleService : LifecycleService() {
         const val EXTRA_DONE = "done"
 
         private const val ACTION_LOOK = "com.akshatgg.buddy.LOOK"
+        private const val ACTION_LISTEN = "com.akshatgg.buddy.LISTEN"
+        private const val ACTION_WAKE = "com.akshatgg.buddy.WAKE"
+        private const val ACTION_TEST = "com.akshatgg.buddy.WAKE_TEST"
+        private const val EXTRA_MS = "ms"
+
+        /** Settings' Test it: for `ms` the listener only counts wakes (BubbleBus.wakes), and takes no request. */
+        fun test(context: Context, ms: Long) {
+            val graph = AppGraph.instance
+            if (!graph.settings.buddyOn || !graph.settings.wakeOn) return
+            try {
+                ContextCompat.startForegroundService(context, Intent(context, BubbleService::class.java).setAction(ACTION_TEST).putExtra(EXTRA_MS, ms))
+            } catch (e: IllegalStateException) {
+                Log.w(TAG, "bubble: not told (${e.javaClass.simpleName})")
+            }
+        }
+
+        /**
+         * Start listening for "Hey <name>". Only from an activity that is on screen (Android 14 allows a microphone
+         * service to begin only then): the panel's and the app's start. Nothing happens unless the switch is on.
+         */
+        fun listen(context: Context) = send(context, ACTION_LISTEN) { it.settings.wakeOn }
+
+        /** Called when an app screen starts: listens if the switch is on and the service is not yet a microphone one. */
+        fun listenIfNeeded(context: Context) = listen(context)
+
+        /** The switch or the buddy's name changed in Settings. */
+        fun wakeChanged(context: Context) = send(context, ACTION_WAKE) { true }
+
+        private fun send(context: Context, action: String, wanted: (AppGraph) -> Boolean) {
+            val graph = AppGraph.instance
+            if (!graph.settings.buddyOn || !wanted(graph)) return
+            try {
+                ContextCompat.startForegroundService(context, Intent(context, BubbleService::class.java).setAction(action))
+            } catch (e: IllegalStateException) {
+                Log.w(TAG, "bubble: not told (${e.javaClass.simpleName})")
+            }
+        }
 
         /** Show the buddy, and keep it on screen until stop() or the person turns it off. */
         fun start(context: Context) {

@@ -6,7 +6,7 @@ contextBridge.exposeInMainWorld('buddy', {
   // The whole chat: on a new opening (or a resumed chat), and after every change.
   onOpen: (fn) => ipcRenderer.on('panel:open', (_event, state) => fn(state)),
   onState: (fn) => ipcRenderer.on('panel:state', (_event, state) => fn(state)),
-  send: (message) => ipcRenderer.invoke('panel:send', message),
+  send: (message, options) => ipcRenderer.invoke('panel:send', message, options),
   act: (id, button) => ipcRenderer.invoke('panel:act', id, button),
   dropSelection: () => ipcRenderer.invoke('panel:drop-selection'),
   close: () => ipcRenderer.send('panel:close'),
@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('buddy', {
   micAccess: () => ipcRenderer.invoke('panel:mic-access'),
   transcribe: (audio, mime) => ipcRenderer.invoke('panel:transcribe', audio, mime),
   listening: (on) => ipcRenderer.send('panel:listening', Boolean(on)),
+  hush: () => ipcRenderer.send('panel:hush'),
   voiceLevel: (level) => ipcRenderer.send('panel:voice-level', level),
   // Claude mode: the Claude Code sessions running now, one of them shown as it goes, and words typed into its terminal.
   claudeSessions: () => ipcRenderer.invoke('panel:claude-sessions'),

@@ -64,13 +64,13 @@ function setup(actions = {}, { platform = 'darwin', mic = 'granted', openFails =
   return { handlers, listeners, calls, fromPanel: { sender: PANEL_PAGE } };
 }
 
-test('the panel asks through eight channels and tells main nine things; the old ones are gone', () => {
+test('the panel asks through eight channels and tells main ten things; the old ones are gone', () => {
   const s = setup();
   assert.deepStrictEqual(Object.keys(s.handlers).sort(), [
     'panel:act', 'panel:claude-open', 'panel:claude-sessions', 'panel:claude-talk', 'panel:drop-selection', 'panel:mic-access', 'panel:send', 'panel:transcribe',
   ]);
   assert.deepStrictEqual(Object.keys(s.listeners).sort(), [
-    'panel:claude-close', 'panel:close', 'panel:listening', 'panel:open-settings', 'panel:resize-end', 'panel:resize-move', 'panel:resize-start',
+    'panel:claude-close', 'panel:close', 'panel:hush', 'panel:listening', 'panel:open-settings', 'panel:resize-end', 'panel:resize-move', 'panel:resize-start',
     'panel:size-toggle', 'panel:voice-level',
   ]);
 });
@@ -232,6 +232,15 @@ test('only the panel page tells the buddy about listening', () => {
   assert.deepStrictEqual(s.calls, []);
 });
 
+test('the panel page pressing 🎤 or typing hushes Buddy; nobody else can', () => {
+  let hushed = 0;
+  const s = setup({ hushVoice: () => { hushed += 1; } });
+  s.listeners['panel:hush'](SOMEONE_ELSE);
+  assert.strictEqual(hushed, 0);
+  s.listeners['panel:hush'](s.fromPanel);
+  assert.strictEqual(hushed, 1);
+});
+
 test('Open Settings for the microphone: Settings → Permissions on the Mac', () => {
   const s = setup({}, { platform: 'darwin' });
   s.listeners['panel:open-settings'](s.fromPanel, 'no_microphone');
@@ -361,4 +370,13 @@ test("the grip's drag and the ⤢ reach the panel window, from the panel page on
   s.listeners['panel:size-toggle'](s.fromPanel);
   for (const channel of ['panel:resize-start', 'panel:resize-move', 'panel:resize-end', 'panel:size-toggle']) s.listeners[channel](SOMEONE_ELSE, { x: 1, y: 1 });
   assert.deepStrictEqual(s.calls, [['resizeStart', { x: 10, y: 20 }], ['resizeMove', { x: 30.5, y: 25 }], 'resizeEnd', 'toggleSize']);
+});
+
+test('panel:send passes { spoken: true } through, and nothing else (never followUp)', async () => {
+  const got = [];
+  const s = setup({ send: async (message, options) => { got.push([message, options]); return {}; } });
+  await s.handlers['panel:send'](s.fromPanel, 'hi', { spoken: true });
+  await s.handlers['panel:send'](s.fromPanel, 'hi', { spoken: 'yes', followUp: true });
+  await s.handlers['panel:send'](s.fromPanel, 'hi');
+  assert.deepStrictEqual(got, [['hi', { spoken: true }], ['hi', { spoken: false }], ['hi', { spoken: false }]]);
 });

@@ -74,6 +74,22 @@ class AppSettings(private val kv: KeyValue) {
         get() = flag("lookAsked", false)
         set(v) = kv.putString("lookAsked", v.toString())
 
+    /**
+     * "Listen for Hey <name>" (voice/WakeListener.kt): off until the person turns it on, with the app open. Never turned on
+     * by anything else.
+     */
+    var wakeOn: Boolean
+        get() = flag("wakeOn", false)
+        set(v) = kv.putString("wakeOn", v.toString())
+
+    /**
+     * Listening was on but the microphone could not be started (after a restart Android refuses it): the buddy says
+     * "Tap me to listen again" until an app screen opens and starts it.
+     */
+    var wakeNeedsTap: Boolean
+        get() = flag("wakeNeedsTap", false)
+        set(v) = kv.putString("wakeNeedsTap", v.toString())
+
     /** The server's last answer about free mode, null when there is none. */
     var cloud: FreeSettings?
         get() = FreeSettings.fromJson(kv.getString("cloud"))

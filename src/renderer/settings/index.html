@@ -206,6 +206,16 @@
           </div>
           <input id="listen-on-open" class="switch" type="checkbox" role="switch" aria-label="Listen when the panel opens">
         </div>
+        <div id="wake-row" class="group-row">
+          <div class="grow">
+            <p id="wake-title" class="row-title">Listen for "Hey Buddy"</p>
+            <p id="wake-line" class="muted small">Your microphone stays on. Nothing leaves this device until you say 'Hey Buddy'.</p>
+            <p id="wake-status" class="status muted small" aria-live="polite"></p>
+            <p id="wake-hint" class="muted small" hidden></p>
+            <button id="wake-test" type="button" class="btn small" hidden>Test it</button>
+          </div>
+          <input id="wake-on" class="switch" type="checkbox" role="switch" aria-label="Listen for Hey Buddy">
+        </div>
         <div class="group-row">
           <div class="grow">
             <p class="row-title">Fix where I type</p>

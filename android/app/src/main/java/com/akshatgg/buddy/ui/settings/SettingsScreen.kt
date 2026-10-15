@@ -1,5 +1,7 @@
 package com.akshatgg.buddy.ui.settings
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -67,11 +69,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.akshatgg.buddy.BuildConfig
 import com.akshatgg.buddy.account.User
 import com.akshatgg.buddy.ai.aiSection
+import com.akshatgg.buddy.store.AppSettings
 import com.akshatgg.buddy.store.BuddySize
 import com.akshatgg.buddy.store.Fact
 import com.akshatgg.buddy.typing.TagTrace
@@ -92,6 +96,7 @@ import com.akshatgg.buddy.ui.panel.Segmented
 import com.akshatgg.buddy.ui.theme.Buddy
 import com.akshatgg.buddy.ui.theme.BuddyRadius
 import com.akshatgg.buddy.update.UpdateState
+import com.akshatgg.buddy.voice.VoiceWords
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterNotNull
@@ -109,6 +114,8 @@ class SettingsCallbacks(
     /** Buddy was turned on or off: the floating one comes or goes. */
     val powerChanged: (Boolean) -> Unit = {},
     val askNotifications: () -> Unit = {},
+    /** Android's "Allow Buddy to record audio?", for Listen for "Hey <name>"; the answer is told to the model. */
+    val askMicrophone: () -> Unit = {},
     /** "Check for updates", "Update now" (or "Allow", for Android's "Install unknown apps" first): Updater. */
     val checkUpdate: () -> Unit = {},
     val updateNow: () -> Unit = {},
@@ -211,6 +218,15 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
                     if (state.lookBlocked) UnlockHelp(openAppInfo = { context.openAppInfo() })
                     Hairline()
                     TagRow(state, onChange = model::setTagOn)
+                    Hairline()
+                    WakeRow(
+                        state,
+                        onChange = { wanted ->
+                            val held = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                            if (wanted && !held) on.askMicrophone() else model.setWakeOn(wanted)
+                        },
+                        test = model::testWake,
+                    )
                     Hairline()
                     Row(Modifier.rowPadding(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f)) {
@@ -411,6 +427,36 @@ private fun TagRow(state: SettingsState, onChange: (Boolean) -> Unit) {
             onCheckedChange = onChange,
             colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.accentFg),
         )
+    }
+}
+
+/**
+ * Listen for "Hey <name>": the microphone stays on and nothing leaves the phone until the name is heard. Off until the
+ * person turns it on; Test it counts the wakes it hears for ten seconds.
+ */
+@Composable
+private fun WakeRow(state: SettingsState, onChange: (Boolean) -> Unit, test: () -> Unit) {
+    val colors = Buddy.colors
+    val name = state.name.trim().ifEmpty { AppSettings.CHARACTERS.firstOrNull { it.first == state.characterId }?.second.orEmpty() }
+    Column(Modifier.rowPadding()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(VoiceWords.WakeLines.label(name))
+                Text(VoiceWords.WakeLines.privacy(name), color = colors.muted, style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(
+                checked = state.wakeOn,
+                onCheckedChange = onChange,
+                colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.accentFg),
+            )
+        }
+        if (state.wakeOn && state.wakeCanHear) {
+            Row(Modifier.padding(top = 8.dp)) { Secondary("Test it", onClick = { if (!state.wakeTesting) test() }) }
+        }
+        StatusLine(state.wakeLine)
+        if (state.wakeOn && state.wakeCanHear && state.wakeListening) {
+            Text(VoiceWords.WakeLines.SPELLING_HINT, color = colors.muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+        }
     }
 }
 

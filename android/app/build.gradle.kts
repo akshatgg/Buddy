@@ -36,8 +36,8 @@ android {
         buildConfigField("String", "FIREBASE_API_KEY", quoted(cloudValue("firebaseApiKey")))
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", quoted(cloudValue("googleWebClientId")))
         // Most phones are arm64, but many budget ones (Android Go) still run 32-bit ARM; x86_64 is for an Intel
-        // emulator. Each one adds Filament's native code for it to the APK.
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
+        // emulator, and only debug builds carry that one (below). Each one adds Filament's native code to the APK.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
     signingConfigs {
         // One debug key in the repository, so that every build has the SHA-1 Firebase knows for Google sign-in.
@@ -57,6 +57,7 @@ android {
         }
     }
     buildTypes {
+        getByName("debug") { ndk { abiFilters += "x86_64" } }
         getByName("release") { signingConfig = signingConfigs.getByName("release") }
     }
     buildFeatures { compose = true; buildConfig = true }
@@ -101,6 +102,9 @@ dependencies {
     implementation("com.google.android.libraries.identity.googleid:googleid:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    // Buddy's ears: Vosk, offline speech recognition (Apache 2.0), and the JNA it calls its native code through.
+    implementation("com.alphacephei:vosk-android:0.3.47@aar")
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")

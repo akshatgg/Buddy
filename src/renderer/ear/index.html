@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- 'unsafe-eval' is needed by vosk's own glue code (it evaluates code to start its recogniser). This is safe here
+       only because this page is local-only: it is loaded from a file, sandboxed, with contextIsolation, and shows
+       no remote content and loads no remote script. Keep it that way. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; worker-src blob:; connect-src blob:; style-src 'self'">
+  <title>Buddy's ear</title>
+</head>
+<body>
+  <script src="../panel/voice-timing.js"></script>
+  <script src="ear-core.js"></script>
+  <script src="wav.js"></script>
+  <script src="../../../node_modules/vosk-browser/dist/vosk.js"></script>
+  <script src="ear.js"></script>
+</body>
+</html>

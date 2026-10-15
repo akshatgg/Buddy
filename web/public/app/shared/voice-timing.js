@@ -28,8 +28,9 @@ const VoiceTiming = (() => {
    * One listening's timing. Feed it each level with the time it was measured (ms since listening began); each feed
    * answers 'listen' (go on), 'done' (they have said it), 'nothing' (nothing was said) or 'too-long' (60 s). Once it
    * has ended, it stays so. `heardVoice()` says whether a voice was heard at all: only then is the recording sent.
+   * The three times are the defaults above unless given (the ear window's short answers wait less).
    */
-  function createVoiceTiming() {
+  function createVoiceTiming({ quietMs = QUIET_MS, nothingMs = NOTHING_MS, maxMs = MAX_MS } = {}) {
     let last = 0; // when the level before came
     let speech = 0; // how long a voice was heard, all together
     let lastVoice = 0; // when it was last heard
@@ -45,9 +46,9 @@ const VoiceTiming = (() => {
         lastVoice = ms;
       }
       last = Math.max(last, ms);
-      if (heardVoice() && !loud && ms - lastVoice >= QUIET_MS) end = 'done';
-      else if (ms >= MAX_MS) end = 'too-long';
-      else if (!heardVoice() && !loud && ms >= NOTHING_MS) end = 'nothing'; // a word begun just now is heard out first
+      if (heardVoice() && !loud && ms - lastVoice >= quietMs) end = 'done';
+      else if (ms >= maxMs) end = 'too-long';
+      else if (!heardVoice() && !loud && ms >= nothingMs) end = 'nothing'; // a word begun just now is heard out first
       return end || 'listen';
     }
 

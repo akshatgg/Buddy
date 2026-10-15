@@ -70,7 +70,10 @@ function setup({
   // Where Buddy lives (home.js): `hasNotch` is whether a notch screen is on; `withHome` false leaves home out, as an
   // older main.js would.
   withHome = true, hasNotch = false, claude = CLAUDE_OUT,
+  // "Hey <name>" (wake.js): a stand-in that notes refresh() and answers `wakeHeard` wakes (after `wakeGate`, a promise, if given).
+  wakeHeard = 2, wakeGate = null, wakeState = { on: true, line: 'Listening' },
 } = {}) {
+  let wakeChanged = null;
   const data = { ...structuredClone(DEFAULTS), ...stored };
   const store = {
     get: (key) => data[key],
@@ -193,13 +196,24 @@ function setup({
     canSignIn: true,
     version: '0.1.0',
     platform,
+    wake: {
+      refresh: () => calls.push(['wakeRefresh']),
+      state: () => wakeState,
+      onChange: (fn) => { wakeChanged = fn; },
+      async test(onHeard) {
+        calls.push(['wakeTest']);
+        onHeard();
+        if (wakeGate) await wakeGate;
+        return wakeHeard;
+      },
+    },
     home: withHome ? {
       hasNotch: () => hasNotch, refresh: async () => calls.push(['homeRefresh']), restyle: () => calls.push(['homeRestyle']),
     } : undefined,
   });
   const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
   const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
-  return { call, callFromWelcome, handlers, store, keys, calls, claudeCalls, opened, ipc, shortcutNow: () => current, keyWatch, sent, memory };
+  return { call, callFromWelcome, handlers, store, keys, wakeChange: () => wakeChanged?.(), calls, claudeCalls, opened, ipc, shortcutNow: () => current, keyWatch, sent, memory };
 }
 
 test('settings:get answers the settings without positions or lastDisplayId, the buddies and the providers', async () => {
@@ -830,7 +844,7 @@ test('set: while Buddy is off, saving the shortcut that is already saved checks 
 test('set: other settings changed while Buddy is off do not touch the shortcut at all', async () => {
   const s = setup({ registered: null });
   assert.strictEqual((await s.call('settings:set', { size: 'large', buddyName: 'Zed' })).ok, true);
-  assert.deepStrictEqual(s.calls, [['resize']]);
+  assert.deepStrictEqual(s.calls, [['wakeRefresh'], ['resize']]); // the rename reaches the ear; nothing touches the shortcut
 });
 
 test('set: with the real shortcut object, one changed while Buddy is off is taken only when Buddy is turned on', async () => {
@@ -1406,4 +1420,110 @@ test("a key saved while Claude Code is picked switches to that key's AI, as it d
   assert.strictEqual(r.ok, true);
   assert.strictEqual(r.settings.provider, 'gemini');
   assert.strictEqual(r.providers.at(-1).id, 'claude-code', 'the answer is a whole snapshot');
+});
+
+// ---- "Hey <name>" (Settings → General) ----
+
+test('wakeOn is off by default, and must be on or off', async () => {
+  const s = setup();
+  assert.strictEqual((await s.call('settings:get')).settings.wakeOn, false);
+  for (const value of ['true', 1, null, {}]) {
+    assert.deepStrictEqual(await s.call('settings:set', { wakeOn: value }),
+      refused('bad_request', 'Listen for the name must be on or off.'), JSON.stringify(value));
+  }
+  assert.strictEqual(s.store.get('wakeOn'), false);
+});
+
+test('turning it on asks for the microphone first; refused, it stays off and says so', async () => {
+  const s = setup({ mic: 'denied', micAnswer: 'denied' });
+  assert.deepStrictEqual(await s.call('settings:set', { wakeOn: true }), refused('no_microphone', 'Allow the microphone in Settings.'));
+  assert.deepStrictEqual(s.calls.filter((c) => c[0] === 'askMicrophone').length, 1);
+  assert.strictEqual(s.store.get('wakeOn'), false);
+  assert.ok(!s.calls.some((c) => c[0] === 'wakeRefresh'));
+});
+
+test('turning it on, signed out: sign in first, and it stays off', async () => {
+  const s = setup({ signedIn: false, mic: 'granted' });
+  assert.deepStrictEqual(await s.call('settings:set', { wakeOn: true }), refused('signed_out', 'Sign in to talk to Buddy.'));
+  assert.strictEqual(s.store.get('wakeOn'), false);
+});
+
+test('turning it on (or off) saves it and tells the ear', async () => {
+  const s = setup({ mic: 'granted' });
+  const on = await s.call('settings:set', { wakeOn: true });
+  assert.strictEqual(on.ok, true);
+  assert.strictEqual(s.store.get('wakeOn'), true);
+  assert.deepStrictEqual(s.calls.at(-1), ['wakeRefresh']);
+  const before = s.calls.length;
+  await s.call('settings:set', { wakeOn: false });
+  assert.strictEqual(s.store.get('wakeOn'), false);
+  assert.ok(s.calls.slice(before).some((c) => c[0] === 'wakeRefresh'));
+});
+
+test('turning it off needs no microphone and no sign-in', async () => {
+  const s = setup({ signedIn: false, mic: 'denied', stored: { wakeOn: true } });
+  assert.strictEqual((await s.call('settings:set', { wakeOn: false })).ok, true);
+  assert.ok(!s.calls.some((c) => c[0] === 'askMicrophone'));
+});
+
+test('a rename tells the ear the new phrase; other changes do not', async () => {
+  const s = setup();
+  await s.call('settings:set', { buddyName: 'Rahul' });
+  assert.deepStrictEqual(s.calls.filter((c) => c[0] === 'wakeRefresh').length, 1);
+  await s.call('settings:set', { size: 'large' });
+  assert.deepStrictEqual(s.calls.filter((c) => c[0] === 'wakeRefresh').length, 1);
+});
+
+test('the snapshot has the wake row: its state and its worded lines', async () => {
+  const s = setup({ stored: { buddyName: 'Rahul' }, wakeState: { on: false, line: 'Allow the microphone in Settings.' } });
+  const r = await s.call('settings:get');
+  assert.deepStrictEqual(r.wake, {
+    on: false,
+    line: 'Allow the microphone in Settings.',
+    testing: false,
+    label: 'Listen for "Hey Rahul"',
+    privacy: "Your microphone stays on. Nothing leaves this device until you say 'Hey Rahul'.",
+    heard: 'Heard you ✓',
+    sayNow: 'Say "Hey Rahul" now.',
+    notHeard: 'I didn\'t hear "Hey Rahul". Try again.',
+    hint: "If Test it doesn't hear you, try another spelling of the name.",
+    percent: null,
+  });
+});
+
+test('a long name: the row names the same three words that are listened for', async () => {
+  const s = setup({ stored: { buddyName: 'Sir Reginald Of Wessex' } });
+  const r = (await s.call('settings:get')).wake;
+  assert.strictEqual(r.label, 'Listen for "Hey Sir Reginald Of"');
+  assert.strictEqual(r.sayNow, 'Say "Hey Sir Reginald Of" now.');
+});
+
+test('a change of the wake state (download progress, finish, failure) is pushed to Settings live', async () => {
+  const s = setup({ stored: { buddyName: 'Rahul', wakeOn: false }, wakeState: { on: false, line: "Couldn't get Buddy's ears ready. Check the internet and try again." } });
+  s.wakeChange();
+  await tick();
+  const [target, channel, payload] = s.sent.at(-1);
+  assert.deepStrictEqual([target, channel], ['settings', 'wake:changed']);
+  assert.strictEqual(payload.wakeOn, false);
+  assert.strictEqual(payload.wake.line, "Couldn't get Buddy's ears ready. Check the internet and try again.");
+});
+
+test('settings:wake-test answers how many times it heard the phrase, and one test runs at a time', async () => {
+  let release;
+  const s = setup({ wakeGate: new Promise((resolve) => { release = resolve; }), wakeHeard: 3 });
+  const first = s.call('settings:wake-test');
+  await tick();
+  assert.deepStrictEqual(s.sent, [['settings', 'wake:heard']], 'each wake heard reaches the page');
+  assert.strictEqual((await s.call('settings:get')).wake.testing, true);
+  assert.strictEqual((await s.call('settings:wake-test')).count, 0, 'a second one does not start another');
+  assert.strictEqual(s.calls.filter((c) => c[0] === 'wakeTest').length, 1);
+  release();
+  const done = await first;
+  assert.deepStrictEqual([done.ok, done.count], [true, 3]);
+  assert.strictEqual((await s.call('settings:get')).wake.testing, false);
+});
+
+test('settings:wake-test is for the Settings window only', async () => {
+  const s = setup();
+  assert.deepStrictEqual(await s.callFromWelcome('settings:wake-test'), refused('not_allowed', 'Not allowed.'));
 });

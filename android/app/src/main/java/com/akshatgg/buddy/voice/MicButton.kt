@@ -32,7 +32,7 @@ private fun noMicrophone() = BuddyError("no_microphone", "Buddy needs the microp
 
 /**
  * What the 🎤 button's presses do, in plain Kotlin so that it is tested on the JVM: 🎤 starts recording, and with it
- * the 60 s stop; ■ stops; leaving the screen cancels. The words go to `onWords`, a failure to `onError`; a dropped step
+ * the 60 s stop; ■ stops; leaving the screen cancels. The words it hears start a spoken chat when nothing is typed (PanelModel.voiceWords). The words go to `onWords`, a failure to `onError`; a dropped step
  * says nothing.
  */
 class MicPresses(
@@ -82,10 +82,10 @@ class MicPresses(
 /**
  * 🎤 in the box: press to talk, ■ to stop (or it stops by itself at 60 s), a small spinner while the words are written
  * down; they go to `onWords`, for the box. The first press asks for the microphone. Leaving the screen (closed, or only
- * stopped behind another app) stops at once and sends nothing.
+ * stopped behind another app) stops at once and sends nothing. `onPress` is told when 🎤 is pressed.
  */
 @Composable
-fun MicButton(voice: Voice, onWords: (String) -> Unit, onError: (BuddyError) -> Unit, modifier: Modifier = Modifier) {
+fun MicButton(voice: Voice, onWords: (String) -> Unit, onError: (BuddyError) -> Unit, modifier: Modifier = Modifier, onPress: () -> Unit = {}) {
     val context = LocalContext.current
     val state by voice.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -107,6 +107,7 @@ fun MicButton(voice: Voice, onWords: (String) -> Unit, onError: (BuddyError) -> 
     when (state) {
         VoiceState.Idle -> IconButton(
             onClick = {
+                onPress() // the person's own turn: Buddy stops asking and listening first
                 val allowed = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
                 if (allowed) presses.talk() else ask.launch(Manifest.permission.RECORD_AUDIO)
             },

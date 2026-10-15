@@ -193,3 +193,16 @@ test('the panel never listens by itself while the buddy is still answering', () 
   assert.strictEqual(listensOnOpen(voice, { busy: false }), true);
   assert.strictEqual(listensOnOpen(voice, {}), true);
 });
+
+test('the quiet, nothing and longest times can be given; the defaults are unchanged', () => {
+  const t = createVoiceTiming({ quietMs: 500, nothingMs: 1000, maxMs: 5000 });
+  assert.strictEqual(run(t, 0, 900, QUIET).get(900), 'listen');
+  assert.strictEqual(t.feed(QUIET, 1000), 'nothing');
+  const u = createVoiceTiming({ quietMs: 500 });
+  run(u, 0, 600, LOUD);
+  assert.strictEqual(u.feed(QUIET, 700), 'listen');
+  assert.strictEqual(u.feed(QUIET, 1200), 'done');
+  const w = createVoiceTiming({ maxMs: 2000 });
+  assert.strictEqual(run(w, 0, 2000, LOUD).get(2000), 'too-long');
+  assert.strictEqual(createVoiceTiming().feed(QUIET, NOTHING_MS - 100), 'listen');
+});

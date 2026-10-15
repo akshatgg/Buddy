@@ -7,7 +7,7 @@ const prompts = require('../shared/prompts');
 const { PROVIDER_IDS } = require('../shared/providers');
 const memoryRules = require('../shared/memory-rules');
 const memorySync = require('../shared/memory-sync');
-const { buildShared, buildChatCases, buildPickCases, buildLineCases, TO, CASES_TO, PICK_TO, LINES_TO } = require('../tools/sync-android-shared');
+const { buildShared, buildChatCases, buildPickCases, buildLineCases, TO, CASES_TO, PICK_TO, LINES_TO, buildVoiceCases, VOICE_TO } = require('../tools/sync-android-shared');
 const { pickChat, pickLine } = require('../shared/message-pick');
 const { contactLine, appLine } = require('../shared/pick-lines');
 
@@ -86,4 +86,11 @@ test('the line cases the Kotlin port is checked against are up to date (run `npm
     assert.deepEqual(contactLine(asked, pick), contact);
     assert.deepEqual(appLine(asked, pick, where), app);
   }
+});
+
+test('voice-cases.json is up to date, and covers yes, no, nothing, questions and lines', () => {
+  assert.equal(fs.readFileSync(VOICE_TO, 'utf8'), `${JSON.stringify(buildVoiceCases(), null, 2)}\n`);
+  const cases = JSON.parse(fs.readFileSync(VOICE_TO, 'utf8'));
+  for (const answer of ['yes', 'no', null]) assert.ok(cases.heard.some((c) => c.words === answer), String(answer));
+  assert.ok(cases.questions.length >= 4 && cases.lines.length >= 1 && cases.asksBack.length >= 3 && cases.grammar.length >= 2);
 });

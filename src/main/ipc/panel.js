@@ -70,7 +70,7 @@ function registerPanelIpc({
   const openExternal = (url) => (shell || require('electron').shell).openExternal(url);
 
   // Answers once the answer is in (or it failed, which then shows in the chat).
-  handle('panel:send', (message) => actions.send(typeof message === 'string' ? message : ''));
+  handle('panel:send', (message, options) => actions.send(typeof message === 'string' ? message : '', { spoken: options?.spoken === true }));
   handle('panel:act', (id, button) => actions.act(id, button));
   handle('panel:drop-selection', () => actions.dropSelection());
 
@@ -93,6 +93,10 @@ function registerPanelIpc({
   // a second). A level that is not a number is let go; any other is kept between 0 and 1.
   ipcMain.on('panel:listening', (event, on) => {
     if (fromPanel(event.sender)) ui.listening(Boolean(on));
+  });
+  // The person pressed the panel's 🎤 or typed in its box: Buddy stops asking and listening first (a late yes presses nothing).
+  ipcMain.on('panel:hush', (event) => {
+    if (fromPanel(event.sender)) actions.hushVoice();
   });
   ipcMain.on('panel:voice-level', (event, level) => {
     if (!fromPanel(event.sender) || typeof level !== 'number' || Number.isNaN(level)) return;

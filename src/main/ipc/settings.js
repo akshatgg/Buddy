@@ -10,9 +10,11 @@ const { guarded } = require('./result');
 const { aiSection } = require('../free-state');
 const { isTap, tapKeys } = require('../../renderer/common/shortcut-keys');
 const { cleanFact } = require('../../../shared/memory-rules');
+const { WAKE_LINES } = require('../../../shared/voice-words');
+const { shownName, SPELLING_HINT } = require('../wake');
 const { PROVIDER_ID: CLAUDE_ID, MODELS: CLAUDE_MODELS, MODEL_LABELS, GET_URL } = require('../claude/find');
 
-const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models', 'listenOnOpen', 'tagOn', 'home', 'notchLook'];
+const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models', 'listenOnOpen', 'tagOn', 'wakeOn', 'home', 'notchLook'];
 const HOMES = ['notch', 'floating']; // where Buddy lives (src/main/home.js)
 const { LOOKS } = require('../notch-window'); // how Buddy shows in the notch
 const NAME_MAX = 24;
@@ -77,7 +79,12 @@ function registerSettingsIpc({
   home,
   // Buddy where you type (tag.js): told when its switch or the buddy's name changes.
   tagWatch = null,
+  // "Hey <name>" (wake.js): the ear's listening for the buddy's name; null where there is none (Windows).
+  wake = null,
 }) {
+  let wakeTesting = false; // "Test it" is listening now
+  // The model download's progress, its end or failure (which also turns the switch off): the open Settings follows live.
+  wake?.onChange?.(() => windows.send('settings', 'wake:changed', { wakeOn: store.get('wakeOn') === true, wake: wakeSection(store.get('buddyName')) }));
   // The Settings and Welcome windows only: the Admin window has calls of its own (ipc/admin.js).
   const handle = guarded(ipcMain, (webContents) => windows.owns(webContents, 'settings') || windows.owns(webContents, 'onboarding'));
   // Finishing the Welcome is for the Welcome window only: the Settings window has no business doing it.
@@ -120,6 +127,24 @@ function registerSettingsIpc({
     };
   }
 
+  /** The "Hey <name>" row: whether it listens, why not, and the lines worded for the name (the page has no shared/). */
+  function wakeSection(buddyName) {
+    const state = wake?.state() ?? { on: false, line: null };
+    const name = shownName(buddyName); // the same (at most) three words that are listened for
+    return {
+      on: state.on === true,
+      line: state.line ?? null,
+      testing: wakeTesting,
+      label: WAKE_LINES.label(name),
+      privacy: WAKE_LINES.privacy(name),
+      heard: WAKE_LINES.heard,
+      sayNow: WAKE_LINES.sayNow(name),
+      notHeard: WAKE_LINES.notHeard(name),
+      hint: SPELLING_HINT, // under the switch while it listens
+      percent: state.percent ?? null, // the model download, while it runs
+    };
+  }
+
   async function snapshot() {
     const settings = store.all();
     delete settings.positions;
@@ -152,6 +177,7 @@ function registerSettingsIpc({
       // Where Buddy lives, and whether a notch screen is on now: the choice is offered only then.
       home: settings.home,
       hasNotch: Boolean(home?.hasNotch()),
+      wake: wakeSection(settings.buddyName),
     };
   }
 
@@ -175,6 +201,20 @@ function registerSettingsIpc({
     if (Object.hasOwn(changes, 'tagOn') && typeof changes.tagOn !== 'boolean') {
       throw new BuddyError('bad_request', 'Fix where I type must be on or off.');
     }
+    if (Object.hasOwn(changes, 'wakeOn') && typeof changes.wakeOn !== 'boolean') {
+      throw new BuddyError('bad_request', 'Listen for the name must be on or off.');
+    }
+    if (changes.wakeOn === true) {
+      // The microphone is asked for first (macOS asks once); refused, or signed out, it stays off and says so.
+      if (await microphone.ask() !== 'granted') {
+        store.set({ wakeOn: false });
+        throw new BuddyError('no_microphone', 'Allow the microphone in Settings.');
+      }
+      if (!account.isSignedIn()) {
+        store.set({ wakeOn: false });
+        throw new BuddyError('signed_out', WAKE_LINES.signIn);
+      }
+    }
     if (Object.hasOwn(changes, 'buddyName')) {
       const name = String(changes.buddyName || '').trim().slice(0, NAME_MAX);
       changes.buddyName = name || characters.get(changes.buddyId ?? store.get('buddyId')).defaultName;
@@ -189,12 +229,24 @@ function registerSettingsIpc({
     }
     const before = store.all();
     store.set(changes);
+    if (Object.hasOwn(changes, 'wakeOn') || Object.hasOwn(changes, 'buddyName')) wake?.refresh(); // the ear listens, or not, for the new name
     tagWatch?.refresh(); // "Fix where I type" turned on or off, or the buddy renamed: the tag's names follow
     if (changes.size && changes.size !== before.size) buddy.resize();
     if (changes.buddyId && changes.buddyId !== before.buddyId) buddy.reloadModel();
     if (changes.home && changes.home !== before.home && home) await home.refresh(); // Buddy moves house
     if (changes.notchLook && changes.notchLook !== before.notchLook) home?.restyle();
     return snapshot();
+  });
+
+  // "Test it": listens for the phrase for 10 s and answers how many times it was heard. One at a time.
+  handleSettings('settings:wake-test', async () => {
+    if (!wake || wakeTesting) return { count: 0 };
+    wakeTesting = true;
+    try {
+      return { count: await wake.test(() => windows.send('settings', 'wake:heard')) };
+    } finally {
+      wakeTesting = false;
+    }
   });
 
   handle('settings:save-key', async (providerId, key) => {

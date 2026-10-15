@@ -4,7 +4,7 @@
  * The panel: a chat with the buddy (actions.js holds it, the page draws it). It
  * opens beside the floating buddy, or under the notch when Buddy lives there, and
  * hides as soon as the user clicks anywhere else.
- * Its page is the only one in Buddy that may use the microphone (permissionRules).
+ * Its page and the ear window's page are the only ones in Buddy that may use the microphone (permissionRules).
  */
 
 const path = require('node:path');
@@ -16,6 +16,8 @@ const { floatingType } = require('./platform');
 
 // The panel's page.
 const PAGE = path.join(__dirname, '..', 'renderer', 'panel', 'index.html');
+// The ear window's page (ear-window.js): hidden, it speaks and listens for Buddy's voice flow.
+const EAR_PAGE = path.join(__dirname, '..', 'renderer', 'ear', 'index.html');
 
 // Clicking the buddy blurs the panel first (which hides it) and then arrives as
 // a click: without this guard, that click would open the panel straight back up.
@@ -55,23 +57,30 @@ function isPage(url, page, platform) {
  * `isPanel(webContents)` says whether a page is the panel window's. `request` and `check` are Electron's permission
  * request and check handlers.
  */
-function permissionRules({ isPanel, page = PAGE, platform = process.platform }) {
+function permissionRules({ isPanel, isEar = () => false, page = PAGE, earPage = EAR_PAGE, platform = process.platform }) {
   const inPanel = (webContents) => Boolean(webContents) && isPanel(webContents);
+  const inEar = (webContents) => Boolean(webContents) && isEar(webContents);
+  // Both get the microphone, audio only, for their own page's main frame; the ear page gets nothing else either.
   const panelPage = (webContents, details) => inPanel(webContents) && details?.isMainFrame === true
     && isPage(details.requestingUrl, page, platform);
+  const earOwnPage = (webContents, details) => inEar(webContents) && details?.isMainFrame === true
+    && isPage(details.requestingUrl, earPage, platform);
+  const mineOnly = (webContents) => inPanel(webContents) || inEar(webContents);
   return {
     request(webContents, permission, callback, details) {
       if (permission !== 'media') {
-        callback(!inPanel(webContents));
+        callback(!mineOnly(webContents));
         return;
       }
       const types = details?.mediaTypes;
       const audioOnly = Array.isArray(types) && types.length > 0 && types.every((type) => type === 'audio');
-      callback(audioOnly && panelPage(webContents, details));
+      callback(audioOnly && (panelPage(webContents, details) || earOwnPage(webContents, details)));
     },
     check(webContents, permission, _requestingOrigin, details) {
-      if (permission === 'media') return details?.mediaType === 'audio' && panelPage(webContents, details);
-      return !inPanel(webContents) && !REFUSED_BY_ELECTRON.includes(permission);
+      if (permission === 'media') {
+        return details?.mediaType === 'audio' && (panelPage(webContents, details) || earOwnPage(webContents, details));
+      }
+      return !mineOnly(webContents) && !REFUSED_BY_ELECTRON.includes(permission);
     },
   };
 }
@@ -92,6 +101,7 @@ function createPanelWindow({
   onGone = () => {},
   onVisible = () => {},
   store = null,
+  isEar = () => false, // whether a page is the ear window's (main.js), which has the microphone too
 } = {}) {
   let win = null;
   let ready = null;
@@ -100,7 +110,7 @@ function createPanelWindow({
   let lastAt = null; // where home last said the panel goes (show, follow), for a resize
   let resizing = null; // a drag of the grip: { start: the size it began from, point: where the pointer was }
 
-  const rules = permissionRules({ isPanel: (webContents) => Boolean(win) && !win.isDestroyed() && webContents === win.webContents });
+  const rules = permissionRules({ isPanel: (webContents) => Boolean(win) && !win.isDestroyed() && webContents === win.webContents, isEar });
   session.setPermissionRequestHandler(rules.request);
   session.setPermissionCheckHandler(rules.check);
 

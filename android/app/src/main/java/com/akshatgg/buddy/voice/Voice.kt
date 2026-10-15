@@ -41,6 +41,10 @@ class Voice(
     private var starting = false
     private var file: File? = null
     private var startedAt = 0L
+    private var holdsMic = false // MicBus: the wake listener steps aside while this records
+
+    private fun holdMic() { if (!holdsMic) { holdsMic = true; MicBus.hold() } }
+    private fun letGoOfMic() { if (holdsMic) { holdsMic = false; MicBus.release() } }
 
     /** Starts recording. Throws when voice is off on the server or the microphone cannot be used. */
     suspend fun start() {
@@ -66,6 +70,7 @@ class Voice(
             file = f
             startedAt = now()
             current.value = VoiceState.Recording
+            holdMic()
             mood(Mood.THINKING)
         } finally {
             starting = false
@@ -84,7 +89,7 @@ class Voice(
         current.value = VoiceState.Sending
         try {
             val audio = try {
-                recorder.stop()
+                try { recorder.stop() } finally { letGoOfMic() }
                 f.readBytes()
             } catch (e: Exception) {
                 ByteArray(0) // stopped before anything was recorded
@@ -133,6 +138,7 @@ class Voice(
         }
         file?.delete()
         file = null
+        letGoOfMic()
         current.value = VoiceState.Idle
         if (listening) mood(Mood.IDLE) // else the head's mood is not the voice's: leave it
     }

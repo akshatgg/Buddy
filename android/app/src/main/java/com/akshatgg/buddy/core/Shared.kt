@@ -2,12 +2,14 @@ package com.akshatgg.buddy.core
 
 import android.content.Context
 import com.akshatgg.buddy.ai.providers.ProviderFacts
+import com.akshatgg.buddy.voice.ModelSpec
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 
 /** CHAT_LIMITS in shared/prompts.js: how much of the chat, of the facts and of an answer's lists is kept. */
 data class ChatLimits(
@@ -72,6 +74,18 @@ class Shared(json: String) {
     private val memorySync = root.getValue("memorySync").jsonObject
     val memoryMaxOps: Int = memorySync.getValue("maxOps").jsonPrimitive.int
     val memoryMaxGone: Int = memorySync.getValue("maxGone").jsonPrimitive.int
+
+    // Buddy's ears (shared/voice-model.js): the Vosk model's name and its zip, which Android downloads.
+    val voiceModel: ModelSpec = root.getValue("voiceModel").jsonObject.let { v ->
+        val zip = v.getValue("zip").jsonObject
+        ModelSpec(
+            name = v.getValue("name").jsonPrimitive.content, url = zip.getValue("url").jsonPrimitive.content,
+            sha256 = zip.getValue("sha256").jsonPrimitive.content, bytes = zip.getValue("bytes").jsonPrimitive.long,
+        )
+    }
+
+    val voiceModelMissing: Set<String> =
+        root.getValue("voiceModel").jsonObject.getValue("missing").jsonArray.map { it.jsonPrimitive.content }.toSet()
 
     val providers: List<ProviderFacts> = root.getValue("providers").jsonArray.map { element ->
         val p = element.jsonObject

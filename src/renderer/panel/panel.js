@@ -199,7 +199,7 @@ function render({ scroll = false } = {}) {
   if (mode === 'claude') applyMode(); // the chat changed behind Claude mode: what it shows stays hidden
 }
 
-async function send() {
+async function send({ spoken = false } = {}) {
   cancelListening(); // ↩ or the send button while listening: what was typed goes, and nothing of the listening
   if (mode === 'claude') return talkToClaude();
   if (!state || !canSend({ busy: state.busy || sending, text: $('box').value, selection: state.selection })) return;
@@ -211,7 +211,7 @@ async function send() {
   updateSend();
   let r;
   try {
-    r = await window.buddy.send(message); // an empty message with a selection fixes the selection
+    r = await window.buddy.send(message, { spoken }); // an empty message with a selection fixes the selection
   } finally {
     if (mine === generation) {
       sending = false;
@@ -247,6 +247,7 @@ async function act(id, button, row) {
 
 const box = $('box');
 box.addEventListener('input', () => {
+  window.buddy.hush(); // typing ends any question Buddy is asking out loud
   cancelListening(); // typing stops listening, and nothing of it is sent
   updateSend();
 });
@@ -556,7 +557,7 @@ async function finishListening(heardVoice) {
     updateSend();
     return showSendError(VOICE_WORDS.wait);
   }
-  send();
+  send({ spoken: !typed }); // words only by voice: Buddy answers out loud
 }
 
 /**
@@ -577,6 +578,7 @@ function cancelListening() {
 
 // 🎤 starts listening, and stops it. While what was said is being written down, it drops that (and does not listen).
 $('mic').addEventListener('click', () => {
+  window.buddy.hush(); // the person's own turn: Buddy stops asking and listening first
   if (voice !== 'idle') return cancelListening();
   startListening();
 });

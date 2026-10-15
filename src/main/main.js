@@ -10,7 +10,7 @@ const path = require('node:path');
 const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const {
-  app, clipboard, dialog, globalShortcut: systemShortcut, ipcMain, powerMonitor, safeStorage, screen, shell, systemPreferences,
+  app, BrowserWindow, clipboard, dialog, globalShortcut: systemShortcut, ipcMain, powerMonitor, safeStorage, screen, shell, systemPreferences,
 } = require('electron');
 const { createStore } = require('./store');
 const { createMemory } = require('./memory');
@@ -29,6 +29,11 @@ const { createBubbleWindow } = require('./bubble-window');
 const { createNotchWindow } = require('./notch-window');
 const { createHome } = require('./home');
 const { createPanelWindow } = require('./panel-window');
+const { createEarWindow } = require('./ear-window');
+const { createLock } = require('./lock');
+const { createTalkBack } = require('./talk-back');
+const { createWake } = require('./wake');
+const { createVoiceModel } = require('./voice-model');
 const { createSettingsWindows } = require('./settings-windows');
 const { installAppMenu } = require('./app-menu');
 const { createActions } = require('./actions');
@@ -139,7 +144,40 @@ async function start(options = {}) {
   // What the app tells the buddy (feelings.js): every mood is a use; the panel and the voice hold the countdown. A
   // listening that stops while the answer to a message is still on its way goes back to thinking.
   const feelings = createFeelings({ buddy, sleep, busy: () => actions.state().busy });
+  // Buddy's ear (ear-window.js): a hidden window, made when something first speaks or listens. Its page has the microphone.
+  const voiceModel = createVoiceModel({ dir: path.join(userData, 'voice-model') });
+  // The end-to-end test passes `ear: null`, so that no ear window (and so no microphone) is ever made.
+  const ear = options.ear !== undefined ? options.ear : createEarWindow({ BrowserWindow, ipcMain, model: voiceModel });
+  const lock = createLock({ powerMonitor });
+  // Spoken chats are on the Mac only (Windows keeps its cards). The server writes down an answer the model cannot hear;
+  // `actions` is read lazily, as it is made below. The end-to-end test passes `talkBack: null`, so that it never opens an ear or speaks (only an undefined option builds the real one).
+  const rawTalkBack = options.talkBack !== undefined ? options.talkBack
+    : process.platform === 'darwin' && ear
+      ? createTalkBack({ ear, model: voiceModel, transcribe: (audio, mime) => actions.transcribe(audio, mime).then((r) => r.text) })
+      : null;
+  // "Hey <name>" (wake.js): the ear listens for it while the switch is on. A spoken turn of Buddy's own (say, hear, listen)
+  // pauses it, and it goes on a moment after, so that Buddy's voice is never heard as the phrase. Without an ear (Windows,
+  // the end-to-end test) there is none.
+  const wake = rawTalkBack && ear && options.wake !== null
+    ? createWake({
+      store, ear, model: voiceModel, lock, microphone, power: { isOn: () => power.isOn() }, account, cloud, powerMonitor,
+      actions: { transcribe: (...a) => actions.transcribe(...a), voice: (words) => actions.voice(words) }, talkBack: rawTalkBack,
+      busy: () => actions.state().busy === true, // the chat is still answering: "Hey <name>" says so instead of dropping the request
+    })
+    : null;
+  const turned = (run) => async (...args) => {
+    wake?.turn(true);
+    try {
+      return await run(...args);
+    } finally {
+      setTimeout(() => wake?.turn(false), 1000);
+    }
+  };
+  const talkBack = rawTalkBack && wake
+    ? { ...rawTalkBack, say: turned(rawTalkBack.say), hear: turned(rawTalkBack.hear), listen: turned(rawTalkBack.listen) }
+    : rawTalkBack;
   const panel = createPanelWindow({
+    isEar: (webContents) => Boolean(ear?.window()) && !ear.window().isDestroyed() && webContents === ear.window().webContents,
     store, // the size the person made the panel
     // Its page crashed or did not load, or its window was closed: a listening there is over, and the page cannot say so.
     onGone: () => ui.listening(false),
@@ -202,7 +240,10 @@ async function start(options = {}) {
     // For the buddy's feelings, which have their own design: when the panel listens (listening(on), from its page; and
     // false when main hides the panel or its page is gone) and how loud the person speaks (voiceLevel(0..1), about 10
     // times a second). The buddy listens meanwhile, and its ear rims glow with the voice (feelings.js).
-    listening: (on) => feelings.listening(on),
+    listening: (on, from) => {
+      feelings.listening(on);
+      if (from !== 'ear') wake?.panelListening(on); // the panel's own 🎤; the ear's listening during a question is not
+    },
     voiceLevel: (level) => feelings.voiceLevel(level),
     // Open folder on a finished job: the folder in the Finder (the Explorer on Windows).
     openFolder: (folder) => shell.openPath(folder),
@@ -229,6 +270,8 @@ async function start(options = {}) {
     // The panel greets the person by their first name, and the AI knows it.
     userName: () => (account.user()?.name || '').trim().split(/\s+/)[0],
     ui,
+    talkBack, // Buddy's voice for a spoken chat (null on Windows)
+    lock, // whether the Mac is locked, for a send or call that waits for the unlock
     jobs, // Claude Code jobs in the person's projects
     // "Open Safari": the Mac's apps, opened as the Finder would. Windows has none (yet).
     apps: process.platform === 'darwin' ? createApps({ dirs: appDirs(app.getPath('home')), openPath: (p) => shell.openPath(p), own: ownBundle(app.getPath('exe')) }) : null,
@@ -270,6 +313,7 @@ async function start(options = {}) {
     share.start();
     memorySync.sync(); // what the person's other devices learnt while Buddy was off
     tagWatch.refresh();
+    wake?.refresh();
     if (store.get('watchClaudeCode') !== true) return;
     watch.start().catch((err) => console.warn('[buddy] could not watch Claude Code:', err.message));
   };
@@ -305,6 +349,7 @@ async function start(options = {}) {
         watch.stop(); // the buddy goes idle if Claude Code had moved it
         share.stop();
         tagWatch.stop();
+        wake?.refresh(); // Buddy is off: the ear lets go
         buddy.hide();
       }
       tray.refresh();
@@ -348,9 +393,13 @@ async function start(options = {}) {
     if (!account.isSignedIn()) windows.close('admin');
     if (account.isSignedIn()) share.start();
     else share.stop();
+    wake?.refresh();
     tray.refresh();
   });
-  cloud.onChange(() => tray.refresh());
+  cloud.onChange(() => {
+    tray.refresh();
+    wake?.refresh(); // voice turned on or off for this person
+  });
   // Where Clawd walks with the buddy while Claude Code works: the admin's choice, from Buddy's server; on the head for
   // someone signed out.
   const clawdLook = () => buddy.clawdLook(account.isSignedIn() ? cloud.last()?.clawdLook : null);
@@ -376,7 +425,7 @@ async function start(options = {}) {
     ipcMain, panel, actions, openSettings, microphone, ui, shell, askAccessibility: () => helper.call('requestAccessibility'), claudeMode,
   });
   const settingsIpc = registerSettingsIpc({
-    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch, tagWatch,
+    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch, tagWatch, wake,
     account, cloud, memory, memorySync, microphone, canSignIn: Boolean(cloudConfig),
     home: buddy, // Settings → Buddy → Where Buddy lives: whether there is a notch, and moving Buddy when it changes
     find, // Claude Code on this computer: the fifth AI choice, with no key
@@ -466,7 +515,7 @@ async function start(options = {}) {
   if (target.platform !== 'development') updatesIpc.launchCheck();
 
   return {
-    store, secrets, memory, account, cloud, ai, helper, characters, buddy, bubble, panel, windows, actions, power, tray, trayState, shortcut, updater,
+    store, secrets, memory, account, cloud, ai, helper, characters, buddy, bubble, ear, panel, windows, actions, power, tray, trayState, shortcut, updater,
     home: buddy, // the same object as buddy, by the name the e2e checks for the notch use
     projects, jobs, find, live, // Claude Code (src/main/claude)
   };

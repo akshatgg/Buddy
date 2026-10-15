@@ -28,6 +28,9 @@ import com.akshatgg.buddy.store.Fact
 import com.akshatgg.buddy.store.Facts
 import com.akshatgg.buddy.typing.BoxText
 import com.akshatgg.buddy.typing.TypeIn
+import com.akshatgg.buddy.voice.Heard
+import com.akshatgg.buddy.voice.Lock
+import com.akshatgg.buddy.voice.TalkBack
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -46,7 +49,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-private class FakeTypeIn : TypeIn {
+internal class FakeTypeIn : TypeIn {
     var on = true
     var app: String? = "WhatsApp"
     var box: BoxText? = BoxText("", 0, 0)
@@ -66,7 +69,7 @@ private class FakeTypeIn : TypeIn {
     }
 }
 
-private class FakeFacts : Facts {
+internal class FakeFacts : Facts {
     val kept = mutableListOf<Fact>()
     var refuse = false
     override fun facts() = kept.toList()
@@ -79,7 +82,7 @@ private class FakeFacts : Facts {
 }
 
 /** Messaging on WhatsApp, as the panel asks it: queued answers, and each call in `log` (shared with the hands). */
-private class FakeMessaging(val log: MutableList<String>) : Messaging {
+internal class FakeMessaging(val log: MutableList<String>) : Messaging {
     val found = ArrayDeque<Found>()
     val sent = ArrayDeque<Sent>()
     var sending: CompletableDeferred<Unit>? = null // a send that takes until this is completed
@@ -95,7 +98,7 @@ private class FakeMessaging(val log: MutableList<String>) : Messaging {
 }
 
 /** Opening apps, as the panel asks it: queued answers, and each call in `log` (shared with the hands). */
-private class FakeApps(val log: MutableList<String>) : AppOpening {
+internal class FakeApps(val log: MutableList<String>) : AppOpening {
     val opened = ArrayDeque<Opened>()
     override suspend fun open(asked: String): Opened {
         log += "open $asked"
@@ -104,7 +107,7 @@ private class FakeApps(val log: MutableList<String>) : AppOpening {
 }
 
 /** Phone calls, as the panel asks for them: queued answers, and each call in `log` (shared with the hands). */
-private class FakePhone(val log: MutableList<String>) : PhoneCalling {
+internal class FakePhone(val log: MutableList<String>) : PhoneCalling {
     val found = ArrayDeque<CallFound>()
     val called = ArrayDeque<Called>()
     var calling: CompletableDeferred<Unit>? = null // a call that takes until this is completed
@@ -122,7 +125,7 @@ private class FakePhone(val log: MutableList<String>) : PhoneCalling {
 }
 
 /** WhatsApp calls, as the panel asks for them: queued answers, and each call in `log` (shared with the hands). */
-private class FakeWhatsAppCalls(val log: MutableList<String>) : WhatsAppCalling {
+internal class FakeWhatsAppCalls(val log: MutableList<String>) : WhatsAppCalling {
     val called = ArrayDeque<Called>()
     var throws: Exception? = null
     override suspend fun call(person: Person, video: Boolean): Called {
@@ -133,7 +136,7 @@ private class FakeWhatsAppCalls(val log: MutableList<String>) : WhatsAppCalling 
 }
 
 /** The phone's calls, as the panel asks about them: queued answers, and each question in `log` (shared with the hands). */
-private class FakeCallInfo(val log: MutableList<String>) : CallTelling {
+internal class FakeCallInfo(val log: MutableList<String>) : CallTelling {
     val told = ArrayDeque<Told>()
     override suspend fun ringing(): Told {
         log += "ringing"
@@ -146,11 +149,34 @@ private class FakeCallInfo(val log: MutableList<String>) : CallTelling {
 }
 
 /** The phone's notifications, as the panel asks about them: queued answers, and each question in `log`. */
-private class FakeNotifs(val log: MutableList<String>) : NotifReading {
+internal class FakeNotifs(val log: MutableList<String>) : NotifReading {
     val told = ArrayDeque<Told>()
     override suspend fun read(app: String): Told {
         log += "notifs $app"
         return told.removeFirstOrNull() ?: Told("No new notifications.")
+    }
+}
+
+/** Buddy's voice, as the panel uses it: what it said, and the answers it hears, in order. */
+internal class FakeTalkBack(val log: MutableList<String>) : TalkBack {
+    val answers = ArrayDeque<Heard>()
+    val requests = ArrayDeque<String?>()
+    var hearing: CompletableDeferred<Heard>? = null // a hear() that waits until this is completed
+    var stopCompletes = true // false: a late hear() answer still arrives after stop(), as on a real recognizer
+    var gateText = ""
+    var sayGate: CompletableDeferred<Unit>? = null // saying gateText waits until this is completed (after it is logged)
+    override suspend fun say(text: String) { log += "say $text"; if (text == gateText) sayGate?.await() }
+    override suspend fun hear(verb: String): Heard { log += "hear $verb"; return hearing?.await() ?: answers.removeFirstOrNull() ?: Heard.NO }
+    override suspend fun listen(): String? { log += "listen"; return requests.removeFirstOrNull() }
+    override fun stop() { log += "stop"; if (stopCompletes) hearing?.complete(Heard.NO) }
+}
+
+internal class FakeLock(var isLocked: Boolean = false, var unlocks: Boolean = true) : Lock {
+    var gate: CompletableDeferred<Boolean>? = null // an unlocked() that waits until this is completed
+    override fun locked() = isLocked
+    override suspend fun unlocked(withinMs: Long): Boolean {
+        val g = gate ?: return unlocks.also { if (it) isLocked = false }
+        return g.await().also { if (it) isLocked = false }
     }
 }
 
@@ -174,6 +200,8 @@ class PanelModelTest {
     private val whatsAppCalls = FakeWhatsAppCalls(log)
     private val callInfo = FakeCallInfo(log)
     private val notifs = FakeNotifs(log)
+    private val talk = FakeTalkBack(log)
+    private val lock = FakeLock()
     private var picture: String? = "IMG"
     private var pictureError: BuddyError? = null
     private var clock = 1_000_000L
@@ -184,7 +212,7 @@ class PanelModelTest {
 
     private fun answers(vararg r: ChatReply) = replies.addAll(r)
 
-    private fun model(scope: CoroutineScope, name: String = "Akshat") = PanelModel(
+    private fun model(scope: CoroutineScope, name: String = "Akshat", ready: String? = null) = PanelModel(
         ask = { action, input -> assertEquals(Action.CHAT, action); asked += input; reply(input) },
         scope = scope,
         bubble = { events += it },
@@ -204,11 +232,14 @@ class PanelModelTest {
         whatsAppCalls = whatsAppCalls,
         callInfo = callInfo,
         notifs = notifs,
+        talkBack = talk,
+        lock = lock,
         firstName = { name },
         now = { clock },
+        readyLine = ready ?: "Your answer is ready. Open me to see it.",
     ).apply { open() }
 
-    private fun TestScope.model(name: String = "Akshat") = model(this, name)
+    private fun TestScope.model(name: String = "Akshat", ready: String? = null) = model(this, name, ready)
 
     private fun PanelModel.say(text: String) {
         setDraft(text)
@@ -567,6 +598,20 @@ class PanelModelTest {
         assertEquals("Dear Sir," to 9, typeIn.writes.last())
     }
 
+    @Test fun theLineForAnAnswerThatWaitsCanBeAnother() = runTest {
+        answers(written("Dear Sir,", doIt = true))
+        val gate = CompletableDeferred<Unit>()
+        val inner = reply
+        reply = { gate.await(); inner(it) }
+        val m = model(ready = "Open me and ask again, and I'll write it.")
+        m.say("reply to this")
+        runCurrent()
+        m.hidden()
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(listOf("Open me and ask again, and I'll write it."), said)
+    }
+
     @Test fun anAnswerThatComesWhileThePanelIsHiddenWaitsInTheChat() = runTest {
         answers(written("Dear Sir,", doIt = true))
         val gate = CompletableDeferred<Unit>()
@@ -745,9 +790,10 @@ class PanelModelTest {
 
     // ---- voice ----
 
-    @Test fun spokenWordsGoInTheBoxAndAreNotSent() = runTest {
+    @Test fun spokenWordsAfterTypedTextGoInTheBoxAndAreNotSent() = runTest {
         val m = model()
-        m.voiceWords("  boss ko mail ")
+        m.setDraft("boss ko")
+        m.voiceWords("  mail ")
         assertEquals("boss ko mail", m.state.value.draft)
         m.setDraft("Hi,")
         m.voiceWords("kal chutti chahiye")
@@ -1401,5 +1447,393 @@ class PanelModelTest {
         assertEquals(Mood.IDLE, moods.last())
         m.press(2, ChatButton.SETTINGS)
         assertEquals("settings no_notifs", log.last())
+    }
+
+    // ---- out loud ----
+
+    private fun PanelModel.sent() = log.count { it.startsWith("send ") }
+
+    @Test fun aSpokenMessageAsksOutLoudAndAYesSendsItOnce() = runTest {
+        answers(message(to = "Priya", text = "I'm running late"))
+        messaging.found += Found.One(priya)
+        talk.answers += Heard.YES
+        val m = model()
+        m.sendSpoken("message Priya on WhatsApp I'm running late")
+        advanceUntilIdle()
+        assertEquals(
+            listOf("find Priya", "say To Priya Sharma: I'm running late. Send it?", "hear send", "aside", "send Priya Sharma: I'm running late", "say Sent."),
+            log,
+        )
+        assertEquals(ChatEvent(2, "✅ Sent to Priya Sharma"), m.last())
+        m.press(2, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertEquals(1, m.sent())
+    }
+
+    @Test fun aSpokenNoSendsNothingAndSaysSo() = runTest {
+        answers(message(to = "Priya", text = "hi"))
+        messaging.found += Found.One(priya)
+        talk.answers += Heard.NO
+        val m = model()
+        m.sendSpoken("message Priya hi")
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "Okay, not sent."), m.last())
+        assertEquals("say Okay, not sent.", log.last())
+        assertTrue(log.none { it.startsWith("send ") })
+    }
+
+    @Test fun nothingHeardIsNo() = runTest {
+        answers(message(to = "Priya", text = "hi"))
+        messaging.found += Found.One(priya)
+        val m = model()
+        m.sendSpoken("message Priya hi")
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "Okay, not sent."), m.last())
+        assertTrue(log.none { it.startsWith("send ") })
+    }
+
+    @Test fun aSpokenNoToACallSaysNotNow() = runTest {
+        answers(calling())
+        phone.found += CallFound.One(princeSharma)
+        val m = model()
+        m.sendSpoken("call Prince")
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "Okay, not now."), m.last())
+        assertEquals("say Okay, not now.", log.last())
+        assertTrue(log.none { it.startsWith("call ") })
+    }
+
+    @Test fun aTypedMessageNeverSpeaks() = runTest {
+        answers(message(to = "Priya", text = "hi"))
+        messaging.found += Found.One(priya)
+        val m = model()
+        m.say("message priya hi")
+        advanceUntilIdle()
+        assertTrue(log.none { it.startsWith("say ") || it.startsWith("hear ") })
+        assertEquals(listOf(ChatButton.SEND_MESSAGE, ChatButton.NOT_NOW), m.buddy().buttons)
+        m.press(2, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertTrue(log.none { it.startsWith("say ") })
+    }
+
+    @Test fun pressingSendWhileBuddyAsksSendsOnceAndALateYesIsDropped() = runTest {
+        answers(message(to = "Priya", text = "hi"))
+        messaging.found += Found.One(priya)
+        talk.hearing = CompletableDeferred()
+        val m = model()
+        m.sendSpoken("message Priya hi")
+        advanceUntilIdle()
+        assertTrue("hear send" in log)
+        m.press(2, ChatButton.SEND_MESSAGE)
+        talk.hearing!!.complete(Heard.YES) // too late: the press already ended the question
+        advanceUntilIdle()
+        assertEquals(1, m.sent())
+        assertTrue("stop" in log)
+    }
+
+    @Test fun pressingNotNowWhileBuddyAsksWinsOverALateYes() = runTest {
+        answers(message(to = "Priya", text = "hi"))
+        messaging.found += Found.One(priya)
+        talk.hearing = CompletableDeferred()
+        val m = model()
+        m.sendSpoken("message Priya hi")
+        advanceUntilIdle()
+        m.press(2, ChatButton.NOT_NOW)
+        talk.hearing!!.complete(Heard.YES)
+        advanceUntilIdle()
+        assertEquals(0, m.sent())
+        assertEquals(ChatEvent(2, "Okay, not sent."), m.last())
+        assertTrue(log.none { it.startsWith("say Okay") }) // the person's own press says nothing out loud
+    }
+
+    @Test fun aNewMessageWhileBuddyAsksEndsTheQuestionAndTheCardStays() = runTest {
+        answers(message(to = "Priya", text = "hi"), written("ok"))
+        messaging.found += Found.One(priya)
+        talk.hearing = CompletableDeferred()
+        val m = model()
+        m.sendSpoken("message Priya hi")
+        advanceUntilIdle()
+        val before = log.count { it == "stop" }
+        m.sendSpoken("something else")
+        talk.hearing!!.complete(Heard.YES)
+        advanceUntilIdle()
+        assertTrue(log.count { it == "stop" } > before)
+        assertEquals(0, m.sent())
+        assertEquals(listOf(ChatButton.SEND_MESSAGE, ChatButton.NOT_NOW), (m.items[1] as BuddySaid).buttons)
+    }
+
+    /** A spoken message card whose question is still being heard (the yes can still arrive late). */
+    private fun TestScope.askedCard(): PanelModel {
+        answers(message(to = "Priya", text = "hi"))
+        messaging.found += Found.One(priya)
+        val m = model()
+        m.sendSpoken("message Priya hi")
+        advanceUntilIdle()
+        return m
+    }
+
+    @Test fun aLateYesAfterNotNowPressesNothing() = runTest {
+        talk.stopCompletes = false
+        val gate = CompletableDeferred<Heard>()
+        talk.hearing = gate
+        val m = askedCard()
+        m.press(2, ChatButton.NOT_NOW)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "Okay, not sent."), m.last())
+        gate.complete(Heard.YES)
+        advanceUntilIdle()
+        assertEquals(0, m.sent())
+        assertEquals(ChatEvent(2, "Okay, not sent."), m.last())
+    }
+
+    @Test fun aLateYesAfterTheButtonWasPressedSendsOnce() = runTest {
+        talk.stopCompletes = false
+        val gate = CompletableDeferred<Heard>()
+        talk.hearing = gate
+        val m = askedCard()
+        m.press(2, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        gate.complete(Heard.YES)
+        advanceUntilIdle()
+        assertEquals(1, m.sent())
+    }
+
+    @Test fun aLateYesAfterANewMessagePressesNothing() = runTest {
+        talk.stopCompletes = false
+        val gate = CompletableDeferred<Heard>()
+        talk.hearing = gate
+        val m = askedCard()
+        answers(written("ok"))
+        m.sendSpoken("hello")
+        advanceUntilIdle()
+        gate.complete(Heard.YES)
+        advanceUntilIdle()
+        assertEquals(0, m.sent())
+    }
+
+    @Test fun aLateYesAfterTheCloseSendsNothing() = runTest {
+        talk.stopCompletes = false
+        val gate = CompletableDeferred<Heard>()
+        talk.hearing = gate
+        val m = askedCard()
+        m.close()
+        gate.complete(Heard.YES)
+        advanceUntilIdle()
+        assertEquals(0, m.sent())
+    }
+
+    /** A locked phone: a spoken message card says yes and waits at the unlock. */
+    private fun TestScope.waitingToSend(): PanelModel {
+        talk.answers += Heard.YES
+        lock.isLocked = true
+        lock.gate = CompletableDeferred()
+        val m = askedCard()
+        assertTrue("say Unlock your phone and I'll send it to Priya Sharma." in log)
+        return m
+    }
+
+    @Test fun notNowWhileWaitingForTheUnlockSendsNothing() = runTest {
+        val m = waitingToSend()
+        m.press(2, ChatButton.NOT_NOW)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "Okay, not sent."), m.last())
+        lock.gate!!.complete(true)
+        advanceUntilIdle()
+        assertEquals(0, m.sent())
+        assertEquals(ChatEvent(2, "Okay, not sent."), m.last())
+        // and the next send is not stuck behind the cancelled wait
+        lock.gate = null
+        answers(message(to = "Priya", text = "again"))
+        messaging.found += Found.One(priya)
+        talk.answers += Heard.YES
+        m.sendSpoken("message Priya again")
+        advanceUntilIdle()
+        assertEquals(1, m.sent())
+    }
+
+    @Test fun aNewMessageWhileWaitingForTheUnlockSendsNothing() = runTest {
+        val m = waitingToSend()
+        answers(written("ok"))
+        m.sendSpoken("hello")
+        advanceUntilIdle()
+        lock.gate!!.complete(true)
+        advanceUntilIdle()
+        assertEquals(0, m.sent())
+    }
+
+    @Test fun closingWhileWaitingForTheUnlockSendsNothing() = runTest {
+        val m = waitingToSend()
+        m.close()
+        lock.gate!!.complete(true)
+        advanceUntilIdle()
+        assertEquals(0, m.sent())
+    }
+
+    @Test fun notNowWhileWaitingForTheUnlockDoesNotCall() = runTest {
+        answers(calling())
+        phone.found += CallFound.One(princeSharma)
+        talk.answers += Heard.YES
+        lock.isLocked = true
+        lock.gate = CompletableDeferred()
+        val m = model()
+        m.sendSpoken("call Prince")
+        advanceUntilIdle()
+        m.press(2, ChatButton.NOT_NOW)
+        advanceUntilIdle()
+        lock.gate!!.complete(true)
+        advanceUntilIdle()
+        assertTrue(log.none { it.startsWith("call ") })
+        assertEquals(ChatEvent(2, "Okay, not now."), m.last())
+    }
+
+    @Test fun hushStopsTheOutcomeLineSpokenAfterAPress() = runTest {
+        talk.answers += Heard.YES
+        talk.gateText = "Sent."
+        talk.sayGate = CompletableDeferred()
+        val m = askedCard()
+        assertEquals("say Sent.", log.last())
+        log.clear()
+        m.close()
+        assertTrue("stop" in log)
+        talk.sayGate!!.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test fun aSpokenCallAsksCallNameAndAYesCallsOnce() = runTest {
+        answers(calling())
+        phone.found += CallFound.One(princeSharma)
+        talk.answers += Heard.YES
+        val m = model()
+        m.sendSpoken("call Prince")
+        advanceUntilIdle()
+        assertEquals(listOf("find phone Prince", "say Call Prince Sharma?", "hear call", "call Prince Sharma", "say Calling Prince Sharma."), log)
+        assertEquals(1, log.count { it.startsWith("call ") })
+    }
+
+    @Test fun aSpokenWhatsAppVideoCallAsksItsOwnQuestion() = runTest {
+        answers(calling(how = "whatsapp_video"))
+        messaging.found += Found.One(priya)
+        talk.answers += Heard.YES
+        val m = model()
+        m.sendSpoken("video call Priya")
+        advanceUntilIdle()
+        assertTrue("say WhatsApp video call Priya Sharma?" in log)
+        assertTrue("wa call Priya Sharma true" in log)
+    }
+
+    @Test fun lockedBuddyAsksToUnlockThenSends() = runTest {
+        answers(message(to = "Priya", text = "hi"))
+        messaging.found += Found.One(priya)
+        talk.answers += Heard.YES
+        lock.isLocked = true
+        val m = model()
+        m.sendSpoken("message Priya hi")
+        advanceUntilIdle()
+        val at = log.indexOf("say Unlock your phone and I'll send it to Priya Sharma.")
+        assertTrue(at > log.indexOf("hear send"))
+        assertTrue(log.indexOf("send Priya Sharma: hi") > at)
+        assertEquals("say Sent.", log.last())
+    }
+
+    @Test fun lockedForAMinuteBuddyGivesUpAndTheCardGoes() = runTest {
+        answers(message(to = "Priya", text = "hi"))
+        messaging.found += Found.One(priya)
+        talk.answers += Heard.YES
+        lock.isLocked = true
+        lock.unlocks = false
+        val m = model()
+        m.sendSpoken("message Priya hi")
+        advanceUntilIdle()
+        assertTrue("say Unlock your phone and I'll send it to Priya Sharma." in log)
+        assertEquals(0, m.sent())
+        assertEquals(ChatEvent(2, "I didn't send it."), m.last())
+        assertEquals("say I didn't send it.", log.last())
+        m.press(2, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertEquals(0, m.sent())
+    }
+
+    @Test fun aLockedCallSaysItsOwnLines() = runTest {
+        answers(calling(), calling())
+        phone.found += CallFound.One(princeSharma)
+        talk.answers += Heard.YES
+        lock.isLocked = true
+        val m = model()
+        m.sendSpoken("call Prince")
+        advanceUntilIdle()
+        assertTrue(log.indexOf("call Prince Sharma") > log.indexOf("say Unlock your phone and I'll call Prince Sharma."))
+        lock.isLocked = true
+        lock.unlocks = false
+        log.clear()
+        phone.found += CallFound.One(princeSharma)
+        talk.answers += Heard.YES
+        m.sendSpoken("call Prince")
+        advanceUntilIdle()
+        assertTrue(log.none { it.startsWith("call ") })
+        assertEquals(ChatEvent(4, "I didn't call."), m.last())
+        assertEquals("say I didn't call.", log.last())
+    }
+
+    @Test fun aWhichQuestionIsAnsweredByVoiceAndTheMessageGoesOn() = runTest {
+        answers(message(to = "Priya", text = "hi"), message(to = "Priya Sharma", text = "hi"))
+        messaging.found += Found.Say("Which Priya: Priya Sharma or Priya Verma? Tell me the full name.")
+        messaging.found += Found.One(priya)
+        talk.requests += "Priya Sharma"
+        talk.answers += Heard.YES
+        val m = model()
+        m.sendSpoken("message Priya hi")
+        advanceUntilIdle()
+        assertEquals(YouSaid(3, "Priya Sharma"), m.items.filterIsInstance<YouSaid>().last())
+        assertEquals(1, m.sent())
+    }
+
+    @Test fun followUpsStopAfterTwo() = runTest {
+        answers(message(to = "A", text = "hi"), message(to = "B", text = "hi"), message(to = "C", text = "hi"), message(to = "D", text = "hi"))
+        repeat(4) { messaging.found += Found.Say("Which one? Tell me the full name.") }
+        talk.requests += "B"; talk.requests += "C"; talk.requests += "D"
+        val m = model()
+        m.sendSpoken("message A hi")
+        advanceUntilIdle()
+        assertEquals(2, log.count { it == "listen" })
+    }
+
+    @Test fun noInternetIsSaidAsTheSpecSays() = runTest {
+        reply = { throw BuddyError("network", "No internet.") }
+        val m = model()
+        m.sendSpoken("hello")
+        advanceUntilIdle()
+        assertTrue("say I can't reach the internet right now." in log)
+    }
+
+    @Test fun otherAnswersSayTheirSayOnly() = runTest {
+        answers(written("Dear Sir, please find the long text here.", say = "Here you go!"))
+        val m = model()
+        m.sendSpoken("write a mail")
+        advanceUntilIdle()
+        assertEquals(listOf("say Here you go!"), log)
+    }
+
+    @Test fun voiceWordsWithAnEmptyBoxGoAtOnceAndWithTypedTextJoinTheBox() = runTest {
+        val m = model()
+        m.voiceWords("hello")
+        advanceUntilIdle()
+        assertEquals(YouSaid(1, "hello"), m.items[0])
+        m.setDraft("Dear")
+        m.voiceWords("Sir")
+        assertEquals("Dear Sir", m.state.value.draft)
+    }
+
+    @Test fun closingThePanelStopsTheQuestion() = runTest {
+        answers(message(to = "Priya", text = "hi"))
+        messaging.found += Found.One(priya)
+        talk.hearing = CompletableDeferred()
+        val m = model()
+        m.sendSpoken("message Priya hi")
+        advanceUntilIdle()
+        m.close()
+        talk.hearing!!.complete(Heard.YES)
+        advanceUntilIdle()
+        assertTrue("stop" in log)
+        assertEquals(0, m.sent())
     }
 }

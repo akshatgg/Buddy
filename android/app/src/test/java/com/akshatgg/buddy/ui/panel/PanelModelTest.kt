@@ -5,6 +5,8 @@ import com.akshatgg.buddy.ai.Answer
 import com.akshatgg.buddy.ai.AskInput
 import com.akshatgg.buddy.ai.ChatReply
 import com.akshatgg.buddy.ai.ChatTurn
+import com.akshatgg.buddy.apps.AppOpening
+import com.akshatgg.buddy.apps.Opened
 import com.akshatgg.buddy.bubble.BubbleEvent
 import com.akshatgg.buddy.bubble.Mood
 import com.akshatgg.buddy.core.BuddyError
@@ -82,6 +84,15 @@ private class FakeMessaging(val log: MutableList<String>) : Messaging {
     }
 }
 
+/** Opening apps, as the panel asks it: queued answers, and each call in `log` (shared with the hands). */
+private class FakeApps(val log: MutableList<String>) : AppOpening {
+    val opened = ArrayDeque<Opened>()
+    override suspend fun open(asked: String): Opened {
+        log += "open $asked"
+        return opened.removeFirstOrNull() ?: Opened.Say("I couldn't find $asked on this phone.")
+    }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class) // runTest's clock: runCurrent, advanceTimeBy, advanceUntilIdle, StandardTestDispatcher
 class PanelModelTest {
     private val asked = mutableListOf<AskInput>()
@@ -97,6 +108,7 @@ class PanelModelTest {
     private val facts = FakeFacts()
     private val log = mutableListOf<String>() // what the panel did with Android: stepped aside, copied, shared, …
     private val messaging = FakeMessaging(log)
+    private val apps = FakeApps(log)
     private var picture: String? = "IMG"
     private var pictureError: BuddyError? = null
     private var clock = 1_000_000L
@@ -121,6 +133,7 @@ class PanelModelTest {
             openSettings = { log += "settings $it" },
         ),
         messaging = messaging,
+        apps = apps,
         firstName = { name },
         now = { clock },
     ).apply { open() }
@@ -157,7 +170,7 @@ class PanelModelTest {
         assertEquals("", m.state.value.draft)
         advanceUntilIdle()
         assertEquals(
-            AskInput(message = "boss ko mail, kal chutti chahiye", history = emptyList(), facts = listOf("Your boss is Mr. Sharma."), appName = "WhatsApp", userName = "Akshat", step = 1, canMessage = true),
+            AskInput(message = "boss ko mail, kal chutti chahiye", history = emptyList(), facts = listOf("Your boss is Mr. Sharma."), appName = "WhatsApp", userName = "Akshat", step = 1, canMessage = true, canOpen = true),
             asked.single(),
         )
         assertEquals(YouSaid(1, "boss ko mail, kal chutti chahiye"), m.items[0])
@@ -337,7 +350,7 @@ class PanelModelTest {
         m.say("what does this mean?")
         advanceUntilIdle()
         assertEquals(listOf("screen"), log)
-        assertEquals(AskInput(message = "what does this mean?", selection = "namaste", history = emptyList(), facts = emptyList(), appName = "WhatsApp", userName = "Akshat", image = "IMG", step = 2, canMessage = true), asked[1])
+        assertEquals(AskInput(message = "what does this mean?", selection = "namaste", history = emptyList(), facts = emptyList(), appName = "WhatsApp", userName = "Akshat", image = "IMG", step = 2, canMessage = true, canOpen = true), asked[1])
         assertEquals(ChatEvent(2, "👀 Looked at the screen"), m.items[1])
         assertEquals("It says hello.", m.buddy().text)
     }
@@ -697,13 +710,48 @@ class PanelModelTest {
     private fun message(to: String = "Priya", text: String = "I'm late", say: String = "") =
         ChatReply("message", say, text, emptyList(), false, false, emptyList(), false, to)
 
-    @Test fun everyStepSaysThisAppCanMessageOnWhatsApp() = runTest {
+    @Test fun everyStepSaysThisAppCanMessageOnWhatsAppAndOpenApps() = runTest {
         answers(written("", kind = "box"), written("I am going.", kind = "fix"))
         typeIn.box = BoxText("i am go", 7, 7)
         val m = model()
         m.say("fix my English")
         advanceUntilIdle()
         assertEquals(listOf(true, true), asked.map { it.canMessage })
+        assertEquals(listOf(true, true), asked.map { it.canOpen })
+    }
+
+    // ---- an app to open ----
+
+    private fun opening(app: String, say: String = "") = ChatReply("open", say, "", emptyList(), false, false, emptyList(), false, app = app)
+
+    @Test fun anOpenOpensTheAppAndSaysSo() = runTest {
+        answers(opening("YouTube", say = "Opening it!"))
+        apps.opened += Opened.Done("YouTube")
+        val m = model()
+        m.say("open youtube")
+        advanceUntilIdle()
+        assertEquals(listOf(BuddySaid(2, "Opening it!", "", emptyList(), emptyList()), ChatEvent(3, "✅ Opened YouTube")), m.items.drop(1))
+        assertEquals(listOf("open YouTube"), log)
+        assertEquals(Mood.HAPPY, moods.last())
+    }
+
+    @Test fun anOpenThatIsNotOneAppSaysWhy() = runTest {
+        answers(opening("you"))
+        apps.opened += Opened.Say("Which one: YouTube or YouTube Music?")
+        val m = model()
+        m.say("open you")
+        advanceUntilIdle()
+        assertEquals(BuddySaid(2, "", "Which one: YouTube or YouTube Music?", emptyList(), emptyList()), m.last())
+    }
+
+    @Test fun anOpenAnsweredAfterReadingTheBoxIsNotDone() = runTest {
+        answers(written("", kind = "box"), opening("YouTube"))
+        typeIn.box = BoxText("open youtube now", 16, 16)
+        val m = model()
+        m.say("do what it says")
+        advanceUntilIdle()
+        assertEquals(BuddySaid(3, "Ask me that on its own, and I'll do it.", "", emptyList(), emptyList()), m.last())
+        assertTrue(log.none { it.startsWith("open") })
     }
 
     @Test fun aMessageAnsweredAfterReadingTheBoxIsNotStarted() = runTest {

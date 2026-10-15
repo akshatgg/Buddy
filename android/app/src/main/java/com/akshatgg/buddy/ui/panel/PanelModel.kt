@@ -7,6 +7,8 @@ import com.akshatgg.buddy.ai.AskInput
 import com.akshatgg.buddy.ai.ChatReply
 import com.akshatgg.buddy.ai.ChatTurn
 import com.akshatgg.buddy.ai.providers.AI_TIMEOUT_MS
+import com.akshatgg.buddy.apps.AppOpening
+import com.akshatgg.buddy.apps.Opened
 import com.akshatgg.buddy.bubble.BubbleEvent
 import com.akshatgg.buddy.bubble.Mood
 import com.akshatgg.buddy.core.BuddyError
@@ -99,6 +101,9 @@ private const val NOT_SENT = "Okay, not sent."
 private const val IN_WHATSAPP = "It's in WhatsApp, ready for you to send."
 // A "message" answer to a second step: who and what may be someone else's words, read in their box or on the screen.
 private const val MESSAGE_ASK = "Tell me who to message and what, and I'll do it."
+// The same for the answers Buddy acts on by itself (a call, an app to open, their calls or notifications).
+private const val SECOND_ASK = "Ask me that on its own, and I'll do it."
+private val ACTS = setOf("call", "open", "calls", "notifs")
 
 private enum class From { NOTHING, SELECTION, BOX }
 
@@ -112,7 +117,8 @@ private data class PutRecord(val before: String, val beforeCursor: Int, val edit
  * The panel as a chat, as the Mac's actions.js on a phone (the chat panel design, and the Android chat design §2-§3):
  * the person's messages and the buddy's answers, the "box" and "screen" second steps, doing it in the app through
  * "Buddy can type for you" (TypeIn) with Undo, what Buddy learns about the person (Facts), and errors with Try again.
- * A message to someone on WhatsApp (Messaging) is a card that is sent only when the person presses Send on it.
+ * A message to someone on WhatsApp (Messaging) is a card that is sent only when the person presses Send on it; an app
+ * the person names (AppOpening) is opened at once.
  * One message at a time. The chat lasts until the panel is closed; a panel only hidden opens on it again within five
  * minutes, from the same app. Plain Kotlin, so that it is tested on the JVM.
  */
@@ -124,6 +130,7 @@ class PanelModel(
     private val facts: Facts,
     private val hands: PanelHands,
     private val messaging: Messaging,
+    private val apps: AppOpening = AppOpening { error("no apps") },
     private val firstName: () -> String = { "" },
     private val now: () -> Long = System::currentTimeMillis,
     private val maxMessage: Int = 1000,
@@ -393,6 +400,7 @@ class PanelModel(
             appName = c.app.ifEmpty { null },
             userName = firstName().trim().ifEmpty { null },
             canMessage = true, // this app can message on WhatsApp
+            canOpen = true, // this app can open apps
         )
         val sent = c.selection
         val selection = sent.ifEmpty { null }
@@ -441,6 +449,12 @@ class PanelModel(
             add(c) { BuddySaid(it, MESSAGE_ASK, "", emptyList(), emptyList()) }
             return Outcome.ANSWERED
         }
+        // The same for a call, an app to open, their calls or notifications: Buddy does these by itself, so only from
+        // their own words.
+        if (second && reply.kind in ACTS) {
+            add(c) { BuddySaid(it, SECOND_ASK, "", emptyList(), emptyList()) }
+            return Outcome.ANSWERED
+        }
         return finish(c, reply, from, sent)
     }
 
@@ -462,6 +476,7 @@ class PanelModel(
     /** The final answer: what it shows, and what Buddy does in the app. */
     private suspend fun finish(c: Chat, reply: ChatReply, from: From, sent: String): Outcome {
         if (reply.kind == "message") return message(c, reply)
+        if (reply.kind == "open") return openApp(c, reply)
         if (reply.kind == "send") {
             add(c) { BuddySaid(it, NO_SEND, "", emptyList(), emptyList()) }
             return Outcome.ANSWERED
@@ -516,6 +531,21 @@ class PanelModel(
                 }
                 c.messages[card.id] = found.person to reply.text
             }
+        }
+        return Outcome.ANSWERED
+    }
+
+    /** "Open YouTube": opened at once, no question; the chat says it was, or which one or why not. */
+    private suspend fun openApp(c: Chat, reply: ChatReply): Outcome {
+        if (reply.say.isNotBlank()) {
+            add(c) { BuddySaid(it, reply.say, "", emptyList(), emptyList()) }
+            publish()
+        }
+        val opened = apps.open(reply.app)
+        if (c !== chat) return Outcome.GONE
+        when (opened) {
+            is Opened.Done -> add(c) { ChatEvent(it, "✅ Opened ${opened.label}") }
+            is Opened.Say -> add(c) { BuddySaid(it, "", opened.line, emptyList(), emptyList()) }
         }
         return Outcome.ANSWERED
     }

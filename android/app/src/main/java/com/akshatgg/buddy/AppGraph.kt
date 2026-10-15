@@ -13,6 +13,8 @@ import com.akshatgg.buddy.ai.KeySaver
 import com.akshatgg.buddy.ai.Prompts
 import com.akshatgg.buddy.ai.Router
 import com.akshatgg.buddy.ai.providers.Providers
+import com.akshatgg.buddy.apps.Launcher
+import com.akshatgg.buddy.apps.PhoneLauncher
 import com.akshatgg.buddy.bubble.BubbleBus
 import com.akshatgg.buddy.bubble.LookService
 import com.akshatgg.buddy.cloud.CloudClient
@@ -100,6 +102,9 @@ class AppGraph(
 
     /** Message a friend: who is on WhatsApp in the phone's contacts, and their chat (message/WhatsApp.kt). */
     val whatsApp: WhatsApp by lazy { PhoneWhatsApp(appContext) }
+
+    /** Open an app: the phone's home-screen apps (apps/Apps.kt). */
+    val launcher: Launcher by lazy { PhoneLauncher(appContext) }
 
     /** What Buddy knows about the person, as the chat sees it: the memory on this phone (kept with the account too, signed in). */
     val facts: Facts get() = memory

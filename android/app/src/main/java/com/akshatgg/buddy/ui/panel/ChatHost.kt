@@ -17,6 +17,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModel
 import com.akshatgg.buddy.AppGraph
+import com.akshatgg.buddy.apps.AppOpener
 import com.akshatgg.buddy.bubble.BubbleBus
 import com.akshatgg.buddy.capture.ScreenCapture
 import com.akshatgg.buddy.core.BuddyError
@@ -83,6 +84,7 @@ class ChatViewModel : ViewModel() {
         facts = graph.facts,
         hands = hands,
         messaging = Messenger(graph.whatsApp, ServiceChatScreen(app), contactsAllowed = hands.contacts),
+        apps = AppOpener(graph.launcher),
         firstName = graph::firstName,
         maxMessage = graph.shared.limitInstruction,
         maxSelection = graph.shared.limitText,

@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.provider.CallLog.Calls
 import android.provider.ContactsContract
 import android.telephony.PhoneNumberUtils
@@ -17,8 +16,10 @@ import java.util.Locale
 /** Whether the phone rings now. Android 12 and later need READ_PHONE_STATE for it (a SecurityException without). */
 class AndroidPhoneState(private val context: Context) : PhoneState {
     override fun ringing(): Boolean {
+        // The whole-device state (a call on either SIM). Not callStateForSubscription: that reads one SIM, the default.
+        // On Android 12+ this asks TelecomManager inside the platform; TelecomManager.getCallState is not public API.
         val phone = context.getSystemService(TelephonyManager::class.java) ?: return false
-        val state = if (Build.VERSION.SDK_INT >= 31) phone.callStateForSubscription else @Suppress("DEPRECATION") phone.callState
+        @Suppress("DEPRECATION") val state = phone.callState
         return state == TelephonyManager.CALL_STATE_RINGING
     }
 }

@@ -48,12 +48,12 @@ fun ringingLine(who: String?): String = if (who == null) "Someone is calling, bu
 fun startOfToday(now: Long, zone: ZoneId): Long =
     Instant.ofEpochMilli(now).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
 
-/** Today's missed calls in one line, newest first: at most five by name and time, then how many more. */
-fun missedLine(calls: List<Missed>, zone: ZoneId): String {
-    if (calls.isEmpty()) return "No missed calls today."
+/** Today's missed calls in one line, newest first: at most five by name and time, then how many more (`total` counts all, `calls` holds the named ones). */
+fun missedLine(calls: List<Missed>, zone: ZoneId, total: Int = calls.size): String {
+    if (total == 0) return "No missed calls today."
     val named = calls.take(NAMED).joinToString(", ") { "${it.who} at ${CLOCK.format(Instant.ofEpochMilli(it.at).atZone(zone)).lowercase()}" }
-    val more = if (calls.size > NAMED) " and ${calls.size - NAMED} more" else ""
-    val count = if (calls.size == 1) "1 missed call" else "${calls.size} missed calls"
+    val more = if (total > NAMED) " and ${total - NAMED} more" else ""
+    val count = if (total == 1) "1 missed call" else "$total missed calls"
     return "$count today: $named$more."
 }
 
@@ -93,7 +93,7 @@ class CallInfo(
         } catch (e: SecurityException) {
             return Told(NO_CALL_LOG, "no_call_log")
         }
-        return Told(missedLine(rows.map { Missed(whoOf(it), it.date) }, zone))
+        return Told(missedLine(rows.take(NAMED).map { Missed(whoOf(it), it.date) }, zone, rows.size))
     }
 
     /** A missed call's caller: the log's name, else the contacts', else the number; a hidden one is "Unknown number". */

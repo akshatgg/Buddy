@@ -107,7 +107,7 @@ class PanelHands(
 private const val RESUME_MS = 5 * 60_000L // a panel only hidden comes back on the same chat this long after
 private const val HISTORY = 6
 private const val COPIED = "Copied — long-press the box and tap Paste"
-private const val READY = "Your answer is ready. Open me to see it."
+internal const val READY = "Your answer is ready. Open me to see it."
 private const val NO_SEND = "I can't press Send on Android. Press Send yourself."
 private const val NO_TYPE = "Turn on \"Buddy can type for you\" in Settings to let me read your box."
 private const val NO_BOX = "Tap in the box you are writing in, then open me again."
@@ -176,6 +176,7 @@ class PanelModel(
     private val maxSelection: Int = 8000,
     private val talkBack: TalkBack = TalkBack.SILENT,
     private val lock: Lock = Lock.OPEN,
+    private val readyLine: String = READY, // what the bubble says when an answer to put in an app waits
 ) {
     private class Chat(val app: String, val greeting: String) {
         val items = mutableListOf<ChatItem>()
@@ -671,7 +672,7 @@ class PanelModel(
         if (!putting || !reply.doIt || reply.text.isEmpty()) return Outcome.ANSWERED
         // Only while the person is still with Buddy: when they left meanwhile, the answer waits in the chat.
         if (!shown) {
-            say(READY)
+            say(readyLine)
             return Outcome.ANSWERED
         }
         return if (putInApp(c, item.id, reply.again)) Outcome.PUT else Outcome.ANSWERED

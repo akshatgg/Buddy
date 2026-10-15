@@ -24,7 +24,17 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import com.akshatgg.buddy.voice.ModelSpec
+import com.akshatgg.buddy.voice.VoiceModel
+import com.akshatgg.buddy.voice.VoiceWords
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.security.MessageDigest
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 @OptIn(ExperimentalCoroutinesApi::class) // runTest's clock: advanceTimeBy, runCurrent
 class SettingsModelTest {
@@ -287,5 +297,132 @@ class SettingsModelTest {
         assertEquals("Type @buddy (or @mira)$rest", tagExplanation("Mira", "boy-1"))
         assertEquals("a blank name is the buddy's own", "Type @buddy (or @anaya)$rest", tagExplanation("  ", "girl-1"))
         assertEquals("a name of two words is no tag", "Type @buddy$rest", tagExplanation("Mr Bean", "boy-1"))
+    }
+
+    // ---- Listen for "Hey <name>" ----
+
+    @get:Rule val tmp = TemporaryFolder()
+
+    private val zipped: ByteArray = ByteArrayOutputStream().also { out ->
+        ZipOutputStream(out).use { z -> z.putNextEntry(ZipEntry("m/am/final.mdl")); z.write("mdl".toByteArray()); z.closeEntry() }
+    }.toByteArray()
+    private val sha = MessageDigest.getInstance("SHA-256").digest(zipped).joinToString("") { "%02x".format(it) }
+    private var downloads = 0
+    private var downloadFails = false
+
+    private fun voiceModel(scope: CoroutineScope, there: Boolean): VoiceModel {
+        val m = VoiceModel(
+            File(tmp.root, "voice-model"), ModelSpec("m", "https://x/m.zip", sha, zipped.size.toLong()),
+            { _, f, _ -> downloads++; if (downloadFails) throw java.io.IOException("offline"); f.writeBytes(zipped) }, scope,
+        )
+        return m
+    }
+
+    private var woke = 0
+    private var micHeld = true
+    private var missing = emptySet<String>()
+    private var testRuns: suspend (Long, () -> Unit) -> Unit = { _, _ -> }
+
+    private fun CoroutineScope.wakeModel(there: Boolean = true): SettingsModel {
+        val vm = voiceModel(this, there)
+        if (there) kotlinx.coroutines.runBlocking { vm.fetch() }
+        return SettingsModel(
+            account, cloud, settings, memory, this,
+            voiceModel = vm, wakeChanged = { woke++ }, micAllowed = { micHeld }, modelMissing = { missing },
+            test = { ms, heard -> testRuns(ms, heard) },
+        )
+    }
+
+    @Test fun listenIsOffByDefault() = runTest {
+        val m = wakeModel()
+        assertFalse(m.state.value.wakeOn)
+        assertFalse(settings.wakeOn)
+    }
+
+    @Test fun turningItOnWithTheMicrophoneRefusedTurnsItBackOff() = runTest {
+        micHeld = false
+        val m = wakeModel()
+        m.setWakeOn(true)
+        assertFalse(settings.wakeOn)
+        assertFalse(m.state.value.wakeOn)
+        assertEquals(Status("Buddy needs the microphone to hear you. Allow it in Settings.", Tone.ERROR), m.state.value.wakeLine)
+        assertEquals(0, woke)
+    }
+
+    @Test fun turningItOnSignedOutTurnsItBackOff() = runTest {
+        account.signOut()
+        val m = wakeModel()
+        m.setWakeOn(true)
+        assertFalse(settings.wakeOn)
+        assertEquals(Status("Sign in to talk to Buddy.", Tone.ERROR), m.state.value.wakeLine)
+    }
+
+    @Test fun turningItOnWithoutTheModelGetsItThenChecksTheName() = runTest {
+        val m = wakeModel(there = false)
+        m.setWakeOn(true)
+        assertTrue(settings.wakeOn)
+        assertEquals(Status("Getting Buddy's ears ready (36 MB)…", Tone.MUTED), m.state.value.wakeLine)
+        runCurrent()
+        assertEquals(1, downloads)
+        assertNull(m.state.value.wakeLine)
+        assertEquals(1, woke)
+    }
+
+    @Test fun aFailedDownloadSaysSoAndTurnsItOff() = runTest {
+        downloadFails = true
+        val m = wakeModel(there = false)
+        m.setWakeOn(true)
+        runCurrent()
+        assertEquals(Status("Couldn't get Buddy's ears ready. Check the internet and try again.", Tone.ERROR), m.state.value.wakeLine)
+        assertFalse(settings.wakeOn)
+        assertEquals(0, woke)
+    }
+
+    @Test fun aNameTheModelLacksStaysOnButNothingListens() = runTest {
+        missing = setOf("xyzzy")
+        val m = wakeModel()
+        m.setName("Xyzzy")
+        m.setWakeOn(true)
+        assertTrue(settings.wakeOn)
+        assertEquals(Status("Buddy can't listen for 'Xyzzy'. Try another spelling.", Tone.ERROR), m.state.value.wakeLine)
+        assertEquals(0, woke)
+        m.setName("Rahul") // a name the model knows
+        assertNull(m.state.value.wakeLine)
+        assertEquals(1, woke)
+    }
+
+    @Test fun turningItOffSaysSo() = runTest {
+        val m = wakeModel()
+        m.setWakeOn(true)
+        woke = 0
+        m.setWakeOn(false)
+        assertFalse(settings.wakeOn)
+        assertNull(m.state.value.wakeLine)
+        assertEquals(1, woke)
+    }
+
+    @Test fun testItCountsEachWakeAndSaysWhenNoneCame() = runTest {
+        val m = wakeModel()
+        m.setName("Aarav")
+        m.setWakeOn(true)
+        testRuns = { ms, heard -> assertEquals(10_000L, ms); heard(); heard(); kotlinx.coroutines.delay(ms) }
+        m.testWake()
+        runCurrent()
+        assertTrue(m.state.value.wakeTesting)
+        assertEquals(2, m.state.value.wakeHeard)
+        assertEquals(Status("Heard you ✓", Tone.GOOD), m.state.value.wakeLine)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertFalse(m.state.value.wakeTesting)
+        assertNull(m.state.value.wakeLine)
+
+        testRuns = { ms, _ -> kotlinx.coroutines.delay(ms) }
+        m.testWake()
+        runCurrent()
+        assertEquals(Status("Say \"Hey Aarav\" now.", Tone.MUTED), m.state.value.wakeLine)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(Status("I didn't hear \"Hey Aarav\". Try again.", Tone.ERROR), m.state.value.wakeLine)
+        assertEquals(0, m.state.value.wakeHeard)
     }
 }

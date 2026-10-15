@@ -35,6 +35,13 @@ object BubbleBus {
     /** True while a buddy is on screen to take events: LookService does no work for a buddy that is not there. */
     val listening: Boolean get() = flow.subscriptionCount.value > 0
 
+    private val wakeFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /** Each "Hey <name>" heard while Settings' Test it runs. */
+    val wakes: SharedFlow<Unit> = wakeFlow.asSharedFlow()
+
+    fun woke() { wakeFlow.tryEmit(Unit) }
+
     private val sheets = mutableSetOf<Any>()
     private val anySheet = MutableStateFlow(false)
 

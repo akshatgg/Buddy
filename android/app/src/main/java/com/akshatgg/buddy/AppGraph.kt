@@ -1,6 +1,8 @@
 package com.akshatgg.buddy
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import com.akshatgg.buddy.account.Account
 import com.akshatgg.buddy.account.CredentialManagerGoogle
@@ -42,6 +44,25 @@ import com.akshatgg.buddy.ui.common.installer
 import com.akshatgg.buddy.ui.settings.mayBeRestricted
 import com.akshatgg.buddy.update.ApkInstaller
 import com.akshatgg.buddy.update.Updater
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import com.akshatgg.buddy.apps.AppOpener
+import com.akshatgg.buddy.calls.AndroidCallLog
+import com.akshatgg.buddy.calls.AndroidNameLookup
+import com.akshatgg.buddy.calls.AndroidPhoneState
+import com.akshatgg.buddy.calls.CallInfo
+import com.akshatgg.buddy.calls.PhoneCaller
+import com.akshatgg.buddy.calls.PhoneDialer
+import com.akshatgg.buddy.calls.ServiceCallScreen
+import com.akshatgg.buddy.calls.WhatsAppCaller
+import com.akshatgg.buddy.calls.phoneFormat
+import com.akshatgg.buddy.message.Messenger
+import com.akshatgg.buddy.message.ServiceChatScreen
+import com.akshatgg.buddy.notify.NotifReader
+import com.akshatgg.buddy.ui.panel.PanelHands
+import com.akshatgg.buddy.ui.panel.PanelModel
+import com.akshatgg.buddy.voice.HandsFree
+import com.akshatgg.buddy.voice.SpokenChat
 import com.akshatgg.buddy.voice.AudioRecordSource
 import com.akshatgg.buddy.voice.Ears
 import com.akshatgg.buddy.voice.KeyguardLock
@@ -129,6 +150,46 @@ class AppGraph(
             warm = { scope.launch(Dispatchers.Default) { spotters.warm() } })
     }
     val lock: Lock by lazy { KeyguardLock(appContext) }
+
+    /**
+     * What follows "Hey <name>" (voice/HandsFree.kt): a chat of its own, not the panel's, that answers out loud. It has
+     * no screen and no permission questions: its hands never ask (a permission Buddy does not hold is a no).
+     */
+    val handsFree: HandsFree by lazy {
+        fun held(p: String) = ContextCompat.checkSelfPermission(appContext, p) == PackageManager.PERMISSION_GRANTED
+        val hands = PanelHands(
+            contacts = { held(Manifest.permission.READ_CONTACTS) },
+            allow = { held(it) },
+            stepAside = {},
+            screen = { null },
+        )
+        val model = PanelModel(
+            ask = this.ask,
+            scope = scope,
+            bubble = BubbleBus::send,
+            typeIn = typeIn,
+            facts = facts,
+            talkBack = talkBack,
+            lock = lock,
+            hands = hands,
+            messaging = Messenger(whatsApp, ServiceChatScreen(appContext), contactsAllowed = hands.contacts),
+            apps = AppOpener(launcher),
+            phone = PhoneCaller(phoneBook, PhoneDialer(appContext), contactsAllowed = hands.contacts, callsAllowed = { hands.allow(Manifest.permission.CALL_PHONE) }),
+            whatsAppCalls = WhatsAppCaller(whatsApp, ServiceCallScreen(appContext)),
+            callInfo = CallInfo(AndroidPhoneState(appContext), { ringWatch.now }, AndroidCallLog(appContext), AndroidNameLookup(appContext), allowed = hands.allow, format = phoneFormat(appContext)),
+            notifs = NotifReader(on = { NotificationManagerCompat.getEnabledListenerPackages(appContext).contains(appContext.packageName) }, recent = notifs::recent),
+            firstName = ::firstName,
+            maxMessage = shared.limitInstruction,
+            maxSelection = shared.limitText,
+            readyLine = "Open me and ask again, and I'll write it.",
+        )
+        val chat = object : SpokenChat {
+            override fun open() = model.open()
+            override fun hidden() = model.hidden()
+            override fun sendSpoken(text: String) = model.sendSpoken(text)
+        }
+        HandsFree(chat, talkBack, { audio, mime -> cloud.transcribe(audio, mime) }, { settings.buddyName }, BubbleBus::say)
+    }
 
     /** How the panel and the Fix sheet ask the AI: through the router, unless a test answers instead. */
     val ask: suspend (Action, AskInput) -> Answer = ask ?: router::ask

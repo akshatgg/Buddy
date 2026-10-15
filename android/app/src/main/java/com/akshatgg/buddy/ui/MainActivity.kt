@@ -1,7 +1,9 @@
 package com.akshatgg.buddy.ui
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -13,10 +15,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.akshatgg.buddy.AppGraph
+import com.akshatgg.buddy.bubble.BubbleBus
 import com.akshatgg.buddy.bubble.BubbleService
 import com.akshatgg.buddy.ui.common.AiFormModel
 import com.akshatgg.buddy.ui.common.askForNotifications
@@ -31,6 +35,8 @@ import com.akshatgg.buddy.ui.welcome.WelcomeModel
 import com.akshatgg.buddy.ui.welcome.WelcomeScreen
 import com.akshatgg.buddy.update.ApkInstaller
 import com.akshatgg.buddy.update.UpdateState
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // The panel's and the Fix sheet's "Open Settings" name the part of Settings that fixes the error: "ai", "account" or
@@ -47,6 +53,18 @@ class MainViewModel(saved: SavedStateHandle) : ViewModel() {
     val settings = SettingsModel(
         graph.account, graph.cloud, graph.settings, graph.memory, viewModelScope, graph.lookEnabled, graph.memorySyncer::request,
         graph.lookMayBeBlocked,
+        voiceModel = graph.voiceModel,
+        wakeChanged = { BubbleService.listen(graph.appContext); BubbleService.wakeChanged(graph.appContext) },
+        micAllowed = { ContextCompat.checkSelfPermission(graph.appContext, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED },
+        modelMissing = { graph.shared.voiceModelMissing },
+        test = { ms, heard ->
+            coroutineScope {
+                val counting = launch { BubbleBus.wakes.collect { heard() } }
+                BubbleService.test(graph.appContext, ms)
+                delay(ms)
+                counting.cancel()
+            }
+        },
     )
     val ai = AiFormModel(
         graph.settings, graph.secrets, graph.providers, graph.keySaver, graph.router::listModels, graph.router::modelFor, viewModelScope,
@@ -69,6 +87,8 @@ class MainActivity : ComponentActivity() {
     private val kept: MainViewModel by viewModels()
     private var section by mutableStateOf<SectionRequest?>(null)
     private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    // Listen for "Hey <name>" asked for the microphone first: whatever the answer, the switch looks again (it says if refused).
+    private val microphone = registerForActivityResult(ActivityResultContracts.RequestPermission()) { kept.settings.setWakeOn(true) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -87,6 +107,7 @@ class MainActivity : ComponentActivity() {
             lookChanged = { BubbleService.lookChanged(this) },
             powerChanged = { on -> if (on) BubbleService.start(this) else BubbleService.stop(this) },
             askNotifications = askNotifications,
+            askMicrophone = { microphone.launch(Manifest.permission.RECORD_AUDIO) },
             checkUpdate = { kept.graph.updater.check(asked = true) },
             updateNow = {
                 val updater = kept.graph.updater
@@ -120,6 +141,7 @@ class MainActivity : ComponentActivity() {
         // stopped it). Opening the app brings it back, as the Mac's buddy comes back when Buddy starts.
         val settings = kept.graph.settings
         if (settings.onboarded && settings.buddyOn && Settings.canDrawOverlays(this)) BubbleService.start(this)
+        BubbleService.listenIfNeeded(this) // the switch is on: listening begins now that the app is on screen
         kept.graph.updater.resumed() // back from Android's "Install unknown apps": the update goes on
     }
 

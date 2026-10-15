@@ -49,7 +49,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-private class FakeTypeIn : TypeIn {
+internal class FakeTypeIn : TypeIn {
     var on = true
     var app: String? = "WhatsApp"
     var box: BoxText? = BoxText("", 0, 0)
@@ -69,7 +69,7 @@ private class FakeTypeIn : TypeIn {
     }
 }
 
-private class FakeFacts : Facts {
+internal class FakeFacts : Facts {
     val kept = mutableListOf<Fact>()
     var refuse = false
     override fun facts() = kept.toList()
@@ -82,7 +82,7 @@ private class FakeFacts : Facts {
 }
 
 /** Messaging on WhatsApp, as the panel asks it: queued answers, and each call in `log` (shared with the hands). */
-private class FakeMessaging(val log: MutableList<String>) : Messaging {
+internal class FakeMessaging(val log: MutableList<String>) : Messaging {
     val found = ArrayDeque<Found>()
     val sent = ArrayDeque<Sent>()
     var sending: CompletableDeferred<Unit>? = null // a send that takes until this is completed
@@ -98,7 +98,7 @@ private class FakeMessaging(val log: MutableList<String>) : Messaging {
 }
 
 /** Opening apps, as the panel asks it: queued answers, and each call in `log` (shared with the hands). */
-private class FakeApps(val log: MutableList<String>) : AppOpening {
+internal class FakeApps(val log: MutableList<String>) : AppOpening {
     val opened = ArrayDeque<Opened>()
     override suspend fun open(asked: String): Opened {
         log += "open $asked"
@@ -107,7 +107,7 @@ private class FakeApps(val log: MutableList<String>) : AppOpening {
 }
 
 /** Phone calls, as the panel asks for them: queued answers, and each call in `log` (shared with the hands). */
-private class FakePhone(val log: MutableList<String>) : PhoneCalling {
+internal class FakePhone(val log: MutableList<String>) : PhoneCalling {
     val found = ArrayDeque<CallFound>()
     val called = ArrayDeque<Called>()
     var calling: CompletableDeferred<Unit>? = null // a call that takes until this is completed
@@ -125,7 +125,7 @@ private class FakePhone(val log: MutableList<String>) : PhoneCalling {
 }
 
 /** WhatsApp calls, as the panel asks for them: queued answers, and each call in `log` (shared with the hands). */
-private class FakeWhatsAppCalls(val log: MutableList<String>) : WhatsAppCalling {
+internal class FakeWhatsAppCalls(val log: MutableList<String>) : WhatsAppCalling {
     val called = ArrayDeque<Called>()
     var throws: Exception? = null
     override suspend fun call(person: Person, video: Boolean): Called {
@@ -136,7 +136,7 @@ private class FakeWhatsAppCalls(val log: MutableList<String>) : WhatsAppCalling 
 }
 
 /** The phone's calls, as the panel asks about them: queued answers, and each question in `log` (shared with the hands). */
-private class FakeCallInfo(val log: MutableList<String>) : CallTelling {
+internal class FakeCallInfo(val log: MutableList<String>) : CallTelling {
     val told = ArrayDeque<Told>()
     override suspend fun ringing(): Told {
         log += "ringing"
@@ -149,7 +149,7 @@ private class FakeCallInfo(val log: MutableList<String>) : CallTelling {
 }
 
 /** The phone's notifications, as the panel asks about them: queued answers, and each question in `log`. */
-private class FakeNotifs(val log: MutableList<String>) : NotifReading {
+internal class FakeNotifs(val log: MutableList<String>) : NotifReading {
     val told = ArrayDeque<Told>()
     override suspend fun read(app: String): Told {
         log += "notifs $app"
@@ -158,7 +158,7 @@ private class FakeNotifs(val log: MutableList<String>) : NotifReading {
 }
 
 /** Buddy's voice, as the panel uses it: what it said, and the answers it hears, in order. */
-private class FakeTalkBack(val log: MutableList<String>) : TalkBack {
+internal class FakeTalkBack(val log: MutableList<String>) : TalkBack {
     val answers = ArrayDeque<Heard>()
     val requests = ArrayDeque<String?>()
     var hearing: CompletableDeferred<Heard>? = null // a hear() that waits until this is completed
@@ -171,7 +171,7 @@ private class FakeTalkBack(val log: MutableList<String>) : TalkBack {
     override fun stop() { log += "stop"; if (stopCompletes) hearing?.complete(Heard.NO) }
 }
 
-private class FakeLock(var isLocked: Boolean = false, var unlocks: Boolean = true) : Lock {
+internal class FakeLock(var isLocked: Boolean = false, var unlocks: Boolean = true) : Lock {
     var gate: CompletableDeferred<Boolean>? = null // an unlocked() that waits until this is completed
     override fun locked() = isLocked
     override suspend fun unlocked(withinMs: Long): Boolean {

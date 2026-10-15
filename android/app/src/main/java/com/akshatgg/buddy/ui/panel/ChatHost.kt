@@ -137,14 +137,16 @@ class ChatViewModel : ViewModel() {
 
     /**
      * Whether Buddy holds `permission`: when it does not, the chat says why (whyLine) and Android asks the person (after
-     * two noes Android no longer asks: only the phone's settings for Buddy allow it then).
+     * two noes Android no longer asks: only the phone's settings for Buddy allow it then). Android's own say decides,
+     * after the answer too (allowedAfterAsking).
      */
-    private suspend fun allow(permission: String): Boolean {
-        if (ContextCompat.checkSelfPermission(app, permission) == PackageManager.PERMISSION_GRANTED) return true
-        val ask = host?.permission ?: return false
-        whyLine(permission)?.let(model::note)
-        return permissionAnswer.ask { ask.launch(permission) }
-    }
+    private suspend fun allow(permission: String): Boolean = allowedAfterAsking(
+        permission,
+        held = { ContextCompat.checkSelfPermission(app, it) == PackageManager.PERMISSION_GRANTED },
+        answer = permissionAnswer,
+        launch = host?.permission?.let { launcher -> { launcher.launch(it) } },
+        note = model::note,
+    )
 
     /**
      * One picture of the screen for the chat's "screen" step: Android asks the person first, every time; null when

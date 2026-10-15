@@ -52,6 +52,10 @@ class AppOpener(private val launcher: Launcher) : AppOpening {
     }
 }
 
+/** The apps "open …" can pick from: each with a name, and never Buddy itself (`own`: Buddy's package). */
+internal fun launcherApps(found: List<LauncherApp>, own: String): List<LauncherApp> =
+    found.filter { it.label.isNotBlank() && it.pkg != own }
+
 /**
  * The launcher's apps, through the package manager. Android 11 and later list them because the manifest's <queries>
  * names MAIN/LAUNCHER (already there for the chat's app names).
@@ -62,8 +66,7 @@ class PhoneLauncher(private val context: Context) : Launcher {
         val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val found = if (Build.VERSION.SDK_INT >= 33) pm.queryIntentActivities(home, PackageManager.ResolveInfoFlags.of(0))
         else @Suppress("DEPRECATION") pm.queryIntentActivities(home, 0)
-        found.map { LauncherApp(it.loadLabel(pm).toString().trim(), it.activityInfo.packageName, it.activityInfo.name) }
-            .filter { it.label.isNotEmpty() }
+        launcherApps(found.map { LauncherApp(it.loadLabel(pm).toString().trim(), it.activityInfo.packageName, it.activityInfo.name) }, context.packageName)
     }
 
     override fun start(app: LauncherApp) {

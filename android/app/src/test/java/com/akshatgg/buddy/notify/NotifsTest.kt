@@ -3,7 +3,9 @@ package com.akshatgg.buddy.notify
 import com.akshatgg.buddy.calls.Told
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NotifsTest {
@@ -45,6 +47,33 @@ class NotifsTest {
         assertEquals(listOf("2 messages"), store.recent().map { it.text })
         store.remove("a")
         assertEquals(emptyList<Notif>(), store.recent())
+    }
+
+    @Test fun aNotificationThatCannotBeReadIsSkippedAndItsOlderVersionForgotten() {
+        val store = NotifStore(now = { 10 * hour })
+        store.add(n("a", "WhatsApp", "Prince", "1 message", 1L))
+        store.add(n("b", "Instagram", "", "New follower", 1L))
+        assertFalse(store.posted("a") { throw IllegalStateException("bad parcel") })
+        assertFalse(store.posted("c") { throw RuntimeException("no label") })
+        assertEquals(listOf("b"), store.recent().map { it.key })
+    }
+    @Test fun anUpdateThatIsNowSkippedForgetsTheStoredOne() {
+        val store = NotifStore(now = { 10 * hour })
+        assertTrue(store.posted("a") { n("a", "WhatsApp", "Prince", "1 message", 1L) })
+        assertEquals(listOf("a"), store.recent().map { it.key })
+        assertTrue(store.posted("a") { null }) // e.g. it became ongoing, or a summary
+        assertEquals(emptyList<Notif>(), store.recent())
+    }
+    @Test fun addingDropsTheOnesOlderThanADayAtOnce() {
+        var now = 1 * hour
+        val store = NotifStore(now = { now })
+        store.add(n("old", "WhatsApp", "Prince", "hi", now))
+        now += 25 * hour
+        store.add(n("new", "WhatsApp", "Mom", "hi", now))
+        assertEquals(1, store.held())
+        store.add(n("stale", "WhatsApp", "Mom", "hi", now - 25 * hour))
+        assertEquals(listOf("new"), store.recent().map { it.key })
+        assertEquals(1, store.held())
     }
 
     @Test fun theLineNamesUpToFiveNewestFirst() {

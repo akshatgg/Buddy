@@ -16,6 +16,11 @@ class AppOpenerTest {
         override fun start(app: LauncherApp) { fails?.let { throw it }; started += app }
     }
 
+    @Test fun buddyIsNotOneOfTheAppsNorOneWithNoName() {
+        val buddy = LauncherApp("Buddy", "com.akshatgg.buddy", "Main")
+        val blank = LauncherApp(" ", "com.x", "X")
+        assertEquals(listOf(youTube, camera), launcherApps(listOf(youTube, buddy, blank, camera), own = "com.akshatgg.buddy"))
+    }
     @Test fun theOneAppOpens() = runTest {
         val l = FakeLauncher(listOf(youTube, music, camera))
         assertEquals(Opened.Done("YouTube"), AppOpener(l).open("youtube"))

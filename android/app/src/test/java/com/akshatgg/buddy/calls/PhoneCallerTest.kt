@@ -52,6 +52,12 @@ class PhoneCallerTest {
         assertEquals(emptyList<String>(), d.called)
         assertEquals(Called.Failed(NO_CALLS, "no_calls"), caller(dialer = FakeDialer(fails = SecurityException("x"))).call(Callee("P", "100")))
     }
+    @Test fun aTabletWithNoPhoneLineSaysSoBeforeAnyCardOrContacts() = runTest {
+        var askedContacts = false
+        val tablet = PhoneCaller(FakeBook(listOf(prince)), FakeDialer(can = false), contactsAllowed = { askedContacts = true; true }, callsAllowed = { true })
+        assertEquals(CallFound.Say("This phone can't make calls."), tablet.find("Prince"))
+        assertEquals(false, askedContacts)
+    }
     @Test fun aPhoneThatCannotCall() = runTest {
         assertEquals(Called.Failed("This phone can't make calls."), caller(dialer = FakeDialer(can = false)).call(Callee("P", "100")))
         assertEquals(Called.Failed("This phone can't make calls."), caller(dialer = FakeDialer(fails = ActivityNotFoundException("x"))).call(Callee("P", "100")))

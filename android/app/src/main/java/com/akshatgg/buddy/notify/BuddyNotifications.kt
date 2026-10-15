@@ -18,10 +18,11 @@ class BuddyNotifications : NotificationListenerService() {
 
     override fun onListenerConnected() {
         store.clear()
-        // What is in the shade already. Android may refuse while it is still connecting (a SecurityException).
+        // What is in the shade already. Android may refuse while it is still connecting (a SecurityException), or fail
+        // to hand the list over; each one in it is read on its own (keep).
         val shown = try {
             activeNotifications
-        } catch (e: SecurityException) {
+        } catch (e: RuntimeException) {
             Log.w("Buddy", "notifications: could not read the shade")
             null
         }
@@ -35,10 +36,18 @@ class BuddyNotifications : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) = store.remove(sbn.key)
 
+    /**
+     * Keeps one notification. Reading one can throw (a bad parcel in its extras, its app gone): that one is skipped, and
+     * only a fixed line is logged, never what it says.
+     */
     private fun keep(sbn: StatusBarNotification) {
-        val n = sbn.notification ?: return
-        val extras = n.extras ?: return
-        notifFrom(
+        if (!store.posted(sbn.key) { notifOf(sbn) }) Log.w("Buddy", "notifications: skipped one that could not be read")
+    }
+
+    private fun notifOf(sbn: StatusBarNotification): Notif? {
+        val n = sbn.notification ?: return null
+        val extras = n.extras ?: return null
+        return notifFrom(
             key = sbn.key, pkg = sbn.packageName, own = packageName,
             // A foreground service's own (a music player, a download) can be swiped away on Android 14, so is no
             // longer "ongoing": it is skipped all the same.
@@ -48,7 +57,7 @@ class BuddyNotifications : NotificationListenerService() {
             title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
             text = (extras.getCharSequence(Notification.EXTRA_TEXT) ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT))?.toString(),
             at = sbn.postTime,
-        )?.let(store::add)
+        )
     }
 
     /** The app's name. Android 11 and later show it for the apps the manifest's <queries> can see (the home screen's). */

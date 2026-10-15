@@ -16,6 +16,7 @@ import com.akshatgg.buddy.calls.CallFound
 import com.akshatgg.buddy.calls.CallTelling
 import com.akshatgg.buddy.calls.Callee
 import com.akshatgg.buddy.calls.Called
+import com.akshatgg.buddy.calls.PHONE_CALL_UNSURE
 import com.akshatgg.buddy.calls.PhoneCalling
 import com.akshatgg.buddy.calls.Told
 import com.akshatgg.buddy.calls.WhatsAppCalling
@@ -687,8 +688,9 @@ class PanelModel(
                 mood(Mood.HAPPY)
             }
             Called.Unsure -> {
-                replaceItem(c, ChatEvent(id, CALL_UNSURE))
-                say(CALL_UNSURE)
+                val line = if (card is CallCard.Phone) PHONE_CALL_UNSURE else CALL_UNSURE
+                replaceItem(c, ChatEvent(id, line))
+                say(line)
             }
             is Called.Ended -> {
                 replaceItem(c, ChatEvent(id, called.line))

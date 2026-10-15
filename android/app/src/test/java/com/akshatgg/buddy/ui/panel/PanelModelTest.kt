@@ -1264,7 +1264,8 @@ class PanelModelTest {
         val m = callCard()
         m.press(2, ChatButton.CALL)
         advanceUntilIdle()
-        assertEquals(ChatEvent(2, "I'm not sure the call started. Check WhatsApp."), m.last())
+        assertEquals(ChatEvent(2, "I'm not sure the call started."), m.last()) // a phone call: nothing to check in WhatsApp
+        assertEquals("I'm not sure the call started.", said.last())
         assertTrue(m.items.none { it is ChatError })
         phone.throws = null
         m.press(2, ChatButton.CALL)

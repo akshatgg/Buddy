@@ -29,6 +29,8 @@ sealed interface Called {
 }
 
 const val NO_CALLS = "I need permission to make calls. You can allow it in Settings."
+/** A phone call pressed that Buddy cannot tell started (WhatsApp's own says to check WhatsApp: CALL_UNSURE). */
+const val PHONE_CALL_UNSURE = "I'm not sure the call started."
 private const val CANT_CALL = "This phone can't make calls."
 
 /** The phone app's own call: ACTION_CALL, which rings at once (CALL_PHONE). A phone with two SIMs may ask which. */
@@ -51,8 +53,8 @@ interface PhoneCalling {
 }
 
 /**
- * A phone call, the steps in order. find(): who "Prince" is among the contacts with a number (the same rule as for
- * WhatsApp). call(), only after the person pressed Call: the call permission (asked the first time), then the call.
+ * A phone call, the steps in order. find(): whether this phone can call at all, then who "Prince" is among the contacts
+ * with a number (the same rule as for WhatsApp). call(), only after the person pressed Call: the call permission (asked the first time), then the call.
  */
 class PhoneCaller(
     private val book: PhoneBook,
@@ -61,6 +63,7 @@ class PhoneCaller(
     private val callsAllowed: suspend () -> Boolean,
 ) : PhoneCalling {
     override suspend fun find(asked: String): CallFound {
+        if (!dialer.canCall()) return CallFound.Say(CANT_CALL) // a tablet with no phone line: no card, no contacts question
         val noContacts = CallFound.Say("I need your contacts to find $asked. You can allow it in Settings.", "no_contacts")
         if (!contactsAllowed()) return noContacts
         val people = try {

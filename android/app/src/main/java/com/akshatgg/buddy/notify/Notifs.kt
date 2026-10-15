@@ -45,8 +45,9 @@ class NotifStore(
 
     /** A new notification, or a new version of one kept (the same key): it takes the old one's place. */
     @Synchronized fun add(n: Notif) {
-        kept.removeAll { it.key == n.key }
-        kept += n
+        val from = now() - keepMs
+        kept.removeAll { it.key == n.key || it.at < from }
+        if (n.at >= from) kept += n
         kept.sortByDescending { it.at }
         while (kept.size > max) kept.removeAt(kept.lastIndex)
     }
@@ -57,6 +58,25 @@ class NotifStore(
     }
 
     @Synchronized fun clear() = kept.clear()
+
+    /** How many are held right now, old ones included (for tests). */
+    @Synchronized internal fun held(): Int = kept.size
+
+    /**
+     * A notification posted (or updated) under `key`, read by `read`: kept; or, when it is not one to tell (any more) or
+     * reading it threw, skipped, and an older version under that key is forgotten. False when reading threw. `read` runs
+     * outside the lock: it asks Android for the app's name.
+     */
+    fun posted(key: String, read: () -> Notif?): Boolean {
+        val n = try {
+            read()
+        } catch (e: RuntimeException) {
+            remove(key)
+            return false
+        }
+        if (n == null) remove(key) else add(n)
+        return true
+    }
 
     /** Newest first, none older than a day. */
     @Synchronized fun recent(): List<Notif> {

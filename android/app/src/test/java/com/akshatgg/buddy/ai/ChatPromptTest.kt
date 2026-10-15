@@ -88,6 +88,7 @@ class ChatPromptTest {
                 send = r.getValue("send").jsonPrimitive.boolean,
                 remember = list("remember"),
                 again = r.getValue("again").jsonPrimitive.boolean,
+                to = r["to"]?.jsonPrimitive?.content.orEmpty(),
             )
             assertEquals(raw.take(200), expected, prompts.parseChat(raw))
         }
@@ -183,15 +184,25 @@ class ChatPromptTest {
         assertTrue(system.startsWith("You are Buddy"))
         assertTrue(system.contains("JSON only"))
         assertTrue(system.contains("all eight fields"))
-        assertEquals(listOf("write", "fix", "answer", "box", "screen", "send", "code"), TestShared.shared.chatKinds)
+        assertEquals(listOf("write", "fix", "answer", "box", "screen", "send", "code", "message"), TestShared.shared.chatKinds)
     }
 
     // ---- test/prompts.test.js, parseChat ----
 
     @Test fun parseChatReadsEachKind() {
-        for (kind in TestShared.shared.chatKinds) {
+        for (kind in TestShared.shared.chatKinds.filter { it != "message" }) { // a message has its own shape
             assertEquals(kind, reply(kind, say = "Here you go.", text = "Some text"), prompts.parseChat(answerOf(kind, "Some text", "Here you go.")))
         }
+    }
+
+    @Test fun aMessageKeepsWhoItIsToAndNeverDoesItOrSends() {
+        val r = prompts.parseChat("""{"kind":"message","app":"whatsapp","to":"Priya","say":"Okay!","text":"I'm late","notes":["x"],"doIt":true,"send":true,"remember":[],"again":true}""")
+        assertEquals(ChatReply("message", "Okay!", "I'm late", emptyList(), false, false, emptyList(), false, to = "Priya"), r)
+    }
+
+    @Test fun aMessageForAnotherAppSaysOnlyWhatsApp() {
+        val r = prompts.parseChat("""{"kind":"message","app":"telegram","to":"Priya","say":"","text":"hi","notes":[],"doIt":false,"send":false,"remember":[],"again":false}""")
+        assertEquals(ChatReply("answer", "", "I can only message on WhatsApp for now.", emptyList(), false, false, emptyList(), false), r)
     }
 
     @Test fun parseChatReadsAFullAnswerWithOrWithoutFences() {

@@ -44,6 +44,8 @@ data class ChatReply(
     val send: Boolean,
     val remember: List<String>,
     val again: Boolean,
+    /** Who a "message" is to; empty for every other kind. */
+    val to: String = "",
 )
 
 data class Prompt(val system: String, val user: String, val image: String?)

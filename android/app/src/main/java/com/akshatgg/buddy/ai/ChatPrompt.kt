@@ -135,6 +135,17 @@ internal fun readChat(shared: Shared, text: String?): ChatReply {
         remember = j.texts("remember", limits.remember, limits.rememberChars),
         again = (kind == "write" || kind == "fix") && j.isTrue("again"),
     )
+    // A message to a friend on WhatsApp: who it is to and what it says; never done by itself, sent, or with notes.
+    if (kind == "message") {
+        val plain = out.copy(notes = emptyList(), doIt = false, send = false, again = false)
+        fun asAnswer(text: String) = plain.copy(kind = "answer", say = "", text = text)
+        val app = j.string("app").lowercase()
+        val to = j.string("to").take(limits.nameChars)
+        if (app.isNotEmpty() && app != "whatsapp") return asAnswer("I can only message on WhatsApp for now.")
+        if (to.isEmpty()) return asAnswer("Who should I send it to?")
+        if (plain.text.isEmpty()) return asAnswer("What should I say to $to?")
+        return plain.copy(to = to)
+    }
     // A job for Claude Code (the desktop's): never put in an app, sent, or with notes.
     if (kind == "code") return out.copy(notes = emptyList(), doIt = false, send = false, again = false)
     // An answer given only as `say` is shown as the answer.

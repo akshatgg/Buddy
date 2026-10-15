@@ -18,6 +18,8 @@ import com.akshatgg.buddy.bubble.LookService
 import com.akshatgg.buddy.cloud.CloudClient
 import com.akshatgg.buddy.cloud.MemorySyncer
 import com.akshatgg.buddy.core.Shared
+import com.akshatgg.buddy.message.PhoneWhatsApp
+import com.akshatgg.buddy.message.WhatsApp
 import com.akshatgg.buddy.net.Http
 import com.akshatgg.buddy.net.UrlConnectionHttp
 import com.akshatgg.buddy.store.AppSettings
@@ -95,6 +97,9 @@ class AppGraph(
 
     /** Buddy can type for you: the box the person types in, through LookService. */
     val typeIn: TypeIn = ServiceTypeIn(appContext)
+
+    /** Message a friend: who is on WhatsApp in the phone's contacts, and their chat (message/WhatsApp.kt). */
+    val whatsApp: WhatsApp by lazy { PhoneWhatsApp(appContext) }
 
     /** What Buddy knows about the person, as the chat sees it: the memory on this phone (kept with the account too, signed in). */
     val facts: Facts get() = memory

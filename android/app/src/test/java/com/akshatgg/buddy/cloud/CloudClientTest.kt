@@ -242,10 +242,10 @@ class CloudClientTest {
         serve(HttpResponse(200, """{"text":"{\"kind\":\"answer\"}","model":"m"}"""))
         val input = AskInput(
             message = "fix this", selection = "i am go", history = listOf(ChatTurn("you", "hi"), ChatTurn("buddy", "Hello!")),
-            facts = listOf("Your boss is Mr. Sharma."), appName = "Gmail", userName = "Akshat", step = 1,
+            facts = listOf("Your boss is Mr. Sharma."), appName = "Gmail", userName = "Akshat", step = 1, canMessage = true,
         )
         assertEquals("{\"kind\":\"answer\"}", cloud.ask(Action.CHAT, input).text)
-        val body = """{"action":"chat","message":"fix this","selection":"i am go","history":[{"from":"you","text":"hi"},{"from":"buddy","text":"Hello!"}],"facts":["Your boss is Mr. Sharma."],"appName":"Gmail","userName":"Akshat","step":1}"""
+        val body = """{"action":"chat","message":"fix this","selection":"i am go","history":[{"from":"you","text":"hi"},{"from":"buddy","text":"Hello!"}],"facts":["Your boss is Mr. Sharma."],"appName":"Gmail","userName":"Akshat","step":1,"canMessage":true}"""
         assertEquals(Json.parseToJsonElement(body), Json.parseToJsonElement(toServer().single().body!!))
     }
 

@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert';
 import {
   createChat, chatRequest, historyBefore, answerItem, canSend, failureText,
-  EMPTY, TOO_LONG, CANT_SEE, CANT_SEND, NO_ANSWER, FAILED, FORGOT,
+  EMPTY, TOO_LONG, CANT_SEE, CANT_SEND, MESSAGE_ELSEWHERE, NO_ANSWER, FAILED, FORGOT,
 } from '../web/public/app/chat-core.js';
 import { ApiError } from '../web/public/app/api.js';
 import { createMemory } from '../web/public/app/memory.js';
@@ -70,6 +70,7 @@ test('an answer that wants the text box or the screen, or to send, says what the
   assert.strictEqual(answerItem(chat({ kind: 'box' }).chat).say, CANT_SEE);
   assert.strictEqual(answerItem(chat({ kind: 'screen' }).chat).say, CANT_SEE);
   assert.deepStrictEqual(answerItem(chat({ kind: 'send', say: 'Sending!' }).chat), { type: 'buddy', say: CANT_SEND, text: '', notes: [], buttons: [] });
+  assert.deepStrictEqual(answerItem(chat({ kind: 'message', say: 'Okay!', text: 'hi', to: 'Priya' }).chat), { type: 'buddy', say: MESSAGE_ELSEWHERE, text: '', notes: [], buttons: [] });
   assert.strictEqual(answerItem(chat({ kind: 'answer' }).chat).say, NO_ANSWER);
   assert.deepStrictEqual(answerItem(chat({ kind: 'answer', text: 'Kal = tomorrow.' }).chat).buttons, ['copy', 'share']);
   assert.deepStrictEqual(answerItem(chat({ kind: 'code', say: 'On it!', text: 'Fix the bug.' }).chat).text, 'Fix the bug.');

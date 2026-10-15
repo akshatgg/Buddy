@@ -107,6 +107,7 @@ enum Key: CGKeyCode {
     case a = 0x00
     case c = 0x08
     case d = 0x02
+    case f = 0x03
     case v = 0x09
     case z = 0x06
     case returnKey = 0x24
@@ -119,6 +120,7 @@ enum Key: CGKeyCode {
         case .a: return "a"
         case .c: return "c"
         case .d: return "d"
+        case .f: return "f"
         case .v: return "v"
         case .z: return "z"
         case .returnKey, .rightArrow, .upArrow: return nil
@@ -350,10 +352,17 @@ func paste(_ args: [String: Any]) throws -> [String: Any] {
     if focusedIsSecure(pid) { throw HelperError(code: "secure_field", message: "I don't type into password fields.") }
     if focusedIsReadOnly(pid) { throw HelperError(code: "not_editable", message: "Click in the box where it should go, then try again.") }
 
+    pasteHere(text, selectAll: args["selectAll"] as? Bool == true)
+    return ["via": via]
+}
+
+/// Puts `text` into the focused box of the app in front through the clipboard (⌘V, after ⌘A with `selectAll`), and
+/// then gives the person their own clipboard back. Nothing in it can fail, so the clipboard is always put back.
+func pasteHere(_ text: String, selectAll: Bool) {
     let pb = NSPasteboard.general
     let saved = saveClipboard()
     writeTemporary(text, to: pb)
-    if args["selectAll"] as? Bool == true {
+    if selectAll {
         pressCommand(.a)
         usleep(80_000)
     }
@@ -364,7 +373,6 @@ func paste(_ args: [String: Any]) throws -> [String: Any] {
     // Always put it back: Buddy's own write above changed the clipboard (writeTemporary always bumps the
     // change count), so a check for a changed count would always say yes.
     restoreClipboard(saved)
-    return ["via": via]
 }
 
 // The keys `press` may send and the modifiers it may hold, by the names Buddy uses (src/main/send-keys.js): ↩ sends,
@@ -740,6 +748,366 @@ func watchTyping(_ args: [String: Any]) throws -> [String: Any] {
     return ["watching": on]
 }
 
+// MARK: - WhatsApp for Mac
+
+// Buddy messages someone on WhatsApp for Mac, only after the person pressed Send on the card that shows the chat and
+// the message. WhatsApp is driven by its controls' fixed ids, found on WhatsApp 26.41 (see the hey-buddy spec). Names
+// and messages are passed on, never logged.
+
+let whatsAppId = "net.whatsapp.WhatsApp"
+let waSearchBoxId = "TokenizedSearchBar_TextView"
+// What the search shows, in its own list (not the chat list): a chat (a button), and a contact with no chat yet (a
+// text). Its other rows (messages found in a chat, media) and its headings are left alone.
+let waChatResultId = "ChatListSearchView_ChatResult"
+let waContactResultId = "ChatListSearchView_ContactResult"
+let waHeaderId = "NavigationBar_HeaderViewButton"
+let waClearButtonId = "TokenizedSearchBar_DeleteButton"
+let waComposerId = "ChatBar_ComposerTextView"
+// The invisible marks WhatsApp puts around names: left-to-right, right-to-left, and the embeddings and overrides, and the isolates.
+let directionMarks = CharacterSet(charactersIn: "\u{200E}\u{200F}\u{202A}\u{202B}\u{202C}\u{202D}\u{202E}\u{2066}\u{2067}\u{2068}\u{2069}")
+
+let whatsAppNotReady = HelperError(code: "whatsapp_not_ready", message: "WhatsApp didn't open. Open it once, then try again.")
+let waChatNotFound = HelperError(code: "chat_not_found", message: "I couldn't find that chat in WhatsApp.")
+let waWrongChat = HelperError(code: "wrong_chat", message: "That opened the wrong chat, so I didn't send it.")
+let waNotPutIn = HelperError(code: "not_put_in", message: "WhatsApp didn't put the message in, so I didn't send it.")
+
+func axAttr(_ e: AXUIElement, _ name: String) -> CFTypeRef? {
+    var value: CFTypeRef?
+    return AXUIElementCopyAttributeValue(e, name as CFString, &value) == .success ? value : nil
+}
+
+/// An attribute that is itself an element (a window, the menu bar, the focused field); nil when it is missing or is
+/// something else, so that a missing element is never a crash.
+func axElement(_ e: AXUIElement, _ name: String) -> AXUIElement? {
+    guard let value = axAttr(e, name), CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+    return (value as! AXUIElement)
+}
+
+func axKids(_ e: AXUIElement) -> [AXUIElement] { (axAttr(e, kAXChildrenAttribute) as? [AXUIElement]) ?? [] }
+func axString(_ e: AXUIElement, _ name: String) -> String { (axAttr(e, name) as? String) ?? "" }
+func axId(_ e: AXUIElement) -> String { axString(e, "AXIdentifier") }
+
+/// The first element under `root` (depth first, at most 30 deep) that passes `test`.
+func axFind(_ root: AXUIElement, depth: Int = 0, _ test: (AXUIElement) -> Bool) -> AXUIElement? {
+    if test(root) { return root }
+    if depth > 30 { return nil }
+    for kid in axKids(root) {
+        if let found = axFind(kid, depth: depth + 1, test) { return found }
+    }
+    return nil
+}
+
+/// The id of the element that has the keyboard focus in the app `ax`, "" when there is none.
+func axFocusedId(_ ax: AXUIElement) -> String {
+    axElement(ax, "AXFocusedUIElement").map(axId) ?? ""
+}
+
+/// Gives `element` the keyboard focus, and says whether, within a second, the focus is on the element with the id
+/// `id` in the app `pid` and that app is in front: keys pressed now go there and nowhere else.
+func focusOn(_ element: AXUIElement, id: String, pid: pid_t, in ax: AXUIElement) -> Bool {
+    AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+    let end = Date().addingTimeInterval(1)
+    repeat {
+        usleep(100_000)
+        if frontPid() == pid && axFocusedId(ax) == id { return true }
+    } while Date() < end
+    return false
+}
+
+/// `text` without the invisible direction marks.
+func withoutMarks(_ text: String) -> String {
+    text.unicodeScalars.filter { !directionMarks.contains($0) }.map(String.init).joined()
+}
+
+/// A chat's name from its row or header description: "‎Nisha, ‎1 unread message" is "Nisha".
+func chatName(_ description: String) -> String {
+    let clean = withoutMarks(description)
+    return (clean.components(separatedBy: ", ").first ?? clean).trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+/// A row of WhatsApp's search results that Buddy may open: a chat, or a contact with no chat yet.
+enum WaResult { case chat, contact }
+
+/// Which kind of result a row is, by its id. Messages found in a chat, media and the headings are none (nil): a
+/// message found in Nisha's chat is not a chat called Nisha.
+func waResultKind(_ id: String) -> WaResult? {
+    switch id {
+    case waChatResultId: return .chat
+    case waContactResultId: return .contact
+    default: return nil
+    }
+}
+
+/// The results in the order Buddy uses them: the chats, then the contacts, each in WhatsApp's order. A row with no
+/// name is left out.
+func chatsThenContacts<Row>(_ rows: [(kind: WaResult, name: String, row: Row)]) -> [(name: String, row: Row)] {
+    let named = rows.filter { !$0.name.isEmpty }
+    return (named.filter { $0.kind == .chat } + named.filter { $0.kind == .contact }).map { (name: $0.name, row: $0.row) }
+}
+
+/// What a box holds, as it is compared with what was pasted in: no marks, single spaces.
+func boxText(_ value: String) -> String { singleSpaced(withoutMarks(value)) }
+
+/// A name as it is compared: no marks, no case, no accents, single spaces (shared/message-pick.js plain()).
+func plainName(_ name: String) -> String {
+    chatName(name).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+}
+
+/// Text as it is compared with what the message box holds: every run of spaces and line breaks one space, none at
+/// the ends. Case and everything else must match.
+func singleSpaced(_ text: String) -> String {
+    text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+}
+
+/// WhatsApp's window, the front one.
+func whatsAppWindow(_ ax: AXUIElement) -> AXUIElement? {
+    (axAttr(ax, kAXWindowsAttribute) as? [AXUIElement])?.first
+}
+
+/// WhatsApp running, in front, with its main window open (it is started, or its window opened, when it is not):
+/// its process id and app element.
+func whatsAppReady() throws -> (pid_t, AXUIElement) {
+    try needAccessibility()
+    // Within the 15 and 20 seconds Buddy waits for waFind and waSend (src/main/helper.js), with time left for the rest.
+    let end = Date().addingTimeInterval(8)
+    let running = { NSRunningApplication.runningApplications(withBundleIdentifier: whatsAppId).first(where: { $0.processIdentifier > 0 }) }
+    var app = running()
+    if app == nil {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: whatsAppId) else {
+            throw HelperError(code: "no_whatsapp", message: "Install WhatsApp for Mac and I can message from here.")
+        }
+        let done = DispatchSemaphore(value: 0)
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { _, _ in done.signal() }
+        _ = done.wait(timeout: .now() + 5)
+        app = running()
+        while app == nil && Date() < end {
+            usleep(250_000)
+            app = running()
+        }
+    }
+    guard let pid = app?.processIdentifier else { throw whatsAppNotReady }
+    let ax = AXUIElementCreateApplication(pid)
+    _ = ensureFront(pid)
+    var reopened = false
+    while true {
+        if let window = whatsAppWindow(ax), axFind(window, { axId($0) == waSearchBoxId }) != nil {
+            // Keys go to the app in front: nothing is typed unless that is WhatsApp.
+            guard ensureFront(pid) != nil else { throw whatsAppNotReady }
+            return (pid, ax)
+        }
+        // Its window was closed: WhatsApp → "‎Open main window" (the title starts with an invisible mark).
+        if !reopened, whatsAppWindow(ax) == nil, let bar = axElement(ax, kAXMenuBarAttribute),
+           let item = axFind(bar, { axString($0, kAXTitleAttribute).contains("Open main window") }) {
+            reopened = true
+            AXUIElementPerformAction(item, kAXPressAction as CFString)
+        }
+        if Date() >= end { throw whatsAppNotReady }
+        usleep(250_000)
+    }
+}
+
+/// Presses File → Search in WhatsApp's menu bar, which puts the keyboard focus in the search box. (Setting the focus
+/// on the box itself is answered "done" but leaves it where it was, in WhatsApp 26.41.) The titles start with an
+/// invisible mark. False when there is no such item, or it did not take the press.
+func pressSearchMenu(_ ax: AXUIElement) -> Bool {
+    let title = { (e: AXUIElement) in withoutMarks(axString(e, kAXTitleAttribute)).trimmingCharacters(in: .whitespaces) }
+    guard let bar = axElement(ax, kAXMenuBarAttribute),
+          let file = axKids(bar).first(where: { title($0) == "File" }),
+          let item = axFind(file, { axString($0, kAXRoleAttribute) == "AXMenuItem" && title($0) == "Search" })
+    else { return false }
+    return AXUIElementPerformAction(item, kAXPressAction as CFString) == .success
+}
+
+/// Puts `box` back to holding `old`, after a paste went in where it should not have: its text is set back when it
+/// can be, and otherwise the paste is undone (⌘Z once, into the app in front, only when that is `pid`). Nothing when
+/// it still holds `old`.
+func putBack(_ box: AXUIElement, _ old: String, pid: pid_t) {
+    guard axString(box, kAXValueAttribute) != old else { return }
+    var settable: DarwinBoolean = false
+    if AXUIElementIsAttributeSettable(box, kAXValueAttribute as CFString, &settable) == .success, settable.boolValue,
+       AXUIElementSetAttributeValue(box, kAXValueAttribute as CFString, old as CFString) == .success {
+        usleep(100_000)
+        if axString(box, kAXValueAttribute) == old { return }
+    }
+    if frontPid() == pid { pressCommand(.z) }
+}
+
+/// The search result rows under `root` that are chats or contacts, chats first, each in the order WhatsApp shows
+/// them. Found by their ids anywhere in the window, not in one list: at most 30 of each.
+func waResults(_ root: AXUIElement) -> [(name: String, row: AXUIElement)] {
+    var rows: [(kind: WaResult, name: String, row: AXUIElement)] = []
+    func walk(_ e: AXUIElement, _ depth: Int) {
+        if depth > 30 || rows.count >= 60 { return }
+        if let kind = waResultKind(axId(e)) {
+            if rows.filter({ $0.kind == kind }).count < 30 {
+                rows.append((kind, chatName(axString(e, kAXDescriptionAttribute)), e))
+            }
+            return
+        }
+        for kid in axKids(e) { walk(kid, depth + 1) }
+    }
+    walk(root, 0)
+    return chatsThenContacts(rows)
+}
+
+/// Searches WhatsApp for `name`: the chats, then the contacts, that its search shows, by name, in its order. Messages
+/// found in a chat are left out. Only the search box is typed into, and nothing is opened.
+func waSearch(_ pid: pid_t, _ ax: AXUIElement, _ name: String, pasteBefore: Date? = nil) throws -> [(name: String, row: AXUIElement)] {
+    guard let window = whatsAppWindow(ax), let search = axFind(window, { axId($0) == waSearchBoxId }) else { throw whatsAppNotReady }
+    // The name goes into the search box or nowhere: pasted into a chat's message box it would sit there as a draft.
+    // What that box holds now is kept, to tell whether the paste went there.
+    let composer = axFind(window, { axId($0) == waComposerId })
+    let draft = composer.map { axString($0, kAXValueAttribute) } ?? ""
+    let draftChanged = { composer.map { axString($0, kAXValueAttribute) != draft } ?? false }
+    if !pressSearchMenu(ax) {
+        guard ensureFront(pid) != nil else { throw whatsAppNotReady }
+        pressCommand(.f)
+    }
+    usleep(300_000)
+    // Too late to paste: Buddy gives up on the caller's side soon, and the clipboard must be put back before that.
+    if let latest = pasteBefore, Date() >= latest { throw whatsAppNotReady }
+    // Keys go to the app in front: nothing is typed unless that is WhatsApp.
+    guard ensureFront(pid) != nil else { throw whatsAppNotReady }
+    // Start from a clear box: rows of the last search must be gone before the new one is typed.
+    let isResult = { (e: AXUIElement) in waResultKind(axId(e)) != nil }
+    if !axString(search, kAXValueAttribute).isEmpty, let clear = axFind(window, { axId($0) == waClearButtonId }) {
+        AXUIElementPerformAction(clear, kAXPressAction as CFString)
+        let cleared = Date().addingTimeInterval(1)
+        while Date() < cleared && axFind(window, isResult) != nil && !axString(search, kAXValueAttribute).isEmpty { usleep(100_000) }
+        guard ensureFront(pid) != nil else { throw whatsAppNotReady }
+    }
+    pasteHere(name, selectAll: true)
+    // WhatsApp's focus report cannot tell where the keys went (it names the window's content), but the boxes can: the
+    // search box must now hold the name, and the message box what it held before.
+    let wanted = singleSpaced(name)
+    let typed = Date().addingTimeInterval(1.5)
+    while Date() < typed && boxText(axString(search, kAXValueAttribute)) != wanted && !draftChanged() { usleep(100_000) }
+    if let composer, draftChanged() {
+        putBack(composer, draft, pid: pid)
+        throw whatsAppNotReady
+    }
+    guard boxText(axString(search, kAXValueAttribute)) == wanted else { throw whatsAppNotReady }
+
+    // The results show in their own list, within a second or so. Rows are taken only when two looks 0.3 s apart show
+    // the same names, so rows of the last search that are still going away are not read.
+    var shownBy = Date().addingTimeInterval(2.5)
+    if let latest = pasteBefore { shownBy = min(shownBy, latest.addingTimeInterval(3.3)) }
+    usleep(500_000)
+    while true {
+        let first = waResults(window)
+        if !first.isEmpty {
+            usleep(300_000)
+            let second = waResults(window)
+            if second.map({ $0.name }) == first.map({ $0.name }) { return second }
+        }
+        if Date() >= shownBy { return [] }
+        usleep(200_000)
+    }
+}
+
+/// waFind { name }: the chats and contacts WhatsApp's search shows for `name`, at most 10, by name (`chats`). `exact`
+/// is the same list: every row is a chat or a contact now that messages found in a chat are left out (kept for
+/// src/main/actions.js, which counts two chats of one name in it). Types only into the search box.
+func waFind(_ args: [String: Any]) throws -> [String: Any] {
+    let name = (args["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty else { throw HelperError(code: "bad_request", message: "name is missing") }
+    // Buddy stops waiting after 15 seconds (src/main/helper.js): no paste after 11.
+    let started = Date()
+    let (pid, ax) = try whatsAppReady()
+    let names = try waSearch(pid, ax, name, pasteBefore: started.addingTimeInterval(11)).prefix(10).map { $0.name }
+    return ["chats": names, "exact": names]
+}
+
+/// Opens a search result: a chat's row is a button; a contact's is a text, which the row around it may take the press
+/// for. The first of the row and its 3 nearest parents that can be pressed is pressed. False when none took it.
+func pressRow(_ row: AXUIElement) -> Bool {
+    var element: AXUIElement? = row
+    for _ in 0...3 {
+        guard let e = element else { break }
+        var actions: CFArray?
+        if AXUIElementCopyActionNames(e, &actions) == .success, ((actions as? [String]) ?? []).contains(kAXPressAction) {
+            return AXUIElementPerformAction(e, kAXPressAction as CFString) == .success
+        }
+        element = axElement(e, kAXParentAttribute)
+    }
+    // None says it can be pressed: the row may take it all the same.
+    return AXUIElementPerformAction(row, kAXPressAction as CFString) == .success
+}
+
+/// The name in the open chat's header, "" when there is none.
+func waHeader(_ ax: AXUIElement) -> String {
+    guard let window = whatsAppWindow(ax), let header = axFind(window, { axId($0) == waHeaderId }) else { return "" }
+    return chatName(axString(header, kAXDescriptionAttribute))
+}
+
+/// waSend { name, text }: opens the chat called `name`, checks its header says so, puts `text` in its message box and
+/// presses Return. Return is pressed only when the box holds exactly `text`, the paste changed nothing else (the
+/// search box), the header still names that chat and WhatsApp is in front; otherwise nothing is sent.
+func waSend(_ args: [String: Any]) throws -> [String: Any] {
+    let name = (args["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let text = args["text"] as? String ?? ""
+    guard !name.isEmpty, !singleSpaced(text).isEmpty else { throw HelperError(code: "bad_request", message: "name and text are needed") }
+    // Buddy stops waiting after 20 seconds and stops the helper (src/main/helper.js). The paste must be over well
+    // before then, so the person's clipboard is put back, and Return pressed before then too, so that a message is
+    // never sent after Buddy has said it failed.
+    let started = Date()
+    let (pid, ax) = try whatsAppReady()
+    let same = { (other: String) in plainName(other) == plainName(name) }
+    guard let row = try waSearch(pid, ax, name).first(where: { same($0.name) })?.row, pressRow(row) else { throw waChatNotFound }
+
+    // The chat that opened must be the one asked for.
+    var header = ""
+    let opened = Date().addingTimeInterval(4)
+    repeat {
+        usleep(250_000)
+        header = waHeader(ax)
+    } while !same(header) && Date() < opened
+    guard same(header) else { throw waWrongChat }
+
+    guard let window = whatsAppWindow(ax), let box = axFind(window, { axId($0) == waComposerId }) else { throw waNotPutIn }
+    // The text goes into the message box or nowhere, never into the search box (which may still hold the name). What
+    // both hold now is kept, to tell where the paste went.
+    let search = axFind(window, { axId($0) == waSearchBoxId })
+    let searched = search.map { axString($0, kAXValueAttribute) } ?? ""
+    let searchSame = { (search.map { axString($0, kAXValueAttribute) } ?? "") == searched }
+    let draft = axString(box, kAXValueAttribute)
+    _ = ensureFront(pid)
+    // Asked for, but not relied on: WhatsApp may answer "done" and leave the focus where it was, or name only the
+    // window's content as focused. The boxes are the check, after the paste. Never while the search box says it has it.
+    let focused = focusOn(box, id: waComposerId, pid: pid, in: ax)
+    guard frontPid() == pid, axFocusedId(ax) != waSearchBoxId, Date().timeIntervalSince(started) < 15 else { throw waNotPutIn }
+    pasteHere(text, selectAll: true)
+
+    // Only the approved text is sent. WhatsApp may take a moment to show what was pasted.
+    let wanted = singleSpaced(text)
+    let holds = { singleSpaced(axString(box, kAXValueAttribute)) == wanted }
+    let pasted = Date().addingTimeInterval(2)
+    while !holds() && searchSame() && Date() < pasted { usleep(100_000) }
+    // The paste went into the message box: it holds the text, and nothing else changed. When it held the text already,
+    // only the focus report can say the paste went there.
+    guard holds(), searchSame(), focused || axFocusedId(ax) == waComposerId || axString(box, kAXValueAttribute) != draft else {
+        if let search, !searchSame() {
+            putBack(search, searched, pid: pid)
+        } else if !holds() {
+            putBack(box, draft, pid: pid)
+        }
+        throw waNotPutIn
+    }
+    // Still the same chat, the paste still where it went, and WhatsApp still in front (Return goes to the app in front).
+    guard waHeader(ax) == header else { throw waWrongChat }
+    guard frontPid() == pid, axFocusedId(ax) != waSearchBoxId, holds(), searchSame(), Date().timeIntervalSince(started) < 17.5 else { throw waNotPutIn }
+    pressKeys(.returnKey, [])
+    // Sent means the box no longer holds the text. Return is never pressed again: at most 17.5 s + 1.5 s = 19 s here.
+    let confirmBy = Date().addingTimeInterval(1.5)
+    repeat {
+        if !holds() { return ["chat": header] }
+        usleep(100_000)
+    } while Date() < confirmBy
+    if !holds() { return ["chat": header] }
+    throw HelperError(code: "not_sent", message: "I pressed Send, but WhatsApp didn't send it. Check WhatsApp.")
+}
+
 func handle(_ msg: [String: Any]) {
     let id = msg["id"] ?? NSNull()
     let args = msg["args"] as? [String: Any] ?? [:]
@@ -774,6 +1142,10 @@ func handle(_ msg: [String: Any]) {
             result = try watchKeys(args)
         case "watchTyping":
             result = try watchTyping(args)
+        case "waFind":
+            result = try waFind(args)
+        case "waSend":
+            result = try waSend(args)
         default:
             throw HelperError(code: "bad_request", message: "unknown command")
         }

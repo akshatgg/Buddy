@@ -56,6 +56,7 @@ internal fun chatPrompt(shared: Shared, input: AskInput): Prompt {
     val who = listOfNotNull(appName.ifEmpty { null }?.let { "The app they are in: $it" }, userName.ifEmpty { null }?.let { "Their first name: $it" })
     if (who.isNotEmpty()) parts += who.joinToString("\n")
     if (facts.isNotEmpty()) parts += "What you know about them:\n" + facts.joinToString("\n") { "- $it" }
+    if (input.canMessage == true) parts += "Buddy can message people on WhatsApp from here."
     if (history.isNotEmpty()) parts += "Chat so far (oldest first):\n" + history.joinToString("\n")
     if (selection.isNotEmpty()) parts += "Selected text:\n${quoted(selection)}"
     if (box.isNotEmpty()) parts += "Their text box:\n${quoted(box)}"
@@ -135,6 +136,17 @@ internal fun readChat(shared: Shared, text: String?): ChatReply {
         remember = j.texts("remember", limits.remember, limits.rememberChars),
         again = (kind == "write" || kind == "fix") && j.isTrue("again"),
     )
+    // A message to a friend on WhatsApp: who it is to and what it says; never done by itself, sent, or with notes.
+    if (kind == "message") {
+        val plain = out.copy(notes = emptyList(), doIt = false, send = false, again = false)
+        fun asAnswer(text: String) = plain.copy(kind = "answer", say = "", text = text)
+        val app = j.string("app").lowercase()
+        val to = j.string("to").take(limits.nameChars)
+        if (app.isNotEmpty() && app != "whatsapp") return asAnswer("I can only message on WhatsApp for now.")
+        if (to.isEmpty()) return asAnswer("Who should I send it to?")
+        if (plain.text.isEmpty()) return asAnswer("What should I say to $to?")
+        return plain.copy(to = to)
+    }
     // A job for Claude Code (the desktop's): never put in an app, sent, or with notes.
     if (kind == "code") return out.copy(notes = emptyList(), doIt = false, send = false, again = false)
     // An answer given only as `say` is shown as the answer.

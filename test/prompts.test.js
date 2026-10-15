@@ -221,7 +221,7 @@ test('chat: the system prompt asks for the JSON and gives every rule', () => {
   assert.match(system, /You are Buddy/);
   assert.match(system, /JSON only/);
   assert.match(system, /"kind"/);
-  for (const kind of ['write', 'fix', 'answer', 'box', 'screen', 'send', 'code']) assert.match(system, new RegExp(`"${kind}"`), kind);
+  for (const kind of ['write', 'fix', 'answer', 'box', 'screen', 'send', 'code', 'message']) assert.match(system, new RegExp(`"${kind}"`), kind);
   for (const field of ['say', 'text', 'notes', 'doIt', 'send', 'remember', 'again']) assert.match(system, new RegExp(`"${field}"`), field);
   assert.match(system, /all eight fields/);
   assert.match(system, /"again": true or false/, 'the JSON shape has it');
@@ -251,6 +251,55 @@ test('parseChat reads each kind', () => {
       kind, say: 'Here you go.', text, notes: [], doIt: false, send: false, remember: [], again: false,
     }, kind);
   }
+});
+
+test('parseChat reads "message": who to, and the text to send, never doIt, send, notes or again', () => {
+  const r = parseChat(answerOf({ kind: 'message', app: 'whatsapp', to: 'Priya', say: 'Okay!', text: "I'm running late", doIt: true, send: true, notes: ['x'], again: true }));
+  assert.deepStrictEqual(r, { kind: 'message', say: 'Okay!', text: "I'm running late", notes: [], doIt: false, send: false, remember: [], again: false, to: 'Priya' });
+});
+
+test('parseChat: a message for another app is an answer saying only WhatsApp works', () => {
+  const r = parseChat(answerOf({ kind: 'message', app: 'telegram', to: 'Priya', text: 'hi' }));
+  assert.deepStrictEqual(r, { kind: 'answer', say: '', text: 'I can only message on WhatsApp for now.', notes: [], doIt: false, send: false, remember: [], again: false });
+});
+
+test('parseChat: a message with no one to send to asks who', () => {
+  const r = parseChat(answerOf({ kind: 'message', app: 'whatsapp', to: ' ', text: 'hi' }));
+  assert.deepStrictEqual(r, { kind: 'answer', say: '', text: 'Who should I send it to?', notes: [], doIt: false, send: false, remember: [], again: false });
+});
+
+test('parseChat: a message with nothing to say asks what', () => {
+  const r = parseChat(answerOf({ kind: 'message', app: 'WhatsApp', to: 'Priya', text: '' }));
+  assert.deepStrictEqual(r, { kind: 'answer', say: '', text: 'What should I say to Priya?', notes: [], doIt: false, send: false, remember: [], again: false });
+});
+
+test('parseChat keeps what they remembered on a message', () => {
+  const r = parseChat(answerOf({ kind: 'message', app: 'whatsapp', to: 'Priya', text: 'hi', remember: ['Priya is your sister.'] }));
+  assert.deepStrictEqual(r.remember, ['Priya is your sister.']);
+});
+
+test('the chat prompt tells the model when to answer "message" and its two extra fields', () => {
+  const { system } = buildPrompt('chat', { message: 'x' });
+  assert.match(system, /- "message": they ask you to message, text or tell someone something on WhatsApp/);
+  assert.match(system, /"app" and "to"/);
+});
+
+test('the "message" rule: only when the request says Buddy can message, and never on the second step', () => {
+  const { system } = buildPrompt('chat', { message: 'x' });
+  const rule = system.split('\n').find((line) => line.startsWith('- "message":'));
+  assert.ok(rule.includes("Only when the request says Buddy can message people on WhatsApp; otherwise answer that you can't send messages from here."));
+  assert.ok(rule.includes('Never on the second step.'));
+});
+
+test('chat: a request from an app that can message says so; any other request does not', () => {
+  const line = 'Buddy can message people on WhatsApp from here.';
+  assert.ok(buildPrompt('chat', { message: 'message priya hi', canMessage: true }).user.includes(line));
+  assert.ok(!buildPrompt('chat', { message: 'message priya hi' }).user.includes(line), 'an older app, or the iPhone web app');
+  assert.ok(!buildPrompt('chat', { message: 'message priya hi', canMessage: false }).user.includes(line));
+  assert.ok(!buildPrompt('chat', { message: 'message priya hi', canMessage: 'true' }).user.includes(line), 'only a real true');
+  const p = buildPrompt('chat', { message: 'go', facts: ['You work at Infosys.'], canMessage: true, history: [{ from: 'you', text: 'hi' }] });
+  assert.ok(p.user.indexOf('What you know about them') < p.user.indexOf(line));
+  assert.ok(p.user.indexOf(line) < p.user.indexOf('Chat so far'));
 });
 
 test('parseChat reads a full answer, with or without code fences', () => {

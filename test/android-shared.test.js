@@ -7,7 +7,8 @@ const prompts = require('../shared/prompts');
 const { PROVIDER_IDS } = require('../shared/providers');
 const memoryRules = require('../shared/memory-rules');
 const memorySync = require('../shared/memory-sync');
-const { buildShared, buildChatCases, TO, CASES_TO } = require('../tools/sync-android-shared');
+const { buildShared, buildChatCases, buildPickCases, TO, CASES_TO, PICK_TO } = require('../tools/sync-android-shared');
+const { pickChat, pickLine } = require('../shared/message-pick');
 
 test('android shared.json is up to date with shared/ (run `npm run sync:android` after changing shared/)', () => {
   assert.equal(fs.readFileSync(TO, 'utf8'), `${JSON.stringify(buildShared(), null, 2)}\n`);
@@ -63,4 +64,14 @@ test('shared.json holds the memory rules: the limits and every pattern cleanFact
 
 test('shared.json holds the limits of the memory kept with the account (shared/memory-sync.js)', () => {
   assert.deepEqual(buildShared().memorySync, { maxOps: memorySync.MAX_OPS, maxGone: memorySync.MAX_GONE });
+});
+
+test('the pick cases the Kotlin port is checked against are up to date (run `npm run sync:android`)', () => {
+  assert.equal(fs.readFileSync(PICK_TO, 'utf8'), `${JSON.stringify(buildPickCases(), null, 2)}\n`);
+  const cases = buildPickCases();
+  assert.ok(cases.length >= 3);
+  for (const { asked, names, pick, line } of cases) {
+    assert.deepEqual(pickChat(asked, names), pick);
+    assert.deepEqual(pickLine(asked, pick), line);
+  }
 });

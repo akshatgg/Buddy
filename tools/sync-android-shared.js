@@ -15,11 +15,13 @@ const prompts = require('../shared/prompts');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
 const memoryRules = require('../shared/memory-rules');
 const memorySync = require('../shared/memory-sync');
+const { pickChat, pickLine, PICK_CASES } = require('../shared/message-pick');
 
 const ROOT = path.join(__dirname, '..');
 const TO = path.join(ROOT, 'android', 'app', 'src', 'main', 'assets', 'shared.json');
 // Not shipped: what shared/prompts.js answers for some chat inputs, which the Kotlin port's tests must answer the same.
 const CASES_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'chat-cases.json');
+const PICK_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'pick-cases.json');
 
 /** The message buildPrompt refuses `input` with. */
 function refusal(action, input) {
@@ -140,12 +142,16 @@ const CHAT_INPUTS = [
   { message: 'hi', appName: `Google\nChrome ${'c'.repeat(200)}`, userName: ` ${'n'.repeat(150)} ` },
   { message: 'hi', appName: '  ', userName: '' },
   { message: 'hi', appName: `Notes${SPACES}`, userName: `\u00a0Akshat\u2003Gupta ` },
+  // The Android app can message on WhatsApp, and says so.
+  { message: 'message priya on whatsapp im late', canMessage: true, facts: ['You work at Infosys.'], history: [{ from: 'you', text: 'hi' }] },
+  { message: 'fix my English', box: 'i am go', canMessage: true, step: 2 },
+  { message: 'hi', canMessage: false },
 ];
 
 /** Model answers, and what parseChat reads in them. */
 const fields = (f) => JSON.stringify({ kind: 'write', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false, ...f });
 const CHAT_REPLIES = [
-  ...['write', 'fix', 'answer', 'box', 'screen', 'send', 'code'].map((kind) => fields({ kind, say: 'Here you go.', text: 'Some text' })),
+  ...['write', 'fix', 'answer', 'box', 'screen', 'send', 'code', 'message'].map((kind) => fields({ kind, say: 'Here you go.', text: 'Some text' })),
   JSON.stringify({ kind: 'fix', say: 'Theek kar diya!', text: 'I am going.', notes: ['"go" should be "going".'], doIt: true, send: true, remember: ['You work in an office.'], again: true }),
   `\`\`\`json\n${fields({ kind: 'fix', text: 'x', doIt: true })}\n\`\`\``,
   `\`\`\`\n${fields({ kind: 'answer', text: 'y' })}\n\`\`\``,
@@ -164,6 +170,10 @@ const CHAT_REPLIES = [
   ...['answer', 'box', 'screen', 'send'].map((kind) => fields({ kind, text: 'x', again: true })),
   ...['true', 1, 'yes', null, {}, [true]].map((again) => fields({ kind: 'write', text: 'x', again })),
   fields({ kind: 'code', say: 'On it!', text: 'Fix the bug.', doIt: true, send: true, notes: ['x'], again: true }),
+  JSON.stringify({ kind: 'message', app: 'whatsapp', to: 'Priya', say: 'Okay!', text: "I'm late", notes: ['x'], doIt: true, send: true, remember: [], again: true }),
+  JSON.stringify({ kind: 'message', app: 'telegram', to: 'Priya', say: '', text: 'hi', notes: [], doIt: false, send: false, remember: [], again: false }),
+  JSON.stringify({ kind: 'message', app: '', to: '', say: '', text: 'hi', notes: [], doIt: false, send: false, remember: [], again: false }),
+  JSON.stringify({ kind: 'message', app: 'whatsapp', to: 'Priya', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false }),
   fields({ kind: 'write', say: `${SPACES}hey${SPACES}`, text: `\u00a0x\u2003` }),
 ];
 
@@ -182,12 +192,19 @@ function buildChatCases() {
   };
 }
 
+function buildPickCases() {
+  return PICK_CASES.map(([asked, names]) => {
+    const pick = pickChat(asked, names);
+    return { asked, names, pick, line: pickLine(asked, pick) };
+  });
+}
+
 if (require.main === module) {
-  for (const [to, made] of [[TO, buildShared()], [CASES_TO, buildChatCases()]]) {
+  for (const [to, made] of [[TO, buildShared()], [CASES_TO, buildChatCases()], [PICK_TO, buildPickCases()]]) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.writeFileSync(to, `${JSON.stringify(made, null, 2)}\n`);
     console.log(`wrote ${path.relative(ROOT, to)}`);
   }
 }
 
-module.exports = { buildShared, buildChatCases, TO, CASES_TO };
+module.exports = { buildShared, buildChatCases, buildPickCases, TO, CASES_TO, PICK_TO };

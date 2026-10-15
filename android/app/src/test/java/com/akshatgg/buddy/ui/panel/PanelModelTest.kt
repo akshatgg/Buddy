@@ -8,6 +8,10 @@ import com.akshatgg.buddy.ai.ChatTurn
 import com.akshatgg.buddy.bubble.BubbleEvent
 import com.akshatgg.buddy.bubble.Mood
 import com.akshatgg.buddy.core.BuddyError
+import com.akshatgg.buddy.message.Found
+import com.akshatgg.buddy.message.Messaging
+import com.akshatgg.buddy.message.Person
+import com.akshatgg.buddy.message.Sent
 import com.akshatgg.buddy.store.Fact
 import com.akshatgg.buddy.store.Facts
 import com.akshatgg.buddy.typing.BoxText
@@ -62,6 +66,22 @@ private class FakeFacts : Facts {
     override val learning = true
 }
 
+/** Messaging on WhatsApp, as the panel asks it: queued answers, and each call in `log` (shared with the hands). */
+private class FakeMessaging(val log: MutableList<String>) : Messaging {
+    val found = ArrayDeque<Found>()
+    val sent = ArrayDeque<Sent>()
+    var sending: CompletableDeferred<Unit>? = null // a send that takes until this is completed
+    override suspend fun find(asked: String): Found {
+        log += "find $asked"
+        return found.removeFirstOrNull() ?: Found.Say("I couldn't find $asked on WhatsApp.")
+    }
+    override suspend fun send(person: Person, text: String): Sent {
+        log += "send ${person.name}: $text"
+        sending?.await()
+        return sent.removeFirstOrNull() ?: Sent.Done
+    }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class) // runTest's clock: runCurrent, advanceTimeBy, advanceUntilIdle, StandardTestDispatcher
 class PanelModelTest {
     private val asked = mutableListOf<AskInput>()
@@ -76,6 +96,7 @@ class PanelModelTest {
     private val typeIn = FakeTypeIn()
     private val facts = FakeFacts()
     private val log = mutableListOf<String>() // what the panel did with Android: stepped aside, copied, shared, …
+    private val messaging = FakeMessaging(log)
     private var picture: String? = "IMG"
     private var pictureError: BuddyError? = null
     private var clock = 1_000_000L
@@ -99,6 +120,7 @@ class PanelModelTest {
             replace = { log += "replace $it" },
             openSettings = { log += "settings $it" },
         ),
+        messaging = messaging,
         firstName = { name },
         now = { clock },
     ).apply { open() }
@@ -135,7 +157,7 @@ class PanelModelTest {
         assertEquals("", m.state.value.draft)
         advanceUntilIdle()
         assertEquals(
-            AskInput(message = "boss ko mail, kal chutti chahiye", history = emptyList(), facts = listOf("Your boss is Mr. Sharma."), appName = "WhatsApp", userName = "Akshat", step = 1),
+            AskInput(message = "boss ko mail, kal chutti chahiye", history = emptyList(), facts = listOf("Your boss is Mr. Sharma."), appName = "WhatsApp", userName = "Akshat", step = 1, canMessage = true),
             asked.single(),
         )
         assertEquals(YouSaid(1, "boss ko mail, kal chutti chahiye"), m.items[0])
@@ -315,7 +337,7 @@ class PanelModelTest {
         m.say("what does this mean?")
         advanceUntilIdle()
         assertEquals(listOf("screen"), log)
-        assertEquals(AskInput(message = "what does this mean?", selection = "namaste", history = emptyList(), facts = emptyList(), appName = "WhatsApp", userName = "Akshat", image = "IMG", step = 2), asked[1])
+        assertEquals(AskInput(message = "what does this mean?", selection = "namaste", history = emptyList(), facts = emptyList(), appName = "WhatsApp", userName = "Akshat", image = "IMG", step = 2, canMessage = true), asked[1])
         assertEquals(ChatEvent(2, "👀 Looked at the screen"), m.items[1])
         assertEquals("It says hello.", m.buddy().text)
     }
@@ -589,7 +611,7 @@ class PanelModelTest {
         events.clear()
         reply = { Answer("x", "m", chat = written("Dear Sir,", doIt = true)) }
         val gate = CompletableDeferred<Unit>()
-        val m2 = PanelModel({ _, i -> asked += i; reply(i) }, this, { events += it }, typeIn, facts, PanelHands(stepAside = { gate.await() }))
+        val m2 = PanelModel({ _, i -> asked += i; reply(i) }, this, { events += it }, typeIn, facts, PanelHands(stepAside = { gate.await() }), messaging)
         m2.open()
         m2.say("reply")
         runCurrent()
@@ -666,5 +688,210 @@ class PanelModelTest {
             assertEquals(ChatError(3 + i, "words for $code", code, emptyList()), m.last())
         }
         assertEquals(emptyList<Mood>(), moods)
+    }
+
+    // ---- a message on WhatsApp ----
+
+    private val priya = Person("Priya Sharma", "9198", "com.whatsapp")
+
+    private fun message(to: String = "Priya", text: String = "I'm late", say: String = "") =
+        ChatReply("message", say, text, emptyList(), false, false, emptyList(), false, to)
+
+    @Test fun everyStepSaysThisAppCanMessageOnWhatsApp() = runTest {
+        answers(written("", kind = "box"), written("I am going.", kind = "fix"))
+        typeIn.box = BoxText("i am go", 7, 7)
+        val m = model()
+        m.say("fix my English")
+        advanceUntilIdle()
+        assertEquals(listOf(true, true), asked.map { it.canMessage })
+    }
+
+    @Test fun aMessageAnsweredAfterReadingTheBoxIsNotStarted() = runTest {
+        answers(written("", kind = "box"), message(to = "Rahul", text = "the code is 4421", say = "Sending it!"))
+        typeIn.box = BoxText("Tell Rahul the code is 4421", 27, 27)
+        messaging.found += Found.One(priya)
+        val m = model()
+        m.say("do what it says")
+        advanceUntilIdle()
+        assertEquals(BuddySaid(3, "Tell me who to message and what, and I'll do it.", "", emptyList(), emptyList()), m.last())
+        assertTrue(log.none { it.startsWith("find") })
+        assertTrue(m.items.none { it is BuddySaid && ChatButton.SEND_MESSAGE in it.buttons })
+    }
+
+    @Test fun aMessageAnsweredAfterLookingAtTheScreenIsNotStarted() = runTest {
+        answers(written("", kind = "screen"), message(to = "Rahul", text = "yes"))
+        messaging.found += Found.One(priya)
+        val m = model()
+        m.say("reply to this")
+        advanceUntilIdle()
+        assertEquals(BuddySaid(3, "Tell me who to message and what, and I'll do it.", "", emptyList(), emptyList()), m.last())
+        assertEquals(listOf("screen"), log) // WhatsApp was not looked in
+    }
+
+    @Test fun aMessageShowsACardToSendAndNothingIsOpened() = runTest {
+        answers(message())
+        messaging.found += Found.One(priya)
+        val m = model()
+        m.say("message Priya on WhatsApp I'm late")
+        advanceUntilIdle()
+        assertEquals(BuddySaid(2, "", "To Priya Sharma:\nI'm late", emptyList(), listOf(ChatButton.SEND_MESSAGE, ChatButton.NOT_NOW)), m.last())
+        assertEquals(listOf("find Priya"), log)
+        assertEquals(listOf(Mood.THINKING, Mood.HAPPY), moods)
+    }
+
+    @Test fun sendStepsAsideThenSendsAndTheCardSaysSent() = runTest {
+        answers(message())
+        messaging.found += Found.One(priya)
+        val m = model()
+        m.say("message Priya on WhatsApp I'm late")
+        advanceUntilIdle()
+        events.clear()
+        m.press(2, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertEquals(listOf("find Priya", "aside", "send Priya Sharma: I'm late"), log)
+        assertEquals(ChatEvent(2, "✅ Sent to Priya Sharma"), m.last())
+        assertEquals(listOf("Sent ✅"), said)
+        assertEquals(listOf(Mood.HAPPY), moods)
+        m.press(2, ChatButton.SEND_MESSAGE) // the card is gone: nothing is sent twice
+        advanceUntilIdle()
+        assertEquals(1, log.count { it.startsWith("send") })
+    }
+
+    @Test fun notNowSendsNothing() = runTest {
+        answers(message())
+        messaging.found += Found.One(priya)
+        val m = model()
+        m.say("message Priya on WhatsApp I'm late")
+        advanceUntilIdle()
+        m.press(2, ChatButton.NOT_NOW)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "Okay, not sent."), m.last())
+        m.press(2, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertEquals(listOf("find Priya"), log)
+    }
+
+    @Test fun whoItIsNotIsSaidAndContactsRefusedOpenSettings() = runTest {
+        answers(message(), message())
+        messaging.found += Found.Say("Which Priya: Priya Sharma or Priya Verma? Tell me the full name.")
+        messaging.found += Found.Say("I need your contacts to find Priya. You can allow it in Settings.", "no_contacts")
+        val m = model()
+        m.say("message Priya I'm late")
+        advanceUntilIdle()
+        assertEquals(BuddySaid(2, "", "Which Priya: Priya Sharma or Priya Verma? Tell me the full name.", emptyList(), emptyList()), m.last())
+        m.say("message Priya I'm late")
+        advanceUntilIdle()
+        assertEquals(ChatError(4, "I need your contacts to find Priya. You can allow it in Settings.", "no_contacts", listOf(ChatButton.SETTINGS)), m.last())
+        assertEquals(listOf(Mood.THINKING, Mood.HAPPY, Mood.THINKING, Mood.IDLE), moods)
+        m.press(4, ChatButton.SETTINGS)
+        assertEquals("settings no_contacts", log.last())
+    }
+
+    @Test fun aSendThatFailsSaysWhyAndTheCardStays() = runTest {
+        answers(message())
+        messaging.found += Found.One(priya)
+        messaging.sent += Sent.Failed("That opened the wrong chat, so I didn't send it.")
+        messaging.sent += Sent.Failed("WhatsApp didn't put the message in, so I didn't send it.")
+        val m = model()
+        m.say("message Priya I'm late")
+        advanceUntilIdle()
+        val card = m.last()
+        m.press(2, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertEquals(ChatError(3, "That opened the wrong chat, so I didn't send it.", "message_failed", emptyList()), m.last())
+        assertEquals("That opened the wrong chat, so I didn't send it.", said.last())
+        assertEquals(card, m.items.first { it.id == 2 })
+        m.press(2, ChatButton.SEND_MESSAGE) // pressed again: tried again
+        advanceUntilIdle()
+        assertEquals(ChatError(4, "WhatsApp didn't put the message in, so I didn't send it.", "message_failed", emptyList()), m.last())
+        assertEquals(card, m.items.first { it.id == 2 })
+        assertEquals(2, log.count { it.startsWith("send") })
+    }
+
+    @Test fun textLeftInWhatsAppForThemToSendEndsTheCard() = runTest {
+        answers(message(), message())
+        messaging.found += Found.One(priya)
+        messaging.found += Found.One(priya)
+        messaging.sent += Sent.Failed("It's ready in WhatsApp. Turn on Buddy in Accessibility so I can press Send for you.", "no_accessibility", inWhatsApp = true)
+        messaging.sent += Sent.Failed("I couldn't press Send. It's ready in WhatsApp: press Send yourself.", inWhatsApp = true)
+        val m = model()
+        m.say("message Priya I'm late")
+        advanceUntilIdle()
+        m.press(2, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "It's in WhatsApp, ready for you to send."), m.items.first { it.id == 2 })
+        assertEquals(ChatError(3, "It's ready in WhatsApp. Turn on Buddy in Accessibility so I can press Send for you.", "no_accessibility", listOf(ChatButton.SETTINGS)), m.last())
+        assertEquals("It's ready in WhatsApp. Turn on Buddy in Accessibility so I can press Send for you.", said.last())
+        m.press(2, ChatButton.SEND_MESSAGE) // no second send: the text is waiting in WhatsApp
+        advanceUntilIdle()
+        assertEquals(1, log.count { it.startsWith("send") })
+
+        m.say("message Priya I'm late")
+        advanceUntilIdle()
+        val card = m.last().id
+        m.press(card, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(card, "It's in WhatsApp, ready for you to send."), m.items.first { it.id == card })
+        assertEquals(ChatError(card + 1, "I couldn't press Send. It's ready in WhatsApp: press Send yourself.", "message_failed", emptyList()), m.last())
+        assertEquals("I couldn't press Send. It's ready in WhatsApp: press Send yourself.", said.last())
+        m.press(card, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertEquals(2, log.count { it.startsWith("send") })
+    }
+
+    @Test fun aSendBuddyIsNotSureOfSaysSoAndOffersNoSecondSend() = runTest {
+        answers(message())
+        messaging.found += Found.One(priya)
+        messaging.sent += Sent.Unsure
+        val m = model()
+        m.say("message Priya I'm late")
+        advanceUntilIdle()
+        m.press(2, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "I'm not sure it went. Check WhatsApp."), m.items.first { it.id == 2 })
+        assertFalse(m.items.any { it is ChatError })
+        assertEquals("I'm not sure it went. Check WhatsApp.", said.last())
+        m.press(2, ChatButton.SEND_MESSAGE)
+        advanceUntilIdle()
+        assertEquals(1, log.count { it.startsWith("send") })
+    }
+
+    @Test fun notNowWhileItIsBeingSentLeavesTheCard() = runTest {
+        answers(message())
+        messaging.found += Found.One(priya)
+        val m = model()
+        m.say("message Priya I'm late")
+        advanceUntilIdle()
+        val card = m.last()
+        val sending = CompletableDeferred<Unit>().also { messaging.sending = it }
+        m.press(2, ChatButton.SEND_MESSAGE)
+        runCurrent()
+        assertEquals("send Priya Sharma: I'm late", log.last())
+        m.press(2, ChatButton.NOT_NOW)
+        runCurrent()
+        assertEquals(card, m.items.first { it.id == 2 })
+        sending.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(ChatEvent(2, "✅ Sent to Priya Sharma"), m.items.first { it.id == 2 })
+        assertFalse(m.items.any { it is ChatEvent && it.text == "Okay, not sent." })
+    }
+
+    @Test fun aCodeNotFixedInSettingsGetsNoButton() = runTest {
+        answers(message())
+        messaging.found += Found.Say("Something about Priya.", "not_in_settings")
+        val m = model()
+        m.say("message Priya I'm late")
+        advanceUntilIdle()
+        assertEquals(ChatError(2, "Something about Priya.", "not_in_settings", emptyList()), m.last())
+    }
+
+    @Test fun whatBuddySaysComesBeforeTheCard() = runTest {
+        answers(message(say = "Okay!"))
+        messaging.found += Found.One(priya)
+        val m = model()
+        m.say("message Priya I'm late")
+        advanceUntilIdle()
+        assertEquals(BuddySaid(2, "Okay!", "", emptyList(), emptyList()), m.items[1])
+        assertEquals(BuddySaid(3, "", "To Priya Sharma:\nI'm late", emptyList(), listOf(ChatButton.SEND_MESSAGE, ChatButton.NOT_NOW)), m.items[2])
     }
 }

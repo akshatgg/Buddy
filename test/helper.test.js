@@ -192,8 +192,50 @@ test('a helper that does not answer in time is stopped and started afresh: a hun
   helper.stop();
 });
 
-test('reading the selection, pasting and pressing keys wait on the person\'s app, so they get 10 seconds; other calls get 5', () => {
-  assert.deepStrictEqual(DEFAULT_TIMEOUTS, { screenshot: 10_000, captureSelection: 10_000, paste: 10_000, press: 10_000, default: 5_000 });
+test('reading the selection, pasting and pressing keys wait on the person\'s app, so they get 10 seconds; WhatsApp 15 to find and 20 to send; other calls get 5', () => {
+  assert.deepStrictEqual(DEFAULT_TIMEOUTS, {
+    screenshot: 10_000,
+    captureSelection: 10_000,
+    paste: 10_000,
+    press: 10_000,
+    waFind: 15_000,
+    waSend: 20_000,
+    default: 5_000,
+  });
+});
+
+test('waFind and waSend: what messaging on WhatsApp asks of the helper, and what comes back', async () => {
+  const { helper, child } = started();
+  const found = helper.call('waFind', { name: 'Priya' });
+  const sent = helper.call('waSend', { name: 'Priya Sharma', text: 'Running late' });
+  const refused = helper.call('waSend', { name: 'Priya Sharma', text: 'Running late' });
+  await tick();
+  assert.deepStrictEqual(child.written, [
+    { id: 1, cmd: 'waFind', args: { name: 'Priya' } },
+    { id: 2, cmd: 'waSend', args: { name: 'Priya Sharma', text: 'Running late' } },
+    { id: 3, cmd: 'waSend', args: { name: 'Priya Sharma', text: 'Running late' } },
+  ]);
+  child.reply({ id: 1, ok: true, result: { chats: ['Priya Sharma', 'Priya Verma'] } });
+  child.reply({ id: 2, ok: true, result: { chat: 'Priya Sharma' } });
+  child.reply({ id: 3, ok: false, error: { code: 'wrong_chat', message: "That opened the wrong chat, so I didn't send it." } });
+  assert.deepStrictEqual(await found, { chats: ['Priya Sharma', 'Priya Verma'] });
+  assert.deepStrictEqual(await sent, { chat: 'Priya Sharma' });
+  await assert.rejects(refused, { code: 'wrong_chat', message: "That opened the wrong chat, so I didn't send it." });
+  helper.stop();
+});
+
+test('waFind gets its own 15 seconds and waSend its 20, not the 5 other calls get', async () => {
+  const { helper } = started({ timeouts: { ...DEFAULT_TIMEOUTS, waFind: 30, waSend: 60, default: 10 } });
+  const t0 = Date.now();
+  await assert.rejects(helper.call('waFind', { name: 'Priya' }), { code: 'timeout' });
+  const found = Date.now() - t0;
+  assert.ok(found >= 25, `waFind waited ${found} ms, its own timeout`);
+  helper.stop();
+  const second = started({ timeouts: { ...DEFAULT_TIMEOUTS, waFind: 30, waSend: 60, default: 10 } });
+  const t1 = Date.now();
+  await assert.rejects(second.helper.call('waSend', { name: 'Priya', text: 'hi' }), { code: 'timeout' });
+  assert.ok(Date.now() - t1 >= 55, 'waSend waited its own, longer timeout');
+  second.helper.stop();
 });
 
 test('says when a helper has started: the first time, and after each restart', async () => {

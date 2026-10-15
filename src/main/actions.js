@@ -18,7 +18,8 @@
  */
 
 const { BuddyError } = require('../../shared/errors');
-const { LIMITS } = require('../../shared/prompts');
+const { LIMITS, MESSAGE_ELSEWHERE } = require('../../shared/prompts');
+const { pickChat, pickLine, sameName } = require('../../shared/message-pick');
 const { AI_TIMEOUT_MS } = require('./ai');
 const { TRANSCRIBE_TIMEOUT_MS } = require('./cloud');
 const platform = require('./platform');
@@ -56,6 +57,14 @@ const LIVE_LINES = 6;
 const NO_ANSWER = 'No answer for 10 minutes, so I said no.';
 const QUESTION_OVER = 'Not needed any more.';
 const NO_PROJECT = 'Add a project folder in Settings → Claude Code first.';
+// A message on WhatsApp (shared/prompts.js parseChat's "message"): where it cannot be sent from, a send that WhatsApp
+// left in its box, and a send whose end Buddy never heard (the helper took too long, or stopped): Buddy cannot tell
+// whether it went, so it never sends it again by itself.
+const MESSAGE_WAITS = "It's in WhatsApp, ready for you to send.";
+const MESSAGE_UNSURE = "I'm not sure it went. Check WhatsApp.";
+// A "message" answer to a second step: who and what may be someone else's words, read in their box or on the screen.
+const MESSAGE_ASK = "Tell me who to message and what, and I'll do it.";
+const UNKNOWN_END = ['timeout', 'helper_exit'];
 
 /** The Settings section where the fix for an error is, or undefined for Settings' start. */
 function sectionFor(code) {
@@ -67,7 +76,8 @@ function sectionFor(code) {
 const SETTINGS_ERRORS = new Set([...AI_ERRORS, ...ACCOUNT_ERRORS, ...PERMISSION_ERRORS]);
 
 // What the page gets of each kind of item. The items here also carry what only this file needs: how a buddy's text
-// goes in the app (`mode`), the fact a "Remembered" line can forget, and the message an error can try again.
+// goes in the app (`mode`), the fact a "Remembered" line can forget, the message an error can try again, and who a
+// WhatsApp card sends to and what (`message`: the page shows only the card's line).
 const SHOWN = {
   you: ['text'],
   buddy: ['say', 'text', 'notes', 'buttons'],
@@ -380,9 +390,11 @@ function createActions({
   async function answer(c, you) {
     const asked = { message: you.text, history: historyBefore(c, you), facts: memory.facts(), appName: c.app?.name || '', userName: firstName() };
     if (jobs?.projects().length) asked.projects = jobs.projects().map((p) => p.name); // only when there are any
+    if (system === 'darwin') asked.canMessage = true; // the Mac can message on WhatsApp; Windows cannot (yet)
     const sent = c.selection;
     const selection = sent ? { selection: sent } : {};
     let from = sent ? 'selection' : null; // where the text the answer works on came from
+    let second = false; // whether the answer is to a second step
     let reply = await ask({ ...asked, ...selection, step: 1 });
     if (c !== chat) return false; // closed meanwhile: this answer belongs to a chat that is over
     // Facts come from this first answer only: the second one has read the person's box or screen, whose text (a mail
@@ -396,6 +408,7 @@ function createActions({
       reply = await ask({ ...asked, box, step: 2 }); // the box takes the place of the selection
       if (c !== chat) return false;
       from = 'box';
+      second = true;
     } else if (reply.kind === 'screen') {
       if (!c.app) return stop(c, 'no_app', 'Open me from the app you want me to check.');
       if (!present(c)) {
@@ -414,12 +427,19 @@ function createActions({
       push(c);
       reply = await ask({ ...asked, ...selection, image, step: 2 });
       if (c !== chat) return false;
+      second = true;
     }
     c.busy = false; // the answer is in: what is left is Buddy's own work
     if (reply.kind === 'box' || reply.kind === 'screen') return stop(c, 'not_found', "I couldn't find it. Select the text and ask me again.");
     // The selection went with this message: the next one goes without it, unless the person selects something again
     // (an opening meanwhile may have read a new one, which stays).
     if (c.selection === sent) c.selection = '';
+    // A message only from a first answer: a second one has read their box or their screen, whose words (a mail someone
+    // sent them, a web page) could say who to message and what. Nothing is searched in WhatsApp; Buddy asks them.
+    if (second && reply.kind === 'message') {
+      add(c, { type: 'buddy', say: MESSAGE_ASK, text: '', notes: [], buttons: [] });
+      return true;
+    }
     return finish(c, reply, from);
   }
 
@@ -456,6 +476,7 @@ function createActions({
 
   /** The final answer: what it shows, and what Buddy does in the app. */
   async function finish(c, reply, from) {
+    if (reply.kind === 'message') return startMessage(c, reply);
     if (reply.kind === 'code') return startCode(c, reply);
     if (reply.kind === 'send') {
       add(c, { type: 'question', text: 'Send it?', buttons: ['send', 'not-now'] });
@@ -647,6 +668,87 @@ function createActions({
   }
 
   /**
+   * "Message Priya on WhatsApp …": Buddy looks Priya up in WhatsApp's search (WhatsApp comes to the front for it, so
+   * only while the person is still with Buddy), comes back, and asks "To Priya Sharma: …" with Send and Not now.
+   * Nothing goes into WhatsApp before Send. One name found twice is two chats Buddy cannot tell apart: no card then.
+   * Answers true when the buddy answered, false when it stopped short (the reason is in the chat).
+   */
+  async function startMessage(c, reply) {
+    if (reply.say) add(c, { type: 'buddy', say: reply.say, text: '', notes: [], buttons: [] });
+    if (system === 'win32') {
+      add(c, { type: 'buddy', say: '', text: MESSAGE_ELSEWHERE, notes: [], buttons: [] });
+      return true;
+    }
+    let found;
+    try {
+      found = await inApp(async () => {
+        if (!present(c)) return null;
+        return (await stepAside(() => helper.call('waFind', { name: reply.to }))) || {};
+      }, { wait: true });
+    } catch (err) {
+      failed(c, err);
+      await comeBack(c);
+      return false;
+    }
+    if (found === null) {
+      // The person hid the panel meanwhile: WhatsApp is left alone, and the bubble says there is something to read.
+      if (c === chat) ui.bubble(READY);
+      add(c, { type: 'buddy', say: 'Open me again and ask once more, so I can look in WhatsApp.', text: '', notes: [], buttons: [] });
+      return false;
+    }
+    const names = (list) => (Array.isArray(list) ? list.filter((name) => typeof name === 'string') : null);
+    const chats = names(found.chats) || [];
+    // WhatsApp's search also lists a message found in a chat under that chat's name: only the rows that are chats or
+    // contacts (`exact`) can be two chats with one name. A helper from before `exact`, or an `exact` with no row of
+    // the picked name, counts every row.
+    const exact = names(found.exact) || chats;
+    const pick = pickChat(reply.to, chats);
+    const rows = pick && exact.some((name) => sameName(name, pick.name)) ? exact : chats;
+    const line = pickLine(reply.to, pick);
+    if (line) {
+      add(c, { type: 'buddy', say: '', text: line, notes: [], buttons: [] });
+    } else if (rows.filter((name) => sameName(name, pick.name)).length > 1) {
+      const text = `You have more than one chat called ${pick.name}. Rename one in WhatsApp, then ask me again.`;
+      add(c, { type: 'buddy', say: '', text, notes: [], buttons: [] });
+    } else {
+      add(c, { type: 'question', text: `To ${pick.name}: ${reply.text}`, buttons: ['send-message', 'not-now'], message: { name: pick.name, text: reply.text } });
+    }
+    await comeBack(c);
+    return true;
+  }
+
+  /**
+   * Send on a WhatsApp card: the helper opens that chat, checks its name, puts the card's text in and sends it, only
+   * that text to that chat. `sending` keeps Not now off the card meanwhile. A send that did not happen leaves the card,
+   * to try again; one WhatsApp left in its box, or whose end Buddy never heard, takes the card away: no second send.
+   */
+  async function sendMessage(c, item) {
+    item.sending = true;
+    try {
+      await stepAside(() => helper.call('waSend', { name: item.message.name, text: item.message.text }));
+    } catch (err) {
+      const code = err instanceof BuddyError ? err.code : '';
+      if (code === 'not_sent') {
+        swap(c, item, { type: 'event', text: MESSAGE_WAITS, buttons: [] });
+        failed(c, err);
+      } else if (UNKNOWN_END.includes(code)) {
+        swap(c, item, { type: 'event', text: MESSAGE_UNSURE, buttons: [] });
+        ui.bubble(MESSAGE_UNSURE);
+      } else {
+        failed(c, err); // the card stays, to try again
+      }
+      await comeBack(c);
+      return;
+    } finally {
+      item.sending = false;
+    }
+    swap(c, item, { type: 'event', text: `✅ Sent to ${item.message.name}`, buttons: [] });
+    ui.bubble('Sent ✅');
+    if (c === chat) ui.mood('celebrate'); // not for a chat closed meanwhile (Buddy turned off), as in talk()
+    push(c);
+  }
+
+  /**
    * Work in the app, one step at a time: each one waits for the one before it, so that no step's panel comes back, or
    * its keys land, in the middle of another. Buddy's own steps (reading the box, "do it") wait their turn; a button
    * pressed while a step is under way or waiting is refused instead (a quick second press of Send must not send twice).
@@ -680,6 +782,11 @@ function createActions({
       await inApp(() => undo(c, item));
     } else if (button === 'send') {
       await inApp(() => sendIt(c, item));
+    } else if (button === 'send-message') {
+      await inApp(() => sendMessage(c, item));
+    } else if (button === 'not-now' && item.sending) {
+      // Not now on a WhatsApp card whose Send is under way: too late to take it back.
+      throw new BuddyError('bad_request', "Wait a moment, I'm still on it.");
     } else if (button === 'stop') {
       // The job's item has Stop, and so has "Stop it first" for that job. The process is told; the item ends when it
       // has gone (the `stopped` event).

@@ -4,11 +4,12 @@
      looked at only for "@buddy" (typeWindowContentChanged: some apps' own boxes say a new text only that way).
      flagRetrieveInteractiveWindows: the box is in the app
      under Buddy's panel, which is not the active window while the panel is open. Nothing is spoken or shown by Android
-     for it. -->
+     for it.
+     flagReportViewIds: Buddy finds WhatsApp's chat name and Send by their ids (message/WhatsAppScreen.kt). -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeViewFocused|typeViewTextChanged|typeViewTextSelectionChanged|typeWindowStateChanged|typeWindowContentChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagRetrieveInteractiveWindows"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows|flagReportViewIds"
     android:canRetrieveWindowContent="true"
     android:description="@string/look_service_description"
     android:isAccessibilityTool="false"

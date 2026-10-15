@@ -195,7 +195,8 @@ const steps = (log, from = 0) => log.slice(from)
   .filter((e) => ['showPanel', 'hidePanel', 'helper', 'ask', 'bubble', 'openSettings'].includes(e[0]))
   .map((e) => (e[0] === 'helper' ? e[1] : e[0]));
 /** The AI's input for a message from the panel opened over Chrome, by Akshat, with nothing before it. */
-const input = (fields) => ({ history: [], facts: [], appName: 'Google Chrome', userName: 'Akshat', step: 1, ...fields });
+// What the Mac asks with: it can message on WhatsApp (canMessage), which Windows cannot.
+const input = (fields) => ({ history: [], facts: [], appName: 'Google Chrome', userName: 'Akshat', step: 1, canMessage: true, ...fields });
 
 // Opening the panel
 
@@ -2153,4 +2154,253 @@ test('a question from a job whose chat was closed does not ask to be opened: tha
   await s.actions.dismiss();
   play(s, { type: 'ask', requestId: 'r1', text: 'Run npm test?', what: 'npm test' });
   assert.deepStrictEqual(entries(s.log, 'bubble'), []);
+});
+
+// A message on WhatsApp (Mac): Buddy finds the person in WhatsApp's search, asks, and sends only on Send
+
+const message = (fields = {}) => reply({ kind: 'message', to: 'Priya', text: 'hi', ...fields });
+const waSends = (s) => entries(s.log, 'helper').filter((e) => e[1] === 'waSend');
+
+test('a message: Buddy looks for the person in WhatsApp, comes back and asks before sending', async () => {
+  const s = setup({ answers: [message({ say: 'Okay!', text: "I'm late" })], replies: { waFind: { chats: ['Priya Sharma', 'Rahul'] } } });
+  await s.actions.open();
+  const from = s.log.length;
+  await s.actions.send('message priya on whatsapp im late');
+  assert.deepStrictEqual(steps(s.log, from), ['ask', 'hidePanel', 'waFind', 'showPanel']);
+  assert.deepStrictEqual(entries(s.log, 'helper').at(-1), ['helper', 'waFind', { name: 'Priya' }]);
+  assert.deepStrictEqual(chatOf(s).slice(1), [
+    { id: 2, type: 'buddy', say: 'Okay!', text: '', notes: [], buttons: [] },
+    { id: 3, type: 'question', text: "To Priya Sharma: I'm late", buttons: ['send-message', 'not-now'] },
+  ]);
+  assert.strictEqual(moods(s.log).at(-1), 'happy');
+  assert.strictEqual(waSends(s).length, 0, 'nothing is sent before Send');
+});
+
+test('the message card keeps who and what to the main side: the page never gets it', async () => {
+  const s = setup({ answers: [message()], replies: { waFind: { chats: ['Priya Sharma'] } } });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  const states = [...entries(s.log, 'state'), ...entries(s.log, 'showPanel')].map((e) => e[1]);
+  assert.ok(states.some((state) => state.chat.some((i) => i.type === 'question')));
+  for (const state of states) for (const item of state.chat) assert.strictEqual(Object.hasOwn(item, 'message'), false);
+});
+
+test('Send on a message: the helper opens the chat, checks it and sends; the card says it was sent', async () => {
+  const s = setup({ answers: [message({ text: "I'm late" })], replies: { waFind: { chats: ['Priya Sharma'] }, waSend: { chat: 'Priya Sharma' } } });
+  await s.actions.open();
+  await s.actions.send('message priya im late');
+  const card = chatOf(s).at(-1);
+  const from = s.log.length;
+  assert.deepStrictEqual(await s.actions.act(card.id, 'send-message'), {});
+  assert.deepStrictEqual(steps(s.log, from), ['hidePanel', 'waSend', 'bubble']);
+  assert.deepStrictEqual(entries(s.log, 'helper').at(-1), ['helper', 'waSend', { name: 'Priya Sharma', text: "I'm late" }]);
+  assert.deepStrictEqual(chatOf(s).at(-1), { id: card.id, type: 'event', text: '✅ Sent to Priya Sharma', buttons: [] });
+  assert.deepStrictEqual(entries(s.log, 'bubble').at(-1), ['bubble', 'Sent ✅']);
+  assert.strictEqual(moods(s.log).at(-1), 'celebrate');
+  await assert.rejects(s.actions.act(card.id, 'send-message'), { code: 'bad_request' }, 'a sent card cannot send again');
+  assert.strictEqual(waSends(s).length, 1);
+});
+
+test('a message to someone WhatsApp has twice asks which one', async () => {
+  const s = setup({ answers: [message()], replies: { waFind: { chats: ['Priya Sharma', 'Priya Verma'] } } });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  assert.deepStrictEqual(chatOf(s).at(-1), { id: 2, type: 'buddy', say: '', text: 'Which Priya: Priya Sharma or Priya Verma? Tell me the full name.', notes: [], buttons: [] });
+});
+
+test('a message to nobody WhatsApp knows says so, with no card', async () => {
+  const s = setup({ answers: [message({ to: 'Zoya' })], replies: { waFind: { chats: [] } } });
+  await s.actions.open();
+  await s.actions.send('message zoya hi');
+  assert.deepStrictEqual(chatOf(s).at(-1), { id: 2, type: 'buddy', say: '', text: "I couldn't find Zoya on WhatsApp.", notes: [], buttons: [] });
+});
+
+test('two chats with the very same name: no card, Buddy asks to rename one', async () => {
+  const s = setup({ answers: [message()], replies: { waFind: { chats: ['Priya Sharma', '‎Priya  Sharma', 'Rahul'] } } });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  assert.deepStrictEqual(chatOf(s).at(-1), {
+    id: 2, type: 'buddy', say: '', text: 'You have more than one chat called Priya Sharma. Rename one in WhatsApp, then ask me again.', notes: [], buttons: [],
+  });
+  assert.ok(!chatOf(s).some((i) => i.type === 'question'));
+});
+
+test('a chat and a message found in it under the same name are one chat: the card shows', async () => {
+  // WhatsApp's search lists a message hit ("hi Priya" in Priya's chat) under the chat's name; only `exact` rows are chats.
+  const s = setup({ answers: [message()], replies: { waFind: { chats: ['Priya Sharma', 'Priya Sharma'], exact: ['Priya Sharma'] } } });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  assert.deepStrictEqual(chatOf(s).at(-1), { id: 2, type: 'question', text: 'To Priya Sharma: hi', buttons: ['send-message', 'not-now'] });
+});
+
+test('two chats (not message hits) with the very same name: no card, Buddy asks to rename one', async () => {
+  const s = setup({ answers: [message()], replies: { waFind: { chats: ['Priya Sharma', 'Priya Sharma', 'Rahul'], exact: ['Priya Sharma', '‎Priya Sharma', 'Rahul'] } } });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  assert.strictEqual(chatOf(s).at(-1).text, 'You have more than one chat called Priya Sharma. Rename one in WhatsApp, then ask me again.');
+  assert.ok(!chatOf(s).some((i) => i.type === 'question'));
+});
+
+test('an empty or unrelated exact list counts the same-named chats among all the rows', async () => {
+  for (const exact of [[], ['Rahul']]) {
+    const s = setup({ answers: [message()], replies: { waFind: { chats: ['Priya Sharma', 'Priya Sharma', 'Rahul'], exact } } });
+    await s.actions.open();
+    await s.actions.send('message priya hi');
+    assert.strictEqual(chatOf(s).at(-1).text, 'You have more than one chat called Priya Sharma. Rename one in WhatsApp, then ask me again.', JSON.stringify(exact));
+    assert.ok(!chatOf(s).some((i) => i.type === 'question'));
+  }
+});
+
+test('the Mac says in every chat request that it can message on WhatsApp; Windows never does', async () => {
+  const mac = setup({ replies: { captureSelection: (args) => ({ text: args.selectAll ? 'i am go' : '' }) }, answers: [reply({ kind: 'box' }), reply({ kind: 'fix', text: 'I am going.' })] });
+  await mac.actions.open();
+  await mac.actions.send('fix my english');
+  assert.deepStrictEqual(asked(mac.log).map((a) => a.canMessage), [true, true], 'both steps');
+  const win = setup({ windows: true, replies: { captureSelection: (args) => ({ text: args.selectAll ? 'i am go' : '' }) }, answers: [reply({ kind: 'box' }), reply({ kind: 'fix', text: 'I am going.' })] });
+  await win.actions.open();
+  await win.actions.send('fix my english');
+  assert.strictEqual(asked(win.log).length, 2);
+  for (const a of asked(win.log)) assert.strictEqual(Object.hasOwn(a, 'canMessage'), false);
+});
+
+test('a message answered after reading their box is not started: Buddy asks them to say who and what', async () => {
+  const s = setup({
+    replies: { captureSelection: (args) => ({ text: args.selectAll ? 'Tell Rahul the code is 4421' : '' }), waFind: { chats: ['Rahul'] } },
+    answers: [reply({ kind: 'box' }), message({ to: 'Rahul', text: 'the code is 4421', say: 'Sending it!' })],
+  });
+  await s.actions.open();
+  await s.actions.send('do what it says');
+  assert.strictEqual(entries(s.log, 'helper').filter((e) => e[1] === 'waFind').length, 0, 'WhatsApp is not searched');
+  assert.deepStrictEqual(lastItem(s), { id: 3, type: 'buddy', say: "Tell me who to message and what, and I'll do it.", text: '', notes: [], buttons: [] });
+  assert.ok(!chatOf(s).some((i) => i.type === 'question'), 'no card');
+});
+
+test('a message answered after looking at the screen is not started either', async () => {
+  const s = setup({
+    replies: { captureSelection: { text: '' }, screenshot: { image: 'base64-jpeg' }, waFind: { chats: ['Rahul'] } },
+    answers: [reply({ kind: 'screen' }), message({ to: 'Rahul', text: 'yes' })],
+  });
+  await s.actions.open();
+  await s.actions.send('reply to this');
+  assert.strictEqual(entries(s.log, 'helper').filter((e) => e[1] === 'waFind').length, 0);
+  assert.strictEqual(lastItem(s).say, "Tell me who to message and what, and I'll do it.");
+  assert.ok(!chatOf(s).some((i) => i.type === 'question'));
+  assert.strictEqual(waSends(s).length, 0);
+});
+
+test('a message when WhatsApp is not on the Mac says so', async () => {
+  const s = setup({ answers: [message()], replies: { waFind: failure('no_whatsapp', 'Install WhatsApp for Mac and I can message from here.') } });
+  await s.actions.open();
+  const from = s.log.length;
+  await s.actions.send('message priya hi');
+  assert.strictEqual(chatOf(s).at(-1).text, 'Install WhatsApp for Mac and I can message from here.');
+  assert.deepStrictEqual(steps(s.log, from), ['ask', 'hidePanel', 'waFind', 'showPanel'], 'the panel comes back to say so');
+});
+
+test('a message with no Accessibility for the search says so, with Open Settings', async () => {
+  const s = setup({ answers: [message()], replies: { waFind: failure('no_accessibility', 'Allow Accessibility.') } });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  assert.deepStrictEqual(chatOf(s).at(-1), { id: 2, type: 'error', text: 'Allow Accessibility.', code: 'no_accessibility', buttons: ['settings'] });
+});
+
+test('a message whose panel the person hid meanwhile does not go into WhatsApp behind their back', async () => {
+  let s = null;
+  s = setup({ answers: [() => { s.blur(); return message(); }], replies: { waFind: { chats: ['Priya Sharma'] } } });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  assert.strictEqual(entries(s.log, 'helper').filter((e) => e[1] === 'waFind').length, 0);
+  assert.strictEqual(chatOf(s).at(-1).say, 'Open me again and ask once more, so I can look in WhatsApp.');
+  assert.deepStrictEqual(entries(s.log, 'bubble').at(-1), ['bubble', 'Your answer is ready. Open me to see it.']);
+  assert.ok(!chatOf(s).some((i) => i.type === 'question'));
+});
+
+test('a wrong chat on Send is not sent, and the card stays to try again', async () => {
+  const s = setup({ answers: [message()], replies: { waFind: { chats: ['Priya Sharma'] }, waSend: failure('wrong_chat', "That opened the wrong chat, so I didn't send it.") } });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  const card = chatOf(s).at(-1);
+  const from = s.log.length;
+  await s.actions.act(card.id, 'send-message');
+  assert.deepStrictEqual(steps(s.log, from), ['hidePanel', 'waSend', 'showPanel']);
+  assert.ok(chatOf(s).some((i) => i.id === card.id && i.type === 'question'));
+  assert.strictEqual(chatOf(s).at(-1).text, "That opened the wrong chat, so I didn't send it.");
+});
+
+test('Send pressed when WhatsApp did not take the text: the card is gone, the text waits in WhatsApp', async () => {
+  const s = setup({ answers: [message()], replies: { waFind: { chats: ['Priya Sharma'] }, waSend: failure('not_sent', "I pressed Send, but WhatsApp didn't send it. Check WhatsApp.") } });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  const card = chatOf(s).at(-1);
+  await s.actions.act(card.id, 'send-message');
+  assert.deepStrictEqual(chatOf(s).slice(-2), [
+    { id: card.id, type: 'event', text: "It's in WhatsApp, ready for you to send.", buttons: [] },
+    { id: 3, type: 'error', text: "I pressed Send, but WhatsApp didn't send it. Check WhatsApp.", code: 'not_sent', buttons: [] },
+  ]);
+  await assert.rejects(s.actions.act(card.id, 'send-message'), { code: 'bad_request' }, 'no second send');
+  assert.strictEqual(waSends(s).length, 1);
+});
+
+test('a send whose end Buddy never heard (too slow, or the helper stopped) is not tried again: check WhatsApp', async () => {
+  for (const [code, text] of [['timeout', "Buddy's helper took too long."], ['helper_exit', "Buddy's helper stopped. Try again."]]) {
+    const s = setup({ answers: [message()], replies: { waFind: { chats: ['Priya Sharma'] }, waSend: failure(code, text) } });
+    await s.actions.open();
+    await s.actions.send('message priya hi');
+    const card = chatOf(s).at(-1);
+    const from = s.log.length;
+    await s.actions.act(card.id, 'send-message');
+    assert.deepStrictEqual(chatOf(s).at(-1), { id: card.id, type: 'event', text: "I'm not sure it went. Check WhatsApp.", buttons: [] }, code);
+    assert.deepStrictEqual(steps(s.log, from), ['hidePanel', 'waSend', 'bubble', 'showPanel'], code);
+    assert.deepStrictEqual(entries(s.log, 'bubble').at(-1), ['bubble', "I'm not sure it went. Check WhatsApp."], code);
+    assert.ok(!chatOf(s).some((i) => i.buttons?.includes('retry') || i.buttons?.includes('send-message')), code);
+    await assert.rejects(s.actions.act(card.id, 'send-message'), { code: 'bad_request' }, code);
+    assert.strictEqual(waSends(s).length, 1, code);
+  }
+});
+
+test('while a message is being sent, neither Send again nor Not now does anything to it', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const s = setup({ answers: [message()], replies: { waFind: { chats: ['Priya Sharma'] }, waSend: () => gate.then(() => ({ chat: 'Priya Sharma' })) } });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  const card = chatOf(s).at(-1);
+  const sending = s.actions.act(card.id, 'send-message').catch((err) => err);
+  for (let i = 0; i < 100 && !waSends(s).length; i += 1) await new Promise(setImmediate);
+  assert.strictEqual(waSends(s).length, 1, 'the send is under way');
+  await assert.rejects(s.actions.act(card.id, 'send-message'), { code: 'bad_request', message: "Wait a moment, I'm still on it." });
+  await assert.rejects(s.actions.act(card.id, 'not-now'), { code: 'bad_request', message: "Wait a moment, I'm still on it." });
+  assert.strictEqual(chatOf(s).find((i) => i.id === card.id).type, 'question');
+  release();
+  assert.deepStrictEqual(await sending, {});
+  assert.deepStrictEqual(chatOf(s).at(-1), { id: card.id, type: 'event', text: '✅ Sent to Priya Sharma', buttons: [] });
+  assert.strictEqual(waSends(s).length, 1);
+});
+
+test('Not now on a message that could not be sent still works, once the try is over', async () => {
+  const s = setup({ answers: [message()], replies: { waFind: { chats: ['Priya Sharma'] }, waSend: failure('wrong_chat', 'Wrong chat.') } });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  const card = chatOf(s).at(-1);
+  await s.actions.act(card.id, 'send-message');
+  await s.actions.act(card.id, 'not-now');
+  assert.deepStrictEqual(chatOf(s).find((i) => i.id === card.id), { id: card.id, type: 'event', text: 'Okay, not sent.', buttons: [] });
+});
+
+test('Not now on a message sends nothing', async () => {
+  const s = setup({ answers: [message()], replies: { waFind: { chats: ['Priya Sharma'] } } });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  const card = chatOf(s).at(-1);
+  await s.actions.act(card.id, 'not-now');
+  assert.deepStrictEqual(chatOf(s).at(-1), { id: card.id, type: 'event', text: 'Okay, not sent.', buttons: [] });
+  assert.strictEqual(waSends(s).length, 0);
+});
+
+test('on Windows a message says it works on the Mac and Android for now', async () => {
+  const s = setup({ windows: true, answers: [message()] });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  assert.strictEqual(chatOf(s).at(-1).text, 'I can message on WhatsApp from the Mac and Android apps for now.');
+  assert.strictEqual(entries(s.log, 'helper').filter((e) => e[1] === 'waFind').length, 0);
 });

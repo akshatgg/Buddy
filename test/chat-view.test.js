@@ -6,8 +6,8 @@ const { buttonLabel, selectionPreview, thinkingLine, canSend, itemParts, speaker
 
 test('every button has its label', () => {
   assert.deepStrictEqual(
-    ['insert', 'replace', 'copy', 'undo', 'retry', 'settings', 'send', 'not-now'].map(buttonLabel),
-    ['Insert', 'Replace', 'Copy', 'Undo', 'Try again', 'Open Settings', 'Send', 'Not now'],
+    ['insert', 'replace', 'copy', 'undo', 'retry', 'settings', 'send', 'not-now', 'send-message'].map(buttonLabel),
+    ['Insert', 'Replace', 'Copy', 'Undo', 'Try again', 'Open Settings', 'Send', 'Not now', 'Send'],
   );
   assert.strictEqual(buttonLabel('explode'), '');
   assert.strictEqual(buttonLabel(undefined), '');
@@ -91,6 +91,10 @@ test('events, errors and the question are lines with their buttons', () => {
     id: 6, kind: 'question', say: '', text: 'Send it?', notes: [],
     buttons: [{ button: 'send', label: 'Send', primary: true }, { button: 'not-now', label: 'Not now', primary: false }],
   });
+  // A message on WhatsApp: Send is what the card is for.
+  assert.deepStrictEqual(itemParts({ id: 10, type: 'question', text: "To Priya Sharma: I'm late", buttons: ['send-message', 'not-now'] }).buttons, [
+    { button: 'send-message', label: 'Send', primary: true }, { button: 'not-now', label: 'Not now', primary: false },
+  ]);
   // An event with no buttons (an Undo that was used) is just its line.
   assert.deepStrictEqual(itemParts({ id: 7, type: 'event', text: 'Okay, I forgot that.', buttons: [] }).buttons, []);
 });

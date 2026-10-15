@@ -340,6 +340,41 @@
       },
       "user": "The app they are in: Notes\nTheir first name: Akshat Gupta\n\nTheir message:\n\"\"\"\nhi\n\"\"\"",
       "image": null
+    },
+    {
+      "input": {
+        "message": "message priya on whatsapp im late",
+        "canMessage": true,
+        "facts": [
+          "You work at Infosys."
+        ],
+        "history": [
+          {
+            "from": "you",
+            "text": "hi"
+          }
+        ]
+      },
+      "user": "What you know about them:\n- You work at Infosys.\n\nBuddy can message people on WhatsApp from here.\n\nChat so far (oldest first):\nThem: hi\n\nTheir message:\n\"\"\"\nmessage priya on whatsapp im late\n\"\"\"",
+      "image": null
+    },
+    {
+      "input": {
+        "message": "fix my English",
+        "box": "i am go",
+        "canMessage": true,
+        "step": 2
+      },
+      "user": "Buddy can message people on WhatsApp from here.\n\nTheir text box:\n\"\"\"\ni am go\n\"\"\"\n\nThis is the second step: you already have what you asked for, so do not answer \"box\" or \"screen\".\n\nTheir message:\n\"\"\"\nfix my English\n\"\"\"",
+      "image": null
+    },
+    {
+      "input": {
+        "message": "hi",
+        "canMessage": false
+      },
+      "user": "Their message:\n\"\"\"\nhi\n\"\"\"",
+      "image": null
     }
   ],
   "replies": [
@@ -427,6 +462,19 @@
         "kind": "code",
         "say": "Here you go.",
         "text": "Some text",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false
+      }
+    },
+    {
+      "raw": "{\"kind\":\"message\",\"say\":\"Here you go.\",\"text\":\"Some text\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "answer",
+        "say": "",
+        "text": "Who should I send it to?",
         "notes": [],
         "doIt": false,
         "send": false,
@@ -900,6 +948,59 @@
         "kind": "code",
         "say": "On it!",
         "text": "Fix the bug.",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false
+      }
+    },
+    {
+      "raw": "{\"kind\":\"message\",\"app\":\"whatsapp\",\"to\":\"Priya\",\"say\":\"Okay!\",\"text\":\"I'm late\",\"notes\":[\"x\"],\"doIt\":true,\"send\":true,\"remember\":[],\"again\":true}",
+      "reply": {
+        "kind": "message",
+        "say": "Okay!",
+        "text": "I'm late",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false,
+        "to": "Priya"
+      }
+    },
+    {
+      "raw": "{\"kind\":\"message\",\"app\":\"telegram\",\"to\":\"Priya\",\"say\":\"\",\"text\":\"hi\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "answer",
+        "say": "",
+        "text": "I can only message on WhatsApp for now.",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false
+      }
+    },
+    {
+      "raw": "{\"kind\":\"message\",\"app\":\"\",\"to\":\"\",\"say\":\"\",\"text\":\"hi\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "answer",
+        "say": "",
+        "text": "Who should I send it to?",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false
+      }
+    },
+    {
+      "raw": "{\"kind\":\"message\",\"app\":\"whatsapp\",\"to\":\"Priya\",\"say\":\"\",\"text\":\"\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "answer",
+        "say": "",
+        "text": "What should I say to Priya?",
         "notes": [],
         "doIt": false,
         "send": false,

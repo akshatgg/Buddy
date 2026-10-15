@@ -199,6 +199,7 @@ class CloudClient(
             input.appName?.let { put("appName", it) }
             input.userName?.let { put("userName", it) }
             input.step?.let { put("step", it) }
+            input.canMessage?.let { put("canMessage", it) }
         }
         // The Mac's panel gives a free answer the AI's own deadline (actions.js); here it is given where the call is made.
         val j = call("/api/ask", "POST", body, timeoutMs = AI_TIMEOUT_MS)

@@ -31,6 +31,7 @@ const ASK_INPUTS = [
   'instruction', 'tone', 'text', 'image',
   'message', 'selection', 'box', 'history', 'facts', 'appName', 'userName', 'step',
   'projects', // the names of their Claude Code project folders, for the chat's "code" kind
+  'canMessage', // the app can message on WhatsApp (the Mac's), for the chat's "message" kind
 ];
 
 const serverProblem = () => new BuddyError('server', "Buddy's server had a problem. Try again.");

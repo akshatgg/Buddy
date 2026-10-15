@@ -16,12 +16,14 @@ const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
 const memoryRules = require('../shared/memory-rules');
 const memorySync = require('../shared/memory-sync');
 const { pickChat, pickLine, PICK_CASES } = require('../shared/message-pick');
+const { contactLine, appLine, LINE_CASES } = require('../shared/pick-lines');
 
 const ROOT = path.join(__dirname, '..');
 const TO = path.join(ROOT, 'android', 'app', 'src', 'main', 'assets', 'shared.json');
 // Not shipped: what shared/prompts.js answers for some chat inputs, which the Kotlin port's tests must answer the same.
 const CASES_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'chat-cases.json');
 const PICK_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'pick-cases.json');
+const LINES_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'line-cases.json');
 
 /** The message buildPrompt refuses `input` with. */
 function refusal(action, input) {
@@ -146,12 +148,15 @@ const CHAT_INPUTS = [
   { message: 'message priya on whatsapp im late', canMessage: true, facts: ['You work at Infosys.'], history: [{ from: 'you', text: 'hi' }] },
   { message: 'fix my English', box: 'i am go', canMessage: true, step: 2 },
   { message: 'hi', canMessage: false },
+  // The Android app can call, open apps, see calls and read notifications too; the Mac calls and opens apps.
+  { message: 'call prince', canMessage: true, canCall: true, canOpen: true, canSeeCalls: true, canReadNotifs: true },
+  { message: 'open youtube', canOpen: true, canCall: false, canSeeCalls: 'true', canReadNotifs: false },
 ];
 
 /** Model answers, and what parseChat reads in them. */
 const fields = (f) => JSON.stringify({ kind: 'write', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false, ...f });
 const CHAT_REPLIES = [
-  ...['write', 'fix', 'answer', 'box', 'screen', 'send', 'code', 'message'].map((kind) => fields({ kind, say: 'Here you go.', text: 'Some text' })),
+  ...['write', 'fix', 'answer', 'box', 'screen', 'send', 'code', 'message', 'call', 'open', 'calls', 'notifs'].map((kind) => fields({ kind, say: 'Here you go.', text: 'Some text' })),
   JSON.stringify({ kind: 'fix', say: 'Theek kar diya!', text: 'I am going.', notes: ['"go" should be "going".'], doIt: true, send: true, remember: ['You work in an office.'], again: true }),
   `\`\`\`json\n${fields({ kind: 'fix', text: 'x', doIt: true })}\n\`\`\``,
   `\`\`\`\n${fields({ kind: 'answer', text: 'y' })}\n\`\`\``,
@@ -174,6 +179,16 @@ const CHAT_REPLIES = [
   JSON.stringify({ kind: 'message', app: 'telegram', to: 'Priya', say: '', text: 'hi', notes: [], doIt: false, send: false, remember: [], again: false }),
   JSON.stringify({ kind: 'message', app: '', to: '', say: '', text: 'hi', notes: [], doIt: false, send: false, remember: [], again: false }),
   JSON.stringify({ kind: 'message', app: 'whatsapp', to: 'Priya', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false }),
+  JSON.stringify({ kind: 'call', to: 'Prince', how: 'WhatsApp_Video', say: 'Calling!', text: 'x', notes: ['n'], doIt: true, send: true, remember: ['A'], again: true }),
+  JSON.stringify({ kind: 'call', to: 'Prince', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false }),
+  JSON.stringify({ kind: 'call', to: 'Prince', how: 'facetime', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false }),
+  JSON.stringify({ kind: 'call', to: ' ', how: 'phone', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false }),
+  JSON.stringify({ kind: 'open', app: ' YouTube ', say: 'Opening!', text: 'x', notes: [], doIt: true, send: false, remember: [], again: false }),
+  JSON.stringify({ kind: 'open', app: '', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false }),
+  JSON.stringify({ kind: 'calls', what: 'Missed', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false }),
+  JSON.stringify({ kind: 'calls', what: 'today', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false }),
+  JSON.stringify({ kind: 'notifs', app: ' Instagram ', say: 'Let me see.', text: 'x', notes: [], doIt: false, send: false, remember: [], again: false }),
+  JSON.stringify({ kind: 'notifs', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false }),
   fields({ kind: 'write', say: `${SPACES}hey${SPACES}`, text: `\u00a0x\u2003` }),
 ];
 
@@ -199,12 +214,19 @@ function buildPickCases() {
   });
 }
 
+function buildLineCases() {
+  return LINE_CASES.map(([asked, names, where]) => {
+    const pick = pickChat(asked, names);
+    return { asked, names, where, pick, contact: contactLine(asked, pick), app: appLine(asked, pick, where) };
+  });
+}
+
 if (require.main === module) {
-  for (const [to, made] of [[TO, buildShared()], [CASES_TO, buildChatCases()], [PICK_TO, buildPickCases()]]) {
+  for (const [to, made] of [[TO, buildShared()], [CASES_TO, buildChatCases()], [PICK_TO, buildPickCases()], [LINES_TO, buildLineCases()]]) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.writeFileSync(to, `${JSON.stringify(made, null, 2)}\n`);
     console.log(`wrote ${path.relative(ROOT, to)}`);
   }
 }
 
-module.exports = { buildShared, buildChatCases, buildPickCases, TO, CASES_TO, PICK_TO };
+module.exports = { buildShared, buildChatCases, buildPickCases, buildLineCases, TO, CASES_TO, PICK_TO, LINES_TO };

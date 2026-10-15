@@ -375,6 +375,29 @@
       },
       "user": "Their message:\n\"\"\"\nhi\n\"\"\"",
       "image": null
+    },
+    {
+      "input": {
+        "message": "call prince",
+        "canMessage": true,
+        "canCall": true,
+        "canOpen": true,
+        "canSeeCalls": true,
+        "canReadNotifs": true
+      },
+      "user": "Buddy can message people on WhatsApp from here.\n\nBuddy can make calls from here.\n\nBuddy can open apps from here.\n\nBuddy can see their calls from here.\n\nBuddy can read their notifications from here.\n\nTheir message:\n\"\"\"\ncall prince\n\"\"\"",
+      "image": null
+    },
+    {
+      "input": {
+        "message": "open youtube",
+        "canOpen": true,
+        "canCall": false,
+        "canSeeCalls": "true",
+        "canReadNotifs": false
+      },
+      "user": "Buddy can open apps from here.\n\nTheir message:\n\"\"\"\nopen youtube\n\"\"\"",
+      "image": null
     }
   ],
   "replies": [
@@ -480,6 +503,60 @@
         "send": false,
         "remember": [],
         "again": false
+      }
+    },
+    {
+      "raw": "{\"kind\":\"call\",\"say\":\"Here you go.\",\"text\":\"Some text\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "answer",
+        "say": "",
+        "text": "Who should I call?",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false
+      }
+    },
+    {
+      "raw": "{\"kind\":\"open\",\"say\":\"Here you go.\",\"text\":\"Some text\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "answer",
+        "say": "",
+        "text": "Which app should I open?",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false
+      }
+    },
+    {
+      "raw": "{\"kind\":\"calls\",\"say\":\"Here you go.\",\"text\":\"Some text\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "calls",
+        "say": "Here you go.",
+        "text": "",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false,
+        "what": "now"
+      }
+    },
+    {
+      "raw": "{\"kind\":\"notifs\",\"say\":\"Here you go.\",\"text\":\"Some text\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "notifs",
+        "say": "Here you go.",
+        "text": "",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false,
+        "app": ""
       }
     },
     {
@@ -1006,6 +1083,147 @@
         "send": false,
         "remember": [],
         "again": false
+      }
+    },
+    {
+      "raw": "{\"kind\":\"call\",\"to\":\"Prince\",\"how\":\"WhatsApp_Video\",\"say\":\"Calling!\",\"text\":\"x\",\"notes\":[\"n\"],\"doIt\":true,\"send\":true,\"remember\":[\"A\"],\"again\":true}",
+      "reply": {
+        "kind": "call",
+        "say": "Calling!",
+        "text": "",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [
+          "A"
+        ],
+        "again": false,
+        "to": "Prince",
+        "how": "whatsapp_video"
+      }
+    },
+    {
+      "raw": "{\"kind\":\"call\",\"to\":\"Prince\",\"say\":\"\",\"text\":\"\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "call",
+        "say": "",
+        "text": "",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false,
+        "to": "Prince",
+        "how": "phone"
+      }
+    },
+    {
+      "raw": "{\"kind\":\"call\",\"to\":\"Prince\",\"how\":\"facetime\",\"say\":\"\",\"text\":\"\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "answer",
+        "say": "",
+        "text": "I can call by phone or on WhatsApp for now.",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false
+      }
+    },
+    {
+      "raw": "{\"kind\":\"call\",\"to\":\" \",\"how\":\"phone\",\"say\":\"\",\"text\":\"\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "answer",
+        "say": "",
+        "text": "Who should I call?",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false
+      }
+    },
+    {
+      "raw": "{\"kind\":\"open\",\"app\":\" YouTube \",\"say\":\"Opening!\",\"text\":\"x\",\"notes\":[],\"doIt\":true,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "open",
+        "say": "Opening!",
+        "text": "",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false,
+        "app": "YouTube"
+      }
+    },
+    {
+      "raw": "{\"kind\":\"open\",\"app\":\"\",\"say\":\"\",\"text\":\"\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "answer",
+        "say": "",
+        "text": "Which app should I open?",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false
+      }
+    },
+    {
+      "raw": "{\"kind\":\"calls\",\"what\":\"Missed\",\"say\":\"\",\"text\":\"\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "calls",
+        "say": "",
+        "text": "",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false,
+        "what": "missed"
+      }
+    },
+    {
+      "raw": "{\"kind\":\"calls\",\"what\":\"today\",\"say\":\"\",\"text\":\"\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "calls",
+        "say": "",
+        "text": "",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false,
+        "what": "now"
+      }
+    },
+    {
+      "raw": "{\"kind\":\"notifs\",\"app\":\" Instagram \",\"say\":\"Let me see.\",\"text\":\"x\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "notifs",
+        "say": "Let me see.",
+        "text": "",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false,
+        "app": "Instagram"
+      }
+    },
+    {
+      "raw": "{\"kind\":\"notifs\",\"say\":\"\",\"text\":\"\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "notifs",
+        "say": "",
+        "text": "",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false,
+        "app": ""
       }
     },
     {

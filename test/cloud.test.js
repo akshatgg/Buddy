@@ -234,6 +234,7 @@ test('ask: a chat posts every chat input it has, and nothing else', async () => 
     step: 2,
     projects: ['my-app', 'site'], // the names of their project folders (Claude Code), never their paths
     canMessage: true, // this app can message on WhatsApp (the Mac's)
+    canCall: true, canOpen: true, canSeeCalls: true, canReadNotifs: true, // this app can call, open apps, see calls and read notifications (Android's)
   };
   const s = setup({ answers: [ok({ text: '{"kind":"answer","say":"Hi!"}', model: 'm' }), ok({ text: 'x', model: 'm' })] });
   await s.cloud.ask('chat', { ...input, secret: 'not for the server', tone: undefined });

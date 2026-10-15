@@ -70,7 +70,7 @@ function registerPanelIpc({
   const openExternal = (url) => (shell || require('electron').shell).openExternal(url);
 
   // Answers once the answer is in (or it failed, which then shows in the chat).
-  handle('panel:send', (message) => actions.send(typeof message === 'string' ? message : ''));
+  handle('panel:send', (message, options) => actions.send(typeof message === 'string' ? message : '', { spoken: options?.spoken === true }));
   handle('panel:act', (id, button) => actions.act(id, button));
   handle('panel:drop-selection', () => actions.dropSelection());
 

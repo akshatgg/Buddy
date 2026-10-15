@@ -35,7 +35,7 @@ const AFTER_SPEAKING_MS = 300; // quiet after the question, so its tail is never
 const ANSWER_MS = 8000; // as voice-words.js ANSWER_MS: nothing decisive heard this long after the question: no
 const FINAL_WAIT_MS = 600; // how long to wait for the recogniser's last word at the deadline
 const ANSWER_KEEP_S = 10;
-const MODEL_WAIT_MS = 20000; // a model that has not loaded by now is not coming: the server hears the answer
+const MODEL_WAIT_MS = 3000; // a model not ready in 3 s is not waited for: the answer is recorded and the server hears it
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

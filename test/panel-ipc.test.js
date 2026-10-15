@@ -362,3 +362,12 @@ test("the grip's drag and the ⤢ reach the panel window, from the panel page on
   for (const channel of ['panel:resize-start', 'panel:resize-move', 'panel:resize-end', 'panel:size-toggle']) s.listeners[channel](SOMEONE_ELSE, { x: 1, y: 1 });
   assert.deepStrictEqual(s.calls, [['resizeStart', { x: 10, y: 20 }], ['resizeMove', { x: 30.5, y: 25 }], 'resizeEnd', 'toggleSize']);
 });
+
+test('panel:send passes { spoken: true } through, and nothing else (never followUp)', async () => {
+  const got = [];
+  const s = setup({ send: async (message, options) => { got.push([message, options]); return {}; } });
+  await s.handlers['panel:send'](s.fromPanel, 'hi', { spoken: true });
+  await s.handlers['panel:send'](s.fromPanel, 'hi', { spoken: 'yes', followUp: true });
+  await s.handlers['panel:send'](s.fromPanel, 'hi');
+  assert.deepStrictEqual(got, [['hi', { spoken: true }], ['hi', { spoken: false }], ['hi', { spoken: false }]]);
+});

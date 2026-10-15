@@ -30,6 +30,8 @@ const { createNotchWindow } = require('./notch-window');
 const { createHome } = require('./home');
 const { createPanelWindow } = require('./panel-window');
 const { createEarWindow } = require('./ear-window');
+const { createLock } = require('./lock');
+const { createTalkBack } = require('./talk-back');
 const { createVoiceModel } = require('./voice-model');
 const { createSettingsWindows } = require('./settings-windows');
 const { installAppMenu } = require('./app-menu');
@@ -142,11 +144,15 @@ async function start(options = {}) {
   // listening that stops while the answer to a message is still on its way goes back to thinking.
   const feelings = createFeelings({ buddy, sleep, busy: () => actions.state().busy });
   // Buddy's ear (ear-window.js): a hidden window, made when something first speaks or listens. Its page has the microphone.
-  const ear = createEarWindow({
-    BrowserWindow,
-    ipcMain,
-    model: createVoiceModel({ dir: path.join(userData, 'voice-model') }),
-  });
+  const voiceModel = createVoiceModel({ dir: path.join(userData, 'voice-model') });
+  const ear = createEarWindow({ BrowserWindow, ipcMain, model: voiceModel });
+  const lock = createLock({ powerMonitor });
+  // Spoken chats are on the Mac only (Windows keeps its cards). The server writes down an answer the model cannot hear;
+  // `actions` is read lazily, as it is made below. The end-to-end test passes none.
+  const talkBack = options.talkBack !== undefined ? options.talkBack
+    : process.platform === 'darwin'
+      ? createTalkBack({ ear, model: voiceModel, transcribe: (audio, mime) => actions.transcribe(audio, mime).then((r) => r.text) })
+      : null;
   const panel = createPanelWindow({
     isEar: (webContents) => Boolean(ear.window()) && !ear.window().isDestroyed() && webContents === ear.window().webContents,
     store, // the size the person made the panel
@@ -238,6 +244,8 @@ async function start(options = {}) {
     // The panel greets the person by their first name, and the AI knows it.
     userName: () => (account.user()?.name || '').trim().split(/\s+/)[0],
     ui,
+    talkBack, // Buddy's voice for a spoken chat (null on Windows)
+    lock, // whether the Mac is locked, for a send or call that waits for the unlock
     jobs, // Claude Code jobs in the person's projects
     // "Open Safari": the Mac's apps, opened as the Finder would. Windows has none (yet).
     apps: process.platform === 'darwin' ? createApps({ dirs: appDirs(app.getPath('home')), openPath: (p) => shell.openPath(p), own: ownBundle(app.getPath('exe')) }) : null,

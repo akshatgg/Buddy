@@ -20,6 +20,24 @@ const reply = (fields = {}) => ({ kind: 'write', say: '', text: '', notes: [], d
  * source (main.js's), `signedIn` whether someone is signed in, and `heard` what Buddy's server writes down from a
  * recording: the words, or an error it fails with.
  */
+// Buddy's voice, as actions.js uses it: what it says, and the answers it hears, in order.
+function fakeTalkBack(log, { answers = [], requests = [] } = {}) {
+  let waiting = null;
+  const fake = {
+    async say(text) { log.push(['say', text]); },
+    async hear(verb) {
+      log.push(['hear', verb]);
+      if (answers[0] === 'wait') { answers.shift(); return new Promise((resolve) => { waiting = resolve; }); }
+      return answers.length ? answers.shift() : 'no';
+    },
+    async listen() { log.push(['listen']); return requests.length ? requests.shift() : null; },
+    stop() { log.push(['stop']); if (waiting) waiting('no'); },
+    answerLate(a) { if (waiting) waiting(a); },
+  };
+  return fake;
+}
+const settle = async () => { for (let i = 0; i < 20; i += 1) await new Promise((r) => setImmediate(r)); };
+
 function setup({
   lastApp = APP,
   replies = {},
@@ -40,6 +58,8 @@ function setup({
   startFails = null,
   apps: givenApps = [{ name: 'Safari', path: '/Applications/Safari.app' }],
   openFails = '',
+  talk = null,
+  lock = { locked: () => false, unlocked: async () => true },
 } = {}) {
   const log = [];
   const helper = {
@@ -149,6 +169,7 @@ function setup({
       return handle;
     },
   };
+  const voice_ = talk === null ? null : fakeTalkBack(log, talk || {});
   const actions = createActions({
     helper,
     clipboard,
@@ -159,6 +180,8 @@ function setup({
     signedIn: () => signedIn,
     ...(voice ? { voice } : {}),
     jobs,
+    talkBack: voice_,
+    lock,
     apps: windows ? null : { list: () => givenApps, open: async (p) => { log.push(['openApp', p]); return openFails; } },
     memory,
     sendKeyFor: (app, platform) => {
@@ -184,6 +207,7 @@ function setup({
     wait: (ms) => { time += ms; },
     /** The panel hides the way a click somewhere else hides it: by itself, not through actions. */
     blur: () => ui.hidePanel(),
+    talkBack: voice_,
   };
 }
 
@@ -2608,4 +2632,219 @@ test('an open, a call, calls or notifs answered after reading the box are not do
     assert.deepStrictEqual(lastItem(s), { id: 3, type: 'buddy', say: "Ask me that on its own, and I'll do it.", text: '', notes: [], buttons: [] }, second.kind);
     assert.deepStrictEqual(entries(s.log, 'openApp'), []);
   }
+});
+
+// ---- Spoken chats (A9): Buddy asks out loud, and a spoken yes presses the card through act() ----
+
+const WA = { waFind: { chats: ['Priya Sharma'] }, waSend: { chat: 'Priya Sharma' } };
+const spokenOf = (s) => entries(s.log, 'say').map((e) => e[1]);
+
+test('a spoken message: the card is asked out loud with its exact text, and a yes sends it once', async () => {
+  const s = setup({ answers: [message({ text: "I'm running late" })], talk: { answers: ['yes'] }, replies: WA });
+  await s.actions.open();
+  await s.actions.send('message priya im running late', { spoken: true });
+  await settle();
+  assert.deepStrictEqual(spokenOf(s), ["To Priya Sharma: I'm running late. Send it?", 'Sent.']);
+  assert.deepStrictEqual(entries(s.log, 'hear'), [['hear', 'send']]);
+  assert.strictEqual(waSends(s).length, 1);
+  assert.strictEqual(chatOf(s).at(-1).text, '✅ Sent to Priya Sharma');
+  await assert.rejects(s.actions.act(2, 'send-message'), /isn't there/); // once
+  assert.strictEqual(waSends(s).length, 1);
+  // Spoken lines are off the AI record: the next request's history holds only the chat's own messages.
+  assert.ok(!JSON.stringify(asked(s.log)).includes('Send it?'));
+});
+
+test('a spoken no, nothing, or an error sends nothing and says so', async () => {
+  for (const answers of [['no'], []]) {
+    const s = setup({ answers: [message()], talk: { answers }, replies: WA });
+    await s.actions.open();
+    await s.actions.send('message priya hi', { spoken: true });
+    await settle();
+    assert.strictEqual(waSends(s).length, 0);
+    assert.deepStrictEqual(spokenOf(s).at(-1), 'Okay, not sent.');
+    assert.strictEqual(chatOf(s).at(-1).buttons.length, 0);
+  }
+  const s = setup({ answers: [message()], talk: {}, replies: WA });
+  s.talkBack.hear = async () => { throw new Error('ear gone'); };
+  await s.actions.open();
+  await s.actions.send('message priya hi', { spoken: true });
+  await settle();
+  assert.strictEqual(waSends(s).length, 0);
+  assert.strictEqual(spokenOf(s).at(-1), 'Okay, not sent.');
+});
+
+test('a typed message never speaks', async () => {
+  const s = setup({ answers: [message()], talk: { answers: ['yes'] }, replies: WA });
+  await s.actions.open();
+  await s.actions.send('message priya hi');
+  await settle();
+  assert.deepStrictEqual(entries(s.log, 'say'), []);
+  assert.deepStrictEqual(entries(s.log, 'hear'), []);
+  assert.strictEqual(waSends(s).length, 0);
+});
+
+test('Send pressed while Buddy asks: sent once, and the late yes does nothing', async () => {
+  const s = setup({ answers: [message()], talk: { answers: ['wait'] }, replies: WA });
+  await s.actions.open();
+  await s.actions.send('message priya hi', { spoken: true });
+  await settle();
+  await s.actions.act(2, 'send-message');
+  assert.ok(entries(s.log, 'stop').length >= 1);
+  s.talkBack.answerLate('yes');
+  await settle();
+  assert.strictEqual(waSends(s).length, 1);
+});
+
+test('Not now pressed while Buddy asks: nothing sent, and the late yes does nothing', async () => {
+  const s = setup({ answers: [message()], talk: { answers: ['wait'] }, replies: WA });
+  await s.actions.open();
+  await s.actions.send('message priya hi', { spoken: true });
+  await settle();
+  await s.actions.act(2, 'not-now');
+  s.talkBack.answerLate('yes');
+  await settle();
+  assert.strictEqual(waSends(s).length, 0);
+});
+
+test('a new message while Buddy asks ends the question; the first card stays and a late yes presses nothing', async () => {
+  const s = setup({ answers: [message(), reply({ text: 'ok' })], talk: { answers: ['wait'] }, replies: WA });
+  await s.actions.open();
+  await s.actions.send('message priya hi', { spoken: true });
+  await settle();
+  await s.actions.send('what is the time');
+  assert.ok(entries(s.log, 'stop').length >= 1);
+  s.talkBack.answerLate('yes');
+  await settle();
+  assert.strictEqual(waSends(s).length, 0);
+  assert.deepStrictEqual(chatOf(s).find((i) => i.id === 2).buttons, ['send-message', 'not-now']);
+});
+
+test('closing the panel while Buddy asks ends the question; a late yes presses nothing', async () => {
+  const s = setup({ answers: [message()], talk: { answers: ['wait'] }, replies: WA });
+  await s.actions.open();
+  await s.actions.send('message priya hi', { spoken: true });
+  await settle();
+  await s.actions.dismiss();
+  assert.ok(entries(s.log, 'stop').length >= 1);
+  s.talkBack.answerLate('yes');
+  await settle();
+  assert.strictEqual(waSends(s).length, 0);
+});
+
+test('a new chat (the panel opened again from another app) ends the question', async () => {
+  const s = setup({ answers: [message()], talk: { answers: ['wait'] }, replies: WA });
+  await s.actions.open();
+  await s.actions.send('message priya hi', { spoken: true });
+  await settle();
+  await s.actions.dismiss();
+  await s.actions.open();
+  s.talkBack.answerLate('yes');
+  await settle();
+  assert.strictEqual(waSends(s).length, 0);
+});
+
+test('a spoken WhatsApp call: "WhatsApp call Prince Sharma?" and a yes calls once', async () => {
+  const s = setup({ answers: [calling({ how: 'whatsapp' })], talk: { answers: ['yes'] }, replies: { waFind: { chats: ['Prince Sharma'] }, waCall: {} } });
+  await s.actions.open();
+  await s.actions.send('whatsapp call prince', { spoken: true });
+  await settle();
+  assert.deepStrictEqual(spokenOf(s), ['WhatsApp call Prince Sharma?', 'Calling Prince Sharma.']);
+  assert.deepStrictEqual(entries(s.log, 'hear'), [['hear', 'call']]);
+  assert.strictEqual(waCalls(s).length, 1);
+});
+
+test('a spoken no on a call says "Okay, not now."', async () => {
+  const s = setup({ answers: [calling({ how: 'whatsapp' })], talk: { answers: ['no'] }, replies: { waFind: { chats: ['Prince Sharma'] }, waCall: {} } });
+  await s.actions.open();
+  await s.actions.send('whatsapp call prince', { spoken: true });
+  await settle();
+  assert.strictEqual(waCalls(s).length, 0);
+  assert.strictEqual(spokenOf(s).at(-1), 'Okay, not now.');
+});
+
+test('a locked Mac: Buddy asks for the unlock, then sends', async () => {
+  let locked = true;
+  const lock = { locked: () => locked, unlocked: async () => { locked = false; return true; } };
+  const s = setup({ answers: [message()], talk: { answers: ['yes'] }, replies: WA, lock });
+  await s.actions.open();
+  await s.actions.send('message priya hi', { spoken: true });
+  await settle();
+  assert.deepStrictEqual(spokenOf(s), ['To Priya Sharma: hi. Send it?', "Unlock your Mac and I'll send it.", 'Sent.']);
+  assert.strictEqual(waSends(s).length, 1);
+});
+
+test('locked for a minute: the card says it did not send, and nothing is sent', async () => {
+  const lock = { locked: () => true, unlocked: async () => false };
+  const s = setup({ answers: [message()], talk: { answers: ['yes'] }, replies: WA, lock });
+  await s.actions.open();
+  await s.actions.send('message priya hi', { spoken: true });
+  await settle();
+  assert.strictEqual(waSends(s).length, 0);
+  assert.strictEqual(chatOf(s).at(-1).text, "I didn't send it.");
+  assert.strictEqual(spokenOf(s).at(-1), "I didn't send it.");
+  await assert.rejects(s.actions.act(2, 'send-message'), /isn't there/);
+});
+
+test('a locked call that stays locked says "I didn\'t call."', async () => {
+  const lock = { locked: () => true, unlocked: async () => false };
+  const s = setup({ answers: [calling({ how: 'whatsapp' })], talk: { answers: ['yes'] }, replies: { waFind: { chats: ['Prince Sharma'] }, waCall: {} }, lock });
+  await s.actions.open();
+  await s.actions.send('whatsapp call prince', { spoken: true });
+  await settle();
+  assert.strictEqual(waCalls(s).length, 0);
+  assert.strictEqual(spokenOf(s).at(-1), "I didn't call.");
+});
+
+test('Not now, a new message or closing while Buddy waits for the unlock cancels the wait: nothing is sent', async () => {
+  for (const cancel of ['not-now', 'message', 'close']) {
+    let release;
+    const lock = { locked: () => true, unlocked: () => new Promise((resolve) => { release = resolve; }) };
+    const s = setup({ answers: [message(), reply({ text: 'ok' })], talk: { answers: ['yes'] }, replies: WA, lock });
+    await s.actions.open();
+    await s.actions.send('message priya hi', { spoken: true });
+    await settle();
+    if (cancel === 'not-now') await s.actions.act(2, 'not-now');
+    else if (cancel === 'message') await s.actions.send('hello');
+    else await s.actions.dismiss();
+    await settle();
+    release(true); // unlocked afterwards: too late
+    await settle();
+    assert.strictEqual(waSends(s).length, 0, cancel);
+  }
+});
+
+test('a "Which Priya?" line is answered by voice, and the message goes on', async () => {
+  const finds = [{ chats: ['Priya Sharma', 'Priya Verma'] }, { chats: ['Priya Sharma'] }];
+  const s = setup({ answers: [message(), message({ to: 'Priya Sharma' })], talk: { requests: ['Priya Sharma'], answers: ['yes'] }, replies: { waFind: () => finds.shift(), waSend: { chat: 'Priya Sharma' } } });
+  await s.actions.open();
+  await s.actions.send('message priya hi', { spoken: true });
+  await settle();
+  assert.deepStrictEqual(entries(s.log, 'listen'), [['listen']]);
+  assert.strictEqual(waSends(s).length, 1);
+});
+
+test('no internet is said as the spec says', async () => {
+  const s = setup({ answers: [failure('network', 'offline')], talk: {} });
+  await s.actions.open();
+  await s.actions.send('hello', { spoken: true });
+  await settle();
+  assert.deepStrictEqual(spokenOf(s), ["I can't reach the internet right now."]);
+});
+
+test('Windows has no talk-back: a spoken message shows the card as typed', async () => {
+  const s = setup({ windows: true, talk: null, answers: [message()] });
+  await s.actions.open();
+  await s.actions.send('message priya hi', { spoken: true });
+  await settle();
+  assert.deepStrictEqual(entries(s.log, 'say'), []);
+  assert.deepStrictEqual(entries(s.log, 'hear'), []);
+});
+
+test('a voice that fails to speak leaves the chat as it is', async () => {
+  const s = setup({ answers: [message()], talk: { answers: ['no'] }, replies: WA });
+  s.talkBack.say = async () => { throw new Error('no voice'); };
+  await s.actions.open();
+  await s.actions.send('message priya hi', { spoken: true });
+  await settle();
+  assert.strictEqual(waSends(s).length, 0);
 });

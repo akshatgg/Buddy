@@ -25,6 +25,9 @@ const { AI_TIMEOUT_MS } = require('./ai');
 const { TRANSCRIBE_TIMEOUT_MS } = require('./cloud');
 const platform = require('./platform');
 const { ERRORS: CLAUDE_ERRORS } = require('./claude/job');
+const {
+  spokenQuestion, spokenLines, asksBack, unlockLine, callingLine, VOICE_LINES, UNLOCK_WAIT_MS, MAX_FOLLOW_UPS,
+} = require('../../shared/voice-words');
 
 const COPIED = `Copied — press ${platform.pasteKeys}`;
 const READY = 'Your answer is ready. Open me to see it.';
@@ -104,7 +107,9 @@ const SHOWN = {
  * and has this person's settings, and `signedIn()` whether someone is. `voice()` gives { on, auto, mic }: voice is on for this person, the panel
  * listens as it opens, and how the microphone stands.
  * `jobs` runs Claude Code in the person's project folders (claude/job.js createJobs); none means no jobs.
- * `apps` is apps.js's list of this Mac's apps and the way to open one; none on Windows.
+ * `apps` is apps.js's list of this Mac's apps and the way to open one; none on Windows. `talkBack` (talk-back.js) is Buddy's
+ * voice: a chat started by voice is answered out loud, and a spoken yes presses the card asked about, through the same
+ * act() as the button; none on Windows. `lock` says whether the screen is locked, and waits for the unlock.
  */
 function createActions({
   helper,
@@ -120,6 +125,8 @@ function createActions({
   voice = () => ({}),
   jobs = null,
   apps = null,
+  talkBack = null,
+  lock = { locked: () => false, unlocked: async () => true },
   userName = () => '',
   now = Date.now,
   helperMovesFocus = platform.helperMovesFocus,
@@ -153,6 +160,7 @@ function createActions({
   function newChat(app = null) {
     return {
       app, items: [], nextId: 1, selection: '', notice: '', noticeFix: '', busy: false, talking: 0, lastPut: null, resumed: false, live: false,
+      spoken: false, asking: null, followUps: 0, run: 0, speaking: false, listening: false, cancelWait: null,
     };
   }
 
@@ -161,8 +169,26 @@ function createActions({
    * buddy stops thinking about it now, since that answer leaves the mood alone (talk()).
    */
   function replaceChat(next) {
+    hush(chat);
+    if (chat.cancelWait) chat.cancelWait(); // a wait for the unlock is given up
     if (chat.talking > 0) ui.mood('idle');
     chat = next;
+  }
+
+  /**
+   * Whatever Buddy says, asks or listens for in this chat ends: nothing it hears afterwards counts (the run number moves
+   * on, so a late answer finds its question gone).
+   */
+  function hush(c) {
+    c.run += 1;
+    if (c.asking !== null || c.speaking || c.listening) talkBack?.stop();
+    c.asking = null;
+  }
+
+  /** Said out loud, only in a spoken chat. Never rejects: a voice that fails leaves the chat as it is. */
+  function speak(c, text) {
+    if (!c.spoken || !talkBack || !text) return Promise.resolve();
+    return Promise.resolve().then(() => talkBack.say(text)).catch((err) => console.warn('[buddy] could not speak:', err.message));
   }
 
   /** Text as it goes on the clipboard, with the system's line breaks. */
@@ -568,7 +594,7 @@ function createActions({
   }
 
   /** The person's message. An empty one with text selected means "fix this". One at a time: the next waits. */
-  async function send(message) {
+  async function send(message, { spoken = false, followUp = false } = {}) {
     const c = chat;
     if (c.busy) throw new BuddyError('bad_request', 'Wait for my answer first.');
     let text = String(message ?? '').trim();
@@ -586,8 +612,101 @@ function createActions({
     if (c.selection.trim().length > LIMITS.text) {
       throw new BuddyError('bad_request', `Your selection is too long (over ${LIMITS.text} characters). Select less, or press ✕ to leave it out.`);
     }
-    await talk(c, add(c, { type: 'you', text }));
+    hush(c);
+    if (c.cancelWait) c.cancelWait();
+    c.spoken = spoken && Boolean(talkBack);
+    c.followUps = followUp ? c.followUps + 1 : 0;
+    const run = c.run;
+    const you = add(c, { type: 'you', text });
+    await talk(c, you);
+    // Out loud after the answer is shown; the page's send has its answer meanwhile.
+    if (c.spoken && c === chat) speakAnswer(c, you, run).catch((err) => console.warn('[buddy] voice:', err.message));
     return {};
+  }
+
+  /** Reads the answer to a spoken message aloud: its lines, then the card's question, or one more request to listen for. */
+  async function speakAnswer(c, you, run) {
+    const live = () => c === chat && c.run === run;
+    const added = c.items.slice(c.items.indexOf(you) + 1);
+    const card = [...added].reverse().find((i) => (i.message || i.call) && i.buttons?.length);
+    const lines = spokenLines(added.filter((i) => i !== card));
+    c.speaking = true;
+    try {
+      for (const line of lines) {
+        await speak(c, line);
+        if (!live()) return;
+      }
+    } finally {
+      c.speaking = false;
+    }
+    if (card) return askAloud(c, card, run);
+    const last = lines.at(-1);
+    if (!last || !asksBack(last) || c.followUps >= MAX_FOLLOW_UPS) return;
+    c.listening = true;
+    let words;
+    try {
+      words = await talkBack.listen();
+    } finally {
+      c.listening = false;
+    }
+    if (words && live() && !c.busy) await send(words, { spoken: true, followUp: true });
+  }
+
+  /**
+   * Asks the card's own text out loud and listens. A yes presses the card's button through act(), the same way as the
+   * person's press (so only while the card still shows it, in this chat, and once); no, nothing, or an error is Not now.
+   */
+  async function askAloud(c, card, run) {
+    const live = () => c === chat && c.run === run && c.asking === card.id;
+    const verb = card.call ? 'call' : 'send';
+    const question = card.call
+      ? spokenQuestion({ kind: 'call', name: card.call.name, how: card.call.video ? 'whatsapp_video' : 'whatsapp' })
+      : spokenQuestion({ kind: 'message', name: card.message.name, text: card.message.text });
+    c.asking = card.id;
+    await speak(c, question);
+    if (!live()) return;
+    let heard;
+    ui.listening?.(true, 'ear'); // the buddy's listening face; 'ear': not the panel's own 🎤
+    try {
+      heard = await talkBack.hear(verb);
+    } catch {
+      heard = 'no';
+    } finally {
+      ui.listening?.(false, 'ear');
+    }
+    if (!live()) return;
+    c.asking = null;
+    if (heard === 'yes') {
+      await act(card.id, verb === 'call' ? 'call' : 'send-message', { spoken: true });
+    } else {
+      await act(card.id, 'not-now', { spoken: true });
+      await speak(c, verb === 'call' ? VOICE_LINES.notNow : VOICE_LINES.notSent);
+    }
+  }
+
+  /** A locked Mac: Buddy asks for the unlock and waits up to a minute; still locked, the card goes and says so. */
+  async function unlockedFor(c, item, kind, name) {
+    if (!lock.locked()) return true;
+    const ask = unlockLine('Mac', kind, name);
+    ui.bubble(ask);
+    await speak(c, ask);
+    let cancel;
+    const cancelled = new Promise((resolve) => { cancel = () => resolve('cancelled'); });
+    c.cancelWait = cancel;
+    let ok;
+    try {
+      ok = await Promise.race([lock.unlocked(UNLOCK_WAIT_MS), cancelled]);
+    } finally {
+      if (c.cancelWait === cancel) c.cancelWait = null;
+    }
+    // Not now, a new message, closing or a new chat meanwhile: the card is not pressed.
+    if (ok === 'cancelled' || c !== chat || !c.items.includes(item) || !item.buttons?.length) return false;
+    if (ok) return true;
+    const gave = kind === 'call' ? VOICE_LINES.didntCall : VOICE_LINES.didntSend;
+    swap(c, item, { type: 'event', text: gave, buttons: [] });
+    push(c);
+    await speak(c, gave);
+    return false;
   }
 
   /**
@@ -802,6 +921,7 @@ function createActions({
    * to try again; one WhatsApp left in its box, or whose end Buddy never heard, takes the card away: no second send.
    */
   async function sendMessage(c, item) {
+    if (!(await unlockedFor(c, item, 'message', item.message.name))) return;
     item.sending = true;
     try {
       await stepAside(() => helper.call('waSend', { name: item.message.name, text: item.message.text }));
@@ -810,11 +930,14 @@ function createActions({
       if (code === 'not_sent') {
         swap(c, item, { type: 'event', text: MESSAGE_WAITS, buttons: [] });
         failed(c, err);
+        await speak(c, MESSAGE_WAITS);
       } else if (UNKNOWN_END.includes(code)) {
         swap(c, item, { type: 'event', text: MESSAGE_UNSURE, buttons: [] });
         ui.bubble(MESSAGE_UNSURE);
+        await speak(c, MESSAGE_UNSURE);
       } else {
         failed(c, err); // the card stays, to try again
+        await speak(c, spokenLines([c.items.at(-1)])[0]);
       }
       await comeBack(c);
       return;
@@ -825,6 +948,7 @@ function createActions({
     ui.bubble('Sent ✅');
     if (c === chat) ui.mood('celebrate'); // not for a chat closed meanwhile (Buddy turned off), as in talk()
     push(c);
+    await speak(c, VOICE_LINES.sent);
   }
 
   /**
@@ -833,6 +957,7 @@ function createActions({
    * sure of (the helper could not see it start, or never answered) takes the card away: no second call.
    */
   async function placeCall(c, item) {
+    if (!(await unlockedFor(c, item, 'call', item.call.name))) return;
     item.calling = true;
     try {
       await stepAside(() => helper.call('waCall', { name: item.call.name, video: item.call.video }));
@@ -841,8 +966,10 @@ function createActions({
       if (code === 'call_unsure' || UNKNOWN_END.includes(code)) {
         swap(c, item, { type: 'event', text: CALL_UNSURE, buttons: [] });
         ui.bubble(CALL_UNSURE);
+        await speak(c, CALL_UNSURE);
       } else {
         failed(c, err); // the card stays, to try again
+        await speak(c, spokenLines([c.items.at(-1)])[0]);
       }
       await comeBack(c);
       return;
@@ -852,6 +979,7 @@ function createActions({
     swap(c, item, { type: 'event', text: `${item.call.video ? '📹 Video calling' : '📞 Calling'} ${item.call.name} on WhatsApp`, buttons: [] });
     if (c === chat) ui.mood('celebrate'); // not for a chat closed meanwhile, as for a message
     push(c);
+    await speak(c, callingLine(item.call.name));
   }
 
   /**
@@ -870,8 +998,10 @@ function createActions({
   }
 
   /** A button on an item in the chat. Only the buttons the item shows can be pressed. */
-  async function act(id, button) {
+  async function act(id, button, { spoken = false } = {}) {
     const c = chat;
+    if (!spoken) hush(c); // a person's press ends any question Buddy is asking out loud; a spoken yes or no does not
+    if (button === 'not-now' && c.cancelWait) c.cancelWait(); // Not now while Buddy waits for the unlock
     const item = c.items.find((i) => i.id === id);
     if (!item?.buttons?.includes(button)) throw new BuddyError('bad_request', "That isn't there any more.");
     if (button === 'copy') {

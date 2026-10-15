@@ -3,6 +3,7 @@ package com.akshatgg.buddy.message
 import android.content.ActivityNotFoundException
 import android.content.Context
 import com.akshatgg.buddy.bubble.LookService
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -44,15 +45,19 @@ interface Messaging {
 }
 
 private const val OPEN_WAIT_MS = 8_000L
+private const val SENT_WAIT_MS = 1_500L
 private const val STEP_MS = 250L
 private const val MAIN_APP = "com.whatsapp"
 private const val NO_WHATSAPP = "WhatsApp isn't on this phone."
 private const val READY_THERE = "It's ready in WhatsApp. Turn on Buddy in Accessibility so I can press Send for you."
+private const val NOT_SENT = "I pressed Send, but WhatsApp didn't send it. Check WhatsApp."
+private const val NOT_SURE = "I'm not sure it went. Check WhatsApp."
 
 /**
  * Messaging someone on WhatsApp, the steps in order. find(): who "Priya" is, among the phone's WhatsApp contacts.
  * send(), only after the person said yes: open the chat with the text in its box, wait until WhatsApp shows that
- * chat with that text in its box, check both again at the press, press Send. Nothing is sent when anything is off.
+ * chat with that text in its box, check both again at the press, press Send, and see the box let go of the text.
+ * Nothing is sent when anything is off, and Send is never pressed twice.
  */
 class Messenger(
     private val whatsApp: WhatsApp,
@@ -99,8 +104,15 @@ class Messenger(
             seen = now
             if (now.readyFor(person.name, text)) {
                 // Checked once more at the press, on the screen Send is found on.
-                return if (screen.pressSend(person.app, person.name, text)) Sent.Done
-                else Sent.Failed("I couldn't press Send. It's ready in WhatsApp: press Send yourself.", inWhatsApp = true)
+                val pressed = try {
+                    screen.pressSend(person.app, person.name, text)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    return Sent.Failed(NOT_SURE, inWhatsApp = true) // it may have been pressed: never a second send
+                }
+                if (!pressed) return Sent.Failed("I couldn't press Send. It's ready in WhatsApp: press Send yourself.", inWhatsApp = true)
+                return sentAfterPress(person, text)
             }
         }
         return when {
@@ -108,5 +120,23 @@ class Messenger(
             !sameName(seen.name, person.name) -> Sent.Failed("That opened the wrong chat, so I didn't send it.")
             else -> Sent.Failed("WhatsApp didn't put the message in, so I didn't send it.")
         }
+    }
+
+    /**
+     * After the press: sent once the chat's box no longer holds the text (WhatsApp empties it as the message goes).
+     * Still there after a moment and a half: WhatsApp did not send it, and it waits there for the person. The chat not
+     * read once in that time: Buddy cannot tell.
+     */
+    private suspend fun sentAfterPress(person: Person, text: String): Sent {
+        var seen = false
+        var waited = 0L
+        while (waited < SENT_WAIT_MS) {
+            wait(STEP_MS)
+            waited += STEP_MS
+            val now = screen.chat(person.app) ?: continue
+            if (!now.readyFor(person.name, text)) return Sent.Done
+            seen = true
+        }
+        return Sent.Failed(if (seen) NOT_SENT else NOT_SURE, inWhatsApp = true)
     }
 }

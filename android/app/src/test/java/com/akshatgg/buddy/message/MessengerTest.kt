@@ -1,8 +1,11 @@
 package com.akshatgg.buddy.message
 
 import android.content.ActivityNotFoundException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class MessengerTest {
@@ -21,8 +24,17 @@ class MessengerTest {
             opened += person to text
         }
     }
-    /** WhatsApp's chat as Buddy reads it, one read after another (the last one stays); `log` has the waits too. */
-    private class FakeScreen(var on: Boolean = true, var chats: MutableList<ChatState?> = mutableListOf(ChatState("Priya Sharma", "hi")), var press: Boolean = true) : ChatScreen {
+    /**
+     * WhatsApp's chat as Buddy reads it, one read after another (the last one stays); `log` has the waits too. A press
+     * that works empties the box, unless `takes` is false (WhatsApp kept the text); `fails` is thrown at the press.
+     */
+    private class FakeScreen(
+        var on: Boolean = true,
+        var chats: MutableList<ChatState?> = mutableListOf(ChatState("Priya Sharma", "hi")),
+        var press: Boolean = true,
+        var takes: Boolean = true,
+        var fails: Exception? = null,
+    ) : ChatScreen {
         val pressed = mutableListOf<String>()
         val log = mutableListOf<String>()
         override fun on() = on
@@ -30,7 +42,12 @@ class MessengerTest {
             log += "read"
             return if (chats.size > 1) chats.removeAt(0) else chats.firstOrNull()
         }
-        override suspend fun pressSend(app: String, name: String, text: String): Boolean { pressed += "$app $name: $text"; return press }
+        override suspend fun pressSend(app: String, name: String, text: String): Boolean {
+            pressed += "$app $name: $text"
+            fails?.let { throw it }
+            if (press && takes) chats = mutableListOf(ChatState(name, ""))
+            return press
+        }
     }
     private fun priyaWith(box: String) = ChatState("Priya Sharma", box)
     private fun messenger(w: WhatsApp, s: ChatScreen = FakeScreen(), allowed: Boolean = true) =
@@ -109,7 +126,32 @@ class MessengerTest {
     @Test fun theChatIsFirstReadAfterAWait() = runTest {
         val s = FakeScreen()
         assertEquals(Sent.Done, messenger(FakeWhatsApp(), s).send(priya, "hi"))
-        assertEquals(listOf("wait", "read"), s.log)
+        assertEquals(listOf("wait", "read", "wait", "read"), s.log) // and after the press, a wait before it is checked
+    }
+    @Test fun sentOnlyWhenTheBoxLetGoOfTheText() = runTest {
+        val s = FakeScreen(chats = mutableListOf(priyaWith("hi")), takes = false)
+        assertEquals(Sent.Failed("I pressed Send, but WhatsApp didn't send it. Check WhatsApp.", inWhatsApp = true), messenger(FakeWhatsApp(), s).send(priya, "hi"))
+        assertEquals(1, s.pressed.size) // never pressed twice
+        assertEquals(1 + 6, s.log.count { it == "read" }) // looked for 1.5 s after the press
+    }
+    @Test fun theBoxLettingGoLateIsStillSent() = runTest {
+        val s = FakeScreen(chats = mutableListOf(priyaWith("hi")), takes = false)
+        val m = Messenger(FakeWhatsApp(), s, contactsAllowed = { true }, wait = { s.log += "wait"; if (s.pressed.isNotEmpty() && s.log.count { it == "wait" } == 4) s.chats = mutableListOf(priyaWith("")) })
+        assertEquals(Sent.Done, m.send(priya, "hi"))
+    }
+    @Test fun aChatThatCannotBeReadAfterThePressIsNotSure() = runTest {
+        val s = FakeScreen(chats = mutableListOf(priyaWith("hi")), takes = false)
+        val m = Messenger(FakeWhatsApp(), s, contactsAllowed = { true }, wait = { if (s.pressed.isNotEmpty()) s.chats = mutableListOf(null) })
+        assertEquals(Sent.Failed("I'm not sure it went. Check WhatsApp.", inWhatsApp = true), m.send(priya, "hi"))
+    }
+    @Test fun aPressThatThrowsIsNotSure() = runTest {
+        val s = FakeScreen(fails = IllegalStateException("node gone"))
+        assertEquals(Sent.Failed("I'm not sure it went. Check WhatsApp.", inWhatsApp = true), messenger(FakeWhatsApp(), s).send(priya, "hi"))
+        assertEquals(1, s.pressed.size)
+    }
+    @Test fun aPressCancelledIsCancelled() {
+        val s = FakeScreen(fails = CancellationException("closed"))
+        assertThrows(CancellationException::class.java) { runBlocking { messenger(FakeWhatsApp(), s).send(priya, "hi") } }
     }
     @Test fun accessibilityOff() = runTest {
         val w = FakeWhatsApp(); val s = FakeScreen(on = false)

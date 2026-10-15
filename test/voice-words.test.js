@@ -7,34 +7,47 @@ const {
 
 test('a yes word, or the card\'s own verb, is yes; any no word wins; nothing decisive is no', () => {
   for (const said of ['yes', 'Yes!', 'yeah send it', 'Haan.', 'ha', 'okay', 'OK', 'send']) assert.strictEqual(heardAnswer(said, 'send'), 'yes', said);
-  for (const said of ['call', 'yes call him']) assert.strictEqual(heardAnswer(said, 'call'), 'yes', said);
+  for (const said of ['call', 'yes call']) assert.strictEqual(heardAnswer(said, 'call'), 'yes', said);
   for (const said of ['no', 'Nahi.', 'nahin', 'na', 'cancel', "don't", 'Don’t send it', 'stop', 'yes no', 'no, send it']) {
     assert.strictEqual(heardAnswer(said, 'send'), 'no', said);
   }
   for (const said of ['', '[unk]', 'maybe', 'what', 'call', 'later']) assert.strictEqual(heardAnswer(said, 'send'), 'no', said);
   assert.strictEqual(heardAnswer('send', 'call'), 'no', 'a message\'s verb is not a yes for a call');
+  assert.strictEqual(heardAnswer('call', 'send'), 'no');
+});
+
+test('a yes is only words that all mean yes: a negation or any other word is no', () => {
+  for (const said of ['do not send it', 'do not call', 'Okay, not now', 'not okay', 'haan mat bhejo', 'nope, send', 'wait, send it',
+    'never mind okay', 'yes no', 'not yet', 'haan nahi', 'no problem', 'okay don\'t', 'abhi nahi', 'maybe later', 'nah', 'nope']) {
+    assert.strictEqual(heardAnswer(said, 'send'), 'no', said);
+  }
+  for (const said of ['yes', 'yes send it', 'haan', 'haan ji', 'okay send it please', 'yes send now']) assert.strictEqual(heardAnswer(said, 'send'), 'yes', said);
+  for (const said of ['call', 'yes call now', 'haan ji call kar do']) assert.strictEqual(heardAnswer(said, 'call'), 'yes', said);
+  assert.strictEqual(heardWords('please', 'send'), null);
 });
 
 test('heardWords tells "nothing decisive yet" (null) from a no', () => {
   assert.strictEqual(heardWords('[unk] [unk]', 'send'), null);
-  assert.strictEqual(heardWords('hmm', 'call'), null);
+  assert.strictEqual(heardWords('', 'call'), null);
+  assert.strictEqual(heardWords('hmm', 'call'), 'no');
   assert.strictEqual(heardWords('nahi', 'call'), 'no');
   assert.strictEqual(heardWords('haan', 'call'), 'yes');
 });
 
 test('the grammar keeps the words the model knows, then [unk], and says which it lacks', () => {
   assert.deepStrictEqual(answerGrammar('send', null).grammar,
-    ['yes', 'yeah', 'haan', 'ha', 'okay', 'send', 'no', 'nahi', 'na', 'cancel', "don't", 'stop', '[unk]']);
+    ['yes', 'yeah', 'haan', 'ha', 'okay', 'send', 'no', 'nahi', 'na', 'cancel', "don't", 'stop', 'not', 'mat', 'nope', 'nah', 'wait', '[unk]']);
   const known = new Set(['yes', 'yeah', 'okay', 'call', 'no', 'cancel', "don't", 'stop']);
   assert.deepStrictEqual(answerGrammar('call', known), {
     grammar: ['yes', 'yeah', 'okay', 'call', 'no', 'cancel', "don't", 'stop', '[unk]'],
-    missing: ['haan', 'ha', 'nahi', 'na'],
+    missing: ['haan', 'ha', 'nahi', 'na', 'not', 'mat', 'nope', 'nah', 'wait'],
   });
 });
 
 test('the card is asked out loud as the spec says', () => {
   assert.strictEqual(spokenQuestion({ kind: 'message', name: 'Priya Sharma', text: "I'm running late" }), "To Priya Sharma: I'm running late. Send it?");
   assert.strictEqual(spokenQuestion({ kind: 'message', name: 'Priya Sharma', text: 'Where are you? ' }), 'To Priya Sharma: Where are you? Send it?');
+  assert.strictEqual(spokenQuestion({ kind: 'message', name: 'Priya Sharma', text: '  ' }), 'To Priya Sharma. Send it?');
   assert.strictEqual(spokenQuestion({ kind: 'call', name: 'Prince Narasimhan', how: 'phone' }), 'Call Prince Narasimhan?');
   assert.strictEqual(spokenQuestion({ kind: 'call', name: 'Prince Sharma', how: 'whatsapp' }), 'WhatsApp call Prince Sharma?');
   assert.strictEqual(spokenQuestion({ kind: 'call', name: 'Prince Sharma', how: 'whatsapp_video' }), 'WhatsApp video call Prince Sharma?');

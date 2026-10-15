@@ -27,8 +27,11 @@ const LINES_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', '
 const VOICE_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'voice-cases.json');
 const voice = require('../shared/voice-words');
 const HEARD = [['yes', 'send'], ['Haan.', 'call'], ['ok send it', 'send'], ['send', 'call'], ['call', 'call'], ['no, send it', 'send'],
-  ['Don’t', 'call'], ['nahin', 'send'], ['[unk] [unk]', 'send'], ['', 'call'], ['maybe later', 'send'], ['yes no', 'call']];
-const QUESTIONS = [{ kind: 'message', name: 'Priya Sharma', text: "I'm running late" }, { kind: 'message', name: 'Priya', text: 'Kahan ho? ' },
+  ['Don’t', 'call'], ['nahin', 'send'], ['[unk] [unk]', 'send'], ['', 'call'], ['maybe later', 'send'], ['yes no', 'call'],
+  ...['do not send it', 'do not call', 'Okay, not now', 'not okay', 'haan mat bhejo', 'nope, send', 'wait, send it', 'never mind okay', 'not yet',
+    'haan nahi', 'no problem', "okay don't", 'abhi nahi'].map((t) => [t, 'send']), ['yes send it', 'send'], ['haan', 'send'], ['haan ji', 'send'],
+  ['okay send it please', 'send'], ['yes call now', 'call'], ['please', 'send']];
+const QUESTIONS = [{ kind: 'message', name: 'Priya Sharma', text: "I'm running late" }, { kind: 'message', name: 'Priya', text: 'Kahan ho? ' }, { kind: 'message', name: 'Priya', text: ' ' },
   { kind: 'call', name: 'Prince Narasimhan', how: 'phone' }, { kind: 'call', name: 'Prince', how: 'whatsapp' }, { kind: 'call', name: 'Prince', how: 'whatsapp_video' }];
 const LINE_ITEMS = [[{ type: 'buddy', say: 'Okay!', text: 'x' }, { type: 'buddy', say: '', text: 'Which Priya: A or B? Tell me the full name.' },
   { type: 'buddy', say: '', text: 'y'.repeat(241) }, { type: 'event', text: '✅ Opened YouTube' }, { type: 'event', text: '📝 Remembered: x' },

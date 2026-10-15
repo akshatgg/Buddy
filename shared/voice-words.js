@@ -8,10 +8,12 @@
  */
 
 const YES_WORDS = ['yes', 'yeah', 'haan', 'ha', 'okay'];
-const NO_WORDS = ['no', 'nahi', 'na', 'cancel', "don't", 'stop'];
+const NO_WORDS = ['no', 'nahi', 'na', 'cancel', "don't", 'stop', 'not', 'mat', 'nope', 'nah', 'wait'];
+// A yes is only these words (the yes words, the card's verb and these): any other word, "not" and "later" too, makes it a no.
+const FILLERS = ['it', 'please', 'ji', 'now', 'do', 'karo', 'kar', 'de'];
 const VERBS = ['send', 'call']; // a card's own word is a yes for that card only
 // The same word as a recognizer or Whisper may write it.
-const SAME = { ok: 'okay', dont: "don't", nahin: 'nahi', haa: 'haan', han: 'haan' };
+const SAME = { ok: 'okay', dont: "don't", nahin: 'nahi', haa: 'haan', han: 'haan', nope: 'no', nah: 'no' };
 const SPOKEN_MAX = 240; // a line of Buddy's own longer than this is only shown
 const ANSWER_MS = 8000; // nothing decisive heard this long after the question: no
 const UNLOCK_WAIT_MS = 60000;
@@ -43,9 +45,11 @@ function wordsOf(text) {
 
 function heardWords(text, verb) {
   const words = wordsOf(text);
+  if (!words.length) return null;
   if (words.some((w) => NO_WORDS.includes(w))) return 'no';
-  if (words.some((w) => YES_WORDS.includes(w) || w === verb)) return 'yes';
-  return null;
+  const isYes = (w) => YES_WORDS.includes(w) || w === verb;
+  if (!words.every((w) => isYes(w) || FILLERS.includes(w))) return 'no';
+  return words.some(isYes) ? 'yes' : null;
 }
 
 function heardAnswer(text, verb) {
@@ -61,6 +65,7 @@ function answerGrammar(verb, known = null) {
 function spokenQuestion(card) {
   if (card.kind === 'message') {
     const text = String(card.text || '').trim();
+    if (!text) return `To ${card.name}. Send it?`;
     return `To ${card.name}: ${/[.!?…]$/.test(text) ? text : `${text}.`} Send it?`;
   }
   if (card.how === 'whatsapp_video') return `WhatsApp video call ${card.name}?`;

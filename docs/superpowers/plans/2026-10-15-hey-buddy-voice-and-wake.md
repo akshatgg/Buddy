@@ -112,10 +112,11 @@ in PR 2). The owner added on 2026-10-15 that the spoken question covers **calls*
   the file through the sync tools (nothing there uses it)
 
 **Interfaces (all exported from `shared/voice-words.js`):**
-- `YES_WORDS = ['yes', 'yeah', 'haan', 'ha', 'okay']`, `NO_WORDS = ['no', 'nahi', 'na', 'cancel', "don't", 'stop']`,
+- `YES_WORDS = ['yes', 'yeah', 'haan', 'ha', 'okay']`, `NO_WORDS = ['no', 'nahi', 'na', 'cancel', "don't", 'stop', 'not', 'mat', 'nope', 'nah', 'wait']`,
   `VERBS = ['send', 'call']`.
-- `heardWords(text: string, verb: 'send'|'call') -> 'yes' | 'no' | null`: `'no'` when any no word is there; else
-  `'yes'` when a yes word or the card's own verb is there; else `null` (nothing decisive yet).
+- `heardWords(text: string, verb: 'send'|'call') -> 'yes' | 'no' | null`: `null` when no word was heard; `'no'` when any
+  no word is there or any word is not a yes word, the card's own verb or a filler (`it please ji now do karo kar de`); else
+  `'yes'` when a yes word or the verb is there; else `null`. So "do not send it" and "okay, not now" are no.
 - `heardAnswer(text, verb) -> 'yes' | 'no'`: `heardWords(...) ?? 'no'`.
 - `answerGrammar(verb, known: Set<string> | null) -> { grammar: string[], missing: string[] }`: the yes words, the
   verb and the no words that `known` has (all of them when `known` is null), then `'[unk]'`; `missing` the ones it

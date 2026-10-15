@@ -22,7 +22,7 @@
     {
       "text": "send",
       "verb": "call",
-      "words": null,
+      "words": "no",
       "answer": "no"
     },
     {
@@ -64,13 +64,127 @@
     {
       "text": "maybe later",
       "verb": "send",
-      "words": null,
+      "words": "no",
       "answer": "no"
     },
     {
       "text": "yes no",
       "verb": "call",
       "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "do not send it",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "do not call",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "Okay, not now",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "not okay",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "haan mat bhejo",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "nope, send",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "wait, send it",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "never mind okay",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "not yet",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "haan nahi",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "no problem",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "okay don't",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "abhi nahi",
+      "verb": "send",
+      "words": "no",
+      "answer": "no"
+    },
+    {
+      "text": "yes send it",
+      "verb": "send",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "haan",
+      "verb": "send",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "haan ji",
+      "verb": "send",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "okay send it please",
+      "verb": "send",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "yes call now",
+      "verb": "call",
+      "words": "yes",
+      "answer": "yes"
+    },
+    {
+      "text": "please",
+      "verb": "send",
+      "words": null,
       "answer": "no"
     }
   ],
@@ -91,6 +205,11 @@
         "cancel",
         "don't",
         "stop",
+        "not",
+        "mat",
+        "nope",
+        "nah",
+        "wait",
         "[unk]"
       ],
       "missing": []
@@ -111,6 +230,11 @@
         "cancel",
         "don't",
         "stop",
+        "not",
+        "mat",
+        "nope",
+        "nah",
+        "wait",
         "[unk]"
       ],
       "missing": []
@@ -140,7 +264,12 @@
         "ha",
         "nahi",
         "na",
-        "don't"
+        "don't",
+        "not",
+        "mat",
+        "nope",
+        "nah",
+        "wait"
       ]
     },
     {
@@ -168,7 +297,12 @@
         "call",
         "nahi",
         "na",
-        "don't"
+        "don't",
+        "not",
+        "mat",
+        "nope",
+        "nah",
+        "wait"
       ]
     }
   ],
@@ -188,6 +322,14 @@
         "text": "Kahan ho? "
       },
       "said": "To Priya: Kahan ho? Send it?"
+    },
+    {
+      "card": {
+        "kind": "message",
+        "name": "Priya",
+        "text": " "
+      },
+      "said": "To Priya. Send it?"
     },
     {
       "card": {

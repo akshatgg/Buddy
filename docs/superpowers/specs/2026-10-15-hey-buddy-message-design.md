@@ -129,7 +129,9 @@ Send button.
   as a chat message. For a `message` answer the flow goes: find the chat, then say "To X: … Send it?", then listen for
   the answer.
 - **Hearing yes/no:** on the device, with the same Vosk recognizer as the wake word, limited to a short word list:
-  yes, yeah, haan, ha, send, okay / no, nahi, na, cancel, don't, stop. If it hears none of them in 8 s, that counts as
+  yes, yeah, haan, ha, send, okay / no, nahi, na, cancel, don't, stop, not, mat, nope, nah, wait. It counts as yes only
+  when every word heard is a yes word, the card's own word (send or call) or a filler (it, please, ji, now, do, kar,
+  karo, de) and at least one is a yes word; any other word, such as "not" or "later", makes it no. If it hears none of them in 8 s, that counts as
   no. No server call is made, so the answer is quick and works on slow internet.
 - Other answers keep working as today: Buddy says `say` out loud and shows the reply in the panel.
 - PR 2 is where Vosk and its model first come in (see section 3). PR 3 only adds the always-on listening.

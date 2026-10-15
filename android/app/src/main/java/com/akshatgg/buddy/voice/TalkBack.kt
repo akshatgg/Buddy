@@ -118,7 +118,8 @@ class KeyguardLock(private val context: Context) : Lock {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context?, i: Intent?) { present.complete(Unit) }
         }
-        ContextCompat.registerReceiver(context, receiver, IntentFilter(Intent.ACTION_USER_PRESENT), ContextCompat.RECEIVER_NOT_EXPORTED)
+        // EXPORTED on purpose: on Android 16 a not-exported receiver never hears USER_PRESENT (only the system can send it, so exported is safe).
+        ContextCompat.registerReceiver(context, receiver, IntentFilter(Intent.ACTION_USER_PRESENT), ContextCompat.RECEIVER_EXPORTED)
         try {
             if (!locked()) return true
             return withTimeoutOrNull(withinMs) { present.await(); true } ?: false

@@ -514,7 +514,8 @@ class BubbleService : LifecycleService() {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_USER_PRESENT)
         }
-        ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        // EXPORTED on purpose: on Android 16 a not-exported receiver never hears USER_PRESENT (all three are system-only broadcasts).
+        ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
         screenReceiver = receiver
         showOrHide()
     }

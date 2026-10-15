@@ -148,7 +148,7 @@ async function start(options = {}) {
   const ear = createEarWindow({ BrowserWindow, ipcMain, model: voiceModel });
   const lock = createLock({ powerMonitor });
   // Spoken chats are on the Mac only (Windows keeps its cards). The server writes down an answer the model cannot hear;
-  // `actions` is read lazily, as it is made below. The end-to-end test passes none.
+  // `actions` is read lazily, as it is made below. The end-to-end test passes `talkBack: null`, so that it never opens an ear or speaks (only an undefined option builds the real one).
   const talkBack = options.talkBack !== undefined ? options.talkBack
     : process.platform === 'darwin'
       ? createTalkBack({ ear, model: voiceModel, transcribe: (audio, mime) => actions.transcribe(audio, mime).then((r) => r.text) })

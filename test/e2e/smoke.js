@@ -346,6 +346,7 @@ async function waitFor(fn, what, ms = 8000) {
       // Claude mode reads sessions from the test's own folder, and types into a pretend terminal that keeps what it got.
       claudeDirs: [path.join(userData, 'claude-home')],
       terminal: claudeTerminal,
+      talkBack: null, // never a real ear window or a voice: the harness must stay silent
     });
     ctx.claudeTerminal = claudeTerminal;
     Object.assign(ctx, { helper, clipboard, globalShortcut, loginCalls, systemPreferences });

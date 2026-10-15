@@ -160,7 +160,7 @@ function createActions({
   function newChat(app = null) {
     return {
       app, items: [], nextId: 1, selection: '', notice: '', noticeFix: '', busy: false, talking: 0, lastPut: null, resumed: false, live: false,
-      spoken: false, asking: null, followUps: 0, run: 0, speaking: false, listening: false, cancelWait: null,
+      spoken: false, asking: null, followUps: 0, run: 0, speaking: false, listening: false, cancelWait: null, waitingFor: null, saying: 0, epoch: 0,
     };
   }
 
@@ -170,6 +170,7 @@ function createActions({
    */
   function replaceChat(next) {
     hush(chat);
+    chat.epoch += 1;
     if (chat.cancelWait) chat.cancelWait(); // a wait for the unlock is given up
     if (chat.talking > 0) ui.mood('idle');
     chat = next;
@@ -181,14 +182,16 @@ function createActions({
    */
   function hush(c) {
     c.run += 1;
-    if (c.asking !== null || c.speaking || c.listening) talkBack?.stop();
+    if (c.asking !== null || c.speaking || c.listening || c.saying > 0) talkBack?.stop();
     c.asking = null;
   }
 
   /** Said out loud, only in a spoken chat. Never rejects: a voice that fails leaves the chat as it is. */
   function speak(c, text) {
     if (!c.spoken || !talkBack || !text) return Promise.resolve();
-    return Promise.resolve().then(() => talkBack.say(text)).catch((err) => console.warn('[buddy] could not speak:', err.message));
+    c.saying += 1; // hush() stops whatever line is being said
+    return Promise.resolve().then(() => talkBack.say(text)).catch((err) => console.warn('[buddy] could not speak:', err.message))
+      .finally(() => { c.saying -= 1; });
   }
 
   /** Text as it goes on the clipboard, with the system's line breaks. */
@@ -613,6 +616,7 @@ function createActions({
       throw new BuddyError('bad_request', `Your selection is too long (over ${LIMITS.text} characters). Select less, or press ✕ to leave it out.`);
     }
     hush(c);
+    c.epoch += 1; // a new message ends a wait for the unlock
     if (c.cancelWait) c.cancelWait();
     c.spoken = spoken && Boolean(talkBack);
     c.followUps = followUp ? c.followUps + 1 : 0;
@@ -688,19 +692,21 @@ function createActions({
   async function unlockedFor(c, item, kind, name) {
     if (!lock.locked()) return true;
     const ask = unlockLine('Mac', kind, name);
-    ui.bubble(ask);
-    await speak(c, ask);
+    const epoch = c.epoch;
     let cancel;
     const cancelled = new Promise((resolve) => { cancel = () => resolve('cancelled'); });
-    c.cancelWait = cancel;
+    c.cancelWait = cancel; // before the line is spoken, so that anything new meanwhile ends the wait
+    c.waitingFor = item.id;
+    ui.bubble(ask);
     let ok;
     try {
-      ok = await Promise.race([lock.unlocked(UNLOCK_WAIT_MS), cancelled]);
+      ok = await Promise.race([speak(c, ask).then(() => 'spoken'), cancelled]);
+      if (ok !== 'cancelled') ok = await Promise.race([lock.unlocked(UNLOCK_WAIT_MS), cancelled]);
     } finally {
-      if (c.cancelWait === cancel) c.cancelWait = null;
+      if (c.cancelWait === cancel) { c.cancelWait = null; c.waitingFor = null; }
     }
     // Not now, a new message, closing or a new chat meanwhile: the card is not pressed.
-    if (ok === 'cancelled' || c !== chat || !c.items.includes(item) || !item.buttons?.length) return false;
+    if (ok === 'cancelled' || c.epoch !== epoch || c !== chat || !c.items.includes(item) || !item.buttons?.length) return false;
     if (ok) return true;
     const gave = kind === 'call' ? VOICE_LINES.didntCall : VOICE_LINES.didntSend;
     swap(c, item, { type: 'event', text: gave, buttons: [] });
@@ -1001,7 +1007,7 @@ function createActions({
   async function act(id, button, { spoken = false } = {}) {
     const c = chat;
     if (!spoken) hush(c); // a person's press ends any question Buddy is asking out loud; a spoken yes or no does not
-    if (button === 'not-now' && c.cancelWait) c.cancelWait(); // Not now while Buddy waits for the unlock
+    if (button === 'not-now' && c.cancelWait && c.waitingFor === id) c.cancelWait(); // Not now on the card Buddy waits to send
     const item = c.items.find((i) => i.id === id);
     if (!item?.buttons?.includes(button)) throw new BuddyError('bad_request', "That isn't there any more.");
     if (button === 'copy') {

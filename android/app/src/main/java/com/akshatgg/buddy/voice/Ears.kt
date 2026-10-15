@@ -2,6 +2,7 @@ package com.akshatgg.buddy.voice
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
@@ -36,21 +37,24 @@ class Ears(
 ) {
     private companion object { const val CHUNK = 1_600 /* 100 ms */ }
 
+    /** Anything unclear, an error included, is a no. */
     suspend fun hear(verb: String): Heard = withContext(Dispatchers.IO) {
         val maker = spotters()
         val grammar = VoiceWords.grammar(verb, if (maker != null) known() else null)
         val turn = AnswerTurn(verb, needsServer = maker == null || grammar.missing.isNotEmpty())
-        val spotter = maker?.make(grammar.phrases)
-        val source = mic()
-        if (!source.start()) return@withContext Heard.NO.also { spotter?.close() }
-        val chunk = ShortArray(CHUNK)
-        val kept = PcmKeeper(10 * Wav.RATE) // what was said, for the server when it must hear it (at most 10 s)
-        val end = SpeechEnd(quietMs = 1_500, nothingMs = VoiceWords.ANSWER_MS, maxMs = 10_000)
-        var samples = 0L
+        var spotter: Spotter? = null
+        var source: PcmSource? = null
         try {
+            spotter = maker?.make(grammar.phrases)
+            val mic = mic().also { source = it }
+            if (!mic.start()) return@withContext Heard.NO
+            val chunk = ShortArray(CHUNK)
+            val kept = PcmKeeper(10 * Wav.RATE) // what was said, for the server when it must hear it (at most 10 s)
+            val end = SpeechEnd(quietMs = 1_500, nothingMs = VoiceWords.ANSWER_MS, maxMs = 10_000)
+            var samples = 0L
             var decision: Decision? = null
             while (decision == null && isActive) {
-                val n = source.read(chunk)
+                val n = mic.read(chunk)
                 if (n <= 0) break
                 samples += n
                 kept.add(chunk, n)
@@ -63,19 +67,18 @@ class Ears(
                 // Without the model a quick "haan" does not wait the 8 s out.
                 if (decision == null && spotter == null && end.feed(level, samples / 16) != End.LISTEN) decision = turn.timeUp("")
             }
+            ensureActive() // after a stop nothing is written down and nothing goes to the server
             when (val d = decision ?: turn.timeUp("")) {
                 is Decision.Words -> VoiceWords.heard(d.text, verb)
-                Decision.Recording -> try {
-                    VoiceWords.heard(transcribe(Wav.of(kept.all()), "audio/wav"), verb)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Heard.NO
-                }
+                Decision.Recording -> VoiceWords.heard(transcribe(Wav.of(kept.all()), "audio/wav"), verb)
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Heard.NO
         } finally {
-            source.stop()
-            spotter?.close()
+            runCatching { source?.stop() }
+            runCatching { spotter?.close() }
         }
     }
 

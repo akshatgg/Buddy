@@ -24,6 +24,12 @@ class TtsSpeaker(context: Context) : Speaker {
         val done = CompletableDeferred<Boolean>()
         ready = done
         tts = TextToSpeech(app) { status ->
+            if (status != TextToSpeech.SUCCESS) {
+                // Start failed: forget the engine so the next say() tries again.
+                synchronized(this) {
+                    if (ready === done) { ready = null; runCatching { tts?.shutdown() }; tts = null }
+                }
+            }
             val t = tts
             if (status == TextToSpeech.SUCCESS && t != null) {
                 t.setAudioAttributes(
@@ -53,11 +59,11 @@ class TtsSpeaker(context: Context) : Speaker {
         val done = CompletableDeferred<Unit>()
         synchronized(waiting) { waiting[id] = done }
         val t = tts
-        if (t == null || t.speak(text, TextToSpeech.QUEUE_ADD, null, id) != TextToSpeech.SUCCESS) {
+        if (t == null || t.speak(text, TextToSpeech.QUEUE_FLUSH, null, id) != TextToSpeech.SUCCESS) {
             finish(id); return
         }
         try {
-            withTimeoutOrNull(20_000) { done.await() }
+            if (withTimeoutOrNull(20_000) { done.await() } == null) runCatching { t.stop() } // never play on while listening
         } finally {
             synchronized(waiting) { waiting.remove(id) }
         }

@@ -56,7 +56,7 @@ class PhoneTalkBack(
     private val transcribe: suspend (ByteArray, String) -> String,
 ) : TalkBack {
     @Volatile private var stopped = false
-    @Volatile private var current: Deferred<*>? = null
+    private val inFlight = java.util.Collections.synchronizedSet(HashSet<Deferred<*>>())
 
     override suspend fun say(text: String) {
         stopped = false
@@ -68,13 +68,14 @@ class PhoneTalkBack(
         if (stopped) return onStop
         return coroutineScope {
             val job = async { block() }
-            current = job
+            inFlight.add(job)
+            if (stopped) job.cancel() // stop() came between the check above and here
             try {
                 job.await()
             } catch (e: CancellationException) {
                 if (currentCoroutineContext().isActive && stopped) onStop else throw e
             } finally {
-                if (current === job) current = null
+                inFlight.remove(job)
             }
         }
     }
@@ -99,7 +100,7 @@ class PhoneTalkBack(
 
     override fun stop() {
         stopped = true
-        current?.cancel()
+        synchronized(inFlight) { inFlight.toList() }.forEach { it.cancel() }
         speaker.stop()
     }
 }

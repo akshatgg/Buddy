@@ -82,4 +82,13 @@ class PhoneTalkBackTest {
         assertNull(TalkBack.SILENT.listen())
         assertTrue(Lock.OPEN.unlocked(1))
     }
+
+    @Test fun stopCancelsEveryHearInFlight() = runTest(UnconfinedTestDispatcher()) {
+        val t = talk(this, mic = FakeMic(emptyList(), starts = true), spotter = null)
+        val a = async { t.hear("send") }
+        val b = async { t.hear("call") }
+        t.stop()
+        assertEquals(Heard.NO, a.await())
+        assertEquals(Heard.NO, b.await())
+    }
 }

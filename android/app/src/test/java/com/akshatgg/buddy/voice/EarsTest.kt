@@ -1,6 +1,9 @@
 package com.akshatgg.buddy.voice
 
 import com.akshatgg.buddy.core.BuddyError
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -143,5 +146,52 @@ class EarsTest {
         assertEquals(Decision.Words(""), turn.timeUp(""))
         val server = AnswerTurn("send", needsServer = true).also { it.level(0.3f) }
         assertEquals(Decision.Recording, server.timeUp(""))
+    }
+
+    @Test fun aModelThatCannotLoadIsNo() = runTest {
+        val mic = speech(5)
+        val e = Ears({ mic }, { Spotters { throw IllegalStateException("model") } }, { null }, { _, _ -> "" })
+        assertEquals(Heard.NO, e.hear("send"))
+    }
+
+    @Test fun aRecognizerThatThrowsIsNoAndClosed() = runTest {
+        val spotter = object : Spotter {
+            var closed = false
+            override fun accept(pcm: ShortArray, n: Int): String? = throw IllegalStateException("vosk")
+            override fun finish() = ""
+            override fun close() { closed = true }
+        }
+        val mic = speech(5)
+        val e = Ears({ mic }, { Spotters { spotter } }, { null }, { _, _ -> "" })
+        assertEquals(Heard.NO, e.hear("send"))
+        assertTrue(spotter.closed)
+        assertTrue(mic.stopped)
+    }
+
+    @Test fun aMicThatThrowsIsNoAndTheSpotterIsClosed() = runTest {
+        val spotter = FakeSpotter(emptyMap(), said(""))
+        val e = Ears({ throw IllegalStateException("mic") }, { Spotters { spotter } }, { null }, { _, _ -> "" })
+        assertEquals(Heard.NO, e.hear("send"))
+        assertTrue(spotter.closed)
+    }
+
+    @Test fun aStopWhileListeningNeverGoesToTheServer() = runTest {
+        var job: Job? = null
+        val mic = object : PcmSource {
+            var reads = 0
+            override fun start() = true
+            override fun read(into: ShortArray): Int {
+                if (++reads == 3) job!!.cancel()
+                if (reads > 200) return -1
+                into.fill(9_000)
+                return into.size
+            }
+            override fun stop() {}
+        }
+        val e = Ears({ mic }, { null }, { null }, { _, t -> sentToServer.add(t); "yes" })
+        val j = async { e.hear("send") }
+        job = j
+        try { j.await() } catch (_: kotlinx.coroutines.CancellationException) {}
+        assertEquals(emptyList<String>(), sentToServer)
     }
 }

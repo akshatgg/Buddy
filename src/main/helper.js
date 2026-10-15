@@ -28,6 +28,7 @@ const DEFAULT_TIMEOUTS = {
   press: 10_000,
   waFind: 15_000,
   waSend: 20_000,
+  waCall: 20_000, // as waSend: its chat opened and its call started first
   default: 5_000,
 };
 const MAX_RESTART_MS = 30_000;

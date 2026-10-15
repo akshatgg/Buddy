@@ -63,6 +63,9 @@ const NO_PROJECT = 'Add a project folder in Settings → Claude Code first.';
 // whether it went, so it never sends it again by itself.
 const MESSAGE_WAITS = "It's in WhatsApp, ready for you to send.";
 const MESSAGE_UNSURE = "I'm not sure it went. Check WhatsApp.";
+// A WhatsApp call from the Mac whose start Buddy could not see, or whose end it never heard: it never calls again by
+// itself.
+const CALL_UNSURE = "I'm not sure the call started. Check WhatsApp.";
 // A "message" answer to a second step: who and what may be someone else's words, read in their box or on the screen.
 const MESSAGE_ASK = "Tell me who to message and what, and I'll do it.";
 // A call, an app to open, their calls or notifications, answered from a second step.
@@ -80,7 +83,8 @@ const SETTINGS_ERRORS = new Set([...AI_ERRORS, ...ACCOUNT_ERRORS, ...PERMISSION_
 
 // What the page gets of each kind of item. The items here also carry what only this file needs: how a buddy's text
 // goes in the app (`mode`), the fact a "Remembered" line can forget, the message an error can try again, and who a
-// WhatsApp card sends to and what (`message`: the page shows only the card's line).
+// WhatsApp card sends to and what (`message`), and who a WhatsApp call card calls and how (`call`): the page shows only
+// the card's line.
 const SHOWN = {
   you: ['text'],
   buddy: ['say', 'text', 'notes', 'buttons'],
@@ -397,6 +401,7 @@ function createActions({
     if (jobs?.projects().length) asked.projects = jobs.projects().map((p) => p.name); // only when there are any
     if (system === 'darwin') asked.canMessage = true; // the Mac can message on WhatsApp; Windows cannot (yet)
     if (system === 'darwin') asked.canOpen = true; // the Mac opens apps
+    if (system === 'darwin') asked.canCall = true; // the Mac makes WhatsApp calls (a phone call says it can't)
     const sent = c.selection;
     const selection = sent ? { selection: sent } : {};
     let from = sent ? 'selection' : null; // where the text the answer works on came from
@@ -494,6 +499,7 @@ function createActions({
       return elsewhere(c, reply);
     }
     if (reply.kind === 'open') return startOpen(c, reply);
+    if (reply.kind === 'call') return startCall(c, reply); // a phone call took the elsewhere line above
     if (reply.kind === 'code') return startCode(c, reply);
     if (reply.kind === 'send') {
       add(c, { type: 'question', text: 'Send it?', buttons: ['send', 'not-now'] });
@@ -726,22 +732,35 @@ function createActions({
       add(c, { type: 'buddy', say: '', text: MESSAGE_ELSEWHERE, notes: [], buttons: [] });
       return true;
     }
+    const found = await findWhatsAppChat(c, reply.to);
+    if (!found.answered) return false;
+    if (found.name) add(c, { type: 'question', text: `To ${found.name}: ${reply.text}`, buttons: ['send-message', 'not-now'], message: { name: found.name, text: reply.text } });
+    await comeBack(c);
+    return true;
+  }
+
+  /**
+   * Who `to` is in WhatsApp's search, for a message or a call. WhatsApp comes to the front for it, so only while the
+   * person is still with Buddy. `answered` false: Buddy stopped short (the reason is in the chat). Otherwise `name` is
+   * the one chat, or missing when the chat says which one or why not. The panel is still aside when it answers true.
+   */
+  async function findWhatsAppChat(c, to) {
     let found;
     try {
       found = await inApp(async () => {
         if (!present(c)) return null;
-        return (await stepAside(() => helper.call('waFind', { name: reply.to }))) || {};
+        return (await stepAside(() => helper.call('waFind', { name: to }))) || {};
       }, { wait: true });
     } catch (err) {
       failed(c, err);
       await comeBack(c);
-      return false;
+      return { answered: false };
     }
     if (found === null) {
       // The person hid the panel meanwhile: WhatsApp is left alone, and the bubble says there is something to read.
       if (c === chat) ui.bubble(READY);
       add(c, { type: 'buddy', say: 'Open me again and ask once more, so I can look in WhatsApp.', text: '', notes: [], buttons: [] });
-      return false;
+      return { answered: false };
     }
     const names = (list) => (Array.isArray(list) ? list.filter((name) => typeof name === 'string') : null);
     const chats = names(found.chats) || [];
@@ -749,16 +768,29 @@ function createActions({
     // contacts (`exact`) can be two chats with one name. A helper from before `exact`, or an `exact` with no row of
     // the picked name, counts every row.
     const exact = names(found.exact) || chats;
-    const pick = pickChat(reply.to, chats);
+    const pick = pickChat(to, chats);
     const rows = pick && exact.some((name) => sameName(name, pick.name)) ? exact : chats;
-    const line = pickLine(reply.to, pick);
+    const line = pickLine(to, pick);
     if (line) {
       add(c, { type: 'buddy', say: '', text: line, notes: [], buttons: [] });
-    } else if (rows.filter((name) => sameName(name, pick.name)).length > 1) {
+      return { answered: true };
+    }
+    if (rows.filter((name) => sameName(name, pick.name)).length > 1) {
       const text = `You have more than one chat called ${pick.name}. Rename one in WhatsApp, then ask me again.`;
       add(c, { type: 'buddy', say: '', text, notes: [], buttons: [] });
-    } else {
-      add(c, { type: 'question', text: `To ${pick.name}: ${reply.text}`, buttons: ['send-message', 'not-now'], message: { name: pick.name, text: reply.text } });
+      return { answered: true };
+    }
+    return { answered: true, name: pick.name };
+  }
+
+  /** "WhatsApp call Prince": found as for a message, then "WhatsApp call Prince Sharma?" with Call and Not now. */
+  async function startCall(c, reply) {
+    if (reply.say) add(c, { type: 'buddy', say: reply.say, text: '', notes: [], buttons: [] });
+    const found = await findWhatsAppChat(c, reply.to);
+    if (!found.answered) return false;
+    if (found.name) {
+      const video = reply.how === 'whatsapp_video';
+      add(c, { type: 'question', text: `WhatsApp ${video ? 'video call' : 'call'} ${found.name}?`, buttons: ['call', 'not-now'], call: { name: found.name, video } });
     }
     await comeBack(c);
     return true;
@@ -792,6 +824,33 @@ function createActions({
     swap(c, item, { type: 'event', text: `✅ Sent to ${item.message.name}`, buttons: [] });
     ui.bubble('Sent ✅');
     if (c === chat) ui.mood('celebrate'); // not for a chat closed meanwhile (Buddy turned off), as in talk()
+    push(c);
+  }
+
+  /**
+   * Call on a WhatsApp call card: the helper opens that chat, checks it and presses its call button, once. `calling`
+   * keeps Not now off the card meanwhile. A call that did not happen leaves the card, to try again; one Buddy cannot be
+   * sure of (the helper could not see it start, or never answered) takes the card away: no second call.
+   */
+  async function placeCall(c, item) {
+    item.calling = true;
+    try {
+      await stepAside(() => helper.call('waCall', { name: item.call.name, video: item.call.video }));
+    } catch (err) {
+      const code = err instanceof BuddyError ? err.code : '';
+      if (code === 'call_unsure' || UNKNOWN_END.includes(code)) {
+        swap(c, item, { type: 'event', text: CALL_UNSURE, buttons: [] });
+        ui.bubble(CALL_UNSURE);
+      } else {
+        failed(c, err); // the card stays, to try again
+      }
+      await comeBack(c);
+      return;
+    } finally {
+      item.calling = false;
+    }
+    swap(c, item, { type: 'event', text: `${item.call.video ? '📹 Video calling' : '📞 Calling'} ${item.call.name} on WhatsApp`, buttons: [] });
+    if (c === chat) ui.mood('celebrate'); // not for a chat closed meanwhile, as for a message
     push(c);
   }
 
@@ -831,8 +890,10 @@ function createActions({
       await inApp(() => sendIt(c, item));
     } else if (button === 'send-message') {
       await inApp(() => sendMessage(c, item));
-    } else if (button === 'not-now' && item.sending) {
-      // Not now on a WhatsApp card whose Send is under way: too late to take it back.
+    } else if (button === 'call') {
+      await inApp(() => placeCall(c, item));
+    } else if (button === 'not-now' && (item.sending || item.calling)) {
+      // Not now on a WhatsApp card whose Send or Call is under way: too late to take it back.
       throw new BuddyError('bad_request', "Wait a moment, I'm still on it.");
     } else if (button === 'stop') {
       // The job's item has Stop, and so has "Stop it first" for that job. The process is told; the item ends when it
@@ -857,6 +918,9 @@ function createActions({
         swap(c, item, { type: 'event', text: `📁 ${project.name}`, buttons: [] });
         runJob(c, project, item.task);
       }
+      push(c);
+    } else if (button === 'not-now' && item.call) {
+      swap(c, item, { type: 'event', text: 'Okay, not now.', buttons: [] });
       push(c);
     } else if (button === 'not-now' && item.task !== undefined) {
       swap(c, item, { type: 'event', text: 'Okay, not now.', buttons: [] });

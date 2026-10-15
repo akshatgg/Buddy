@@ -192,7 +192,7 @@ test('a helper that does not answer in time is stopped and started afresh: a hun
   helper.stop();
 });
 
-test('reading the selection, pasting and pressing keys wait on the person\'s app, so they get 10 seconds; WhatsApp 15 to find and 20 to send; other calls get 5', () => {
+test('reading the selection, pasting and pressing keys wait on the person\'s app, so they get 10 seconds; WhatsApp 15 to find and 20 to send or call; other calls get 5', () => {
   assert.deepStrictEqual(DEFAULT_TIMEOUTS, {
     screenshot: 10_000,
     captureSelection: 10_000,
@@ -200,6 +200,7 @@ test('reading the selection, pasting and pressing keys wait on the person\'s app
     press: 10_000,
     waFind: 15_000,
     waSend: 20_000,
+    waCall: 20_000,
     default: 5_000,
   });
 });
@@ -221,6 +222,22 @@ test('waFind and waSend: what messaging on WhatsApp asks of the helper, and what
   assert.deepStrictEqual(await found, { chats: ['Priya Sharma', 'Priya Verma'] });
   assert.deepStrictEqual(await sent, { chat: 'Priya Sharma' });
   await assert.rejects(refused, { code: 'wrong_chat', message: "That opened the wrong chat, so I didn't send it." });
+  helper.stop();
+});
+
+test('waCall: what a WhatsApp call asks of the helper, and what comes back', async () => {
+  const { helper, child } = started();
+  const called = helper.call('waCall', { name: 'Prince Sharma', video: true });
+  const unsure = helper.call('waCall', { name: 'Prince Sharma', video: false });
+  await tick();
+  assert.deepStrictEqual(child.written, [
+    { id: 1, cmd: 'waCall', args: { name: 'Prince Sharma', video: true } },
+    { id: 2, cmd: 'waCall', args: { name: 'Prince Sharma', video: false } },
+  ]);
+  child.reply({ id: 1, ok: true, result: { chat: 'Prince Sharma' } });
+  child.reply({ id: 2, ok: false, error: { code: 'call_unsure', message: "I'm not sure the call started. Check WhatsApp." } });
+  assert.deepStrictEqual(await called, { chat: 'Prince Sharma' });
+  await assert.rejects(unsure, { code: 'call_unsure' });
   helper.stop();
 });
 

@@ -1041,6 +1041,23 @@ func waHeader(_ ax: AXUIElement) -> String {
     return chatName(axString(header, kAXDescriptionAttribute))
 }
 
+/// Opens the chat called `name` from WhatsApp's search and waits until its header says so: the header's name. Shared
+/// by waSend and waCall, so a message and a call go to a chat the same way.
+func waOpenChat(_ pid: pid_t, _ ax: AXUIElement, _ name: String) throws -> String {
+    let same = { (other: String) in plainName(other) == plainName(name) }
+    guard let row = try waSearch(pid, ax, name).first(where: { same($0.name) })?.row, pressRow(row) else { throw waChatNotFound }
+
+    // The chat that opened must be the one asked for.
+    var header = ""
+    let opened = Date().addingTimeInterval(4)
+    repeat {
+        usleep(250_000)
+        header = waHeader(ax)
+    } while !same(header) && Date() < opened
+    guard same(header) else { throw waWrongChat }
+    return header
+}
+
 /// waSend { name, text }: opens the chat called `name`, checks its header says so, puts `text` in its message box and
 /// presses Return. Return is pressed only when the box holds exactly `text`, the paste changed nothing else (the
 /// search box), the header still names that chat and WhatsApp is in front; otherwise nothing is sent.
@@ -1053,17 +1070,7 @@ func waSend(_ args: [String: Any]) throws -> [String: Any] {
     // never sent after Buddy has said it failed.
     let started = Date()
     let (pid, ax) = try whatsAppReady()
-    let same = { (other: String) in plainName(other) == plainName(name) }
-    guard let row = try waSearch(pid, ax, name).first(where: { same($0.name) })?.row, pressRow(row) else { throw waChatNotFound }
-
-    // The chat that opened must be the one asked for.
-    var header = ""
-    let opened = Date().addingTimeInterval(4)
-    repeat {
-        usleep(250_000)
-        header = waHeader(ax)
-    } while !same(header) && Date() < opened
-    guard same(header) else { throw waWrongChat }
+    let header = try waOpenChat(pid, ax, name)
 
     guard let window = whatsAppWindow(ax), let box = axFind(window, { axId($0) == waComposerId }) else { throw waNotPutIn }
     // The text goes into the message box or nowhere, never into the search box (which may still hold the name). What
@@ -1108,6 +1115,77 @@ func waSend(_ args: [String: Any]) throws -> [String: Any] {
     throw HelperError(code: "not_sent", message: "I pressed Send, but WhatsApp didn't send it. Check WhatsApp.")
 }
 
+// The open chat's call buttons on WhatsApp 26.41 (seen on the owner's Mac): a one-to-one chat has a voice and a video
+// button; a group has one video menu instead, and Buddy does not call groups.
+let waVoiceCallId = "NavigationBar_CallButton"
+let waVideoCallId = "NavigationBar_VideoCallButton"
+let waGroupCallId = "NavigationBar_VideoDropdownButton"
+// What shows once a call has started, not yet seen on the owner's Mac (Task 11): a window of its own for the call, or
+// something new whose name has one of these words (an End or Leave button, "Calling…"). Kept here, in one place.
+let waCallSigns: Set<String> = ["End", "Leave", "Calling"]
+let waNotCalled = HelperError(code: "not_called", message: "I couldn't press Call. Call from WhatsApp yourself.")
+
+/// How many signs of a call WhatsApp shows now: its windows, and the elements in them (30 deep, at most 2,000 looked
+/// at in each) whose name or title has one of `waCallSigns` as a whole word. Only a rise after the press counts, so the
+/// ones that were there before (a message that says "Calling", say) do not.
+func waCallSignCount(_ ax: AXUIElement) -> Int {
+    let windows = (axAttr(ax, kAXWindowsAttribute) as? [AXUIElement]) ?? []
+    let isSign = { (text: String) in
+        !waCallSigns.isDisjoint(with: withoutMarks(text).components(separatedBy: CharacterSet.letters.inverted))
+    }
+    var signs = windows.count
+    for window in windows {
+        var looked = 0
+        func walk(_ e: AXUIElement, _ depth: Int) {
+            looked += 1
+            if depth > 30 || looked > 2_000 { return }
+            if isSign(axString(e, kAXDescriptionAttribute)) || isSign(axString(e, kAXTitleAttribute)) { signs += 1 }
+            for kid in axKids(e) { walk(kid, depth + 1) }
+        }
+        walk(window, 0)
+    }
+    return signs
+}
+
+/// waCall { name, video }: opens the chat called `name` (as waSend does), checks its header, and presses its voice or
+/// video call button, once. A group's call menu is never pressed. Called means a sign of the call (waCallSignCount)
+/// showed within 4 seconds of the press; otherwise Buddy cannot tell (`call_unsure`) and never presses again. Nothing
+/// is pressed after 15 seconds: Buddy gives up at 20 (src/main/helper.js).
+func waCall(_ args: [String: Any]) throws -> [String: Any] {
+    let name = (args["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let video = args["video"] as? Bool ?? false
+    guard !name.isEmpty else { throw HelperError(code: "bad_request", message: "name is missing") }
+    let started = Date()
+    let pid: pid_t
+    let ax: AXUIElement
+    let header: String
+    do {
+        (pid, ax) = try whatsAppReady()
+        header = try waOpenChat(pid, ax, name)
+    } catch let error as HelperError where error.code == "no_whatsapp" {
+        throw HelperError(code: "no_whatsapp", message: "Install WhatsApp for Mac and I can call from here.")
+    } catch let error as HelperError where error.code == "wrong_chat" {
+        throw HelperError(code: "wrong_chat", message: "That opened the wrong chat, so I didn't call.")
+    }
+    guard let window = whatsAppWindow(ax) else { throw waNotCalled }
+    if axFind(window, { axId($0) == waGroupCallId }) != nil {
+        throw HelperError(code: "group_call", message: "I can only call one person, not a group. Call from WhatsApp yourself.")
+    }
+    let wanted = video ? waVideoCallId : waVoiceCallId
+    guard let button = axFind(window, { axId($0) == wanted }) else { throw waNotCalled }
+    let before = waCallSignCount(ax)
+    // Still that chat, WhatsApp in front, and time left.
+    guard waHeader(ax) == header, frontPid() == pid, Date().timeIntervalSince(started) < 15 else { throw waNotCalled }
+    guard AXUIElementPerformAction(button, kAXPressAction as CFString) == .success else { throw waNotCalled }
+    // Pressed: from here on nothing is pressed again, whatever happens. The answer comes before Buddy's 20 seconds.
+    let by = min(Date().addingTimeInterval(4), started.addingTimeInterval(18.5))
+    repeat {
+        usleep(250_000)
+        if waCallSignCount(ax) > before { return ["chat": header] }
+    } while Date() < by
+    throw HelperError(code: "call_unsure", message: "I'm not sure the call started. Check WhatsApp.")
+}
+
 func handle(_ msg: [String: Any]) {
     let id = msg["id"] ?? NSNull()
     let args = msg["args"] as? [String: Any] ?? [:]
@@ -1146,6 +1224,8 @@ func handle(_ msg: [String: Any]) {
             result = try waFind(args)
         case "waSend":
             result = try waSend(args)
+        case "waCall":
+            result = try waCall(args)
         default:
             throw HelperError(code: "bad_request", message: "unknown command")
         }

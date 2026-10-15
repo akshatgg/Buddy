@@ -27,9 +27,10 @@ const ChatView = (() => {
     allow: 'Allow',
     deny: 'No',
     'send-message': 'Send', // a message on WhatsApp, on its card "To Priya Sharma: …"
+    call: 'Call', // a WhatsApp call, on its card "WhatsApp call Prince Sharma?"
   };
-  // The button that does what the answer is for: put the text in the app, or send it.
-  const PRIMARY = ['insert', 'replace', 'send', 'send-message', 'allow', 'open-folder'];
+  // The button that does what the answer is for: put the text in the app, send it, or call.
+  const PRIMARY = ['insert', 'replace', 'send', 'send-message', 'call', 'allow', 'open-folder'];
   const KINDS = ['you', 'buddy', 'event', 'error', 'question', 'job'];
   const PROJECT_BUTTON = 'project:'; // "Which project?": one button per folder, `project:<path>`
   const PREVIEW_CHARS = 40;

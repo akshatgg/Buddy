@@ -198,8 +198,8 @@ const steps = (log, from = 0) => log.slice(from)
   .filter((e) => ['showPanel', 'hidePanel', 'helper', 'ask', 'bubble', 'openSettings'].includes(e[0]))
   .map((e) => (e[0] === 'helper' ? e[1] : e[0]));
 /** The AI's input for a message from the panel opened over Chrome, by Akshat, with nothing before it. */
-// What the Mac asks with: it can message on WhatsApp (canMessage), which Windows cannot.
-const input = (fields) => ({ history: [], facts: [], appName: 'Google Chrome', userName: 'Akshat', step: 1, canMessage: true, canOpen: true, ...fields });
+// What the Mac asks with: it can message on WhatsApp (canMessage), open apps and make WhatsApp calls, which Windows cannot.
+const input = (fields) => ({ history: [], facts: [], appName: 'Google Chrome', userName: 'Akshat', step: 1, canMessage: true, canOpen: true, canCall: true, ...fields });
 
 // Opening the panel
 
@@ -2260,12 +2260,14 @@ test('the Mac says in every chat request that it can message on WhatsApp; Window
   await mac.actions.send('fix my english');
   assert.deepStrictEqual(asked(mac.log).map((a) => a.canMessage), [true, true], 'both steps');
   assert.deepStrictEqual(asked(mac.log).map((a) => a.canOpen), [true, true], 'both steps');
+  assert.deepStrictEqual(asked(mac.log).map((a) => a.canCall), [true, true], 'both steps');
   const win = setup({ windows: true, replies: { captureSelection: (args) => ({ text: args.selectAll ? 'i am go' : '' }) }, answers: [reply({ kind: 'box' }), reply({ kind: 'fix', text: 'I am going.' })] });
   await win.actions.open();
   await win.actions.send('fix my english');
   assert.strictEqual(asked(win.log).length, 2);
   for (const a of asked(win.log)) assert.strictEqual(Object.hasOwn(a, 'canMessage'), false);
   for (const a of asked(win.log)) assert.strictEqual(Object.hasOwn(a, 'canOpen'), false);
+  for (const a of asked(win.log)) assert.strictEqual(Object.hasOwn(a, 'canCall'), false);
 });
 
 test('a message answered after reading their box is not started: Buddy asks them to say who and what', async () => {
@@ -2439,6 +2441,116 @@ test('on Windows a WhatsApp call and opening an app say where they work', async 
   assert.deepStrictEqual(lastItem(s), said(2, 'I can make WhatsApp calls from the Mac and Android apps for now.'));
   await s.actions.send('open youtube');
   assert.deepStrictEqual(lastItem(s), said(4, 'I can open apps on the Mac and Android for now.'));
+});
+
+// A WhatsApp call on the Mac: found as for a message, called only on Call
+
+const waCalls = (s) => entries(s.log, 'helper').filter((e) => e[1] === 'waCall');
+
+test('a WhatsApp call: Buddy finds the chat, comes back and asks before calling', async () => {
+  const s = setup({ answers: [calling({ how: 'whatsapp_video', say: 'Sure!' })], replies: { waFind: { chats: ['Prince Sharma', 'Rahul'] } } });
+  await s.actions.open();
+  const from = s.log.length;
+  await s.actions.send('video call prince on whatsapp');
+  assert.deepStrictEqual(steps(s.log, from), ['ask', 'hidePanel', 'waFind', 'showPanel']);
+  assert.deepStrictEqual(chatOf(s).slice(1), [
+    { id: 2, type: 'buddy', say: 'Sure!', text: '', notes: [], buttons: [] },
+    { id: 3, type: 'question', text: 'WhatsApp video call Prince Sharma?', buttons: ['call', 'not-now'] },
+  ]);
+  assert.strictEqual(waCalls(s).length, 0, 'nothing is called before Call');
+});
+
+test('Call: the helper calls that chat; the card says so; a called card cannot call again', async () => {
+  const s = setup({ answers: [calling({ how: 'whatsapp' })], replies: { waFind: { chats: ['Prince Sharma'] }, waCall: { chat: 'Prince Sharma' } } });
+  await s.actions.open();
+  await s.actions.send('whatsapp call prince');
+  const card = lastItem(s);
+  assert.deepStrictEqual(card, { id: 2, type: 'question', text: 'WhatsApp call Prince Sharma?', buttons: ['call', 'not-now'] });
+  const from = s.log.length;
+  assert.deepStrictEqual(await s.actions.act(card.id, 'call'), {});
+  assert.deepStrictEqual(steps(s.log, from), ['hidePanel', 'waCall']);
+  assert.deepStrictEqual(waCalls(s).at(-1), ['helper', 'waCall', { name: 'Prince Sharma', video: false }]);
+  assert.deepStrictEqual(lastItem(s), { id: card.id, type: 'event', text: '📞 Calling Prince Sharma on WhatsApp', buttons: [] });
+  assert.strictEqual(moods(s.log).at(-1), 'celebrate');
+  await assert.rejects(s.actions.act(card.id, 'call'), { code: 'bad_request' });
+  assert.strictEqual(waCalls(s).length, 1);
+});
+
+test('a video call says so on its card', async () => {
+  const s = setup({ answers: [calling({ how: 'whatsapp_video' })], replies: { waFind: { chats: ['Prince Sharma'] }, waCall: { chat: 'Prince Sharma' } } });
+  await s.actions.open();
+  await s.actions.send('video call prince on whatsapp');
+  const card = lastItem(s);
+  await s.actions.act(card.id, 'call');
+  assert.deepStrictEqual(waCalls(s), [['helper', 'waCall', { name: 'Prince Sharma', video: true }]]);
+  assert.deepStrictEqual(lastItem(s), { id: card.id, type: 'event', text: '📹 Video calling Prince Sharma on WhatsApp', buttons: [] });
+});
+
+test('a call Buddy cannot be sure of takes the card away; one that did not happen keeps it', async () => {
+  for (const [error, gone] of [[failure('call_unsure', "I'm not sure the call started. Check WhatsApp."), true], [failure('timeout', 'x'), true], [failure('helper_exit', 'x'), true], [failure('wrong_chat', "That opened the wrong chat, so I didn't call."), false], [failure('not_called', "I couldn't press Call. Call from WhatsApp yourself."), false], [failure('group_call', 'I can only call one person, not a group. Call from WhatsApp yourself.'), false]]) {
+    const s = setup({ answers: [calling({ how: 'whatsapp' })], replies: { waFind: { chats: ['Prince Sharma'] }, waCall: error } });
+    await s.actions.open();
+    await s.actions.send('whatsapp call prince');
+    const card = lastItem(s);
+    await s.actions.act(card.id, 'call');
+    const now = chatOf(s).find((i) => i.id === card.id);
+    if (gone) {
+      assert.deepStrictEqual(now, { id: card.id, type: 'event', text: "I'm not sure the call started. Check WhatsApp.", buttons: [] }, error.code);
+      assert.deepStrictEqual(entries(s.log, 'bubble').at(-1), ['bubble', "I'm not sure the call started. Check WhatsApp."]);
+      assert.ok(!chatOf(s).some((i) => i.buttons?.includes('call') || i.buttons?.includes('retry')), `${error.code}: no second call offered`);
+      await assert.rejects(s.actions.act(card.id, 'call'), { code: 'bad_request' }, error.code);
+    } else {
+      assert.strictEqual(now.type, 'question', error.code);
+      assert.strictEqual(lastItem(s).text, error.message, error.code);
+    }
+    assert.strictEqual(waCalls(s).length, 1, error.code);
+  }
+});
+
+test('while a call is being placed, neither Call again nor Not now does anything to it', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const s = setup({ answers: [calling({ how: 'whatsapp' })], replies: { waFind: { chats: ['Prince Sharma'] }, waCall: () => gate.then(() => ({ chat: 'Prince Sharma' })) } });
+  await s.actions.open();
+  await s.actions.send('whatsapp call prince');
+  const card = lastItem(s);
+  const calling_ = s.actions.act(card.id, 'call').catch((err) => err);
+  for (let i = 0; i < 100 && !waCalls(s).length; i += 1) await new Promise(setImmediate);
+  assert.strictEqual(waCalls(s).length, 1, 'the call is under way');
+  await assert.rejects(s.actions.act(card.id, 'call'), { code: 'bad_request', message: "Wait a moment, I'm still on it." });
+  await assert.rejects(s.actions.act(card.id, 'not-now'), { code: 'bad_request', message: "Wait a moment, I'm still on it." });
+  release();
+  assert.deepStrictEqual(await calling_, {});
+  assert.deepStrictEqual(lastItem(s), { id: card.id, type: 'event', text: '📞 Calling Prince Sharma on WhatsApp', buttons: [] });
+  assert.strictEqual(waCalls(s).length, 1);
+});
+
+test('Not now on a call card calls nobody', async () => {
+  const s = setup({ answers: [calling({ how: 'whatsapp' })], replies: { waFind: { chats: ['Prince Sharma'] } } });
+  await s.actions.open();
+  await s.actions.send('whatsapp call prince');
+  const card = lastItem(s);
+  await s.actions.act(card.id, 'not-now');
+  assert.deepStrictEqual(lastItem(s), { id: card.id, type: 'event', text: 'Okay, not now.', buttons: [] });
+  assert.strictEqual(waCalls(s).length, 0);
+});
+
+test('a WhatsApp call to someone WhatsApp does not know, or twice, gets the message lines', async () => {
+  const s = setup({ answers: [calling({ to: 'Zoya', how: 'whatsapp' }), calling({ to: 'Prince', how: 'whatsapp' })], replies: { waFind: (args) => ({ chats: args.name === 'Zoya' ? [] : ['Prince Sharma', 'Prince Kumar'] }) } });
+  await s.actions.open();
+  await s.actions.send('whatsapp call zoya');
+  assert.strictEqual(lastItem(s).text, "I couldn't find Zoya on WhatsApp.");
+  await s.actions.send('whatsapp call prince');
+  assert.strictEqual(lastItem(s).text, 'Which Prince: Prince Sharma or Prince Kumar? Tell me the full name.');
+  assert.strictEqual(waCalls(s).length, 0);
+});
+
+test('the card keeps who it calls to the main side: the page never gets it', async () => {
+  const s = setup({ answers: [calling({ how: 'whatsapp' })], replies: { waFind: { chats: ['Prince Sharma'] } } });
+  await s.actions.open();
+  await s.actions.send('whatsapp call prince');
+  const states = [...entries(s.log, 'state'), ...entries(s.log, 'showPanel')].map((e) => e[1]);
+  for (const state of states) for (const item of state.chat) assert.strictEqual(Object.hasOwn(item, 'call'), false);
 });
 
 // Opening an app on the Mac

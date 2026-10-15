@@ -91,7 +91,7 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
       action: 'chat',
       input: {
         message: 'boss ko mail, kal chutti chahiye', history: [], facts: ctx.memory.facts(), appName: '', userName: 'E2E', step: 1,
-        ...(process.platform === 'darwin' ? { canMessage: true, canOpen: true } : {}), // the Mac can message on WhatsApp; Windows cannot
+        ...(process.platform === 'darwin' ? { canMessage: true, canOpen: true, canCall: true } : {}), // the Mac can message and call on WhatsApp; Windows cannot
       },
     });
     assert.deepStrictEqual(chat().at(-1).buttons, ['insert', 'copy']);
@@ -199,6 +199,24 @@ module.exports = async function panelCheck(ctx, { assert, waitFor }) {
     delete ctx.helper.replies.waSend;
     await openPanel();
     await pageShows('✅ Sent to Priya Sharma', 'the sent message in the chat');
+
+    // A WhatsApp call, on the Mac: found as for a message, and called only on the card's Call, once, to that chat.
+    if (process.platform === 'darwin') {
+      answers.push(reply({ kind: 'call', to: 'Prince', how: 'whatsapp' }));
+      ctx.helper.replies.waFind = { chats: ['Prince Sharma'] };
+      ctx.helper.replies.waCall = { chat: 'Prince Sharma' };
+      await type('whatsapp call prince');
+      await pageShows('WhatsApp call Prince Sharma?', 'the call card');
+      assert.deepStrictEqual(await buttonsOn('WhatsApp call Prince Sharma?'), ['Call', 'Not now']);
+      assert.strictEqual(ctx.helper.calls.filter((call) => call.cmd === 'waCall').length, 0, 'nothing is called before Call');
+      await click('WhatsApp call Prince Sharma?', 'Call');
+      await waitFor(() => chat().some((item) => item.text === '📞 Calling Prince Sharma on WhatsApp'), 'the card to say it is calling');
+      assert.deepStrictEqual(ctx.helper.calls.filter((call) => call.cmd === 'waCall').map((call) => call.args), [{ name: 'Prince Sharma', video: false }]);
+      delete ctx.helper.replies.waFind;
+      delete ctx.helper.replies.waCall;
+      await openPanel();
+      await pageShows('📞 Calling Prince Sharma on WhatsApp', 'the call in the chat');
+    }
 
     // Errors show in the chat with Try again, and Open Settings when the fix is there.
     const LABELS = { retry: 'Try again', settings: 'Open Settings' };

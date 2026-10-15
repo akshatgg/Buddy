@@ -120,6 +120,7 @@ class MainActivity : ComponentActivity() {
         // stopped it). Opening the app brings it back, as the Mac's buddy comes back when Buddy starts.
         val settings = kept.graph.settings
         if (settings.onboarded && settings.buddyOn && Settings.canDrawOverlays(this)) BubbleService.start(this)
+        BubbleService.listenIfNeeded(this) // the switch is on: listening begins now that the app is on screen
         kept.graph.updater.resumed() // back from Android's "Install unknown apps": the update goes on
     }
 

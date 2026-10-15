@@ -108,6 +108,7 @@ class PanelActivity : ComponentActivity(), ChatHost {
         super.onStart()
         BubbleBus.sheetShown(kept)
         model.shown()
+        com.akshatgg.buddy.bubble.BubbleService.listenIfNeeded(this) // "Tap me to listen again"
     }
 
     override fun onStop() {

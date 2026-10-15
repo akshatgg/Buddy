@@ -761,6 +761,7 @@ let waSearchBoxId = "TokenizedSearchBar_TextView"
 let waChatResultId = "ChatListSearchView_ChatResult"
 let waContactResultId = "ChatListSearchView_ContactResult"
 let waHeaderId = "NavigationBar_HeaderViewButton"
+let waClearButtonId = "TokenizedSearchBar_DeleteButton"
 let waComposerId = "ChatBar_ComposerTextView"
 // The invisible marks WhatsApp puts around names: left-to-right, right-to-left, and the embeddings and overrides, and the isolates.
 let directionMarks = CharacterSet(charactersIn: "\u{200E}\u{200F}\u{202A}\u{202B}\u{202C}\u{202D}\u{202E}\u{2066}\u{2067}\u{2068}\u{2069}")
@@ -968,6 +969,14 @@ func waSearch(_ pid: pid_t, _ ax: AXUIElement, _ name: String, pasteBefore: Date
     if let latest = pasteBefore, Date() >= latest { throw whatsAppNotReady }
     // Keys go to the app in front: nothing is typed unless that is WhatsApp.
     guard ensureFront(pid) != nil else { throw whatsAppNotReady }
+    // Start from a clear box: rows of the last search must be gone before the new one is typed.
+    let isResult = { (e: AXUIElement) in waResultKind(axId(e)) != nil }
+    if !axString(search, kAXValueAttribute).isEmpty, let clear = axFind(window, { axId($0) == waClearButtonId }) {
+        AXUIElementPerformAction(clear, kAXPressAction as CFString)
+        let cleared = Date().addingTimeInterval(1)
+        while Date() < cleared && axFind(window, isResult) != nil && !axString(search, kAXValueAttribute).isEmpty { usleep(100_000) }
+        guard ensureFront(pid) != nil else { throw whatsAppNotReady }
+    }
     pasteHere(name, selectAll: true)
     // WhatsApp's focus report cannot tell where the keys went (it names the window's content), but the boxes can: the
     // search box must now hold the name, and the message box what it held before.
@@ -980,20 +989,21 @@ func waSearch(_ pid: pid_t, _ ax: AXUIElement, _ name: String, pasteBefore: Date
     }
     guard boxText(axString(search, kAXValueAttribute)) == wanted else { throw whatsAppNotReady }
 
-    // The results show in their own list, within a second or so. A row of the last search may still be there just
-    // after the paste: the first look waits half a second, and the rows are read once they have had time to settle.
-    let isResult = { (e: AXUIElement) in waResultKind(axId(e)) != nil }
-    var shownBy = Date().addingTimeInterval(2)
+    // The results show in their own list, within a second or so. Rows are taken only when two looks 0.3 s apart show
+    // the same names, so rows of the last search that are still going away are not read.
+    var shownBy = Date().addingTimeInterval(2.5)
     if let latest = pasteBefore { shownBy = min(shownBy, latest.addingTimeInterval(3.3)) }
     usleep(500_000)
-    var shown = axFind(window, isResult) != nil
-    while !shown && Date() < shownBy {
+    while true {
+        let first = waResults(window)
+        if !first.isEmpty {
+            usleep(300_000)
+            let second = waResults(window)
+            if second.map({ $0.name }) == first.map({ $0.name }) { return second }
+        }
+        if Date() >= shownBy { return [] }
         usleep(200_000)
-        shown = axFind(window, isResult) != nil
     }
-    guard shown else { return [] }
-    usleep(300_000)
-    return waResults(window)
 }
 
 /// waFind { name }: the chats and contacts WhatsApp's search shows for `name`, at most 10, by name (`chats`). `exact`

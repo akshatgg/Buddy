@@ -46,6 +46,13 @@ const LINE_ITEMS = [[{ type: 'buddy', say: 'Okay!', text: 'x' }, { type: 'buddy'
   { type: 'buddy', say: '', text: 'y'.repeat(241) }, { type: 'event', text: '✅ Opened YouTube' }, { type: 'event', text: '📝 Remembered: x' },
   { type: 'error', text: 'x', code: 'network' }, { type: 'error', text: 'Sign in to use Buddy.', code: 'signed_out' }, { type: 'question', text: 'q' }]];
 const ASKS = ['Who should I call?', 'I found lots of apps called a. Tell me the full name.', "I couldn't find YouTube on this phone.", ''];
+const WAKE_NAMES = ['Rahul', '  Mr.  Rahul  Kumar Singh ', 'Zoë', '123', '', 'Xyzzy', 'Aarav'];
+const WAKE_KNOWN = ['hey', 'rahul', 'mr', 'kumar', 'zoe', 'aarav'];
+const wk = (word, conf, start, end) => ({ word, conf, start, end });
+const wsaid = (...words) => ({ text: words.map((x) => x.word).join(' '), result: words });
+const WAKE_SAID = [wsaid(wk('hey', 0.9, 1, 1.2), wk('rahul', 0.8, 1.2, 1.6)), wsaid(wk('hey', 0.9, 1, 1.2), wk('rahul', 0.8, 1.2, 1.6), wk('[unk]', 1, 1.7, 2.5)),
+  wsaid(wk('[unk]', 1, 0, 1), wk('hey', 0.9, 1, 1.2), wk('rahul', 0.9, 1.2, 1.6)), wsaid(wk('rahul', 0.9, 0, 0.4)), wsaid(wk('hey', 0.5, 1, 1.2), wk('rahul', 0.9, 1.2, 1.6)),
+  wsaid(wk('hey', 0.6, 1, 1.2), wk('rahul', 0.6, 1.2, 1.6)), { text: '', result: [] }];
 const KNOWN = [null, ['yes', 'okay', 'send', 'no', 'cancel', 'stop']];
 
 function buildVoiceCases() {
@@ -58,6 +65,14 @@ function buildVoiceCases() {
     questions: QUESTIONS.map((card) => ({ card, said: voice.spokenQuestion(card) })),
     lines: LINE_ITEMS.map((items) => ({ items, said: voice.spokenLines(items) })),
     asksBack: ASKS.map((line) => ({ line, asks: voice.asksBack(line) })),
+    wake: {
+      phrases: WAKE_NAMES.map((name) => ({ name, phrase: voice.wakePhrase(name), missing: voice.wakeMissing(name, new Set(WAKE_KNOWN)) })),
+      known: WAKE_KNOWN,
+      floor: voice.WAKE_FLOOR,
+      request: voice.REQUEST,
+      from: WAKE_SAID.map((said) => ({ said, phrase: 'hey rahul', wake: voice.wakeFrom(said, 'hey rahul', voice.WAKE_FLOOR) })),
+      lines: { name: ' Rahul ', ...Object.fromEntries(Object.entries(voice.WAKE_LINES).map(([k, v]) => [k, typeof v === 'function' ? v(' Rahul ') : v])) },
+    },
     unlock: [['phone', 'message'], ['phone', 'call'], ['Mac', 'message'], ['Mac', 'call']]
       .map(([device, kind]) => ({ device, kind, name: 'Priya Sharma', said: voice.unlockLine(device, kind, 'Priya Sharma') })),
   };

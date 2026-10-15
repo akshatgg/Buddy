@@ -744,6 +744,227 @@
       "asks": false
     }
   ],
+  "wake": {
+    "phrases": [
+      {
+        "name": "Rahul",
+        "phrase": "hey rahul",
+        "missing": []
+      },
+      {
+        "name": "  Mr.  Rahul  Kumar Singh ",
+        "phrase": "hey mr rahul kumar",
+        "missing": []
+      },
+      {
+        "name": "Zoë",
+        "phrase": "hey zoe",
+        "missing": []
+      },
+      {
+        "name": "123",
+        "phrase": null,
+        "missing": []
+      },
+      {
+        "name": "",
+        "phrase": null,
+        "missing": []
+      },
+      {
+        "name": "Xyzzy",
+        "phrase": "hey xyzzy",
+        "missing": [
+          "xyzzy"
+        ]
+      },
+      {
+        "name": "Aarav",
+        "phrase": "hey aarav",
+        "missing": []
+      }
+    ],
+    "known": [
+      "hey",
+      "rahul",
+      "mr",
+      "kumar",
+      "zoe",
+      "aarav"
+    ],
+    "floor": 0.6,
+    "request": {
+      "quietMs": 1200,
+      "nothingMs": 8000,
+      "maxMs": 20000
+    },
+    "from": [
+      {
+        "said": {
+          "text": "hey rahul",
+          "result": [
+            {
+              "word": "hey",
+              "conf": 0.9,
+              "start": 1,
+              "end": 1.2
+            },
+            {
+              "word": "rahul",
+              "conf": 0.8,
+              "start": 1.2,
+              "end": 1.6
+            }
+          ]
+        },
+        "phrase": "hey rahul",
+        "wake": {
+          "endSec": 1.6,
+          "follows": false
+        }
+      },
+      {
+        "said": {
+          "text": "hey rahul [unk]",
+          "result": [
+            {
+              "word": "hey",
+              "conf": 0.9,
+              "start": 1,
+              "end": 1.2
+            },
+            {
+              "word": "rahul",
+              "conf": 0.8,
+              "start": 1.2,
+              "end": 1.6
+            },
+            {
+              "word": "[unk]",
+              "conf": 1,
+              "start": 1.7,
+              "end": 2.5
+            }
+          ]
+        },
+        "phrase": "hey rahul",
+        "wake": {
+          "endSec": 1.6,
+          "follows": true
+        }
+      },
+      {
+        "said": {
+          "text": "[unk] hey rahul",
+          "result": [
+            {
+              "word": "[unk]",
+              "conf": 1,
+              "start": 0,
+              "end": 1
+            },
+            {
+              "word": "hey",
+              "conf": 0.9,
+              "start": 1,
+              "end": 1.2
+            },
+            {
+              "word": "rahul",
+              "conf": 0.9,
+              "start": 1.2,
+              "end": 1.6
+            }
+          ]
+        },
+        "phrase": "hey rahul",
+        "wake": null
+      },
+      {
+        "said": {
+          "text": "rahul",
+          "result": [
+            {
+              "word": "rahul",
+              "conf": 0.9,
+              "start": 0,
+              "end": 0.4
+            }
+          ]
+        },
+        "phrase": "hey rahul",
+        "wake": null
+      },
+      {
+        "said": {
+          "text": "hey rahul",
+          "result": [
+            {
+              "word": "hey",
+              "conf": 0.5,
+              "start": 1,
+              "end": 1.2
+            },
+            {
+              "word": "rahul",
+              "conf": 0.9,
+              "start": 1.2,
+              "end": 1.6
+            }
+          ]
+        },
+        "phrase": "hey rahul",
+        "wake": null
+      },
+      {
+        "said": {
+          "text": "hey rahul",
+          "result": [
+            {
+              "word": "hey",
+              "conf": 0.6,
+              "start": 1,
+              "end": 1.2
+            },
+            {
+              "word": "rahul",
+              "conf": 0.6,
+              "start": 1.2,
+              "end": 1.6
+            }
+          ]
+        },
+        "phrase": "hey rahul",
+        "wake": {
+          "endSec": 1.6,
+          "follows": false
+        }
+      },
+      {
+        "said": {
+          "text": "",
+          "result": []
+        },
+        "phrase": "hey rahul",
+        "wake": null
+      }
+    ],
+    "lines": {
+      "name": " Rahul ",
+      "cantListen": "Buddy can't listen for 'Rahul'. Try another spelling.",
+      "notCaught": "I didn't catch that. Say 'Hey Rahul' and try again.",
+      "sayNow": "Say \"Hey Rahul\" now.",
+      "heard": "Heard you ✓",
+      "notHeard": "I didn't hear \"Hey Rahul\". Try again.",
+      "privacy": "Your microphone stays on. Nothing leaves this device until you say 'Hey Rahul'.",
+      "label": "Listen for \"Hey Rahul\"",
+      "tapToListen": "Tap me to listen again",
+      "listening": "Listening for \"Hey Rahul\"",
+      "gettingEars": "Getting Buddy's ears ready (36 MB)…",
+      "earsFailed": "Couldn't get Buddy's ears ready. Check the internet and try again.",
+      "signIn": "Sign in to talk to Buddy."
+    }
+  },
   "unlock": [
     {
       "device": "phone",

@@ -122,7 +122,61 @@ function callingLine(name) {
   return `Calling ${name}.`;
 }
 
+// The wake phrase ("Hey <name>"): see docs/superpowers/specs for the design. The device listens for it all the time.
+const WAKE_FLOOR = 0.6; // each word of the phrase must be at least this sure
+const REQUEST = { quietMs: 1200, nothingMs: 8000, maxMs: 20000 }; // listening for the request after the wake
+const trimmed = (name) => String(name ?? '').trim();
+const WAKE_LINES = {
+  cantListen: (name) => `Buddy can't listen for '${trimmed(name)}'. Try another spelling.`,
+  notCaught: (name) => `I didn't catch that. Say 'Hey ${trimmed(name)}' and try again.`,
+  sayNow: (name) => `Say "Hey ${trimmed(name)}" now.`,
+  heard: 'Heard you ✓',
+  notHeard: (name) => `I didn't hear "Hey ${trimmed(name)}". Try again.`,
+  privacy: (name) => `Your microphone stays on. Nothing leaves this device until you say 'Hey ${trimmed(name)}'.`,
+  label: (name) => `Listen for "Hey ${trimmed(name)}"`,
+  tapToListen: 'Tap me to listen again',
+  listening: (name) => `Listening for "Hey ${trimmed(name)}"`,
+  gettingEars: "Getting Buddy's ears ready (36 MB)…",
+  earsFailed: "Couldn't get Buddy's ears ready. Check the internet and try again.",
+  signIn: 'Sign in to talk to Buddy.',
+};
+
+/** "hey " and the name: lower case, accents gone, letters and spaces only, at most 3 words. Null when no name is left. */
+function wakePhrase(name) {
+  const words = trimmed(name)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 3);
+  return words.length ? `hey ${words.join(' ')}` : null;
+}
+
+/** The words of the phrase (with "hey") that the model does not know (`known`: the words it has, less VOICE_MODEL.missing). */
+function wakeMissing(name, known) {
+  const phrase = wakePhrase(name);
+  if (!phrase) return [];
+  return phrase.split(' ').filter((w) => !known.has(w));
+}
+
+/**
+ * Whether Vosk's final result starts with the phrase: its words first, in order, each at least `floor` sure. `endSec` is
+ * when the last phrase word ended; `follows` whether more was said after it (the request in the same breath).
+ */
+function wakeFrom(result, phrase, floor) {
+  const want = String(phrase || '').split(' ').filter(Boolean);
+  const got = result && Array.isArray(result.result) ? result.result : [];
+  if (!want.length || got.length < want.length) return null;
+  for (let i = 0; i < want.length; i++) {
+    if (got[i].word !== want[i] || !(got[i].conf >= floor)) return null;
+  }
+  return { endSec: got[want.length - 1].end, follows: got.length > want.length };
+}
+
 module.exports = {
   YES_WORDS, NO_WORDS, VERBS, FILLERS, BHEJ, SPOKEN_MAX, ANSWER_MS, UNLOCK_WAIT_MS, MAX_FOLLOW_UPS, VOICE_LINES,
   heardWords, heardAnswer, wantsServer, answerGrammar, GRAMMAR_FILLERS, spokenQuestion, spokenLines, asksBack, unlockLine, callingLine,
+  WAKE_FLOOR, REQUEST, WAKE_LINES, wakePhrase, wakeMissing, wakeFrom,
 };

@@ -31,9 +31,12 @@ fun personFrom(name: String?, data1: String?, mime: String?): Person? {
     return Person(who, number, app)
 }
 
-/** WhatsApp's own link that opens the chat with the text in its box (nothing is sent). */
+/**
+ * WhatsApp's own link that opens the chat with the text in its box (nothing is sent). A space is %20, never "+", which
+ * WhatsApp may keep as a plus; a "+" in the text is %2B.
+ */
 fun chatLink(person: Person, text: String): String =
-    "https://api.whatsapp.com/send?phone=${person.number}&text=${URLEncoder.encode(text, "UTF-8")}"
+    "https://api.whatsapp.com/send?phone=${person.number}&text=${URLEncoder.encode(text, "UTF-8").replace("+", "%20")}"
 
 /** WhatsApp on this phone, as Buddy uses it to message someone. */
 interface WhatsApp {

@@ -73,6 +73,7 @@ import com.akshatgg.buddy.voice.PhoneTalkBack
 import com.akshatgg.buddy.voice.TalkBack
 import com.akshatgg.buddy.voice.TtsSpeaker
 import com.akshatgg.buddy.voice.SharedSpotters
+import com.akshatgg.buddy.voice.SpeakerModelFile
 import com.akshatgg.buddy.voice.VoskSpotters
 import com.akshatgg.buddy.voice.Voice
 import com.akshatgg.buddy.voice.VoiceModel
@@ -137,6 +138,9 @@ class AppGraph(
      * is fetched in the background the first time Buddy asks out loud; until it is there, the answer goes to the server.
      */
     /** The one Vosk model of this process, loaded when first needed and reused for every question (voice/Spotter.kt). */
+    /** The voice-check model for "Only my voice" (voice/SpeakerModelFile.kt), downloaded the first time it is switched on. */
+    val speakerModel: SpeakerModelFile by lazy { SpeakerModelFile(File(appContext.filesDir, "voice-model"), shared.speakerModel, ApkInstaller::download, scope) }
+
     val spotters: SharedSpotters by lazy {
         SharedSpotters(ready = voiceModel::ready, generation = { voiceModel.generation }, load = { VoskSpotters(voiceModel.folder()) })
     }

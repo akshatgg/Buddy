@@ -23,6 +23,8 @@ name: Release
 # the latest release, never see it; the website's Android button finds the
 # newest android-v release (web/public/site.js). Its version must be higher
 # than the last Android release. A pushed tag always releases the Mac and Windows.
+# "Mac, Windows and Android" releases all three at once, with the same version
+# (v<version> and android-v<version>); both must be new.
 #
 # A version with a dash (1.3.0-beta.1) is published as a pre-release, which
 # installed copies and the website's buttons skip. A version must be higher
@@ -86,6 +88,7 @@ on:
         options:
           - 'Mac and Windows'
           - 'Android'
+          - 'Mac, Windows and Android'
 
 # Read-only, except for the job that publishes: the build jobs run npm's install
 # scripts, and they never need to write to the repository.
@@ -102,6 +105,7 @@ jobs:
     outputs:
       version: ${{ steps.decide.outputs.version }}
       tag: ${{ steps.decide.outputs.tag }}
+      android_tag: ${{ steps.decide.outputs.android_tag }}
       publish: ${{ steps.decide.outputs.publish }}
       prerelease: ${{ steps.decide.outputs.prerelease }}
       target: ${{ steps.decide.outputs.target }}
@@ -118,9 +122,14 @@ jobs:
         run: |
           set -euo pipefail
           pkg="$(node -p "require('./package.json').version")"
-          # desktop: the Mac and Windows; android: the Android app alone. A pushed tag is always desktop.
+          # desktop: the Mac and Windows; android: the Android app alone; all: both. A pushed tag is always desktop.
           target=desktop
-          if [ "${GITHUB_EVENT_NAME}" != "push" ] && [ "${INPUT_PLATFORMS:-}" = "Android" ]; then target=android; fi
+          if [ "${GITHUB_EVENT_NAME}" != "push" ]; then
+            case "${INPUT_PLATFORMS:-}" in
+              Android) target=android ;;
+              'Mac, Windows and Android') target=all ;;
+            esac
+          fi
 
           if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
             raw="$GITHUB_REF_NAME"              # the tag that was pushed is the version
@@ -151,7 +160,8 @@ jobs:
           # The release is always tagged v<version>: installed copies read the
           # version from it, so a pushed 1.00 or v1.2 is published as v1.0.0 or v1.2.0.
           tag="v$version"
-          [ "$target" = android ] && tag="android-v$version"
+          android_tag="android-v$version"
+          [ "$target" = android ] && tag="$android_tag"
           case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
 
           if [ "$version" != "$pkg" ]; then
@@ -160,6 +170,7 @@ jobs:
           {
             echo "version=$version"
             echo "tag=$tag"
+            echo "android_tag=$android_tag"
             echo "publish=$publish"
             echo "prerelease=$prerelease"
             echo "target=$target"
@@ -174,34 +185,40 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.decide.outputs.tag }}
+          ANDROID_TAG: ${{ steps.decide.outputs.android_tag }}
           VERSION: ${{ steps.decide.outputs.version }}
           TARGET: ${{ steps.decide.outputs.target }}
         run: |
           set -euo pipefail
-          rerun=false
-          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF_NAME" = "$TAG" ]; then rerun=true; fi
-          if [ "$rerun" = false ] && gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::$TAG already exists. Choose a higher version."
-            exit 1
-          fi
-          if [ "$TARGET" = android ]; then
-            # The newest Android release (they are never "latest", so it is looked up by its tag).
-            latest="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '[.[] | select(.tagName | startswith("android-v"))][0].tagName // ""' 2>/dev/null || true)"
-            latest="${latest#android-}"
-            [ "$latest" = "${TAG#android-}" ] && latest=""
-          else
-            latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)"
-          fi
-          if [ -n "$latest" ] && [ "$latest" != "$TAG" ]; then
-            if ! node -e "const { compareVersions } = require('./src/main/updates'); process.exit(compareVersions(process.argv[1], process.argv[2]) > 0 ? 0 : 1)" "$VERSION" "$latest"; then
-              echo "::error::$VERSION is not higher than the latest release, $latest. Choose a higher version."
+          # check <tag> <desktop|android>: the tag must be new, and higher than the latest release of its kind.
+          check() {
+            local tag="$1" kind="$2" latest rerun=false
+            if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF_NAME" = "$tag" ]; then rerun=true; fi
+            if [ "$rerun" = false ] && gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "::error::$tag already exists. Choose a higher version."
               exit 1
             fi
-          fi
+            if [ "$kind" = android ]; then
+              # The newest Android release (they are never "latest", so it is looked up by its tag).
+              latest="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '[.[] | select(.tagName | startswith("android-v"))][0].tagName // ""' 2>/dev/null || true)"
+              latest="${latest#android-}"
+              [ "$latest" = "${tag#android-}" ] && latest=""
+            else
+              latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)"
+            fi
+            if [ -n "$latest" ] && [ "$latest" != "$tag" ]; then
+              if ! node -e "const { compareVersions } = require('./src/main/updates'); process.exit(compareVersions(process.argv[1], process.argv[2]) > 0 ? 0 : 1)" "$VERSION" "$latest"; then
+                echo "::error::$VERSION is not higher than the latest release, $latest. Choose a higher version."
+                exit 1
+              fi
+            fi
+          }
+          [ "$TARGET" = android ] || check "v$VERSION" desktop
+          [ "$TARGET" = desktop ] || check "$ANDROID_TAG" android
 
   macos:
     needs: [prepare]
-    if: needs.prepare.outputs.target == 'desktop'
+    if: needs.prepare.outputs.target != 'android'
     runs-on: macos-15
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -318,7 +335,7 @@ jobs:
 
   windows:
     needs: [prepare]
-    if: needs.prepare.outputs.target == 'desktop'
+    if: needs.prepare.outputs.target != 'android'
     runs-on: windows-2022
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -402,7 +419,7 @@ jobs:
 
   android:
     needs: [prepare]
-    if: needs.prepare.outputs.target == 'android'
+    if: needs.prepare.outputs.target != 'desktop'
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -489,12 +506,12 @@ jobs:
 
   release-android:
     needs: [prepare, android]
-    if: needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.target == 'android'
+    if: needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.target != 'desktop'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
-      TAG: ${{ needs.prepare.outputs.tag }}
+      TAG: ${{ needs.prepare.outputs.android_tag }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/download-artifact@v4
@@ -505,7 +522,7 @@ jobs:
       - name: Upload the release as a draft
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.prepare.outputs.tag }}
+          tag_name: ${{ needs.prepare.outputs.android_tag }}
           target_commitish: ${{ github.sha }}
           name: Buddy for Android ${{ needs.prepare.outputs.version }}
           draft: true
@@ -529,7 +546,7 @@ jobs:
 
   release:
     needs: [prepare, macos, windows]
-    if: needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.target == 'desktop'
+    if: needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.target != 'android'
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -72,6 +72,8 @@ function setup({
   withHome = true, hasNotch = false, claude = CLAUDE_OUT,
   // "Hey <name>" (wake.js): a stand-in that notes refresh() and answers `wakeHeard` wakes (after `wakeGate`, a promise, if given).
   wakeHeard = 2, wakeGate = null, wakeState = { on: true, line: 'Listening' }, nameHeard = true,
+  // "Only my voice" (my-voice.js): a stand-in; null leaves it out, as on Windows.
+  myVoice = null,
 } = {}) {
   let wakeChanged = null;
   const data = { ...structuredClone(DEFAULTS), ...stored };
@@ -196,6 +198,7 @@ function setup({
     canSignIn: true,
     version: '0.1.0',
     platform,
+    myVoice,
     wake: {
       refresh: () => calls.push(['wakeRefresh']),
       state: () => wakeState,
@@ -1535,4 +1538,106 @@ test('settings:wake-test answers how many times it heard the phrase, and one tes
 test('settings:wake-test is for the Settings window only', async () => {
   const s = setup();
   assert.deepStrictEqual(await s.callFromWelcome('settings:wake-test'), refused('not_allowed', 'Not allowed.'));
+});
+
+// ---- Only my voice ----
+
+function fakeMyVoice({ lines = [], result = { ok: true, line: 'Done. Buddy now answers only your voice.' } } = {}) {
+  const calls = [];
+  let state = { on: false, line: null, tone: null, setting: false };
+  return {
+    calls,
+    setState: (s) => { state = s; },
+    state: () => state,
+    cancel: () => calls.push(['cancel']),
+    off: () => { calls.push(['off']); state = { on: false, line: null, tone: null, setting: false }; },
+    async setup(opts) {
+      calls.push(['setup', opts.name, opts.phrase]);
+      for (const [line, tone] of lines) opts.onLine(line, tone);
+      return result;
+    },
+  };
+}
+
+test('myVoiceOn cannot be set through settings:set: it only becomes true through setup', async () => {
+  const s = setup({ myVoice: fakeMyVoice() });
+  await s.call('settings:set', { myVoiceOn: true });
+  assert.strictEqual(s.store.get('myVoiceOn'), false);
+  assert.strictEqual(DEFAULTS.myVoiceOn, false);
+});
+
+test('the snapshot holds the Only my voice section, and null without one or on Windows', async () => {
+  const mv = fakeMyVoice();
+  const withIt = await setup({ myVoice: mv }).call('settings:get');
+  assert.deepStrictEqual(withIt.myVoice, {
+    label: 'Only my voice',
+    about: 'Buddy answers only you. Your voice stays on this device.',
+    redo: 'Set up again',
+    notYou: "That didn't sound like you.",
+    on: false,
+    line: null,
+    tone: null,
+    setting: false,
+  });
+  assert.strictEqual('myVoiceOn' in withIt.settings, false);
+  assert.strictEqual((await setup({}).call('settings:get')).myVoice, null);
+  assert.strictEqual((await setup({ myVoice: mv, platform: 'win32' }).call('settings:get')).myVoice, null);
+  mv.setState({ on: true, line: 'On. Buddy answers only you.', tone: null, setting: false });
+  const on = (await setup({ myVoice: mv }).call('settings:get')).myVoice;
+  assert.deepStrictEqual([on.on, on.line], [true, 'On. Buddy answers only you.']);
+});
+
+test('setup: the name and phrase for a name the ear can hear, relayed lines with their tones', async () => {
+  const mv = fakeMyVoice({ lines: [['Say "Hey Rahul" 5 times. Wait for the tick each time.', null], ['Got it ✓ 1 of 5', 'good'], ['I didn\'t get that. Say "Hey Rahul" again.', 'error']] });
+  const s = setup({ stored: { wakeOn: true, buddyName: 'Rahul' }, myVoice: mv });
+  const r = await s.call('settings:my-voice-setup');
+  assert.deepStrictEqual(r, { ok: true, line: 'Done. Buddy now answers only your voice.' }); // (the handler's own ok is the answer's)
+  assert.deepStrictEqual(mv.calls, [['setup', 'Rahul', 'hey rahul']]);
+  assert.deepStrictEqual(s.sent.filter((m) => m[1] === 'myvoice:line').map((m) => m[2]), [
+    { line: 'Say "Hey Rahul" 5 times. Wait for the tick each time.', tone: null },
+    { line: 'Got it ✓ 1 of 5', tone: 'good' },
+    { line: 'I didn\'t get that. Say "Hey Rahul" again.', tone: 'error' },
+  ]);
+  assert.strictEqual(s.sent.at(-1)[1], 'myvoice:changed');
+});
+
+test('setup: a name the ear cannot hear sets up with Buddy', async () => {
+  const mv = fakeMyVoice();
+  const s = setup({ stored: { wakeOn: true, buddyName: 'Aarav' }, myVoice: mv, nameHeard: false });
+  await s.call('settings:my-voice-setup');
+  assert.deepStrictEqual(mv.calls, [['setup', 'Buddy', 'hey buddy']]);
+});
+
+test('setup is refused while the wake is off or not listening, with the wake reason', async () => {
+  const mv = fakeMyVoice();
+  const off = setup({ stored: { wakeOn: false, buddyName: 'Rahul' }, myVoice: mv, wakeState: { on: false, line: null } });
+  const r = await off.call('settings:my-voice-setup');
+  assert.strictEqual(r.ok, false);
+  assert.ok(r.line.length > 0);
+  const notListening = setup({ stored: { wakeOn: true }, myVoice: mv, wakeState: { on: false, line: 'Allow the microphone in Settings.' } });
+  assert.deepStrictEqual((await notListening.call('settings:my-voice-setup')), { ok: false, line: 'Allow the microphone in Settings.' });
+  assert.deepStrictEqual(mv.calls, []);
+});
+
+test('off calls myVoice.off() and tells the page', async () => {
+  const mv = fakeMyVoice();
+  mv.setState({ on: true, line: 'On. Buddy answers only you.', tone: null, setting: false });
+  const s = setup({ myVoice: mv });
+  const r = await s.call('settings:my-voice-off');
+  assert.deepStrictEqual(mv.calls, [['off']]);
+  assert.strictEqual(r.myVoice.on, false);
+  assert.deepStrictEqual(s.sent.at(-1), ['settings', 'myvoice:changed', { myVoice: r.myVoice }]);
+});
+
+test('the voice calls are for the Settings window only', async () => {
+  const s = setup({ myVoice: fakeMyVoice() });
+  assert.deepStrictEqual(await s.callFromWelcome('settings:my-voice-setup'), refused('not_allowed', 'Not allowed.'));
+  assert.deepStrictEqual(await s.callFromWelcome('settings:my-voice-off'), refused('not_allowed', 'Not allowed.'));
+});
+
+test('turning the wake off ends a running voice setup', async () => {
+  const mv = fakeMyVoice();
+  const s = setup({ stored: { wakeOn: true }, myVoice: mv });
+  await s.call('settings:set', { wakeOn: false });
+  assert.deepStrictEqual(mv.calls, [['cancel']]);
 });

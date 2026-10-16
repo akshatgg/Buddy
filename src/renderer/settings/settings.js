@@ -371,6 +371,7 @@ function render({ fields = true } = {}) {
   $('listen-on-open').checked = snap.settings.listenOnOpen !== false;
   $('tag-on').checked = snap.settings.tagOn !== false;
   renderWake();
+  renderMyVoice();
   // The tag also answers to the buddy's own name, when it is one word.
   const name = (snap.settings.buddyName || '').trim();
   const also = /^[\p{L}\p{N}_]{2,24}$/u.test(name) && name.toLowerCase() !== 'buddy' ? ` (or @${name.toLowerCase()})` : '';
@@ -406,6 +407,35 @@ function renderWake({ force = false } = {}) {
   const shown = $('wake-status').textContent;
   if (!shown || shown === wakeReason || force) setLine('wake-status', reason);
   wakeReason = reason;
+}
+
+// "Only my voice": under the wake row, while the wake listens. Its words come worded in the snapshot (snap.myVoice).
+let voiceBusy = false; // a setup is running: its lines are on the row, and a render leaves them alone
+function renderMyVoice() {
+  const mv = snap.myVoice;
+  $('myvoice-row').hidden = onWindows() || !mv || snap.settings.wakeOn !== true || $('wake-row').hidden;
+  if ($('myvoice-row').hidden) return;
+  $('myvoice-title').textContent = mv.label;
+  $('myvoice-line').textContent = mv.about;
+  $('myvoice-redo').textContent = mv.redo;
+  $('myvoice-on').checked = mv.on === true || voiceBusy;
+  $('myvoice-redo').hidden = !(mv.on === true && !voiceBusy);
+  $('myvoice-redo').disabled = voiceBusy;
+  if (!voiceBusy) setLine('myvoice-status', mv.on ? mv.line || '' : '', mv.tone === 'error' ? 'error' : 'muted');
+}
+
+/** Runs the setup: lines arrive as main learns the voice (onMyVoiceLine); the answer is the last one. */
+async function runVoiceSetup() {
+  voiceBusy = true;
+  renderMyVoice();
+  const r = await window.buddy.myVoiceSetup();
+  voiceBusy = false;
+  const line = r.line ?? r.error?.message ?? '';
+  if (line) showStatus('myvoice-status', line, r.ok ? 'good' : 'error'); // '' is a setup that was cancelled: nothing to say
+  const fresh = await window.buddy.get(); // where it stands now (on only when it was learned)
+  if (fresh.ok) snap = fresh;
+  renderMyVoice();
+  if (line) showStatus('myvoice-status', line, r.ok ? 'good' : 'error');
 }
 
 async function save(patch, statusId) {
@@ -765,7 +795,27 @@ window.buddy.onWakeChanged((data) => {
   snap.settings.wakeOn = data.wakeOn === true;
   snap.wake = data.wake;
   renderWake({ force: !$('wake-test').disabled }); // not while "Test it" is talking
+  renderMyVoice();
 });
+$('myvoice-on').addEventListener('change', async () => {
+  if ($('myvoice-on').checked) return runVoiceSetup();
+  const r = await window.buddy.myVoiceOff(); // also ends a setup that is running
+  if (r.ok) snap.myVoice = r.myVoice;
+  voiceBusy = false;
+  renderMyVoice();
+  if (!r.ok) showStatus('myvoice-status', r.error.message, 'error');
+});
+$('myvoice-redo').addEventListener('click', () => runVoiceSetup());
+window.buddy.onMyVoiceLine((data) => {
+  if (data && data.line) showStatus('myvoice-status', data.line, data.tone === 'good' ? 'good' : data.tone === 'error' ? 'error' : 'muted');
+});
+window.buddy.onMyVoiceChanged((data) => {
+  if (!snap || !data) return;
+  snap.myVoice = data.myVoice;
+  renderMyVoice();
+});
+// "Test it" heard someone else with Only my voice on.
+window.buddy.onWakeNotYou((data) => showStatus('wake-status', (data && data.line) || "That didn't sound like you.", 'error'));
 // Each wake heard during a test shows at once.
 window.buddy.onWakeHeard(() => {
   wakeHeardCount += 1;

@@ -171,6 +171,8 @@ function createMyVoice({
 
   return {
     on, allows, setup, cancel, off, state: stateOf,
+    /** Starts the check process ahead of the first check (the wake loop calls it when it begins to listen). */
+    warm() { if (on()) check.warm(); },
     /** The profile file changed outside this object (a test, or a restore): read it again next time. */
     changed() { cached = undefined; },
   };

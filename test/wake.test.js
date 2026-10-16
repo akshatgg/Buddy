@@ -21,7 +21,7 @@ test('shouldListen: only when every rule holds', () => {
   assert.strictEqual(shouldListen({ ...ALL, mic: 'not-determined' }), false);
 });
 
-function setup(t, { name = 'Rahul', wakeOn = true, mic = 'granted', modelReady = true, missing = [], locked = false, signedIn = true, ensure = () => Promise.resolve(), voiceResult = {} } = {}) {
+function setup(t, { name = 'Rahul', wakeOn = true, mic = 'granted', modelReady = true, missing = [], locked = false, signedIn = true, ensure = () => Promise.resolve(), voiceResult = {}, myVoice = null } = {}) {
   if (!t.mock.timers._on) { t.mock.timers.enable({ apis: ['setTimeout'] }); t.mock.timers._on = true; }
   const data = { buddyName: name, wakeOn };
   const store = { get: (k) => data[k], set: (p) => Object.assign(data, p) };
@@ -39,19 +39,22 @@ function setup(t, { name = 'Rahul', wakeOn = true, mic = 'granted', modelReady =
   const actions = { transcribe: async () => ({ text: 'call mom' }), voice: async (words) => { log.push(['voice', words]); return voiceResult; } };
   const model = { ready: () => modelReady, missing: () => new Set(missing), ensure };
   const lock = { locked: () => state.locked };
+  const mv = myVoice;
+  const said = [];
   const wake = createWake({
     store, ear, model, lock,
+    myVoice: mv ? { on: () => mv.on, allows: async (p) => mv.allow(p), warm: () => log.push(['warm']) } : null,
     microphone: { status: () => state.mic },
     power: { isOn: () => state.buddyOn },
     account: { isSignedIn: () => state.signedIn },
     cloud: { last: () => ({ voiceOn: true, blocked: false }) },
-    powerMonitor, actions, talkBack: { say: async (line) => { log.push(['say', line]); } },
+    powerMonitor, actions, talkBack: { say: async (line) => { said.push(line); log.push(['say', line]); } },
     busy: () => state.busy,
     onChange: (st) => changes.push(st),
     testMs: 10000,
   });
   const last = (kind) => log.filter((l) => l[0] === kind).at(-1);
-  return { wake, log, handlers, powerMonitor, state, data, last, actions, changes };
+  return { wake, log, handlers, powerMonitor, state, data, last, actions, changes, talk: { said } };
 }
 
 test('refresh starts the loop with the phrase and keeps the ear window; switched off it stops and lets go', (t) => {
@@ -274,4 +277,83 @@ test('shownName: three words at most, the same as are listened for', () => {
   assert.strictEqual(shownName('Mary Anne Smith'), 'Mary Anne Smith');
   assert.strictEqual(shownName('Sir Reginald Of Wessex'), 'Sir Reginald Of');
   assert.strictEqual(shownName('Mary-Anne Smith Jones'), 'Mary Anne Smith');
+});
+
+// ---- Only my voice ----
+
+test('only my voice: someone else gets silence, and nothing is written down', async (t) => {
+  const { handlers, log, actions, talk } = setup(t, { myVoice: { on: true, allow: () => false } });
+  let transcribed = 0;
+  actions.transcribe = async () => { transcribed += 1; return { text: 'call mom' }; };
+  await handlers.request({ audio: 'UklGRg==', phrase: 'AAAA' });
+  assert.strictEqual(transcribed, 0);
+  assert.ok(!log.some(([k]) => k === 'voice'));
+  assert.strictEqual(talk.said.length, 0, 'not even the busy line');
+});
+
+test('only my voice: the refusal comes before the busy line', async (t) => {
+  const s = setup(t, { myVoice: { on: true, allow: () => false } });
+  s.state.busy = true;
+  await s.handlers.request({ audio: 'UklGRg==', phrase: 'AAAA' });
+  assert.strictEqual(s.talk.said.length, 0);
+});
+
+test('only my voice: the owner goes through as before, and the check sees the phrase', async (t) => {
+  const seen = [];
+  const { handlers, log } = setup(t, { myVoice: { on: true, allow: (p) => { seen.push(p); return true; } } });
+  await handlers.request({ audio: 'UklGRg==', phrase: 'AAAA' });
+  assert.deepStrictEqual(seen, ['AAAA']);
+  assert.ok(log.some(([k, w]) => k === 'voice' && w === 'call mom'));
+});
+
+test('only my voice off: no check at all', async (t) => {
+  let asked = 0;
+  const { handlers, log } = setup(t, { myVoice: { on: false, allow: () => { asked += 1; return false; } } });
+  await handlers.request({ audio: 'UklGRg==', phrase: null });
+  assert.strictEqual(asked, 0);
+  assert.ok(log.some(([k]) => k === 'voice'));
+});
+
+test('only my voice on: the check process is warmed when the loop starts listening', (t) => {
+  const s = setup(t, { myVoice: { on: true, allow: () => true } });
+  s.wake.refresh();
+  assert.strictEqual(s.log.filter(([k]) => k === 'warm').length, 1);
+});
+
+test('clips: the ear listens for the one phrase in test mode and hands each clip over', async (t) => {
+  const { wake, handlers, log } = setup(t, {});
+  const got = [];
+  const stop = wake.clips('hey rahul', (p) => got.push(p));
+  assert.deepStrictEqual(log.filter(([k]) => k === 'wake').pop()[1].phrases, ['hey rahul']);
+  assert.strictEqual(log.filter(([k]) => k === 'wake').pop()[1].testOnly, true);
+  handlers.woke({ phrase: 'AAAA' });
+  assert.deepStrictEqual(got, ['AAAA']);
+  stop();
+  assert.deepStrictEqual(log.filter(([k]) => k === 'wake').pop()[1].phrases, RAHUL);
+  assert.strictEqual(log.filter(([k]) => k === 'wake').pop()[1].testOnly, false);
+});
+
+test('clips: Test it answers 0 at once, a request is ignored, and a wake is not counted as a test', async (t) => {
+  const s = setup(t, {});
+  const stop = s.wake.clips('hey rahul', () => {});
+  assert.strictEqual(await s.wake.test(), 0);
+  await s.handlers.request({ audio: 'AAAA', phrase: 'AAAA' });
+  assert.strictEqual(s.log.filter(([k]) => k === 'voice').length, 0);
+  assert.deepStrictEqual(s.talk.said, []);
+  stop();
+});
+
+test('test it with only my voice on: an allowed wake counts, a refused one is "not you"', async (t) => {
+  const s = setup(t, { myVoice: { on: true, allow: (p) => p === 'ME' } });
+  s.wake.refresh();
+  const heard = [];
+  let notYou = 0;
+  const p = s.wake.test((n) => heard.push(n), () => { notYou += 1; });
+  await s.handlers.woke({ phrase: 'ME' });
+  await s.handlers.woke({ phrase: 'THEM' });
+  await s.handlers.woke({ phrase: null });
+  t.mock.timers.tick(10000);
+  assert.strictEqual(await p, 1);
+  assert.deepStrictEqual(heard, [1]);
+  assert.strictEqual(notYou, 2);
 });

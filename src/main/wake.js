@@ -37,6 +37,7 @@ function shouldListen({ wakeOn, buddyOn, signedIn, voiceOn, mic, modelReady, loc
 
 function createWake({
   store, ear, model, lock, microphone, power, account, cloud, powerMonitor, actions, talkBack, testMs = TEST_MS, busy = () => false, onChange = null,
+  myVoice = null, // "Only my voice" (my-voice.js): when on, a wake counts only when its phrase clip is the owner's
 }) {
   let panel = false; // the panel's 🎤 records
   let turns = 0; // spoken turns running (a say, hear or listen of Buddy's own)
@@ -44,6 +45,7 @@ function createWake({
   let locked = false;
   let sent = null; // what the ear page was last told: null (not listening) or the phrases it listens for, joined
   let testing = null; // { count, finish } while "Test it" runs
+  let clipping = null; // { phrase, onClip } while "Only my voice" setup collects takes of the phrase (clips())
   let modelFailed = false;
   let percent = 0; // the model download, while it runs
   const listeners = onChange ? [onChange] : [];
@@ -98,13 +100,14 @@ function createWake({
   /** Brings the ear page in line with the rules: it listens for the phrase, or it does not. */
   function apply() {
     const i = inputs();
-    const want = shouldListen(i) ? phrases() : null;
+    const want = shouldListen(i) ? (clipping ? [clipping.phrase] : phrases()) : null;
     // The window stays through every pause, sleep too: waking from sleep must not send the 37 MB model to a new page.
     ear.keep(Boolean(want || (i.wakeOn && i.signedIn && i.mic === 'granted' && i.modelReady)));
     const key = want ? want.join('|') : null;
     if (key === sent) return;
     sent = key;
-    ear.wake(want ? { phrases: want, floor: WAKE_FLOOR, request: REQUEST, testOnly: testing !== null } : null);
+    if (want && myVoice?.on()) myVoice.warm?.(); // the first check should not wait for the engine to load
+    ear.wake(want ? { phrases: want, floor: WAKE_FLOOR, request: REQUEST, testOnly: testing !== null || clipping !== null } : null);
     if (!want && !i.wakeOn && !turns) ear.close?.();
   }
 
@@ -121,8 +124,10 @@ function createWake({
   powerMonitor.on('resume', () => { asleep = false; apply(); });
 
   async function onRequest(msg) {
-    if (testing) return; // a test never acts on what follows
+    if (clipping || testing) return; // a test, or setting up Only my voice, never acts on what follows
     if (store.get('wakeOn') !== true) return;
+    // Only my voice: anyone else gets silence -- not transcribed, not sent anywhere, not even the busy line.
+    if (myVoice?.on() && !(await myVoice.allows(msg?.phrase))) return;
     // A spoken turn or the chat is busy: nothing is sent to be written down, and the person is told, not ignored.
     if (turns > 0 || busy()) {
       await talkBack?.say(BUSY_LINE).catch?.(() => {});
@@ -140,10 +145,20 @@ function createWake({
     }
   }
 
-  ear.on('woke', () => {
-    if (!testing) return;
-    testing.count += 1;
-    testing.onHeard?.(testing.count);
+  ear.on('woke', async (msg) => {
+    if (clipping) {
+      clipping.onClip(msg?.phrase ?? null); // setup takes the phrase's own audio, one take per wake
+      return;
+    }
+    const t = testing;
+    if (!t) return;
+    if (myVoice?.on() && !(await myVoice.allows(msg?.phrase))) {
+      t.onNotYou?.();
+      return;
+    }
+    if (testing !== t) return; // the test ended while the voice was checked
+    t.count += 1;
+    t.onHeard?.(t.count);
   });
   ear.on('request', onRequest);
   // The ear's page crashed or was closed under the loop: ask for it again a little later (not at once: a page that will not load would loop).
@@ -165,11 +180,30 @@ function createWake({
       turns = Math.max(0, turns + (on ? 1 : -1));
       apply();
     },
-    /** Listens for the phrases for 10 s and answers how many times it was heard; `onHeard(n)` hears each one as it comes. */
-    test(onHeard) {
-      if (!shouldListen(inputs()) || testing) return Promise.resolve(0);
+    /**
+     * While "Only my voice" is set up: the ear listens for `phrase` alone, in test mode, and `onClip(base64 PCM16 | null)`
+     * gets the phrase's own audio at each wake. It never takes a request. Answers stop(). The loop must be able to listen.
+     */
+    clips(phrase, onClip) {
+      const mine = { phrase, onClip };
+      clipping = mine;
+      sent = null;
+      apply();
+      return () => {
+        if (clipping !== mine) return;
+        clipping = null;
+        sent = null;
+        apply();
+      };
+    },
+    /**
+     * Listens for the phrases for 10 s and answers how many times it was heard; `onHeard(n)` hears each one as it comes.
+     * With "Only my voice" on, a wake counts only when it is the owner's; `onNotYou()` hears each one that was not.
+     */
+    test(onHeard, onNotYou) {
+      if (clipping || !shouldListen(inputs()) || testing) return Promise.resolve(0);
       return new Promise((resolve) => {
-        testing = { count: 0, onHeard };
+        testing = { count: 0, onHeard, onNotYou };
         sent = null;
         apply();
         setTimeout(() => {

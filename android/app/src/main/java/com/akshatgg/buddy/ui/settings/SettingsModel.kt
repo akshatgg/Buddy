@@ -209,7 +209,7 @@ class SettingsModel(
     fun automaticLabel(state: SettingsState): String {
         val best = VoiceRank.best(voiceInfos)
         val label = state.voices.firstOrNull { it.first == best }?.second
-        return if (label == null) "Automatic" else "Automatic ($label)"
+        return if (label == null) "Automatic" else "Automatic (${label.substringBefore(" (")})"
     }
 
     /** null is Automatic. A voice that is gone from the phone counts as Automatic when Buddy speaks (VoiceRank.resolve). */
@@ -224,7 +224,7 @@ class SettingsModel(
         current.update { it.copy(playing = true) }
         scope.launch {
             try {
-                speak("Hi, I'm ${settings.buddyName}. This is how I sound.")
+                speak("Hi, I'm ${settings.buddyName.ifBlank { "Buddy" }}. This is how I sound.")
             } finally {
                 current.update { it.copy(playing = false) }
             }
@@ -256,7 +256,7 @@ class SettingsModel(
             wakeLine = it.wakeLine, wakeTesting = it.wakeTesting, wakeHeard = it.wakeHeard,
             voices = it.voices, playing = it.playing,
         )
-    }
+    }.also { scope.launch { loadVoices() } } // voices installed meanwhile (Voice settings), or a slow first start
 
     /** The admin may have changed free mode since the app last asked. A failure is only logged: the last known settings show. */
     fun refreshFree() {

@@ -483,4 +483,39 @@ class SettingsModelTest {
         assertEquals(Status("I didn't hear \"Hey Buddy\" or \"Hey Aarav\". Try again.", Tone.ERROR), m.state.value.wakeLine)
         assertEquals(0, m.state.value.wakeHeard)
     }
+
+    private fun voice(name: String, lang: String, q: Int) = com.akshatgg.buddy.voice.VoiceInfo(name, lang, q, network = false)
+
+    @Test fun voiceIsSavedAndAutomaticNamesTheBestWithoutItsQuality() = runTest {
+        val list = listOf(voice("a", "en-IN", 400), voice("b", "en-US", 300))
+        val m = SettingsModel(account, cloud, settings, memory, this, voiceList = { list })
+        runCurrent()
+        assertEquals(listOf("a" to "India 1 (High quality)", "b" to "US 1"), m.state.value.voices)
+        assertEquals("Automatic (India 1)", m.automaticLabel(m.state.value))
+        m.setVoice("b")
+        assertEquals("b", settings.voiceName)
+        assertEquals("b", m.state.value.voiceName)
+        m.setVoice(null)
+        assertNull(settings.voiceName)
+    }
+
+    @Test fun reloadFindsVoicesInstalledMeanwhile() = runTest {
+        var list = emptyList<com.akshatgg.buddy.voice.VoiceInfo>()
+        val m = SettingsModel(account, cloud, settings, memory, this, voiceList = { list })
+        runCurrent()
+        assertTrue(m.state.value.voices.isEmpty())
+        list = listOf(voice("a", "en-GB", 300))
+        m.reload()
+        runCurrent()
+        assertEquals(listOf("a" to "UK 1"), m.state.value.voices)
+    }
+
+    @Test fun playSpeaksWithTheBuddysName() = runTest {
+        val said = mutableListOf<String>()
+        val m = SettingsModel(account, cloud, settings, memory, this, speak = { said += it })
+        m.playVoice()
+        runCurrent()
+        assertEquals(listOf("Hi, I'm ${settings.buddyName}. This is how I sound."), said)
+        assertFalse(m.state.value.playing)
+    }
 }

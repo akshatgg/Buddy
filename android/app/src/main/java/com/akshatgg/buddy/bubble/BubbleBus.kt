@@ -42,6 +42,20 @@ object BubbleBus {
 
     fun woke() { wakeFlow.tryEmit(Unit) }
 
+    private val notYouFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /** Each "Hey <name>" heard while Test it runs that "Only my voice" turned away: it was not the owner. */
+    val notYou: SharedFlow<Unit> = notYouFlow.asSharedFlow()
+
+    fun notYou() { notYouFlow.tryEmit(Unit) }
+
+    private val clipFlow = MutableSharedFlow<ShortArray?>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /** The audio of each wake phrase heard while "Only my voice" is being set up (null: too short). Never stored or logged. */
+    val clips: SharedFlow<ShortArray?> = clipFlow.asSharedFlow()
+
+    fun clip(phrase: ShortArray?) { clipFlow.tryEmit(phrase) }
+
     private val sheets = mutableSetOf<Any>()
     private val anySheet = MutableStateFlow(false)
 

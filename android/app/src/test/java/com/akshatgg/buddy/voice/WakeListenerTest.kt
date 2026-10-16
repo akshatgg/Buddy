@@ -101,7 +101,8 @@ class WakeListenerTest {
         val job = collect(WakeListener({ mic }, spotters, RAHUL, testOnly = true), events)
         runCurrent()
         job.cancel()
-        assertEquals(listOf(WakeEvent.Woke, WakeEvent.Woke), events)
+        assertEquals(2, events.size)
+        assertTrue(events.all { it is WakeEvent.Woke })
     }
 
     @Test fun aBareBuddyDoesNotWake() = runTest {
@@ -183,5 +184,84 @@ class WakeListenerTest {
         assertEquals(2, tries)
         assertEquals(5_000, currentTime)
         job.cancel()
+    }
+
+    // --- "Only my voice": the check on the phrase's own audio ---
+
+    /** A mic whose chunk number i is all the value i + 1, so a sample shows where in the audio it came from. */
+    private fun ramp(n: Int) = List(n) { (it + 1) / 32767f to 1_600 }
+
+    @Test fun aNoFromTheCheckIsSilence() = runTest {
+        val said = hey("hey" to 0.7f, "rahul" to 1.6f)
+        val mic = FakeMic(voice(21) + voice(15) + quiet(15))
+        val spotters = Made(mutableListOf(FakeSpotter(mapOf(20 to said), ""), FakeSpotter(emptyMap(), "")))
+        val events = ArrayList<WakeEvent>()
+        val job = collect(WakeListener({ mic }, spotters, RAHUL, check = { false }), events)
+        runCurrent()
+        job.cancel()
+        assertTrue(events.isEmpty())
+        assertEquals(2, spotters.made.size) // a new recognizer after the refused wake
+        assertTrue((spotters.made[0] as FakeSpotter).closed)
+        assertEquals(51, mic.reads) // the loop went on listening to the end; nothing took a request
+    }
+
+    @Test fun aYesFromTheCheckGivesWokeThenTheRequestAsBefore() = runTest {
+        val mic = FakeMic(ramp(21) + voice(15) + quiet(15))
+        val spotters = Made(mutableListOf(FakeSpotter(mapOf(20 to hey("hey" to 1.0f, "rahul" to 1.6f)), "")))
+        val events = ArrayList<WakeEvent>()
+        val job = collect(WakeListener({ mic }, spotters, RAHUL, check = { true }), events)
+        runCurrent()
+        job.cancel()
+        assertEquals(2, events.size)
+        val phrase = (events[0] as WakeEvent.Woke).phrase!!
+        // hey starts at 0.7 s and rahul ends at 1.6 s: 0.1 s before and after, so 0.6 s .. 1.7 s = chunks 6..16
+        assertEquals(((1.6f - 0.7f + 0.2f) * 16000).toInt(), phrase.size)
+        assertEquals(7, phrase.first().toInt()) // chunk 6 holds the value 7
+        assertEquals(17, phrase.last().toInt())
+        assertNotNull((events[1] as WakeEvent.Request).wav)
+    }
+
+    @Test fun theCheckGetsTheSameSamplesAsWoke() = runTest {
+        val mic = FakeMic(ramp(21) + quiet(20))
+        val spotters = Made(mutableListOf(FakeSpotter(mapOf(20 to hey("hey" to 1.0f, "rahul" to 1.6f)), "")))
+        val events = ArrayList<WakeEvent>()
+        var seen: ShortArray? = null
+        val job = collect(WakeListener({ mic }, spotters, RAHUL, check = { seen = it; true }), events)
+        runCurrent()
+        job.cancel()
+        assertArrayEquals((events[0] as WakeEvent.Woke).phrase, seen)
+        assertNotNull(seen)
+    }
+
+    @Test fun aPhraseTooShortToCutOutReachesTheCheckAsNull() = runTest {
+        val mic = FakeMic(voice(25) + quiet(20))
+        val spotters = Made(mutableListOf(FakeSpotter(mapOf(20 to hey("hey" to 1.5f, "rahul" to 1.5f)), "")))
+        var calls = 0
+        var seen: ShortArray? = ShortArray(1)
+        val job = collect(WakeListener({ mic }, spotters, RAHUL, check = { calls++; seen = it; false }), ArrayList())
+        runCurrent()
+        job.cancel()
+        assertEquals(1, calls)
+        assertNull(seen)
+    }
+
+    @Test fun testItOnlyWithANoGivesNotYou() = runTest {
+        val mic = FakeMic(voice(21) + quiet(5))
+        val spotters = Made(mutableListOf(FakeSpotter(mapOf(20 to hey("hey" to 1.0f, "rahul" to 1.6f)), "")))
+        val events = ArrayList<WakeEvent>()
+        val job = collect(WakeListener({ mic }, spotters, RAHUL, testOnly = true, check = { false }), events)
+        runCurrent()
+        job.cancel()
+        assertEquals(listOf(WakeEvent.NotYou), events)
+    }
+
+    @Test fun withoutACheckAWakeStillHasItsPhrase() = runTest {
+        val mic = FakeMic(voice(21) + quiet(20))
+        val spotters = Made(mutableListOf(FakeSpotter(mapOf(20 to hey("hey" to 1.0f, "rahul" to 1.6f)), "")))
+        val events = ArrayList<WakeEvent>()
+        val job = collect(WakeListener({ mic }, spotters, RAHUL), events)
+        runCurrent()
+        job.cancel()
+        assertNotNull((events[0] as WakeEvent.Woke).phrase)
     }
 }

@@ -111,7 +111,8 @@ class WakeControl(
             kotlinx.coroutines.withContext(Dispatchers.IO) {
                 listener.run { event ->
                     when (event) {
-                        WakeEvent.Woke -> if (testOnly) BubbleBus.woke() else BubbleBus.mood(Mood.THINKING)
+                        is WakeEvent.Woke -> if (testOnly) BubbleBus.woke() else BubbleBus.mood(Mood.THINKING)
+                        WakeEvent.NotYou -> BubbleBus.notYou()
                         is WakeEvent.Request -> {
                             turnRunning = true
                             try {

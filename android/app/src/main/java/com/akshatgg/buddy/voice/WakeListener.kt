@@ -5,7 +5,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 sealed interface WakeEvent {
-    data object Woke : WakeEvent
+    /** The phrase was heard (and, with a check, it was the owner). `phrase`: its audio, for setup; null when too short. */
+    class Woke(val phrase: ShortArray? = null) : WakeEvent
+    /** Test it only: a wake that did not pass the voice check. */
+    data object NotYou : WakeEvent
     /** What was said after the wake, as a WAV; null when nothing was. */
     class Request(val wav: ByteArray?) : WakeEvent
 }
@@ -25,6 +28,9 @@ class WakeListener(
     private val paused: () -> Boolean = { false }, // a call, MicBus busy, a hands-free turn: the mic is let go of
     private val silenced: () -> Boolean = { false }, // another app records: the mic stays open (it reads zeros), nothing is fed
     private val testOnly: Boolean = false, // Settings' "Test it": a Woke for each wake, no request
+    // "Only my voice": whether the phrase's own audio (null when too short) is the owner's. A no is silence: nothing is
+    // recorded or sent, and the listener goes on listening. Null when the switch is off.
+    private val check: ((ShortArray?) -> Boolean)? = null,
 ) {
     private companion object {
         const val CHUNK = 1_600 // 100 ms
@@ -68,7 +74,15 @@ class WakeListener(
                 val final = spotter?.accept(chunk, n) ?: continue
                 val wake = VoiceWords.wakeFrom(parseVosk(final), phrases, floor) ?: continue
 
-                on(WakeEvent.Woke)
+                // The phrase's own audio, cut out of what is kept (spotter times count from where the recognizer began).
+                val phrase = MyVoiceRules.phraseSpan(wake.startSec, wake.endSec)?.let { kept.range(spotterStart + it.from, spotterStart + it.to) }
+                if (check != null && !check.invoke(phrase)) {
+                    if (testOnly) on(WakeEvent.NotYou)
+                    runCatching { spotter?.close() }
+                    spotter = spotters.make(grammar); spotterStart = total
+                    continue
+                }
+                on(WakeEvent.Woke(phrase))
                 if (testOnly) {
                     runCatching { spotter?.close() }
                     spotter = spotters.make(grammar); spotterStart = total

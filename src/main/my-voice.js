@@ -63,12 +63,19 @@ function createMyVoice({
       const pcm = decode(phraseB64);
       if (!phraseOk(pcm)) { log('short'); return false; }
       const embedding = await check.embed(pcm);
-      if (!embedding) { log('no_embedding'); return false; }
+      if (!embedding) { badModel(); log('no_embedding'); return false; }
       return isMe(p, embedding);
     } catch {
       log('error');
       return false;
     }
+  }
+
+  /** The engine could not load the model (right size, bad content): delete it, so setup downloads it again. */
+  function badModel() {
+    if (check.problem?.() !== 'load') return false;
+    try { model.remove?.(); } catch { /* already gone */ }
+    return true;
   }
 
   function save(profileVector) {
@@ -125,6 +132,7 @@ function createMyVoice({
           const pcm = decode(b64);
           const embedding = phraseOk(pcm) ? await check.embed(pcm) : null;
           if (r.over) return;
+          if (!embedding && badModel()) { end(MY_VOICE_LINES.modelFailed, 'error'); return; }
           const s = steps.add(embedding);
           if (s.step === 'more') say(MY_VOICE_LINES.got(s.count), 'good');
           else if (s.step === 'again') say(MY_VOICE_LINES.again(name), 'error');

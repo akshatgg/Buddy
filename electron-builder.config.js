@@ -76,6 +76,8 @@ module.exports = {
     '!node_modules/three/build/three.webgpu*.js',
     '!node_modules/three/build/three.tsl.js',
     '!node_modules/three/build/three.cjs',
+    // The voice check loads sherpa-onnx's C API only; its C++ wrapper library is never opened.
+    '!**/libsherpa-onnx-cxx-api.dylib',
     // electron-builder never copies an `examples` folder out of a package in node_modules, and
     // no pattern in this list can bring it back. The buddy page imports from three.js's examples
     // through its import map (src/renderer/buddy/index.html): the glTF loader and the studio

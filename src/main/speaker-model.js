@@ -71,6 +71,11 @@ function createSpeakerModel({ dir, spec = SPEAKER_MODEL, fetchImpl = fetch }) {
   return {
     ready,
     path: () => file,
+    /** Deletes the file (it would not load): the next ensure() downloads it again. */
+    remove() {
+      fs.rmSync(file, { force: true });
+      state = 'missing';
+    },
     state: () => (ready() ? 'ready' : state),
     percent: () => (ready() ? 100 : percent),
     ensure({ onProgress } = {}) {

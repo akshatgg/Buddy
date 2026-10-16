@@ -1578,6 +1578,7 @@ test('the snapshot holds the Only my voice section, and null without one or on W
     line: null,
     tone: null,
     setting: false,
+    percent: null,
   });
   assert.strictEqual('myVoiceOn' in withIt.settings, false);
   assert.strictEqual((await setup({}).call('settings:get')).myVoice, null);

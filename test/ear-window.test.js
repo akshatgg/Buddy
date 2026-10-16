@@ -216,3 +216,13 @@ test('a window that goes while the loop runs is told to the listeners', async (t
   made[0].destroy();
   assert.strictEqual(gone, 1);
 });
+
+test('an ear:request with no message at all is a request with no audio and no phrase, not a crash', async (t) => {
+  const { ear, made, ipcMain, tick } = setup(t);
+  await ear.wake({ phrases: ['hey rahul', 'hey buddy'], floor: 0.6 });
+  await tick();
+  const seen = [];
+  ear.on('request', (r) => seen.push(r));
+  ipcMain.emit('ear:request', { sender: made[0].webContents }, null);
+  assert.deepStrictEqual(seen, [{ audio: null, phrase: null }]);
+});

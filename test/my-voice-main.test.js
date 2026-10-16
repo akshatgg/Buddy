@@ -25,6 +25,7 @@ function setup({ on = false, profile = null, modelReady = true, ensure = async (
     rmSync: (f) => { files.delete(f); modes.delete(f); },
     existsSync: (f) => files.has(f),
   };
+  const state = { problem: null };
   const calls = { embed: 0, warm: 0, close: 0 };
   const queue = [];
   const check = {
@@ -34,9 +35,11 @@ function setup({ on = false, profile = null, modelReady = true, ensure = async (
   };
   const clips = { onClip: null, stopped: false, phrase: null };
   const wake = { clips: (phrase, onClip) => { clips.onClip = onClip; clips.phrase = phrase; return () => { clips.stopped = true; }; } };
-  const model = { ready: () => modelReady, ensure, path: () => '/m.onnx' };
+  const removed = [];
+  const model = { ready: () => modelReady, ensure, path: () => '/m.onnx', remove: () => { removed.push(1); } };
+  check.problem = () => state.problem;
   const voice = createMyVoice({ store, file: FILE, fsImpl, model, check, wake, ...(setupMs ? { setupMs } : {}) });
-  return { voice, files, modes, store, clips, calls, lines: [], embedNext: (e) => queue.push(e), setModelReady: (v) => { modelReady = v; } };
+  return { voice, removed, state, files, modes, store, clips, calls, lines: [], embedNext: (e) => queue.push(e), setModelReady: (v) => { modelReady = v; } };
 }
 
 test('off: everything is allowed, nothing is checked', async () => {
@@ -177,4 +180,23 @@ test('state: on with a usable profile, a profile of another model, a missing mod
   assert.strictEqual(nomodel.voice.state().line, 'Set up Only my voice again.');
   assert.strictEqual(setup().voice.state().on, false);
   assert.strictEqual(SPEAKER_MODEL.dim, 192);
+});
+
+test('setup: a model that will not load is deleted and said so, not "I didn\'t get that"', async () => {
+  const { voice, clips, state, removed, lines } = setup();
+  const done = voice.setup({ name: 'Rahul', phrase: 'hey rahul', onLine: (l) => lines.push(l) });
+  await tick();
+  state.problem = 'load';
+  await clips.onClip(B64(12000)); // the fake check answers null
+  assert.deepStrictEqual(await done, { ok: false, line: "Couldn't get the voice check ready. Check the internet and try again." });
+  assert.strictEqual(removed.length, 1);
+  assert.strictEqual(clips.stopped, true);
+});
+
+test('a check that cannot load the model deletes it too', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const { voice, state, removed } = setup({ on: true, profile: ME });
+  state.problem = 'load';
+  assert.strictEqual(await voice.allows(B64(16000)), false);
+  assert.strictEqual(removed.length, 1);
 });

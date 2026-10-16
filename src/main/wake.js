@@ -153,7 +153,7 @@ function createWake({
     const t = testing;
     if (!t) return;
     if (myVoice?.on() && !(await myVoice.allows(msg?.phrase))) {
-      t.onNotYou?.();
+      if (testing === t) t.onNotYou?.(); // not after Test it has finished
       return;
     }
     if (testing !== t) return; // the test ended while the voice was checked

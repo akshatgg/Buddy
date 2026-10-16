@@ -70,3 +70,11 @@ test('a file of the wrong size is not ready', (t) => {
   fs.writeFileSync(path.join(dir, 'm.onnx'), 'abc');
   assert.strictEqual(model.ready(), true);
 });
+
+test('remove() deletes the file so the model is downloaded again', async (t) => {
+  const { dir, model } = setup(t);
+  await model.ensure({});
+  model.remove();
+  assert.strictEqual(model.ready(), false);
+  assert.deepStrictEqual(fs.readdirSync(dir), []);
+});

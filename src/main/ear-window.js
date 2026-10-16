@@ -123,7 +123,7 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
   ipcMain.on('ear:request', (event, msg) => {
     if (!mine(event?.sender)) return;
     const audio = msg && typeof msg.audio === 'string' && msg.audio ? msg.audio : null;
-    const phrase = phraseOf(msg.phrase);
+    const phrase = phraseOf(msg?.phrase);
     for (const fn of listeners.request) fn({ audio, phrase });
   });
 

@@ -163,6 +163,7 @@ function registerSettingsIpc({
       line: state.line ?? null,
       tone: state.tone ?? null,
       setting: state.setting === true,
+      percent: state.percent ?? null, // the model download, while it runs
     };
   }
 
@@ -484,7 +485,7 @@ function registerSettingsIpc({
     return memoryState();
   });
 
-  return { resumeShortcut };
+  return { resumeShortcut, myVoiceChanged };
 }
 
 module.exports = { registerSettingsIpc, chooseModel };

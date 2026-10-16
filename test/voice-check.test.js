@@ -52,11 +52,11 @@ test('no answer within timeoutMs is null, and a late answer changes nothing', as
   const firstId = kids[0].sent[0].id;
   t.mock.timers.tick(3000);
   assert.strictEqual(await first, null);
-  const second = check.embed(Int16Array.from([1]));
-  kids[0].emit('message', { id: firstId, embedding: [5] }); // late: ignored
-  const secondId = kids[0].sent[1].id;
+  const second = check.embed(Int16Array.from([1])); // the hung child was killed: a fresh one
+  kids[0].emit('message', { id: firstId, embedding: [5] }); // late, from the old child: ignored
+  const secondId = kids[1].sent[0].id;
   assert.notStrictEqual(firstId, secondId);
-  kids[0].emit('message', { id: secondId, embedding: [7] });
+  kids[1].emit('message', { id: secondId, embedding: [7] });
   assert.deepStrictEqual(await second, [7]);
   check.close();
 });
@@ -111,4 +111,31 @@ test('warm() starts the child once; close() kills it and ends what waits', async
 test('a fork that throws is null, not a rejection', async () => {
   const check = createVoiceCheck({ fork: () => { throw new Error('no'); }, modelPath: () => '/m' });
   assert.strictEqual(await check.embed(Int16Array.from([1])), null);
+});
+
+test('a call that times out kills the hung child, and the next embed forks a fresh one', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { kids, check } = rig({ timeoutMs: 3000 });
+  const first = check.embed(Int16Array.from([1]));
+  t.mock.timers.tick(3000);
+  assert.strictEqual(await first, null);
+  assert.strictEqual(kids[0].killed, 1);
+  const second = check.embed(Int16Array.from([1]));
+  assert.strictEqual(kids.length, 2);
+  kids[1].emit('message', { id: kids[1].sent[0].id, embedding: [2] });
+  assert.deepStrictEqual(await second, [2]);
+  check.close();
+});
+
+test('problem() says "load" after a load error and clears after a good answer', async () => {
+  const { kids, check } = rig();
+  const a = check.embed(Int16Array.from([1]));
+  kids[0].emit('message', { id: kids[0].sent[0].id, error: 'load' });
+  await a;
+  assert.strictEqual(check.problem(), 'load');
+  const b = check.embed(Int16Array.from([1]));
+  kids[0].emit('message', { id: kids[0].sent[1].id, embedding: [1] });
+  await b;
+  assert.strictEqual(check.problem(), null);
+  check.close();
 });

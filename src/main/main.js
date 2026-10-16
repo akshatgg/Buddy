@@ -177,6 +177,7 @@ async function start(options = {}) {
     ? createMyVoice({
       store, file: path.join(userData, 'my-voice.json'), model: speakerModel, check: voiceCheck,
       wake: { clips: (phrase, fn) => wake.clips(phrase, fn) },
+      onChange: () => settingsIpc?.myVoiceChanged(), // the download's percent shows live
     })
     : null;
   const wake = wakeWanted
@@ -460,7 +461,10 @@ async function start(options = {}) {
   });
   // Settings lets go of the shortcut while it records a new one: a recording cut short by closing Settings gives it back.
   windows.onClosed((kind) => {
-    if (kind === 'settings') settingsIpc.resumeShortcut();
+    if (kind === 'settings') {
+      settingsIpc.resumeShortcut();
+      myVoice?.cancel(); // a voice setup waits on the Settings page that is gone
+    }
   });
   registerAdminIpc({ ipcMain, windows, cloud });
   registerClaudeIpc({

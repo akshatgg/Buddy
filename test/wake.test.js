@@ -357,3 +357,18 @@ test('test it with only my voice on: an allowed wake counts, a refused one is "n
   assert.deepStrictEqual(heard, [1]);
   assert.strictEqual(notYou, 2);
 });
+
+test('test it with only my voice on: a refusal that comes after the test ended is not reported', async (t) => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const s = setup(t, { myVoice: { on: true, allow: () => gate.then(() => false) } });
+  s.wake.refresh();
+  let notYou = 0;
+  const p = s.wake.test(() => {}, () => { notYou += 1; });
+  const woke = s.handlers.woke({ phrase: 'X' });
+  t.mock.timers.tick(10000);
+  await p;
+  release();
+  await woke;
+  assert.strictEqual(notYou, 0);
+});

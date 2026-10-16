@@ -99,6 +99,7 @@ async function runSay(embedder) {
   let ok = true;
   let others = 0;
   let passes = 0;
+  const pairs = [];
   try {
     const emb = {};
     for (const v of VOICES) {
@@ -120,16 +121,19 @@ async function runSay(embedder) {
         for (const t of emb[other].tests) {
           const c = cosine(done.profile, t);
           others += 1;
-          if (isMe(done.profile, t)) passes += 1;
+          if (isMe(done.profile, t)) { passes += 1; pairs.push(`${owner}<-${other}`); }
           if (c > top) { top = c; topVoice = other; }
         }
       }
-      const bad = mean < MY_VOICE.match;
+      const bad = Math.min(...own) < MY_VOICE.match;
       if (bad) ok = false;
       console.log(`${owner.padEnd(9)} own ${mean.toFixed(3)} (min ${Math.min(...own).toFixed(3)})  highest other ${top.toFixed(3)} (${topVoice})${bad ? '  FAIL' : ''}`);
     }
     const rate = others ? passes / others : 0;
     console.log(`other voices reaching ${MY_VOICE.match}: ${passes}/${others} (${(rate * 100).toFixed(1)}%)`);
+    const counts = {};
+    for (const p of pairs) counts[p] = (counts[p] || 0) + 1;
+    if (pairs.length) console.log(`pairs passing (profile<-speaker): ${Object.entries(counts).map(([k, n]) => `${k} x${n}`).join(', ')}`);
     if (rate > OTHER_RATE_LIMIT) ok = false;
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

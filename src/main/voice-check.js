@@ -21,6 +21,7 @@ function createVoiceCheck({ fork, modelPath, timeoutMs = MY_VOICE.checkMs, idleM
   let child = null;
   let nextId = 1;
   let idleTimer = null;
+  let problem = null; // 'load' | 'embed' | null: what the last answer from the worker said was wrong
   const waiting = new Map(); // id -> { resolve, timer }
 
   function settle(id, value) {
@@ -57,6 +58,7 @@ function createVoiceCheck({ fork, modelPath, timeoutMs = MY_VOICE.checkMs, idleM
     kid.on('message', (m) => {
       if (child !== kid || !m) return;
       touch();
+      problem = m.error === 'load' || m.error === 'embed' ? m.error : null;
       settle(m.id, !m.error && Array.isArray(m.embedding) ? m.embedding : null);
     });
     kid.on('exit', () => {
@@ -81,7 +83,7 @@ function createVoiceCheck({ fork, modelPath, timeoutMs = MY_VOICE.checkMs, idleM
       if (!kid) return Promise.resolve(null);
       return new Promise((resolve) => {
         const id = nextId++;
-        const timer = setTimeout(() => settle(id, null), timeoutMs);
+        const timer = setTimeout(() => { settle(id, null); stop(); }, timeoutMs); // a child that did not answer is hung: the next call forks a fresh one
         waiting.set(id, { resolve, timer });
         touch();
         try {
@@ -92,6 +94,8 @@ function createVoiceCheck({ fork, modelPath, timeoutMs = MY_VOICE.checkMs, idleM
         }
       });
     },
+    /** 'load' when the engine or the model could not be loaded (the file is bad), else null. */
+    problem: () => problem,
     warm() {
       try { start(); } catch { /* the first embed tries again */ }
     },

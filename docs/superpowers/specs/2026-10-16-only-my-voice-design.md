@@ -181,6 +181,7 @@ Under the wake row, shown only while "Listen for Hey <name>" is on:
 ## Not in this feature
 
 - The spoken yes/no after a card is not voice-checked (the owner started that turn). A later step could check it too.
+- The follow-up listen after an owner-passed answer (`talkBack.listen`) is not voice-checked either, the same as the spoken yes/no.
 - Windows: no wake loop there, so no switch.
 - No "who else may use it" (one voice per device).
 

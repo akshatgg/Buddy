@@ -42,6 +42,7 @@ function createWake({
 }) {
   let panel = false; // the panel's 🎤 records
   let turns = 0; // spoken turns running (a say, hear or listen of Buddy's own)
+  let asking = false; // the "Yes?" flow runs (voice check, say, listen, written down): other wakes and requests wait it out
   let asleep = false;
   let locked = false;
   let sent = null; // what the ear page was last told: null (not listening) or the phrases it listens for, joined
@@ -139,21 +140,31 @@ function createWake({
   }
 
   async function onRequest(msg) {
+    if (asking) return;
     if (await allowed(msg?.phrase)) await handle(msg && msg.audio);
   }
 
   // The phrase came with nothing after it: say "Yes?", then listen for the request the same way (the ear page leaves the
   // listening to this, so that the line is never in the recording). The voice check and the busy line come first.
   async function onAsk(msg) {
-    if (!(await allowed(msg?.phrase))) return;
+    if (asking) return; // one "Yes?" at a time: a second wake while it runs is ignored, silently
+    asking = true;
     try {
-      await talkBack.say(WAKE_LINES.yes);
+      if (!(await allowed(msg?.phrase))) return;
+      const said = await talkBack.say(WAKE_LINES.yes);
+      if (said?.gone || !mayListen()) return; // the ear page is gone, or Wake went off / the screen locked / the panel records meanwhile
       const r = await ear.call('listen', { ...REQUEST, settleMs: YES_SETTLE_MS });
+      if (!mayListen()) return; // switched off while listening: the audio is dropped, not written down
       await handle(r && r.audio);
     } catch (err) {
       console.warn('[buddy] wake:', err?.code || err?.message);
+    } finally {
+      asking = false;
     }
   }
+
+  // Whether listening is still allowed between the steps of "Yes?" (the turn rule aside: the say and the listen are Buddy's own turn).
+  const mayListen = () => shouldListen({ ...inputs(), turn: false });
 
   async function handle(audio) {
     try {

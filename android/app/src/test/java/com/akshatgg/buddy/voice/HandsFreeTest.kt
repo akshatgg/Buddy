@@ -90,9 +90,11 @@ class HandsFreeTest {
         assertEquals(listOf("Yes?"), shown)
     }
 
-    @Test fun yesIsNotAskedWhileTheChatIsBusy() {
+    @Test fun yesIsNotAskedWhileTheChatIsBusyAndTheBusyLineIsSpokenInstead() = runTest {
         assertEquals(true, handsFree().canAsk())
         chat.busy = true
         assertEquals(false, handsFree().canAsk())
+        handsFree().request(ByteArray(10)) // the wake goes on as a plain request, which gets the busy line
+        assertEquals(listOf("I'm still on the last one. Ask me again in a moment."), said)
     }
 }

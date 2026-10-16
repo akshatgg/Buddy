@@ -2,6 +2,7 @@ package com.akshatgg.buddy.voice
 
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 
 sealed interface WakeEvent {
@@ -98,8 +99,12 @@ class WakeListener(
                     ask()
                     delay(AFTER_YES_MS)
                     val m = mic()
-                    val wav = if (m.start()) takeRequest(m, chunk, PcmKeeper(KEEP_SAMPLES), 0L, 0L).first else null
-                    runCatching { m.stop() }
+                    val wav = try {
+                        if (m.start()) takeRequest(m, chunk, PcmKeeper(KEEP_SAMPLES), 0L, 0L).first else null
+                    } finally {
+                        runCatching { m.stop() }
+                    }
+                    currentCoroutineContext().ensureActive() // switched off while listening: nothing is handed over
                     on(WakeEvent.Request(wav))
                     continue
                 }

@@ -32,8 +32,9 @@ function setup(t, { name = 'Rahul', wakeOn = true, mic = 'granted', modelReady =
     wake: (args) => log.push(['wake', args]),
     close: () => log.push(['close']),
     on: (event, fn) => { handlers[event] = fn; },
-    call: async (cmd, args) => { log.push(['call', cmd, args]); return listenResult; },
+    call: async (cmd, args) => { log.push(['call', cmd, args]); talk.onCall?.(); return listenResult; },
   };
+  const talk = { said: null };
   const state = { mic, locked, signedIn, buddyOn: true, busy: false, asleepNow: false };
   const changes = [];
   const powerMonitor = new EventEmitter();
@@ -42,6 +43,7 @@ function setup(t, { name = 'Rahul', wakeOn = true, mic = 'granted', modelReady =
   const lock = { locked: () => state.locked };
   const mv = myVoice;
   const said = [];
+  talk.said = said;
   const wake = createWake({
     store, ear, model, lock,
     myVoice: mv ? { on: () => mv.on, allows: async (p) => mv.allow(p), warm: () => log.push(['warm']) } : null,
@@ -49,13 +51,13 @@ function setup(t, { name = 'Rahul', wakeOn = true, mic = 'granted', modelReady =
     power: { isOn: () => state.buddyOn },
     account: { isSignedIn: () => state.signedIn },
     cloud: { last: () => ({ voiceOn: true, blocked: false }) },
-    powerMonitor, actions, talkBack: { say: async (line) => { said.push(line); log.push(['say', line]); } },
+    powerMonitor, actions, talkBack: { say: async (line) => { said.push(line); log.push(['say', line]); await talk.hold; talk.onSay?.(); return talk.sayResult; } },
     busy: () => state.busy,
     onChange: (st) => changes.push(st),
     testMs: 10000,
   });
   const last = (kind) => log.filter((l) => l[0] === kind).at(-1);
-  return { wake, log, handlers, powerMonitor, state, data, last, actions, changes, talk: { said } };
+  return { wake, log, handlers, powerMonitor, state, data, last, actions, changes, talk };
 }
 
 test('refresh starts the loop with the phrase and keeps the ear window; switched off it stops and lets go', (t) => {
@@ -434,4 +436,47 @@ test('Test it and Only my voice setup never say Yes?', async (t) => {
   await s.handlers.woke(ASK);
   stop();
   assert.deepStrictEqual(order(s), []);
+});
+
+test('Wake switched off while Yes? is said: nothing is listened to or sent', async (t) => {
+  const s = setup(t);
+  s.wake.refresh();
+  s.talk.onSay = () => { s.data.wakeOn = false; };
+  await s.handlers.woke(ASK);
+  assert.deepStrictEqual(order(s), ['say Yes?']);
+});
+
+test('Wake switched off while listening: the audio is not written down', async (t) => {
+  const s = setup(t);
+  s.wake.refresh();
+  s.talk.onCall = () => { s.data.wakeOn = false; };
+  let transcribed = 0;
+  s.actions.transcribe = async () => { transcribed += 1; return { text: 'call mom' }; };
+  await s.handlers.woke(ASK);
+  assert.deepStrictEqual(order(s), ['say Yes?', 'call listen']);
+  assert.strictEqual(transcribed, 0);
+});
+
+test('Yes? said while the page is gone: not listened to', async (t) => {
+  const s = setup(t);
+  s.wake.refresh();
+  s.talk.sayResult = { gone: true };
+  await s.handlers.woke(ASK);
+  assert.deepStrictEqual(order(s), ['say Yes?']);
+});
+
+test('a second wake during the Yes? flow starts no second flow', async (t) => {
+  const s = setup(t);
+  s.wake.refresh();
+  let transcribed = 0;
+  s.actions.transcribe = async () => { transcribed += 1; return { text: 'call mom' }; };
+  let release;
+  s.talk.hold = new Promise((r) => { release = r; });
+  const first = s.handlers.woke(ASK);
+  await s.handlers.woke(ASK); // while "Yes?" is being said
+  await s.handlers.request({ audio: 'AAAA', phrase: 'AAAA' }); // nor a request on the side
+  release();
+  await first;
+  assert.deepStrictEqual(order(s), ['say Yes?', 'call listen', 'voice']);
+  assert.strictEqual(transcribed, 1);
 });

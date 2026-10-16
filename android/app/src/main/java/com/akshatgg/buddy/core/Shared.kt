@@ -3,6 +3,7 @@ package com.akshatgg.buddy.core
 import android.content.Context
 import com.akshatgg.buddy.ai.providers.ProviderFacts
 import com.akshatgg.buddy.voice.ModelSpec
+import com.akshatgg.buddy.voice.SpeakerModelSpec
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.int
@@ -86,6 +87,15 @@ class Shared(json: String) {
 
     val voiceModelMissing: Set<String> =
         root.getValue("voiceModel").jsonObject.getValue("missing").jsonArray.map { it.jsonPrimitive.content }.toSet()
+
+    // "Only my voice" (shared/my-voice.js): the speaker model Android downloads, a single .onnx file.
+    val speakerModel: SpeakerModelSpec = root.getValue("speakerModel").jsonObject.let { v ->
+        SpeakerModelSpec(
+            name = v.getValue("name").jsonPrimitive.content, file = v.getValue("file").jsonPrimitive.content,
+            url = v.getValue("url").jsonPrimitive.content, sha256 = v.getValue("sha256").jsonPrimitive.content,
+            bytes = v.getValue("bytes").jsonPrimitive.long, dim = v.getValue("dim").jsonPrimitive.int,
+        )
+    }
 
     val providers: List<ProviderFacts> = root.getValue("providers").jsonArray.map { element ->
         val p = element.jsonObject

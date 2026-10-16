@@ -8,9 +8,14 @@
  */
 
 const path = require('node:path');
+const { MY_VOICE } = require('../../shared/my-voice');
 
 const ERR_ABORTED = -3; // a load that was cancelled rather than one that failed
 const CALL_LIMIT_MS = 120000; // a page that never answers is gone, whatever else
+// The longest phrase clip taken (MY_VOICE.maxPhraseMs of 16 kHz PCM16 as base64); a longer one is not a clip.
+const MAX_PHRASE_CHARS = Math.ceil((MY_VOICE.maxPhraseMs * 16 * 2) / 3) * 4;
+
+const phraseOf = (v) => (typeof v === 'string' && v.length <= MAX_PHRASE_CHARS ? v : null);
 
 function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null }) {
   let win = null;
@@ -112,13 +117,14 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
   }
 
   // The always-on wake loop (ear.js): the page says it heard the phrase, and sends the request that followed.
-  ipcMain.on('ear:woke', (event) => {
-    if (mine(event?.sender)) for (const fn of listeners.woke) fn();
+  ipcMain.on('ear:woke', (event, msg) => {
+    if (mine(event?.sender)) for (const fn of listeners.woke) fn({ phrase: phraseOf(msg?.phrase) });
   });
   ipcMain.on('ear:request', (event, msg) => {
     if (!mine(event?.sender)) return;
     const audio = msg && typeof msg.audio === 'string' && msg.audio ? msg.audio : null;
-    for (const fn of listeners.request) fn({ audio });
+    const phrase = phraseOf(msg?.phrase);
+    for (const fn of listeners.request) fn({ audio, phrase });
   });
 
   ipcMain.on('ear:done', (event, msg) => {
@@ -148,7 +154,7 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
       } else armIdle();
     },
     stop: stopPage,
-    /** Listens for events from the wake loop: 'woke', 'request' ({ audio } or { audio: null }) and 'gone' (the window went while the loop ran). */
+    /** Listens for events from the wake loop: 'woke' ({ phrase }), 'request' ({ audio, phrase }; audio may be null; phrase is base64 PCM16 of the wake phrase or null) and 'gone' (the window went while the loop ran). */
     on(event, fn) {
       if (listeners[event]) listeners[event].push(fn);
     },

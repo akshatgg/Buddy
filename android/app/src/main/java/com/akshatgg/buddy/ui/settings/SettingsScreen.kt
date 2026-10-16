@@ -43,6 +43,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -100,6 +101,7 @@ import com.akshatgg.buddy.ui.panel.Segmented
 import com.akshatgg.buddy.ui.theme.Buddy
 import com.akshatgg.buddy.ui.theme.BuddyRadius
 import com.akshatgg.buddy.update.UpdateState
+import com.akshatgg.buddy.voice.MyVoiceRules
 import com.akshatgg.buddy.voice.VoiceWords
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
@@ -154,6 +156,7 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
     var disclosing by rememberSaveable { mutableStateOf(false) } // Buddy can type for you: its disclosure is up
 
     LaunchedEffect(Unit) { model.refreshFree() }
+    DisposableEffect(Unit) { onDispose { model.leaveSettings() } } // leaving Settings ends a running Only my voice setup
     LifecycleResumeEffect(Unit) {
         if (model.resumed(canFloat = context.allowed().float)) on.powerChanged(true)
         model.memoryShown()
@@ -231,6 +234,10 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
                         },
                         test = model::testWake,
                     )
+                    if (state.wakeOn && state.wakeListening) {
+                        Hairline()
+                        MyVoiceRow(state, onChange = model::setMyVoiceOn, redo = model::redoMyVoice)
+                    }
                     Hairline()
                     if (state.voices.isNotEmpty()) {
                         VoiceRow(state, model)
@@ -516,6 +523,32 @@ private fun android.content.Context.openVoiceSettings() {
     val intent = android.content.Intent("com.android.settings.TTS_SETTINGS").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
     try { startActivity(intent) } catch (_: android.content.ActivityNotFoundException) {
         runCatching { startActivity(android.content.Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    }
+}
+
+/**
+ * Only my voice: after "Hey <name>" Buddy answers only the owner. Turning it on gets the voice check (28 MB) and has the
+ * person say the phrase five times; the voice stays on this phone. Shown only while Listen for Hey <name> is listening.
+ */
+@Composable
+private fun MyVoiceRow(state: SettingsState, onChange: (Boolean) -> Unit, redo: () -> Unit) {
+    val colors = Buddy.colors
+    Column(Modifier.rowPadding()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(MyVoiceRules.Lines.LABEL)
+                Text(MyVoiceRules.Lines.ABOUT, color = colors.muted, style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(
+                checked = state.myVoiceOn || state.myVoiceSetting,
+                onCheckedChange = onChange,
+                colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.accentFg),
+            )
+        }
+        StatusLine(state.myVoiceLine)
+        if (state.myVoiceOn && !state.myVoiceSetting) {
+            Row(Modifier.padding(top = 8.dp)) { Secondary(MyVoiceRules.Lines.REDO, onClick = redo) }
+        }
     }
 }
 

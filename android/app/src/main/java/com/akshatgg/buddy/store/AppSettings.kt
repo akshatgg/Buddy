@@ -83,6 +83,14 @@ class AppSettings(private val kv: KeyValue) {
         set(v) = kv.putString("wakeOn", v.toString())
 
     /**
+     * "Only my voice": after "Hey <name>" Buddy answers only the owner. The voice itself is not here: it is in its own
+     * file (voice/MyVoice.kt), never in the settings.
+     */
+    var myVoiceOn: Boolean
+        get() = flag("myVoiceOn", false)
+        set(v) = kv.putString("myVoiceOn", v.toString())
+
+    /**
      * Listening was on but the microphone could not be started (after a restart Android refuses it): the buddy says
      * "Tap me to listen again" until an app screen opens and starts it.
      */

@@ -11,6 +11,7 @@ const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const {
   app, BrowserWindow, clipboard, dialog, globalShortcut: systemShortcut, ipcMain, powerMonitor, safeStorage, screen, shell, systemPreferences,
+  utilityProcess,
 } = require('electron');
 const { createStore } = require('./store');
 const { createMemory } = require('./memory');
@@ -34,6 +35,9 @@ const { createLock } = require('./lock');
 const { createTalkBack } = require('./talk-back');
 const { createWake } = require('./wake');
 const { createVoiceModel } = require('./voice-model');
+const { createSpeakerModel } = require('./speaker-model');
+const { createVoiceCheck } = require('./voice-check');
+const { createMyVoice } = require('./my-voice');
 const { createSettingsWindows } = require('./settings-windows');
 const { installAppMenu } = require('./app-menu');
 const { createActions } = require('./actions');
@@ -158,9 +162,27 @@ async function start(options = {}) {
   // "Hey <name>" (wake.js): the ear listens for it while the switch is on. A spoken turn of Buddy's own (say, hear, listen)
   // pauses it, and it goes on a moment after, so that Buddy's voice is never heard as the phrase. Without an ear (Windows,
   // the end-to-end test) there is none.
-  const wake = rawTalkBack && ear && options.wake !== null
+  const wakeWanted = Boolean(rawTalkBack && ear && options.wake !== null);
+  // "Only my voice" (my-voice.js): after a wake, the phrase's own audio is checked against the owner's voice, in a process of
+  // its own (voice-check.js), before anything is written down or sent. It is made where the wake is, and gets the wake
+  // (to collect the setup's takes) through a late binding, as the wake gets it.
+  const speakerModel = wakeWanted ? createSpeakerModel({ dir: path.join(userData, 'voice-model') }) : null;
+  const voiceCheck = wakeWanted
+    ? createVoiceCheck({
+      fork: (p, args) => utilityProcess.fork(p, args, { serviceName: 'Buddy voice check' }),
+      modelPath: () => (speakerModel.ready() ? speakerModel.path() : null),
+    })
+    : null;
+  const myVoice = wakeWanted
+    ? createMyVoice({
+      store, file: path.join(userData, 'my-voice.json'), model: speakerModel, check: voiceCheck,
+      wake: { clips: (phrase, fn) => wake.clips(phrase, fn) },
+      onChange: () => settingsIpc?.myVoiceChanged(), // the download's percent shows live
+    })
+    : null;
+  const wake = wakeWanted
     ? createWake({
-      store, ear, model: voiceModel, lock, microphone, power: { isOn: () => power.isOn() }, account, cloud, powerMonitor,
+      store, ear, model: voiceModel, lock, microphone, power: { isOn: () => power.isOn() }, account, cloud, powerMonitor, myVoice,
       actions: { transcribe: (...a) => actions.transcribe(...a), voice: (words) => actions.voice(words) }, talkBack: rawTalkBack,
       busy: () => actions.state().busy === true, // the chat is still answering: "Hey <name>" says so instead of dropping the request
     })
@@ -425,7 +447,7 @@ async function start(options = {}) {
     ipcMain, panel, actions, openSettings, microphone, ui, shell, askAccessibility: () => helper.call('requestAccessibility'), claudeMode,
   });
   const settingsIpc = registerSettingsIpc({
-    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch, tagWatch, wake, talkBack,
+    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch, tagWatch, wake, myVoice, talkBack,
     account, cloud, memory, memorySync, microphone, canSignIn: Boolean(cloudConfig),
     home: buddy, // Settings → Buddy → Where Buddy lives: whether there is a notch, and moving Buddy when it changes
     find, // Claude Code on this computer: the fifth AI choice, with no key
@@ -439,7 +461,10 @@ async function start(options = {}) {
   });
   // Settings lets go of the shortcut while it records a new one: a recording cut short by closing Settings gives it back.
   windows.onClosed((kind) => {
-    if (kind === 'settings') settingsIpc.resumeShortcut();
+    if (kind === 'settings') {
+      settingsIpc.resumeShortcut();
+      myVoice?.cancel(); // a voice setup waits on the Settings page that is gone
+    }
   });
   registerAdminIpc({ ipcMain, windows, cloud });
   registerClaudeIpc({
@@ -461,6 +486,7 @@ async function start(options = {}) {
     globalShortcut.unregisterAll();
     helper.stop();
     jobs.stopAll();
+    voiceCheck?.close();
   });
 
   powerMonitor.on('lock-screen', () => buddy.pause(true));

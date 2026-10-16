@@ -6,7 +6,7 @@ enum class Heard { YES, NO }
 data class Grammar(val phrases: List<String>, val missing: List<String>)
 
 /** Whether the result began with a wake phrase: when its last word ended (seconds), whether more was said after it, and which phrase. */
-data class Wake(val endSec: Float, val follows: Boolean, val phrase: String)
+data class Wake(val endSec: Float, val follows: Boolean, val phrase: String, val startSec: Float = 0f)
 
 /** The card Buddy asks about out loud. */
 sealed interface SpokenCard {
@@ -187,7 +187,7 @@ object VoiceWords {
             val want = phrase.split(' ').filter { it.isNotEmpty() }
             if (want.isEmpty() || got.size < want.size) continue
             if (want.indices.all { i -> got[i].word == want[i] && got[i].conf >= floor }) {
-                return Wake(got[want.size - 1].end, got.size > want.size, want.joinToString(" "))
+                return Wake(got[want.size - 1].end, got.size > want.size, want.joinToString(" "), got[0].start)
             }
         }
         return null

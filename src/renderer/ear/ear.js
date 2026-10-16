@@ -245,7 +245,7 @@ function stopWake({ finishRequest = false } = {}) {
   wakeRun = null;
   const audio = finishRequest && run.request ? EarCore.finishRequest(run.request, () => Wav.base64(run.keeper.from(run.request.fromSample))) : null;
   run.stop();
-  if (finishRequest && run.request) window.ear.request(audio); // null audio is "heard the name, nothing after"
+  if (finishRequest && run.request) window.ear.request(audio, run.request.phrase); // null audio is "heard the name, nothing after"
 }
 
 function maybeResumeWake(delay) {
@@ -284,10 +284,12 @@ function startWake(args) {
         if (run.over || request || run.rec !== rec) return;
         const woke = turn.result(ev && ev.result, startOf.get(rec));
         if (!woke) return;
-        window.ear.woke();
+        // The phrase's own audio, for "Only my voice" (main checks it; it is never written down).
+        const phrase = woke.phrase ? EarCore.pcmBase64(keeper.from(woke.phrase.from).subarray(0, woke.phrase.to - woke.phrase.from)) : null;
+        window.ear.woke({ phrase });
         if (args.testOnly) { fresh(); return; }
         const timing = VoiceTiming.createVoiceTiming(args.request);
-        request = { fromSample: woke.fromSample, timing };
+        request = { fromSample: woke.fromSample, timing, phrase };
         run.request = request;
         if (woke.follows) {
           // What was said after the phrase in the same breath is already there: it counts as voice, up to now.
@@ -310,10 +312,11 @@ function startWake(args) {
       const ms = (keeper.total - request.fromSample) / 16;
       if (request.timing.feed(VoiceTiming.levelOf(chunk), ms) === 'listen') return;
       const audio = request.timing.heardVoice() ? Wav.base64(keeper.from(request.fromSample)) : null;
+      const phrase = request.phrase;
       request = null;
       run.request = null;
       fresh();
-      window.ear.request(audio);
+      window.ear.request(audio, phrase);
     };
   })().catch(() => { if (wakeRun === run) stopWake(); });
 }

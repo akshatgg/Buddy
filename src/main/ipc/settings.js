@@ -11,6 +11,7 @@ const { aiSection } = require('../free-state');
 const { isTap, tapKeys } = require('../../renderer/common/shortcut-keys');
 const { cleanFact } = require('../../../shared/memory-rules');
 const { WAKE_LINES } = require('../../../shared/voice-words');
+const { MY_VOICE_LINES, setupPhrase } = require('../../../shared/my-voice');
 const { shownName, SPELLING_HINT } = require('../wake');
 const { rankVoices, bestVoice, voiceLabel, shortName } = require('../voices');
 const { PROVIDER_ID: CLAUDE_ID, MODELS: CLAUDE_MODELS, MODEL_LABELS, GET_URL } = require('../claude/find');
@@ -82,12 +83,15 @@ function registerSettingsIpc({
   tagWatch = null,
   // "Hey <name>" (wake.js): the ear's listening for the buddy's name; null where there is none (Windows).
   wake = null,
+  // "Only my voice" (my-voice.js); null where there is none (Windows).
+  myVoice = null,
   // Buddy's voice (talk-back.js): lists the voices on this Mac and speaks a line; null where Buddy does not speak (Windows).
   talkBack = null,
 }) {
   let wakeTesting = false; // "Test it" is listening now
   // The model download's progress, its end or failure (which also turns the switch off): the open Settings follows live.
   wake?.onChange?.(() => windows.send('settings', 'wake:changed', { wakeOn: store.get('wakeOn') === true, wake: wakeSection(store.get('buddyName')) }));
+  const myVoiceChanged = () => windows.send('settings', 'myvoice:changed', { myVoice: myVoiceSection() });
   // The Settings and Welcome windows only: the Admin window has calls of its own (ipc/admin.js).
   const handle = guarded(ipcMain, (webContents) => windows.owns(webContents, 'settings') || windows.owns(webContents, 'onboarding'));
   // Finishing the Welcome is for the Welcome window only: the Settings window has no business doing it.
@@ -149,10 +153,28 @@ function registerSettingsIpc({
     };
   }
 
+  /** The "Only my voice" row under the wake row: its words and where it stands. Null where there is none (Windows). */
+  function myVoiceSection() {
+    if (!myVoice || platform === 'win32') return null;
+    const state = myVoice.state();
+    return {
+      label: MY_VOICE_LINES.label,
+      about: MY_VOICE_LINES.about,
+      redo: MY_VOICE_LINES.redo,
+      notYou: MY_VOICE_LINES.notYou,
+      on: state.on === true,
+      line: state.line ?? null,
+      tone: state.tone ?? null,
+      setting: state.setting === true,
+      percent: state.percent ?? null, // the model download, while it runs
+    };
+  }
+
   async function snapshot() {
     const settings = store.all();
     delete settings.positions;
     delete settings.lastDisplayId;
+    delete settings.myVoiceOn; // the page gets `myVoice` (the voice itself is never in the settings)
     delete settings.cloud; // the server's free-mode settings: the page gets what they mean, in `ai`
     // What Buddy knows about the person, and its switch: the Memory section asks for them (settings:memory).
     delete settings.memory;
@@ -182,6 +204,7 @@ function registerSettingsIpc({
       home: settings.home,
       hasNotch: Boolean(home?.hasNotch()),
       wake: wakeSection(settings.buddyName),
+      myVoice: myVoiceSection(),
     };
   }
 
@@ -236,6 +259,7 @@ function registerSettingsIpc({
     }
     const before = store.all();
     store.set(changes);
+    if (changes.wakeOn === false || Object.hasOwn(changes, 'buddyName')) myVoice?.cancel(); // a setup waits on the loop
     if (Object.hasOwn(changes, 'wakeOn') || Object.hasOwn(changes, 'buddyName')) wake?.refresh(); // the ear listens, or not, for the new name
     tagWatch?.refresh(); // "Fix where I type" turned on or off, or the buddy renamed: the tag's names follow
     if (changes.size && changes.size !== before.size) buddy.resize();
@@ -250,10 +274,36 @@ function registerSettingsIpc({
     if (!wake || wakeTesting) return { count: 0 };
     wakeTesting = true;
     try {
-      return { count: await wake.test(() => windows.send('settings', 'wake:heard')) };
+      return { count: await wake.test(() => windows.send('settings', 'wake:heard'), () => windows.send('settings', 'wake:not-you', { line: MY_VOICE_LINES.notYou })) };
     } finally {
       wakeTesting = false;
     }
+  });
+
+  // "Only my voice": learns the voice from takes of the wake phrase (five), keeping it on this device. Each line goes to the
+  // page as it comes; the answer is the last one. Only while the wake is on and listening, since the takes come from it.
+  handleSettings('settings:my-voice-setup', async () => {
+    if (!myVoice || platform === 'win32') return { ok: false, line: '' };
+    const buddyName = store.get('buddyName');
+    const listening = wake?.state();
+    if (store.get('wakeOn') !== true || !listening?.on) {
+      return { ok: false, line: listening?.line ?? `Turn on "Hey ${shownName(buddyName)}" first.` };
+    }
+    // "Hey <name>" when the model can hear the name, else "Hey Buddy" (the same phrases the loop listens for).
+    const heard = wake?.nameHeard?.(buddyName) ?? false;
+    const result = await myVoice.setup({
+      name: heard ? shownName(buddyName) : 'Buddy',
+      phrase: heard ? setupPhrase(buddyName, []) : 'hey buddy',
+      onLine: (line, tone) => windows.send('settings', 'myvoice:line', { line, tone: tone ?? null }),
+    });
+    myVoiceChanged();
+    return result;
+  });
+
+  handleSettings('settings:my-voice-off', async () => {
+    myVoice?.off();
+    myVoiceChanged();
+    return { myVoice: myVoiceSection() };
   });
 
   // Settings → General's "Buddy's voice": the English voices on this Mac, best first; the chosen one only while it is still there.
@@ -464,7 +514,7 @@ function registerSettingsIpc({
     return memoryState();
   });
 
-  return { resumeShortcut };
+  return { resumeShortcut, myVoiceChanged };
 }
 
 module.exports = { registerSettingsIpc, chooseModel };

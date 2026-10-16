@@ -161,14 +161,14 @@ test('a wake is a phrase as the first words, each sure enough; what follows is t
   const w = (word, conf, start, end) => ({ word, conf, start, end });
   const said = (...words) => ({ text: words.map((x) => x.word).join(' '), result: words });
   const P = ['hey rahul', 'hey buddy'];
-  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 1, 1.2), w('rahul', 0.8, 1.2, 1.6)), P, 0.6), { endSec: 1.6, follows: false, phrase: 'hey rahul' });
-  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 1, 1.2), w('rahul', 0.8, 1.2, 1.6), w('[unk]', 1, 1.7, 2.5)), 'hey rahul', 0.6), { endSec: 1.6, follows: true, phrase: 'hey rahul' }, 'one string still works');
+  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 1, 1.2), w('rahul', 0.8, 1.2, 1.6)), P, 0.6), { startSec: 1, endSec: 1.6, follows: false, phrase: 'hey rahul' });
+  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 1, 1.2), w('rahul', 0.8, 1.2, 1.6), w('[unk]', 1, 1.7, 2.5)), 'hey rahul', 0.6), { startSec: 1, endSec: 1.6, follows: true, phrase: 'hey rahul' }, 'one string still works');
   assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 1, 1.2), w('rahul', 0.9, 1.2, 1.6), w('call', 0.9, 1.7, 2), w('mom', 0.9, 2, 2.3)), P, 0.6),
-    { endSec: 1.6, follows: true, phrase: 'hey rahul' }, 'what follows "hey rahul" is the request');
-  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 1, 1.2), w('buddy', 0.9, 1.2, 1.5), w('what', 0.9, 1.6, 1.8)), P, 0.6), { endSec: 1.5, follows: true, phrase: 'hey buddy' });
+    { startSec: 1, endSec: 1.6, follows: true, phrase: 'hey rahul' }, 'what follows "hey rahul" is the request');
+  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 1, 1.2), w('buddy', 0.9, 1.2, 1.5), w('what', 0.9, 1.6, 1.8)), P, 0.6), { startSec: 1, endSec: 1.5, follows: true, phrase: 'hey buddy' });
   assert.strictEqual(wakeFrom(said(w('buddy', 0.9, 0, 0.4)), P, 0.6), null, 'a bare "buddy" does not wake');
   assert.strictEqual(wakeFrom(said(w('rahul', 0.9, 0, 0.4), w('call', 0.9, 0.5, 0.8)), P, 0.6), null, 'a bare name does not wake');
-  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 0, 0.2), w('rahul', 0.9, 0.2, 0.5), w('call', 0.9, 0.6, 0.8), w('mom', 0.9, 0.8, 1)), P, 0.6), { endSec: 0.5, follows: true, phrase: 'hey rahul' });
+  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 0, 0.2), w('rahul', 0.9, 0.2, 0.5), w('call', 0.9, 0.6, 0.8), w('mom', 0.9, 0.8, 1)), P, 0.6), { startSec: 0, endSec: 0.5, follows: true, phrase: 'hey rahul' });
   assert.strictEqual(wakeFrom(said(w('[unk]', 1, 0, 1), w('hey', 0.9, 1, 1.2), w('rahul', 0.9, 1.2, 1.6)), P, 0.6), null, 'the name in the middle of talk');
   assert.strictEqual(wakeFrom(said(w('[unk]', 1, 0, 1), w('buddy', 0.9, 1, 1.4)), P, 0.6), null, 'must start with a phrase');
   assert.strictEqual(wakeFrom(said(w('rahul', 0.9, 0, 0.4)), ['hey rahul'], 0.6), null, '"Hey" is required by that phrase');

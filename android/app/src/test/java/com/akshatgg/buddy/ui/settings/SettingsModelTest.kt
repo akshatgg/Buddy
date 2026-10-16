@@ -17,17 +17,26 @@ import com.akshatgg.buddy.ui.common.Status
 import com.akshatgg.buddy.ui.common.Tone
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import com.akshatgg.buddy.voice.ModelSpec
+import com.akshatgg.buddy.voice.MyVoiceRules
+import com.akshatgg.buddy.voice.MyVoiceSettings
+import com.akshatgg.buddy.voice.SpeakerModelFile
+import com.akshatgg.buddy.voice.SpeakerModelSpec
 import com.akshatgg.buddy.voice.VoiceModel
 import com.akshatgg.buddy.voice.VoiceWords
 import java.io.ByteArrayOutputStream
@@ -322,6 +331,7 @@ class SettingsModelTest {
     private var micHeld = true
     private var missing = emptySet<String>()
     private var testRuns: suspend (Long, () -> Unit) -> Unit = { _, _ -> }
+    private var testNotYou: (() -> Unit) -> Unit = { }
 
     private fun CoroutineScope.wakeModel(there: Boolean = true): SettingsModel {
         val vm = voiceModel(this, there)
@@ -329,7 +339,7 @@ class SettingsModelTest {
         return SettingsModel(
             account, cloud, settings, memory, this,
             voiceModel = vm, wakeChanged = { woke++ }, micAllowed = { micHeld }, modelMissing = { missing },
-            test = { ms, heard -> testRuns(ms, heard) },
+            test = { ms, heard, notYou -> testRuns(ms, heard); testNotYou(notYou) },
         )
     }
 
@@ -482,6 +492,293 @@ class SettingsModelTest {
         runCurrent()
         assertEquals(Status("I didn't hear \"Hey Buddy\" or \"Hey Aarav\". Try again.", Tone.ERROR), m.state.value.wakeLine)
         assertEquals(0, m.state.value.wakeHeard)
+    }
+
+    // ---- Only my voice ----
+
+    private class FakeVoice : MyVoiceSettings {
+        var onNow = false
+        var usable = true
+        val takes = ArrayDeque<FloatArray?>()
+        var embeds = 0
+        var saved: FloatArray? = null
+        var offs = 0
+        override val on get() = onNow
+        override fun profileUsable() = usable
+        override fun embed(clip: ShortArray): FloatArray? { embeds++; return takes.removeFirstOrNull() }
+        var saveFails = false
+        override fun save(profile: FloatArray) { if (saveFails) throw java.io.IOException("disk"); saved = profile; onNow = true }
+        override fun off() { offs++; onNow = false; saved = null }
+    }
+
+    private val ME = FloatArray(192).also { it[0] = 1f }
+    private val NEAR = FloatArray(192).also { it[0] = 1f; it[1] = 0.1f }
+    private val OTHER = FloatArray(192).also { it[5] = 1f }
+    private val voice = FakeVoice()
+    private var clipsToFeed = listOf<ShortArray?>()
+    private var phraseAsked: String? = null
+    private var setups = 0
+    private var gate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+
+    private fun CoroutineScope.myVoiceModel(speaker: SpeakerModelFile? = null): SettingsModel {
+        val vm = voiceModel(this, true)
+        kotlinx.coroutines.runBlocking { vm.fetch() }
+        return SettingsModel(
+            account, cloud, settings, memory, this,
+            voiceModel = vm, wakeChanged = { woke++ }, micAllowed = { micHeld }, modelMissing = { missing },
+            test = { ms, heard, notYou -> testRuns(ms, heard); testNotYou(notYou) },
+            speakerModel = speaker, myVoice = voice,
+            collectClips = { phrase, ms, onClip ->
+                setups++; phraseAsked = phrase
+                for (c in clipsToFeed) onClip(c)
+                gate?.await()
+                kotlinx.coroutines.delay(ms)
+            },
+            heavy = kotlin.coroutines.EmptyCoroutineContext,
+        )
+    }
+
+    private fun clip() = ShortArray(800 * 16)
+
+    private fun TestScope.linesOf(m: SettingsModel): MutableList<String?> {
+        val lines = mutableListOf<String?>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { m.state.collect { s -> s.myVoiceLine?.text.let { if (lines.lastOrNull() != it) lines.add(it) } } }
+        return lines
+    }
+
+    private fun listening(m: SettingsModel) { m.setName("Aarav"); m.setWakeOn(true) }
+
+    @Test fun fiveGoodTakesSaveTheVoiceAndTurnItOn() = runTest {
+        val m = myVoiceModel(); listening(m)
+        val lines = linesOf(m)
+        voice.takes.addAll(listOf(ME, NEAR, ME, NEAR, ME))
+        clipsToFeed = List(5) { clip() }
+        m.setMyVoiceOn(true)
+        advanceUntilIdle()
+        val L = MyVoiceRules.Lines
+        assertEquals(listOf<String?>(L.start("Aarav"), L.got(1), L.got(2), L.got(3), L.got(4), L.DONE), lines)
+        assertEquals("hey aarav", phraseAsked)
+        assertNotNull(voice.saved)
+        assertTrue(settings.myVoiceOn)
+        assertTrue(m.state.value.myVoiceOn)
+        assertFalse(m.state.value.myVoiceSetting)
+        assertEquals(Status(L.DONE, Tone.GOOD), m.state.value.myVoiceLine)
+        m.reload()
+        assertEquals(Status(L.ON), m.state.value.myVoiceLine)
+    }
+
+    @Test fun aTakeThatCouldNotBeMadeIsAskedAgain() = runTest {
+        val m = myVoiceModel(); listening(m)
+        val lines = linesOf(m)
+        voice.takes.addAll(listOf(ME, null))
+        clipsToFeed = listOf(clip(), clip(), null) // the third had no phrase audio at all
+        m.setMyVoiceOn(true)
+        advanceUntilIdle()
+        val L = MyVoiceRules.Lines
+        assertEquals(listOf<String?>(L.start("Aarav"), L.got(1), L.again("Aarav"), L.TIMED_OUT), lines)
+        assertEquals(2, voice.embeds) // the third clip (no audio) was never embedded
+        assertNull(voice.saved)
+    }
+
+    @Test fun aFifthTakeThatDoesNotAgreeIsAskedAgainAndNothingIsSaved() = runTest {
+        val m = myVoiceModel(); listening(m)
+        val lines = linesOf(m)
+        voice.takes.addAll(listOf(ME, NEAR, ME, NEAR, OTHER))
+        clipsToFeed = List(5) { clip() }
+        m.setMyVoiceOn(true)
+        advanceUntilIdle()
+        assertTrue(lines.contains(MyVoiceRules.Lines.odd("Aarav")))
+        assertNull(voice.saved)
+        assertFalse(settings.myVoiceOn)
+    }
+
+    @Test fun timeUpSaysSoAndSavesNothing() = runTest {
+        val m = myVoiceModel(); listening(m)
+        voice.takes.addAll(listOf(ME, NEAR))
+        clipsToFeed = List(2) { clip() }
+        m.setMyVoiceOn(true)
+        advanceUntilIdle()
+        assertEquals(Status(MyVoiceRules.Lines.TIMED_OUT, Tone.ERROR), m.state.value.myVoiceLine)
+        assertNull(voice.saved)
+        assertFalse(settings.myVoiceOn)
+        assertFalse(m.state.value.myVoiceOn)
+        assertFalse(m.state.value.myVoiceSetting)
+    }
+
+    @Test fun tooManyOddTakesFail() = runTest {
+        val m = myVoiceModel(); listening(m)
+        voice.takes.addAll(listOf(ME, NEAR, ME, NEAR, OTHER, OTHER, OTHER, OTHER))
+        clipsToFeed = List(8) { clip() }
+        m.setMyVoiceOn(true)
+        advanceUntilIdle()
+        assertEquals(Status(MyVoiceRules.Lines.FAILED, Tone.ERROR), m.state.value.myVoiceLine)
+        assertNull(voice.saved)
+    }
+
+    @Test fun itIsRefusedWhileListeningIsOff() = runTest {
+        val m = myVoiceModel()
+        m.setMyVoiceOn(true)
+        advanceUntilIdle()
+        assertEquals(0, setups)
+        assertFalse(m.state.value.myVoiceOn); assertFalse(m.state.value.myVoiceSetting)
+        assertFalse(settings.myVoiceOn)
+    }
+
+    @Test fun offForgetsTheVoice() = runTest {
+        val m = myVoiceModel(); listening(m)
+        settings.myVoiceOn = true; voice.onNow = true
+        m.setMyVoiceOn(false)
+        assertEquals(1, voice.offs)
+        assertFalse(settings.myVoiceOn)
+        assertFalse(m.state.value.myVoiceOn)
+        assertNull(m.state.value.myVoiceLine)
+    }
+
+    @Test fun turningOffInTheMiddleSavesNothing() = runTest {
+        val m = myVoiceModel(); listening(m)
+        voice.takes.addAll(listOf(ME, NEAR, ME, NEAR, ME))
+        clipsToFeed = List(4) { clip() }
+        gate = kotlinx.coroutines.CompletableDeferred()
+        m.setMyVoiceOn(true)
+        runCurrent()
+        assertTrue(m.state.value.myVoiceSetting)
+        m.setMyVoiceOn(false)
+        gate!!.complete(Unit)
+        advanceUntilIdle()
+        assertNull(voice.saved)
+        assertFalse(settings.myVoiceOn)
+        assertFalse(m.state.value.myVoiceSetting)
+        assertNull(m.state.value.myVoiceLine)
+        gate = null
+    }
+
+    @Test fun aNameTheModelCannotHearIsBuddy() = runTest {
+        missing = setOf("priya")
+        val m = myVoiceModel(); m.setName("Priya"); m.setWakeOn(true)
+        val lines = linesOf(m)
+        m.setMyVoiceOn(true)
+        advanceUntilIdle()
+        assertEquals("hey buddy", phraseAsked)
+        assertTrue(lines.contains(MyVoiceRules.Lines.start("Buddy")))
+    }
+
+    @Test fun theVoiceCheckModelIsFetchedFirstAndAFailureStopsIt() = runTest {
+        val body = ByteArray(100) { it.toByte() }
+        val spec = SpeakerModelSpec("m", "m.onnx", "https://x", MessageDigest.getInstance("SHA-256").digest(body).joinToString("") { "%02x".format(it) }, body.size.toLong(), 192)
+        var fail = true
+        val file = SpeakerModelFile(File(tmp.root, "speaker"), spec, { _, f, _ -> if (fail) throw java.io.IOException("offline") else f.writeBytes(body) }, backgroundScope)
+        val m = myVoiceModel(file); listening(m)
+        m.setMyVoiceOn(true)
+        advanceUntilIdle()
+        assertEquals(Status(MyVoiceRules.Lines.MODEL_FAILED, Tone.ERROR), m.state.value.myVoiceLine)
+        assertFalse(m.state.value.myVoiceSetting)
+        assertEquals(0, setups)
+        fail = false
+        val lines = linesOf(m)
+        m.setMyVoiceOn(true)
+        advanceUntilIdle()
+        assertEquals(1, setups)
+        assertTrue(lines.contains(MyVoiceRules.Lines.start("Aarav")))
+        assertTrue(file.ready())
+    }
+
+    @Test fun setUpAgainKeepsTheOldVoiceUntilTheNewOneIsLearnt() = runTest {
+        val m = myVoiceModel(); listening(m)
+        settings.myVoiceOn = true; voice.onNow = true
+        m.reload()
+        clipsToFeed = emptyList()
+        m.redoMyVoice()
+        advanceUntilIdle()
+        assertEquals(0, voice.offs)
+        assertTrue(settings.myVoiceOn)
+        assertNull(voice.saved)
+        assertEquals(Status(MyVoiceRules.Lines.TIMED_OUT, Tone.ERROR), m.state.value.myVoiceLine)
+        assertTrue(m.state.value.myVoiceOn)
+    }
+
+    @Test fun anUnusableSavedVoiceAsksToBeSetUpAgain() = runTest {
+        val m = myVoiceModel(); listening(m)
+        settings.myVoiceOn = true
+        voice.usable = false
+        m.reload()
+        assertEquals(Status(MyVoiceRules.Lines.SET_UP_AGAIN, Tone.ERROR), m.state.value.myVoiceLine)
+        voice.usable = true
+        m.reload()
+        assertEquals(Status(MyVoiceRules.Lines.ON), m.state.value.myVoiceLine)
+    }
+
+    @Test fun testItSaysThatItWasNotYou() = runTest {
+        val m = myVoiceModel(); listening(m)
+        testRuns = { ms, _ -> kotlinx.coroutines.delay(ms) }
+        testNotYou = { it() }
+        m.testWake()
+        advanceTimeBy(10_000); runCurrent()
+        assertEquals(Status(MyVoiceRules.Lines.NOT_YOU, Tone.ERROR), m.state.value.wakeLine)
+        assertFalse(m.state.value.wakeTesting)
+    }
+
+    @Test fun aVoiceThatCannotBeWrittenIsAFailureNotACrash() = runTest {
+        val m = myVoiceModel(); listening(m)
+        voice.saveFails = true
+        voice.takes.addAll(listOf(ME, NEAR, ME, NEAR, ME))
+        clipsToFeed = List(5) { clip() }
+        m.setMyVoiceOn(true)
+        advanceUntilIdle()
+        assertEquals(Status(MyVoiceRules.Lines.FAILED, Tone.ERROR), m.state.value.myVoiceLine)
+        assertFalse(settings.myVoiceOn); assertFalse(m.state.value.myVoiceOn); assertFalse(m.state.value.myVoiceSetting)
+    }
+
+    @Test fun aSetupErrorStaysAcrossReloadUntilThePersonActsAgain() = runTest {
+        val m = myVoiceModel(); listening(m)
+        clipsToFeed = emptyList()
+        m.setMyVoiceOn(true)
+        advanceUntilIdle()
+        val timedOut = Status(MyVoiceRules.Lines.TIMED_OUT, Tone.ERROR)
+        assertEquals(timedOut, m.state.value.myVoiceLine)
+        m.reload()
+        assertEquals(timedOut, m.state.value.myVoiceLine)
+        m.setMyVoiceOn(false)
+        m.reload()
+        assertNull(m.state.value.myVoiceLine)
+    }
+
+    @Test fun aGoneVoiceCheckModelAsksToBeSetUpAgain() = runTest {
+        val body = ByteArray(100) { it.toByte() }
+        val spec = SpeakerModelSpec("m", "m.onnx", "https://x", MessageDigest.getInstance("SHA-256").digest(body).joinToString("") { "%02x".format(it) }, body.size.toLong(), 192)
+        val file = SpeakerModelFile(File(tmp.root, "speaker2"), spec, { _, f, _ -> f.writeBytes(body) }, backgroundScope)
+        val m = myVoiceModel(file); listening(m)
+        settings.myVoiceOn = true
+        m.reload()
+        assertEquals(Status(MyVoiceRules.Lines.SET_UP_AGAIN, Tone.ERROR), m.state.value.myVoiceLine)
+        file.fetch()
+        m.reload()
+        assertEquals(Status(MyVoiceRules.Lines.ON), m.state.value.myVoiceLine)
+    }
+
+    @Test fun leavingSettingsEndsASetupAndSavesNothing() = runTest {
+        val m = myVoiceModel(); listening(m)
+        voice.takes.addAll(listOf(ME, NEAR))
+        clipsToFeed = List(2) { clip() }
+        gate = kotlinx.coroutines.CompletableDeferred()
+        m.setMyVoiceOn(true)
+        runCurrent()
+        assertTrue(m.state.value.myVoiceSetting)
+        m.leaveSettings()
+        advanceUntilIdle()
+        assertFalse(m.state.value.myVoiceSetting)
+        assertNull(voice.saved); assertFalse(settings.myVoiceOn)
+        gate = null
+    }
+
+    @Test fun theModelDownloadShowsAPercent() = runTest {
+        val body = ByteArray(100) { it.toByte() }
+        val spec = SpeakerModelSpec("m", "m.onnx", "https://x", MessageDigest.getInstance("SHA-256").digest(body).joinToString("") { "%02x".format(it) }, body.size.toLong(), 192)
+        val file = SpeakerModelFile(File(tmp.root, "speaker3"), spec, { _, f, progress -> progress(40); kotlinx.coroutines.yield(); f.writeBytes(body) }, backgroundScope)
+        val m = myVoiceModel(file); listening(m)
+        val lines = linesOf(m)
+        m.setMyVoiceOn(true)
+        advanceUntilIdle()
+        assertTrue(lines.toString(), lines.contains("${MyVoiceRules.Lines.GETTING_MODEL} 40%"))
     }
 
     private fun voice(name: String, lang: String, q: Int) = com.akshatgg.buddy.voice.VoiceInfo(name, lang, q, network = false)

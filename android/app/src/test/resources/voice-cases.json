@@ -932,6 +932,7 @@
           "hey buddy"
         ],
         "wake": {
+          "startSec": 1,
           "endSec": 1.6,
           "follows": false,
           "phrase": "hey rahul"
@@ -966,6 +967,7 @@
           "hey buddy"
         ],
         "wake": {
+          "startSec": 1,
           "endSec": 1.6,
           "follows": true,
           "phrase": "hey rahul"
@@ -1066,6 +1068,7 @@
           "hey buddy"
         ],
         "wake": {
+          "startSec": 1,
           "endSec": 1.6,
           "follows": false,
           "phrase": "hey rahul"
@@ -1117,6 +1120,7 @@
           "hey buddy"
         ],
         "wake": {
+          "startSec": 1,
           "endSec": 1.6,
           "follows": true,
           "phrase": "hey rahul"
@@ -1151,6 +1155,7 @@
           "hey buddy"
         ],
         "wake": {
+          "startSec": 1,
           "endSec": 1.5,
           "follows": true,
           "phrase": "hey buddy"
@@ -1275,6 +1280,7 @@
           "hey rahul"
         ],
         "wake": {
+          "startSec": 1,
           "endSec": 1.6,
           "follows": true,
           "phrase": "hey rahul"

@@ -31,6 +31,7 @@ const DEFAULTS = Object.freeze({
   memoryUid: null, // the account `memory` is kept with (src/main/memory-sync.js): null until it first synced
   listenOnOpen: false, // Settings → General's "Listen when the panel opens": off, the panel listens only after 🎤
   wakeOn: false, // Settings → General's "Listen for Hey <name>": off until the person turns it on (src/main/wake.js)
+  myVoiceOn: false, // Settings → General's "Only my voice": on once the voice is learned (src/main/my-voice.js). Only the on/off is here; the voice itself is a file of its own and never in this store
   voiceName: null, // Settings → General's "Buddy's voice": a voice's name, or null for Automatic, the best English one (src/main/voices.js)
   tagOn: true, // Settings → General's "Fix where I type": "@buddy" after text, anywhere (src/main/tag.js)
   home: 'notch', // Settings → Buddy's "Where Buddy lives": 'notch' (on a Mac with one) or 'floating' (src/main/home.js)

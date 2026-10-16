@@ -25,6 +25,8 @@ const CASES_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', '
 const PICK_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'pick-cases.json');
 const LINES_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'line-cases.json');
 const VOICE_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'voice-cases.json');
+const MY_VOICE_TO = path.join(ROOT, 'android', 'app', 'src', 'test', 'resources', 'my-voice-cases.json');
+const myVoice = require('../shared/my-voice');
 const voice = require('../shared/voice-words');
 const HEARD = [['yes', 'send'], ['Haan.', 'call'], ['ok send it', 'send'], ['send', 'call'], ['call', 'call'], ['no, send it', 'send'],
   ['Don’t', 'call'], ['nahin', 'send'], ['[unk] [unk]', 'send'], ['', 'call'], ['maybe later', 'send'],
@@ -104,6 +106,7 @@ function buildShared() {
   const { LIMITS } = prompts;
   return {
     voiceModel: require('../shared/voice-model').VOICE_MODEL,
+    speakerModel: myVoice.SPEAKER_MODEL,
     note: 'Made by tools/sync-android-shared.js from shared/. Do not edit: run npm run sync:android.',
     maxTokens: prompts.MAX_TOKENS,
     limits: LIMITS,
@@ -285,12 +288,41 @@ function buildLineCases() {
   });
 }
 
+const deg = (d) => [Math.cos((d * Math.PI) / 180), Math.sin((d * Math.PI) / 180)];
+const SETUPS = [[0, null, 4, -4, 2, -2], [0, 4, -4, 2, 120, 1], [0, 4, -4, 2, 120, -120, 150, -150, 3]];
+
+function buildMyVoiceCases() {
+  const one = Array.from({ length: myVoice.SPEAKER_MODEL.dim }, (_, i) => (i === 0 ? 1 : 0));
+  const base = myVoice.profileJson(one, '2026-10-16T00:00:00.000Z');
+  return {
+    note: 'Made by tools/sync-android-shared.js from shared/my-voice.js. Do not edit: run npm run sync:android.',
+    model: myVoice.SPEAKER_MODEL,
+    numbers: myVoice.MY_VOICE,
+    isMe: [[0, 60], [0, 61], [0, 0], [0, 180]].map(([a, b]) => ({ profile: deg(a), embedding: deg(b), cosine: myVoice.cosine(deg(a), deg(b)), me: myVoice.isMe(deg(a), deg(b)) })),
+    spans: [[1, 1.6], [0.05, 0.6], [0, 5], [1, 1.3], [1, 1]].map(([s, e]) => ({ startSec: s, endSec: e, span: myVoice.phraseSpan(s, e) })),
+    setups: SETUPS.map((takes) => {
+      const s = myVoice.createSetup();
+      return { takes: takes.map((d) => (d === null ? null : deg(d))), steps: takes.map((d) => s.add(d === null ? null : deg(d))) };
+    }),
+    profiles: [base, { ...base, model: 'x' }, { ...base, v: 2 }, { ...base, dim: 191, profile: one.slice(1) }, null]
+      .map((json) => ({ json, ok: myVoice.readProfile(json) !== null })),
+    phrases: [['Rahul', []], ['Priya', ['priya']], ['', []]].map(([name, missing]) => ({ name, missing, phrase: myVoice.setupPhrase(name, missing) })),
+    lines: {
+      label: myVoice.MY_VOICE_LINES.label, about: myVoice.MY_VOICE_LINES.about, gettingModel: myVoice.MY_VOICE_LINES.gettingModel,
+      modelFailed: myVoice.MY_VOICE_LINES.modelFailed, start: myVoice.MY_VOICE_LINES.start('Rahul'), got: myVoice.MY_VOICE_LINES.got(2),
+      again: myVoice.MY_VOICE_LINES.again('Rahul'), odd: myVoice.MY_VOICE_LINES.odd('Rahul'), done: myVoice.MY_VOICE_LINES.done,
+      failed: myVoice.MY_VOICE_LINES.failed, timedOut: myVoice.MY_VOICE_LINES.timedOut, on: myVoice.MY_VOICE_LINES.on,
+      setUpAgain: myVoice.MY_VOICE_LINES.setUpAgain, notYou: myVoice.MY_VOICE_LINES.notYou, redo: myVoice.MY_VOICE_LINES.redo,
+    },
+  };
+}
+
 if (require.main === module) {
-  for (const [to, made] of [[TO, buildShared()], [CASES_TO, buildChatCases()], [PICK_TO, buildPickCases()], [LINES_TO, buildLineCases()], [VOICE_TO, buildVoiceCases()]]) {
+  for (const [to, made] of [[TO, buildShared()], [CASES_TO, buildChatCases()], [PICK_TO, buildPickCases()], [LINES_TO, buildLineCases()], [VOICE_TO, buildVoiceCases()], [MY_VOICE_TO, buildMyVoiceCases()]]) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.writeFileSync(to, `${JSON.stringify(made, null, 2)}\n`);
     console.log(`wrote ${path.relative(ROOT, to)}`);
   }
 }
 
-module.exports = { buildShared, buildChatCases, buildPickCases, buildLineCases, TO, CASES_TO, PICK_TO, LINES_TO, VOICE_TO, buildVoiceCases };
+module.exports = { buildShared, buildChatCases, buildPickCases, buildLineCases, TO, CASES_TO, PICK_TO, LINES_TO, VOICE_TO, buildVoiceCases, MY_VOICE_TO, buildMyVoiceCases };

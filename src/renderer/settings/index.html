@@ -216,6 +216,16 @@
           </div>
           <input id="wake-on" class="switch" type="checkbox" role="switch" aria-label="Listen for Hey Buddy">
         </div>
+        <!-- Only my voice (src/main/my-voice.js): under the wake row, shown while that listens. The words come from main. -->
+        <div id="myvoice-row" class="group-row" hidden>
+          <div class="grow">
+            <p id="myvoice-title" class="row-title">Only my voice</p>
+            <p id="myvoice-line" class="muted small">Buddy answers only you. Your voice stays on this device.</p>
+            <p id="myvoice-status" class="status muted small" aria-live="polite"></p>
+            <button id="myvoice-redo" type="button" class="btn small" hidden>Set up again</button>
+          </div>
+          <input id="myvoice-on" class="switch" type="checkbox" role="switch" aria-label="Only my voice">
+        </div>
         <div id="voice-row" class="group-row" hidden>
           <div class="grow">
             <p class="row-title">Buddy's voice</p>

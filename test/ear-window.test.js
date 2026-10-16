@@ -180,14 +180,22 @@ test('the page\'s woke and request reach main\'s listeners, only from the ear\'s
   await ear.wake({ phrases: ['hey rahul', 'hey buddy'], floor: 0.6 });
   await tick();
   const seen = [];
-  ear.on('woke', () => seen.push('woke'));
+  ear.on('woke', (m) => seen.push(['woke', m]));
   ear.on('request', (r) => seen.push(r));
-  ipcMain.emit('ear:woke', { sender: made[0].webContents });
-  ipcMain.emit('ear:request', { sender: made[0].webContents }, { audio: 'AAAA' });
+  ipcMain.emit('ear:woke', { sender: made[0].webContents }, { phrase: 'AAAA' });
+  ipcMain.emit('ear:woke', { sender: made[0].webContents }, {});
+  ipcMain.emit('ear:woke', { sender: made[0].webContents }, { phrase: 'A'.repeat(200000) });
+  ipcMain.emit('ear:woke', { sender: made[0].webContents }, { phrase: 5 });
+  ipcMain.emit('ear:request', { sender: made[0].webContents }, { audio: 'x', phrase: 'AAAA' });
   ipcMain.emit('ear:request', { sender: made[0].webContents }, { audio: 5 });
-  ipcMain.emit('ear:woke', { sender: {} });
-  ipcMain.emit('ear:request', { sender: {} }, { audio: 'AAAA' });
-  assert.deepStrictEqual(seen, ['woke', { audio: 'AAAA' }, { audio: null }]);
+  ipcMain.emit('ear:woke', { sender: {} }, { phrase: 'AAAA' });
+  ipcMain.emit('ear:request', { sender: {} }, { audio: 'AAAA', phrase: 'AAAA' });
+  assert.deepStrictEqual(seen, [
+    ['woke', { phrase: 'AAAA' }], ['woke', { phrase: null }], ['woke', { phrase: null }], ['woke', { phrase: null }],
+    { audio: 'x', phrase: 'AAAA' }, { audio: null, phrase: null },
+  ]);
+  ipcMain.emit('ear:woke', { sender: made[0].webContents }, { phrase: 'A'.repeat(128000) });
+  assert.strictEqual(seen.at(-1)[1].phrase.length, 128000, 'the longest clip is kept');
 });
 
 test('the idle close does not take the window while the loop is kept', async (t) => {

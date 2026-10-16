@@ -113,9 +113,29 @@ test('the wake turn decides as wakeFrom does, for every case Android is checked 
 test('the wake turn says where the request begins: after the phrase, counted in samples from the keeper\'s start', () => {
   const turn = EarCore.createWakeTurn({ phrases: ['rahul', 'hey rahul'], floor: 0.6 });
   const said = { result: [{ word: 'hey', conf: 0.9, start: 1, end: 1.2 }, { word: 'rahul', conf: 0.8, start: 1.2, end: 1.6 }, { word: 'call', conf: 0.9, start: 1.7, end: 2 }] };
-  assert.deepStrictEqual(turn.result(said, 32000), { follows: true, fromSample: 32000 + 25600, phraseStartSec: 1, phraseEndSec: 1.6 });
+  assert.deepStrictEqual(turn.result(said, 32000), { follows: true, fromSample: 32000 + 25600, phraseStartSec: 1, phraseEndSec: 1.6, phrase: { from: 46400, to: 59200 } });
   assert.strictEqual(turn.result({ result: [] }, 0), null);
   assert.strictEqual(turn.result(null, 0), null);
+});
+
+test('the page keeps copies of the shared phrase numbers and cut', () => {
+  const { MY_VOICE, phraseSpan } = require('../shared/my-voice');
+  assert.deepStrictEqual(EarCore.MY_VOICE_COPY, { padMs: MY_VOICE.padMs, minPhraseMs: MY_VOICE.minPhraseMs, maxPhraseMs: MY_VOICE.maxPhraseMs });
+  for (const [a, b] of [[1, 1.6], [0.05, 0.6], [0, 5], [1, 1.3], [1, 1], [NaN, 1]]) {
+    assert.deepStrictEqual(EarCore.phraseSpan(a, b), phraseSpan(a, b), `${a}-${b}`);
+  }
+});
+
+test('a phrase under 350 ms has no clip, and the wake still counts', () => {
+  const turn = EarCore.createWakeTurn({ phrases: ['hey rahul', 'hey buddy'], floor: 0.6 });
+  const said = { result: [{ word: 'hey', conf: 0.9, start: 1, end: 1.1 }, { word: 'rahul', conf: 0.8, start: 1.1, end: 1.3 }] };
+  const got = turn.result(said, 0);
+  assert.ok(got);
+  assert.strictEqual(got.phrase, null);
+});
+
+test('pcmBase64 is little-endian PCM16 with no header', () => {
+  assert.strictEqual(EarCore.pcmBase64(Int16Array.from([1, -2])), Buffer.from([1, 0, 254, 255]).toString('base64'));
 });
 
 // The microphone: every caller owns its handle and closes only that one.

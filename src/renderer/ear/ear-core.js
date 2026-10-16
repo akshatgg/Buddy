@@ -99,17 +99,42 @@ const EarCore = (() => {
     return null;
   }
 
+  // Copies of shared/my-voice.js (the page cannot load shared/; a test checks them): how the phrase clip for "Only my
+  // voice" is cut, in milliseconds.
+  const MY_VOICE_COPY = { padMs: 100, minPhraseMs: 350, maxPhraseMs: 3000 };
+
+  /**
+   * A copy of shared/my-voice.js phraseSpan(): where the phrase is in the audio since the recognizer began, in samples,
+   * padded a little each side and at most maxPhraseMs long; null when it is too short to check.
+   */
+  function phraseSpan(startSec, endSec, rate = 16000) {
+    if (!Number.isFinite(startSec) || !Number.isFinite(endSec) || endSec <= startSec) return null;
+    if ((endSec - startSec) * 1000 < MY_VOICE_COPY.minPhraseMs) return null;
+    const pad = MY_VOICE_COPY.padMs / 1000;
+    const from = Math.max(0, Math.round((startSec - pad) * rate));
+    const to = Math.min(Math.round((endSec + pad) * rate), from + Math.round((MY_VOICE_COPY.maxPhraseMs / 1000) * rate));
+    return { from, to };
+  }
+
   /**
    * The wake loop's decision. `result(json, keptFrom)` takes a final result of a recognizer that began at sample `keptFrom`
    * (counted from the keeper's first sample): null when it is not a phrase, else where the request begins (`fromSample`,
-   * right after the phrase) and whether it follows in the same breath.
+   * right after the phrase), whether it follows in the same breath, and `phrase`: where the phrase's own audio is, as
+   * { from, to } in the keeper's samples (null when too short to check; the wake itself still counts).
    */
   function createWakeTurn({ phrases, floor }) {
     return {
       result(json, keptFrom) {
         const w = wakeFrom(json, phrases, floor);
         if (!w) return null;
-        return { follows: w.follows, fromSample: keptFrom + Math.round(w.endSec * 16000), phraseStartSec: w.startSec, phraseEndSec: w.endSec };
+        const span = phraseSpan(w.startSec, w.endSec);
+        return {
+          follows: w.follows,
+          fromSample: keptFrom + Math.round(w.endSec * 16000),
+          phraseStartSec: w.startSec,
+          phraseEndSec: w.endSec,
+          phrase: span ? { from: keptFrom + span.from, to: keptFrom + span.to } : null,
+        };
       },
     };
   }
@@ -122,6 +147,16 @@ const EarCore = (() => {
       out[i] = Math.trunc(v < 0 ? v * 32768 : v * 32767);
     }
     return out;
+  }
+
+  /** 16-bit PCM as base64, little-endian, with no WAV header (the phrase clip main checks the voice of). */
+  function pcmBase64(int16) {
+    const bytes = new Uint8Array(int16.length * 2);
+    const v = new DataView(bytes.buffer);
+    for (let i = 0; i < int16.length; i++) v.setInt16(i * 2, int16[i], true);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(binary);
   }
 
   /** The last `maxSamples` samples added; `from(sample)` counts samples since the first one ever added. */
@@ -185,7 +220,7 @@ const EarCore = (() => {
     return request && request.timing.heardVoice() ? audioOf() : null;
   }
 
-  return { isDecisive, createAnswerTurn, createWakeTurn, toPcm16, PcmKeeper, createMicPool, finishRequest };
+  return { isDecisive, createAnswerTurn, createWakeTurn, MY_VOICE_COPY, phraseSpan, pcmBase64, toPcm16, PcmKeeper, createMicPool, finishRequest };
 })();
 
 if (typeof module !== 'undefined') module.exports = EarCore;

@@ -146,6 +146,11 @@ test('the phrases that wake Buddy: the name twice (when it can be heard), then B
   assert.deepStrictEqual(wakePhrases('Buddy', lacks), ['hey buddy', 'buddy']);
   assert.deepStrictEqual(wakePhrases('Max Power', lacks), ['hey max power', 'max power', 'hey buddy', 'buddy']);
   assert.deepStrictEqual(wakePhrases('', lacks), ['hey buddy', 'buddy']);
+  assert.deepStrictEqual(wakePhrases('Hey', lacks), ['hey buddy', 'buddy']);
+  assert.deepStrictEqual(wakePhrases('Hey Buddy', lacks), ['hey buddy', 'buddy']);
+  assert.deepStrictEqual(wakePhrases('Hey Rahul', lacks), ['hey rahul', 'rahul', 'hey buddy', 'buddy']);
+  assert.strictEqual(wakeNameHeard('Hey Buddy', lacks), false);
+  assert.strictEqual(WAKE_LINES.label('Hey Rahul', true), 'Listen for "Hey Buddy" or "Hey Rahul"');
   assert.deepStrictEqual(wakePhrases('123', lacks), ['hey buddy', 'buddy']);
   assert.strictEqual(wakeNameHeard('Rahul', lacks), true);
   assert.strictEqual(wakeNameHeard('Aarav', lacks), false);

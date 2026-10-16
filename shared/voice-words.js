@@ -131,7 +131,7 @@ const trimmed = (name) => String(name ?? '').trim();
 // What the person can say: "Hey Buddy" always, and "Hey <name>" when the model can hear the name (`heard`).
 const calls = (name, heard, q) => {
   const buddy = `${q}Hey Buddy${q}`;
-  return heard ? `${buddy} or ${q}Hey ${trimmed(name)}${q}` : buddy;
+  return heard ? `${buddy} or ${q}Hey ${trimmed(name).replace(/^hey\s+/i, '')}${q}` : buddy;
 };
 const WAKE_LINES = {
   cantListen: (name) => `Buddy can't hear '${trimmed(name)}'. Say "Hey Buddy" instead, or try another spelling.`,
@@ -177,7 +177,10 @@ function wakeMissing(name, missing = VOICE_MODEL.missing) {
 /** Every phrase that wakes Buddy: "hey <name>", "<name>" (both only when the model can hear the name), "hey buddy", "buddy". */
 function wakePhrases(name, missing = VOICE_MODEL.missing) {
   const phrase = wakePhrase(name);
-  const named = phrase && wakeMissing(name, missing).length === 0 ? [phrase, phrase.slice(4)] : [];
+  const words = phrase ? phrase.split(' ').slice(1) : [];
+  while (words[0] === 'hey') words.shift(); // a name that starts with "hey" is not said as "hey hey ..."
+  const said = words.join(' ');
+  const named = said && said !== 'buddy' && wakeMissing(name, missing).length === 0 ? [`hey ${said}`, said] : [];
   return [...new Set([...named, 'hey buddy', 'buddy'])];
 }
 

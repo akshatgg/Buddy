@@ -39,6 +39,9 @@ class WakeRulesTest {
 
     @Test fun aNameIsHeardUnlessLettersOrModelLackIt() {
         assertFalse(WakeRules.nameHeard("Buddy", emptySet()))
+        assertFalse(WakeRules.nameHeard("Hey", emptySet()))
+        assertFalse(WakeRules.nameHeard("Hey Buddy", emptySet()))
+        assertEquals(listOf("hey rahul", "rahul", "hey buddy", "buddy"), VoiceWords.wakePhrases("Hey Rahul", emptySet()))
         assertTrue(WakeRules.nameHeard("Rahul", emptySet()))
         assertFalse(WakeRules.nameHeard("Rahul", setOf("rahul")))
         assertFalse(WakeRules.nameHeard("R2D2", emptySet()))

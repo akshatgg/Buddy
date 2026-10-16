@@ -395,6 +395,19 @@ class SettingsModelTest {
         assertEquals(2, woke)
     }
 
+    @Test fun renamingWithTheSwitchOffStillUpdatesWhichNamesAreHeard() = runTest {
+        missing = setOf("aarav")
+        val m = wakeModel()
+        m.setName("Rahul")
+        assertTrue(m.state.value.wakeNameHeard)
+        m.setName("Aarav")
+        assertFalse(m.state.value.wakeNameHeard)
+        m.setName("")
+        assertFalse(m.state.value.wakeNameHeard)
+        m.setName("Rahul")
+        assertTrue(m.state.value.wakeNameHeard)
+    }
+
     @Test fun renamingWaitsForTheTypingToStop() = runTest {
         val m = wakeModel()
         m.setWakeOn(true)

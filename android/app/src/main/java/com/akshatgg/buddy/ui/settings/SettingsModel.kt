@@ -267,7 +267,8 @@ class SettingsModel(
     fun setName(name: String) {
         val cut = name.take(NAME_MAX)
         settings.buddyName = cut
-        current.update { it.copy(name = cut) }
+        // Which copy applies follows the name at once (the label, Test it's words), even with the switch off.
+        current.update { it.copy(name = cut, wakeNameHeard = WakeRules.nameHeard(cut, modelMissing())) }
         // The phrase is looked at again once the typing stops, not at each key; an empty box is left alone (it would
         // show the default name's line while the person is still typing).
         renameCheck?.cancel()

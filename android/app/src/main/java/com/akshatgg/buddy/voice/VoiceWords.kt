@@ -168,7 +168,9 @@ object VoiceWords {
     /** Every phrase that wakes Buddy: "hey <name>", "<name>" (both only when the model can hear the name), "hey buddy", "buddy". */
     fun wakePhrases(name: String, missing: Set<String>): List<String> {
         val phrase = wakePhrase(name)
-        val named = if (phrase != null && wakeMissing(name, missing).isEmpty()) listOf(phrase, phrase.removePrefix("hey ")) else emptyList()
+        // a name that starts with "hey" is not said as "hey hey ..."
+        val said = phrase?.split(' ')?.drop(1)?.dropWhile { it == "hey" }?.joinToString(" ").orEmpty()
+        val named = if (said.isNotEmpty() && said != "buddy" && wakeMissing(name, missing).isEmpty()) listOf("hey $said", said) else emptyList()
         return (named + listOf("hey buddy", "buddy")).distinct()
     }
 
@@ -197,7 +199,7 @@ object VoiceWords {
      */
     object WakeLines {
         private fun calls(name: String, heard: Boolean, q: String) =
-            if (heard) "${q}Hey Buddy$q or ${q}Hey ${name.trim()}$q" else "${q}Hey Buddy$q"
+            if (heard) "${q}Hey Buddy$q or ${q}Hey ${name.trim().replace(Regex("^(?i)hey\\s+"), "")}$q" else "${q}Hey Buddy$q"
         fun cantListen(name: String) = "Buddy can't hear '${name.trim()}'. Say \"Hey Buddy\" instead, or try another spelling."
         fun notCaught(name: String, heard: Boolean) = "I didn't catch that. Say ${calls(name, heard, "'")} and try again."
         fun sayNow(name: String, heard: Boolean) = "Say ${calls(name, heard, "\"")} now."

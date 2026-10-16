@@ -886,6 +886,38 @@
           "buddy"
         ],
         "nameHeard": true
+      },
+      {
+        "name": "Hey",
+        "phrase": "hey hey",
+        "missing": [],
+        "all": [
+          "hey buddy",
+          "buddy"
+        ],
+        "nameHeard": false
+      },
+      {
+        "name": "Hey Buddy",
+        "phrase": "hey hey buddy",
+        "missing": [],
+        "all": [
+          "hey buddy",
+          "buddy"
+        ],
+        "nameHeard": false
+      },
+      {
+        "name": "Hey Rahul",
+        "phrase": "hey hey rahul",
+        "missing": [],
+        "all": [
+          "hey rahul",
+          "rahul",
+          "hey buddy",
+          "buddy"
+        ],
+        "nameHeard": true
       }
     ],
     "lacks": [
@@ -1267,6 +1299,46 @@
           "buddy"
         ],
         "wake": null
+      },
+      {
+        "said": {
+          "text": "hey rahul call mom",
+          "result": [
+            {
+              "word": "hey",
+              "conf": 0.9,
+              "start": 1,
+              "end": 1.2
+            },
+            {
+              "word": "rahul",
+              "conf": 0.9,
+              "start": 1.2,
+              "end": 1.6
+            },
+            {
+              "word": "call",
+              "conf": 0.9,
+              "start": 1.7,
+              "end": 2
+            },
+            {
+              "word": "mom",
+              "conf": 0.9,
+              "start": 2,
+              "end": 2.3
+            }
+          ]
+        },
+        "phrases": [
+          "rahul",
+          "hey rahul"
+        ],
+        "wake": {
+          "endSec": 1.6,
+          "follows": true,
+          "phrase": "hey rahul"
+        }
       }
     ],
     "lines": {

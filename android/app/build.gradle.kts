@@ -1,3 +1,6 @@
+import java.io.File
+import java.net.URI
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -21,6 +24,29 @@ val buddyVersionCode = buddyVersion.substringBefore('-').split('.').map { it.toI
 // The release key, from the environment (the release workflow writes it from GitHub's secrets). Without it a release
 // build is signed with the debug key, which is fine for checking a build and never for publishing one.
 val releaseStore = System.getenv("BUDDY_ANDROID_KEYSTORE")?.ifEmpty { null }?.let { file(it) }
+
+// "Only my voice": sherpa-onnx's speaker embedding extractor (Apache 2.0), onnxruntime linked in. Not on Maven Central:
+// fetched once from its GitHub release and kept only when its SHA-256 is this one.
+val sherpaVersion = "1.13.8"
+val sherpaAar = layout.projectDirectory.file("libs/sherpa-onnx-static-link-onnxruntime-$sherpaVersion.aar")
+val sherpaSha256 = "b22c3fc1b6a45666d28892bb2f7694beeb77a8362d7ebd77c1a5431ec9435471"
+val fetchSherpaOnnx by tasks.registering {
+    outputs.file(sherpaAar)
+    doLast {
+        val out = sherpaAar.asFile
+        fun sha(f: File) = MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) }
+        if (out.isFile && sha(out) == sherpaSha256) return@doLast
+        out.parentFile.mkdirs()
+        val part = File(out.path + ".part")
+        val connection = URI("https://github.com/k2-fsa/sherpa-onnx/releases/download/v$sherpaVersion/${out.name}").toURL().openConnection()
+        connection.connectTimeout = 30_000
+        connection.readTimeout = 60_000
+        connection.getInputStream().use { input -> part.outputStream().use { input.copyTo(it) } }
+        check(sha(part) == sherpaSha256) { "sherpa-onnx AAR did not match its SHA-256" }
+        check(part.renameTo(out)) { "could not move the sherpa-onnx AAR into place" }
+    }
+}
+tasks.named("preBuild") { dependsOn(fetchSherpaOnnx) }
 
 android {
     namespace = "com.akshatgg.buddy"
@@ -71,7 +97,13 @@ android {
         ignoreAssetsPatterns += listOf("!<dir>previews", "!buddies.json")
     }
     testOptions { unitTests.isReturnDefaultValues = true }
-    packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
+    // Minify is off. If it is ever turned on, it needs: -keep class com.k2fsa.sherpa.onnx.** { *; }
+    packaging {
+        resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+        // The native libraries stay compressed inside the APK (Android unpacks them on install), so sherpa-onnx makes the APK
+        // about 17 MB larger instead of about 40.
+        jniLibs { useLegacyPackaging = true }
+    }
 }
 
 // A build that cannot sign anyone in is no use: say so at once, rather than in the Welcome window.
@@ -105,6 +137,8 @@ dependencies {
     // Buddy's ears: Vosk, offline speech recognition (Apache 2.0), and the JNA it calls its native code through.
     implementation("com.alphacephei:vosk-android:0.3.47@aar")
     implementation("net.java.dev.jna:jna:5.13.0@aar")
+    // Buddy's "Only my voice": sherpa-onnx speaker embeddings (see fetchSherpaOnnx above).
+    implementation(files(sherpaAar))
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")

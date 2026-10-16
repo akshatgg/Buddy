@@ -40,6 +40,7 @@ import com.akshatgg.buddy.R
 import com.akshatgg.buddy.store.AppSettings
 import com.akshatgg.buddy.ui.MainActivity
 import com.akshatgg.buddy.ui.panel.PanelActivity
+import com.akshatgg.buddy.voice.MyVoiceRules
 import com.akshatgg.buddy.voice.VoiceWords
 import com.akshatgg.buddy.voice.WakeRules
 import kotlinx.coroutines.Job
@@ -186,6 +187,13 @@ class BubbleService : LifecycleService() {
         if (intent?.action == ACTION_LISTEN) startListening()
         if (intent?.action == ACTION_WAKE) wakeChanged()
         if (intent?.action == ACTION_TEST && listening) wakeControl.refresh(testMs = intent.getLongExtra(EXTRA_MS, 10_000L))
+        if (intent?.action == ACTION_ENROLL && listening) {
+            // "Only my voice" setup: for the time given, only this phrase is listened for, with no voice check; each
+            // phrase's audio goes to BubbleBus.clips
+            val phrase = intent.getStringExtra(EXTRA_PHRASE).orEmpty()
+            if (phrase.isNotEmpty()) wakeControl.refresh(testMs = intent.getLongExtra(EXTRA_MS, MyVoiceRules.SETUP_MS), only = listOf(phrase), clips = true)
+        }
+        if (intent?.action == ACTION_ENROLL_STOP && listening) wakeControl.refresh()
         return START_STICKY
     }
 
@@ -605,6 +613,27 @@ class BubbleService : LifecycleService() {
         private const val ACTION_WAKE = "com.akshatgg.buddy.WAKE"
         private const val ACTION_TEST = "com.akshatgg.buddy.WAKE_TEST"
         private const val EXTRA_MS = "ms"
+        private const val ACTION_ENROLL = "com.akshatgg.buddy.MY_VOICE_ENROLL"
+        private const val ACTION_ENROLL_STOP = "com.akshatgg.buddy.MY_VOICE_ENROLL_STOP"
+        private const val EXTRA_PHRASE = "phrase"
+
+        /** Setting up "Only my voice": for `ms` the listener hears only `phrase` and gives each one's audio to BubbleBus.clips. */
+        fun enroll(context: Context, phrase: String, ms: Long) = sendEnroll(context) {
+            it.setAction(ACTION_ENROLL).putExtra(EXTRA_PHRASE, phrase).putExtra(EXTRA_MS, ms)
+        }
+
+        /** Setup is over (or the switch changed): the listener goes back to the normal phrases, with the voice check as now set. */
+        fun stopEnroll(context: Context) = sendEnroll(context) { it.setAction(ACTION_ENROLL_STOP) }
+
+        private fun sendEnroll(context: Context, build: (Intent) -> Intent) {
+            val graph = AppGraph.instance
+            if (!graph.settings.buddyOn || !graph.settings.wakeOn) return
+            try {
+                ContextCompat.startForegroundService(context, build(Intent(context, BubbleService::class.java)))
+            } catch (e: IllegalStateException) {
+                Log.w(TAG, "bubble: not told (${e.javaClass.simpleName})")
+            }
+        }
 
         /** Settings' Test it: for `ms` the listener only counts wakes (BubbleBus.wakes), and takes no request. */
         fun test(context: Context, ms: Long) {

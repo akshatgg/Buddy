@@ -95,6 +95,14 @@ class PcmKeeper(private val maxSamples: Int) {
 
     fun all(): ShortArray = from(0)
 
+    /** The samples from `from` (included) to `to` (not included) that are still kept. */
+    fun range(from: Long, to: Long): ShortArray {
+        val start = max(from, total - size)
+        val end = min(to, total)
+        if (start >= end) return ShortArray(0)
+        return ShortArray((end - start).toInt()) { buf[((start + it) % maxSamples).toInt()] }
+    }
+
     fun from(sample: Long): ShortArray {
         val start = max(sample, total - size)
         if (start >= total) return ShortArray(0)

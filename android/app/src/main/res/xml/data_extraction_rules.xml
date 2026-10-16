@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+: the owner's voice (my-voice.json) and the voice-check model never leave this phone: not to a cloud
+     backup, not to another phone. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="my-voice.json" />
+        <exclude domain="file" path="voice-model" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="my-voice.json" />
+        <exclude domain="file" path="voice-model" />
+    </device-transfer>
+</data-extraction-rules>

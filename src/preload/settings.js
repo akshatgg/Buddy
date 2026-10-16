@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld('buddy', {
   wakeTest: () => ipcRenderer.invoke('settings:wake-test'),
   onWakeChanged: (fn) => ipcRenderer.on('wake:changed', (_event, data) => fn(data)),
   onWakeHeard: (fn) => ipcRenderer.on('wake:heard', () => fn()),
+  voices: () => ipcRenderer.invoke('settings:voices'),
+  playVoice: (voiceName) => ipcRenderer.invoke('settings:voice-play', voiceName),
   claudeStatus: (force) => ipcRenderer.invoke('claude:status', { force }),
   claudeGet: () => ipcRenderer.invoke('claude:get'),
   claudeProjects: () => ipcRenderer.invoke('claude:projects'),

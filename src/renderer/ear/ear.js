@@ -203,15 +203,15 @@ function listen({ quietMs, nothingMs, maxMs }) {
 const COMMANDS = { say, hear, listen };
 
 // ---- the wake loop ("Hey <name>") ----
-// Runs beside the commands, not as one: main starts it (ear:wake { phrase, floor, testOnly }) and ends it (null). It owns the
+// Runs beside the commands, not as one: main starts it (ear:wake { phrases, floor, testOnly }) and ends it (null). It owns the
 // microphone only while no command runs: a command pauses it (the microphone is let go of), and it goes on a moment after the
-// last one ends (and after a stop). The last 25 s of sound are kept; a recogniser with the grammar [phrase, "[unk]"] hears
-// them. Only an exact final result that starts with the phrase, each word sure enough, is a wake (EarCore.createWakeTurn);
+// last one ends (and after a stop). The last 25 s of sound are kept; a recogniser with the grammar [...phrases, "[unk]"] hears
+// them. Only an exact final result that starts with one of the phrases, each word sure enough, is a wake (EarCore.createWakeTurn);
 // then the request is cut from right after the phrase and carried on live (REQUEST timing, sent by main), and a fresh
 // recogniser takes over. Nothing leaves this page before the wake, and only the request's recording goes after it.
 const WAKE_KEEP_S = 25;
 const WAKE_RESUME_MS = 1000; // after a command, so that the tail of Buddy's own voice is not heard
-let wanted = null; // what main last asked for: { phrase, floor, testOnly, request } or null
+let wanted = null; // what main last asked for: { phrases, floor, testOnly, request } or null
 let wakeRun = null; // the loop running now: { over, stop() }
 let commands = 0; // commands queued or running
 let resumeTimer = null;
@@ -253,13 +253,13 @@ function startWake(args) {
     if (run.over) { mic.close(); return; } // stopped while the microphone was being asked for
     const keeper = new EarCore.PcmKeeper(WAKE_KEEP_S * RATE);
     run.keeper = keeper;
-    const turn = EarCore.createWakeTurn({ phrase: args.phrase, floor: args.floor });
+    const turn = EarCore.createWakeTurn({ phrases: args.phrases, floor: args.floor });
     let keptFrom = 0;
     let request = null; // while the request after a wake is being listened to: { fromSample, timing } (also run.request)
     const fresh = () => {
       if (run.rec) { try { run.rec.remove(); } catch { /* gone */ } }
       keptFrom = keeper.total;
-      const rec = new model.KaldiRecognizer(RATE, JSON.stringify([args.phrase, '[unk]']));
+      const rec = new model.KaldiRecognizer(RATE, JSON.stringify([...args.phrases, '[unk]']));
       rec.setWords(true);
       rec.on('result', (ev) => {
         if (run.over || request || run.rec !== rec) return;
@@ -301,7 +301,7 @@ function startWake(args) {
 
 window.ear.onWake((args) => {
   stopWake();
-  wanted = args && args.phrase ? args : null;
+  wanted = args && args.phrases && args.phrases.length ? args : null;
   maybeResumeWake(0);
 });
 

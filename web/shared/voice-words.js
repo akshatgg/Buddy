@@ -128,16 +128,21 @@ function callingLine(name) {
 const WAKE_FLOOR = 0.6; // each word of the phrase must be at least this sure
 const REQUEST = { quietMs: 1200, nothingMs: 8000, maxMs: 20000 }; // listening for the request after the wake
 const trimmed = (name) => String(name ?? '').trim();
+// What the person can say: "Hey Buddy" always, and "Hey <name>" when the model can hear the name (`heard`).
+const calls = (name, heard, q) => {
+  const buddy = `${q}Hey Buddy${q}`;
+  return heard ? `${buddy} or ${q}Hey ${trimmed(name)}${q}` : buddy;
+};
 const WAKE_LINES = {
-  cantListen: (name) => `Buddy can't listen for '${trimmed(name)}'. Try another spelling.`,
-  notCaught: (name) => `I didn't catch that. Say 'Hey ${trimmed(name)}' and try again.`,
-  sayNow: (name) => `Say "Hey ${trimmed(name)}" now.`,
+  cantListen: (name) => `Buddy can't hear '${trimmed(name)}'. Say "Hey Buddy" instead, or try another spelling.`,
+  notCaught: (name, heard = true) => `I didn't catch that. Say ${calls(name, heard, "'")} and try again.`,
+  sayNow: (name, heard = true) => `Say ${calls(name, heard, '"')} now.`,
   heard: 'Heard you ✓',
-  notHeard: (name) => `I didn't hear "Hey ${trimmed(name)}". Try again.`,
-  privacy: (name) => `Your microphone stays on. Nothing leaves this device until you say 'Hey ${trimmed(name)}'.`,
-  label: (name) => `Listen for "Hey ${trimmed(name)}"`,
+  notHeard: (name, heard = true) => `I didn't hear ${calls(name, heard, '"')}. Try again.`,
+  privacy: (name, heard = true) => `Your microphone stays on. Nothing leaves this device until you say ${calls(name, heard, "'")}.`,
+  label: (name, heard = true) => `Listen for ${calls(name, heard, '"')}`,
   tapToListen: 'Tap me to listen again',
-  listening: (name) => `Listening for "Hey ${trimmed(name)}"`,
+  listening: (name, heard = true) => `Listening for ${calls(name, heard, '"')}`,
   gettingEars: "Getting Buddy's ears ready (36 MB)…",
   earsFailed: "Couldn't get Buddy's ears ready. Check the internet and try again.",
   signIn: 'Sign in to talk to Buddy.',
@@ -169,22 +174,40 @@ function wakeMissing(name, missing = VOICE_MODEL.missing) {
   return [...digits, ...(phrase ? phrase.split(' ').filter((w) => lacks.has(w)) : [])];
 }
 
+/** Every phrase that wakes Buddy: "hey <name>", "<name>" (both only when the model can hear the name), "hey buddy", "buddy". */
+function wakePhrases(name, missing = VOICE_MODEL.missing) {
+  const phrase = wakePhrase(name);
+  const named = phrase && wakeMissing(name, missing).length === 0 ? [phrase, phrase.slice(4)] : [];
+  return [...new Set([...named, 'hey buddy', 'buddy'])];
+}
+
+/** Whether "Hey <name>" wakes Buddy besides "Hey Buddy": the name can be heard, and it is not Buddy itself. */
+function wakeNameHeard(name, missing = VOICE_MODEL.missing) {
+  return wakePhrases(name, missing).length > 2;
+}
+
 /**
- * Whether Vosk's final result starts with the phrase: its words first, in order, each at least `floor` sure. `endSec` is
- * when the last phrase word ended; `follows` whether more was said after it (the request in the same breath).
+ * Whether Vosk's final result starts with one of the phrases (a list; one string is a list of one): its words first, in
+ * order, each at least `floor` sure. The longest phrase that matches wins ("hey rahul" over "rahul"). `endSec` is when the
+ * last phrase word ended; `follows` whether more was said after it (the request in the same breath); `phrase` the one heard.
  */
-function wakeFrom(result, phrase, floor) {
-  const want = String(phrase || '').split(' ').filter(Boolean);
+function wakeFrom(result, phrases, floor) {
   const got = result && Array.isArray(result.result) ? result.result : [];
-  if (!want.length || got.length < want.length) return null;
-  for (let i = 0; i < want.length; i++) {
-    if (got[i].word !== want[i] || !(got[i].conf >= floor)) return null;
+  const list = (Array.isArray(phrases) ? phrases : [phrases])
+    .map((p) => String(p || '').split(' ').filter(Boolean))
+    .filter((w) => w.length)
+    .sort((a, b) => b.length - a.length);
+  for (const want of list) {
+    if (got.length < want.length) continue;
+    if (want.every((w, i) => got[i].word === w && got[i].conf >= floor)) {
+      return { endSec: got[want.length - 1].end, follows: got.length > want.length, phrase: want.join(' ') };
+    }
   }
-  return { endSec: got[want.length - 1].end, follows: got.length > want.length };
+  return null;
 }
 
 module.exports = {
   YES_WORDS, NO_WORDS, VERBS, FILLERS, BHEJ, SPOKEN_MAX, ANSWER_MS, UNLOCK_WAIT_MS, MAX_FOLLOW_UPS, VOICE_LINES,
   heardWords, heardAnswer, wantsServer, answerGrammar, GRAMMAR_FILLERS, spokenQuestion, spokenLines, asksBack, unlockLine, callingLine,
-  WAKE_FLOOR, REQUEST, WAKE_LINES, wakePhrase, wakeMissing, wakeFrom,
+  WAKE_FLOOR, REQUEST, WAKE_LINES, wakePhrase, wakeMissing, wakePhrases, wakeNameHeard, wakeFrom,
 };

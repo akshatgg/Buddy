@@ -6,15 +6,16 @@ const { EventEmitter } = require('node:events');
 const { createWake, shouldListen, shownName } = require('../src/main/wake');
 const { WAKE_LINES, WAKE_FLOOR, REQUEST } = require('../shared/voice-words');
 
+const RAHUL = ['hey rahul', 'rahul', 'hey buddy', 'buddy'];
 const ALL = {
-  wakeOn: true, buddyOn: true, signedIn: true, voiceOn: true, mic: 'granted', modelReady: true, nameOk: true,
+  wakeOn: true, buddyOn: true, signedIn: true, voiceOn: true, mic: 'granted', modelReady: true,
   locked: false, asleep: false, panelListening: false, turn: false,
 };
 
 test('shouldListen: only when every rule holds', () => {
   assert.strictEqual(shouldListen(ALL), true);
   for (const [key, bad] of Object.entries({
-    wakeOn: false, buddyOn: false, signedIn: false, voiceOn: false, mic: 'denied', modelReady: false, nameOk: false,
+    wakeOn: false, buddyOn: false, signedIn: false, voiceOn: false, mic: 'denied', modelReady: false,
     locked: true, asleep: true, panelListening: true, turn: true,
   })) assert.strictEqual(shouldListen({ ...ALL, [key]: bad }), false, key);
   assert.strictEqual(shouldListen({ ...ALL, mic: 'not-determined' }), false);
@@ -56,7 +57,7 @@ function setup(t, { name = 'Rahul', wakeOn = true, mic = 'granted', modelReady =
 test('refresh starts the loop with the phrase and keeps the ear window; switched off it stops and lets go', (t) => {
   const s = setup(t);
   s.wake.refresh();
-  assert.deepStrictEqual(s.last('wake'), ['wake', { phrase: 'hey rahul', floor: WAKE_FLOOR, request: REQUEST, testOnly: false }]);
+  assert.deepStrictEqual(s.last('wake'), ['wake', { phrases: RAHUL, floor: WAKE_FLOOR, request: REQUEST, testOnly: false }]);
   assert.deepStrictEqual(s.last('keep'), ['keep', true]);
   s.data.wakeOn = false;
   s.wake.refresh();
@@ -76,7 +77,7 @@ test('a rename sends a new wake with the new phrase', (t) => {
   s.wake.refresh();
   s.data.buddyName = 'Anaya';
   s.wake.refresh();
-  assert.strictEqual(s.last('wake')[1].phrase, 'hey anaya');
+  assert.strictEqual(s.last('wake')[1].phrases[0], 'hey anaya');
 });
 
 test('lock-screen and suspend stop the loop; unlock-screen and resume start it again', (t) => {
@@ -86,7 +87,7 @@ test('lock-screen and suspend stop the loop; unlock-screen and resume start it a
     s.powerMonitor.emit(off);
     assert.strictEqual(s.last('wake')[1], null, off);
     s.powerMonitor.emit(on);
-    assert.strictEqual(s.last('wake')[1].phrase, 'hey rahul', on);
+    assert.strictEqual(s.last('wake')[1].phrases[0], 'hey rahul', on);
   }
 });
 
@@ -96,7 +97,7 @@ test('the panel listening pauses it; done, it resumes', (t) => {
   s.wake.panelListening(true);
   assert.strictEqual(s.last('wake')[1], null);
   s.wake.panelListening(false);
-  assert.strictEqual(s.last('wake')[1].phrase, 'hey rahul');
+  assert.strictEqual(s.last('wake')[1].phrases[0], 'hey rahul');
 });
 
 test('a turn running pauses it until the turn ends', (t) => {
@@ -105,14 +106,25 @@ test('a turn running pauses it until the turn ends', (t) => {
   s.wake.turn(true);
   assert.strictEqual(s.last('wake')[1], null);
   s.wake.turn(false);
-  assert.strictEqual(s.last('wake')[1].phrase, 'hey rahul');
+  assert.strictEqual(s.last('wake')[1].phrases[0], 'hey rahul');
 });
 
-test('a name the model lacks: the can\'t listen line, and nothing listens', (t) => {
+test('a name the model lacks still listens, for the Buddy phrases, with a hint', (t) => {
   const s = setup(t, { name: 'Aarav', missing: ['aarav'] });
   s.wake.refresh();
-  assert.strictEqual(s.last('wake'), undefined);
-  assert.deepStrictEqual(s.wake.state(), { on: false, line: WAKE_LINES.cantListen('Aarav') });
+  assert.deepStrictEqual(s.last('wake')[1].phrases, ['hey buddy', 'buddy']);
+  assert.deepStrictEqual(s.last('keep'), ['keep', true]);
+  assert.deepStrictEqual(s.wake.state(), { on: true, line: WAKE_LINES.listening('Aarav', false), hint: WAKE_LINES.cantListen('Aarav') });
+});
+
+test('a name the model hears: no hint; the name Buddy: no hint either', (t) => {
+  const a = setup(t);
+  a.wake.refresh();
+  assert.strictEqual(a.wake.state().hint, undefined);
+  const b = setup(t, { name: 'Buddy' });
+  b.wake.refresh();
+  assert.deepStrictEqual(b.last('wake')[1].phrases, ['hey buddy', 'buddy']);
+  assert.deepStrictEqual(b.wake.state(), { on: true, line: WAKE_LINES.listening('Buddy', false) });
 });
 
 test('signed out, or the microphone refused: a line, nothing listens', (t) => {
@@ -128,7 +140,7 @@ test('signed out, or the microphone refused: a line, nothing listens', (t) => {
 test('listening: the state says so', (t) => {
   const s = setup(t);
   s.wake.refresh();
-  assert.deepStrictEqual(s.wake.state(), { on: true, line: WAKE_LINES.listening('Rahul') });
+  assert.deepStrictEqual(s.wake.state(), { on: true, line: WAKE_LINES.listening('Rahul', true) });
 });
 
 test('a request with words calls actions.voice once; an empty one says the not-caught line', async (t) => {
@@ -162,7 +174,7 @@ test('test() counts the wakes heard in 10 s, then goes back to the normal loop',
   const s = setup(t);
   s.wake.refresh();
   const p = s.wake.test();
-  assert.deepStrictEqual(s.last('wake')[1], { phrase: 'hey rahul', floor: WAKE_FLOOR, request: REQUEST, testOnly: true });
+  assert.deepStrictEqual(s.last('wake')[1], { phrases: RAHUL, floor: WAKE_FLOOR, request: REQUEST, testOnly: true });
   s.handlers.woke();
   s.handlers.woke();
   s.handlers.request({ audio: 'AAAA' }); // never acted on in a test
@@ -254,7 +266,7 @@ test('asleep with the switch on: the ear window is kept (no 37 MB re-send on wak
   assert.strictEqual(s.log.some((l) => l[0] === 'close'), false);
   assert.strictEqual(s.last('wake')[1], null);
   s.powerMonitor.emit('resume');
-  assert.strictEqual(s.last('wake')[1].phrase, 'hey rahul');
+  assert.strictEqual(s.last('wake')[1].phrases[0], 'hey rahul');
 });
 
 test('shownName: three words at most, the same as are listened for', () => {

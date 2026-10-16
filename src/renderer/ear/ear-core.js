@@ -80,28 +80,34 @@ const EarCore = (() => {
   }
 
   /**
-   * A copy of voice-words.js wakeFrom(): whether Vosk's final result starts with the phrase, its words first and in order,
-   * each at least `floor` sure. `endSec` is when the last phrase word ended; `follows` whether more was said after it.
+   * A copy of voice-words.js wakeFrom(): whether Vosk's final result starts with one of the phrases, its words first and in
+   * order, each at least `floor` sure; the longest phrase that matches wins. `endSec` is when the last phrase word ended;
+   * `follows` whether more was said after it.
    */
-  function wakeFrom(result, phrase, floor) {
-    const want = String(phrase || '').split(' ').filter(Boolean);
+  function wakeFrom(result, phrases, floor) {
     const got = result && Array.isArray(result.result) ? result.result : [];
-    if (!want.length || got.length < want.length) return null;
-    for (let i = 0; i < want.length; i++) {
-      if (got[i].word !== want[i] || !(got[i].conf >= floor)) return null;
+    const list = (Array.isArray(phrases) ? phrases : [phrases])
+      .map((p) => String(p || '').split(' ').filter(Boolean))
+      .filter((w) => w.length)
+      .sort((a, b) => b.length - a.length);
+    for (const want of list) {
+      if (got.length < want.length) continue;
+      if (want.every((w, i) => got[i].word === w && got[i].conf >= floor)) {
+        return { endSec: got[want.length - 1].end, follows: got.length > want.length, phrase: want.join(' ') };
+      }
     }
-    return { endSec: got[want.length - 1].end, follows: got.length > want.length };
+    return null;
   }
 
   /**
    * The wake loop's decision. `result(json, keptFrom)` takes a final result of a recognizer that began at sample `keptFrom`
-   * (counted from the keeper's first sample): null when it is not the phrase, else where the request begins (`fromSample`,
+   * (counted from the keeper's first sample): null when it is not a phrase, else where the request begins (`fromSample`,
    * right after the phrase) and whether it follows in the same breath.
    */
-  function createWakeTurn({ phrase, floor }) {
+  function createWakeTurn({ phrases, floor }) {
     return {
       result(json, keptFrom) {
-        const w = wakeFrom(json, phrase, floor);
+        const w = wakeFrom(json, phrases, floor);
         if (!w) return null;
         return { follows: w.follows, fromSample: keptFrom + Math.round(w.endSec * 16000) };
       },

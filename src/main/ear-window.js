@@ -4,7 +4,7 @@
  * Buddy's ear: a hidden window whose page speaks (speechSynthesis), listens (the microphone, only while a command
  * runs) and recognises yes or no on the device (vosk). Made on first use, closed `idleMs` after the last call (unless
  * kept), made again after a crash. Main sends the page `ear:do` { id, cmd, args } and `ear:stop`; the page answers
- * `ear:done` { id, result }, accepted only from this window's own page. Commands: say, hear, listen (ear.js).
+ * `ear:done` { id, result }, accepted only from this window's own page. Commands: say, hear, listen, voices (ear.js).
  */
 
 const path = require('node:path');

@@ -153,7 +153,7 @@ async function start(options = {}) {
   // `actions` is read lazily, as it is made below. The end-to-end test passes `talkBack: null`, so that it never opens an ear or speaks (only an undefined option builds the real one).
   const rawTalkBack = options.talkBack !== undefined ? options.talkBack
     : process.platform === 'darwin' && ear
-      ? createTalkBack({ ear, model: voiceModel, transcribe: (audio, mime) => actions.transcribe(audio, mime).then((r) => r.text) })
+      ? createTalkBack({ ear, model: voiceModel, voiceName: () => store.get('voiceName'), transcribe: (audio, mime) => actions.transcribe(audio, mime).then((r) => r.text) })
       : null;
   // "Hey <name>" (wake.js): the ear listens for it while the switch is on. A spoken turn of Buddy's own (say, hear, listen)
   // pauses it, and it goes on a moment after, so that Buddy's voice is never heard as the phrase. Without an ear (Windows,
@@ -425,7 +425,7 @@ async function start(options = {}) {
     ipcMain, panel, actions, openSettings, microphone, ui, shell, askAccessibility: () => helper.call('requestAccessibility'), claudeMode,
   });
   const settingsIpc = registerSettingsIpc({
-    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch, tagWatch, wake,
+    ipcMain, windows, store, secrets, ai, characters, helper, buddy, power, shortcut, keyWatch, tagWatch, wake, talkBack,
     account, cloud, memory, memorySync, microphone, canSignIn: Boolean(cloudConfig),
     home: buddy, // Settings → Buddy → Where Buddy lives: whether there is a notch, and moving Buddy when it changes
     find, // Claude Code on this computer: the fifth AI choice, with no key

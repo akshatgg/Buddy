@@ -408,6 +408,25 @@ function renderWake({ force = false } = {}) {
   wakeReason = reason;
 }
 
+// "Buddy's voice": the English voices on this Mac, best first. Asked for once the page is up (macOS can take a moment to list them).
+async function renderVoice() {
+  if (onWindows()) return;
+  const r = await window.buddy.voices();
+  if (!r.ok || !r.available) return;
+  const select = $('voice');
+  select.textContent = '';
+  const add = (value, text) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = text;
+    select.append(option);
+  };
+  add('', r.automatic ? `Automatic (${r.automatic})` : 'Automatic');
+  for (const voice of r.options) add(voice.name, voice.label);
+  select.value = r.chosen || '';
+  $('voice-row').hidden = false;
+}
+
 async function save(patch, statusId) {
   const r = await window.buddy.set(patch);
   showStatus(statusId, r.ok ? 'Saved ✓' : r.error.message, r.ok ? 'good' : 'error');
@@ -747,6 +766,13 @@ $('perm-microphone-btn').addEventListener('click', async () => {
   if (!r.ok) showStatus('perm-status', r.error.message, 'error');
 });
 $('listen-on-open').addEventListener('change', () => save({ listenOnOpen: $('listen-on-open').checked }, 'listen-status'));
+$('voice').addEventListener('change', () => save({ voiceName: $('voice').value || null }, 'voice-status'));
+$('voice-play').addEventListener('click', async () => {
+  $('voice-play').disabled = true;
+  const r = await window.buddy.playVoice($('voice').value || null);
+  $('voice-play').disabled = false;
+  if (!r.ok) showStatus('voice-status', r.error.message, 'error');
+});
 $('wake-on').addEventListener('change', () => save({ wakeOn: $('wake-on').checked }, 'wake-status'));
 $('wake-test').addEventListener('click', async () => {
   const wake = snap.wake;
@@ -815,6 +841,7 @@ window.addEventListener('focus', async () => {
   const update = await window.buddy.updates();
   if (update.ok) renderUpdates(update);
   await renderPermissions();
+  await renderVoice();
   await mountAiForm($('ai'));
   await renderClaude();
   await loadProjects();

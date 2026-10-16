@@ -72,8 +72,11 @@ function setup({
   withHome = true, hasNotch = false, claude = CLAUDE_OUT,
   // "Hey <name>" (wake.js): a stand-in that notes refresh() and answers `wakeHeard` wakes (after `wakeGate`, a promise, if given).
   wakeHeard = 2, wakeGate = null, wakeState = { on: true, line: 'Listening' }, nameHeard = true,
+  // Buddy's voice (talk-back.js): the voices on the Mac; `said` gets [text, voiceName] of each line spoken. `withVoice` false is Windows.
+  deviceVoices = [], withVoice = true,
 } = {}) {
   let wakeChanged = null;
+  const said = [];
   const data = { ...structuredClone(DEFAULTS), ...stored };
   const store = {
     get: (key) => data[key],
@@ -208,13 +211,14 @@ function setup({
         return wakeHeard;
       },
     },
+    talkBack: withVoice ? { voices: async () => deviceVoices, say: async (text, voiceName) => { said.push([text, voiceName]); } } : null,
     home: withHome ? {
       hasNotch: () => hasNotch, refresh: async () => calls.push(['homeRefresh']), restyle: () => calls.push(['homeRestyle']),
     } : undefined,
   });
   const call = (channel, ...args) => handlers[channel]({ sender: SETTINGS_PAGE }, ...args);
   const callFromWelcome = (channel, ...args) => handlers[channel]({ sender: WELCOME_PAGE }, ...args);
-  return { call, callFromWelcome, handlers, store, keys, wakeChange: () => wakeChanged?.(), calls, claudeCalls, opened, ipc, shortcutNow: () => current, keyWatch, sent, memory };
+  return { call, callFromWelcome, handlers, store, keys, wakeChange: () => wakeChanged?.(), calls, said, claudeCalls, opened, ipc, shortcutNow: () => current, keyWatch, sent, memory };
 }
 
 test('settings:get answers the settings without positions or lastDisplayId, the buddies and the providers', async () => {
@@ -1535,4 +1539,56 @@ test('settings:wake-test answers how many times it heard the phrase, and one tes
 test('settings:wake-test is for the Settings window only', async () => {
   const s = setup();
   assert.deepStrictEqual(await s.callFromWelcome('settings:wake-test'), refused('not_allowed', 'Not allowed.'));
+});
+
+// ---- Buddy's voice (Settings → General) ----
+
+const MAC_VOICES = [
+  { name: 'Daniel', lang: 'en-GB' }, { name: 'Zarvox', lang: 'en-US' }, { name: 'Amelie', lang: 'fr-CA' },
+  { name: 'Ava (Premium)', lang: 'en-US' }, { name: 'Rishi', lang: 'en-IN' },
+];
+
+test('voiceName is Automatic (null) by default, and must be a name or null', async () => {
+  const s = setup();
+  assert.strictEqual((await s.call('settings:get')).settings.voiceName, null);
+  for (const value of ['', 5, {}, 'x'.repeat(101)]) {
+    assert.deepStrictEqual(await s.call('settings:set', { voiceName: value }), refused('bad_request', 'That voice is not valid.'), JSON.stringify(value));
+  }
+  assert.strictEqual((await s.call('settings:set', { voiceName: 'Rishi' })).settings.voiceName, 'Rishi');
+  assert.strictEqual((await s.call('settings:set', { voiceName: null })).settings.voiceName, null);
+});
+
+test('settings:voices lists the English voices best first, with the automatic one named', async () => {
+  const s = setup({ deviceVoices: MAC_VOICES });
+  assert.deepStrictEqual(await s.call('settings:voices'), {
+    ok: true,
+    available: true,
+    automatic: 'Rishi',
+    options: [
+      { name: 'Rishi', label: 'Rishi (India)' }, { name: 'Ava (Premium)', label: 'Ava (Premium, US)' }, { name: 'Daniel', label: 'Daniel (UK)' },
+    ],
+    chosen: null,
+  });
+});
+
+test('settings:voices says Automatic when the chosen voice is no longer on the Mac', async () => {
+  const gone = setup({ deviceVoices: MAC_VOICES, stored: { voiceName: 'Removed' } });
+  assert.strictEqual((await gone.call('settings:voices')).chosen, null);
+  const there = setup({ deviceVoices: MAC_VOICES, stored: { voiceName: 'Daniel' } });
+  assert.strictEqual((await there.call('settings:voices')).chosen, 'Daniel');
+});
+
+test('settings:voices is not available where Buddy does not speak, and only for Settings', async () => {
+  const s = setup({ withVoice: false });
+  assert.deepStrictEqual(await s.call('settings:voices'), { ok: true, available: false, options: [], automatic: null, chosen: null });
+  const t = setup({ deviceVoices: MAC_VOICES });
+  assert.strictEqual((await t.callFromWelcome('settings:voices')).ok, false);
+});
+
+test('Play says the line with the voice picked, by the buddy\'s name', async () => {
+  const s = setup({ deviceVoices: MAC_VOICES, stored: { buddyName: 'Aarav' } });
+  assert.deepStrictEqual(await s.call('settings:voice-play', 'Daniel'), { ok: true });
+  assert.deepStrictEqual(await s.call('settings:voice-play', null), { ok: true });
+  assert.deepStrictEqual(s.said, [["Hi, I'm Aarav. This is how I sound.", 'Daniel'], ["Hi, I'm Aarav. This is how I sound.", null]]);
+  assert.deepStrictEqual(await s.call('settings:voice-play', 7), refused('bad_request', 'That voice is not valid.'));
 });

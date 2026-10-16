@@ -31,6 +31,7 @@
 
 const RATE = 16000;
 const SAY_MAX_MS = 20000;
+const VOICES_WAIT_MS = 1000; // getVoices() can be empty until voiceschanged
 const AFTER_SPEAKING_MS = 300; // quiet after the question, so its tail is never heard as an answer
 const ANSWER_MS = 8000; // as voice-words.js ANSWER_MS: nothing decisive heard this long after the question: no
 const FINAL_WAIT_MS = 600; // how long to wait for the recogniser's last word at the deadline
@@ -90,10 +91,28 @@ function command(body) {
   });
 }
 
-function say({ text }) {
+// The voices macOS has, as [{ name, lang }]. They can be empty until `voiceschanged`: waited for, 1 s at most.
+function listVoices() {
+  const now = () => speechSynthesis.getVoices().map((v) => ({ name: v.name, lang: v.lang }));
+  const have = now();
+  if (have.length) return Promise.resolve(have);
+  return new Promise((resolve) => {
+    const done = () => { speechSynthesis.removeEventListener('voiceschanged', done); clearTimeout(timer); resolve(now()); };
+    const timer = setTimeout(done, VOICES_WAIT_MS);
+    speechSynthesis.addEventListener('voiceschanged', done);
+  });
+}
+
+const voices = async () => ({ voices: await listVoices() });
+
+function say({ text, voiceName }) {
   loadModel(); // the ears load while the question is spoken
   return command((finish) => {
     const u = new SpeechSynthesisUtterance(String(text || ''));
+    if (voiceName) {
+      const voice = speechSynthesis.getVoices().find((v) => v.name === voiceName);
+      if (voice) { u.voice = voice; u.lang = voice.lang; } // a voice that is gone: the default one speaks
+    }
     const timer = setTimeout(() => { speechSynthesis.cancel(); finish({}); }, SAY_MAX_MS);
     const end = () => { clearTimeout(timer); finish({}); };
     u.addEventListener('end', end);
@@ -200,7 +219,7 @@ function listen({ quietMs, nothingMs, maxMs }) {
   });
 }
 
-const COMMANDS = { say, hear, listen };
+const COMMANDS = { say, hear, listen, voices };
 
 // ---- the wake loop ("Hey <name>") ----
 // Runs beside the commands, not as one: main starts it (ear:wake { phrases, floor, testOnly }) and ends it (null). It owns the

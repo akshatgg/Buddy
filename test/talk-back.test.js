@@ -5,10 +5,11 @@ const assert = require('node:assert');
 const { createTalkBack } = require('../src/main/talk-back');
 const { answerGrammar, YES_WORDS, NO_WORDS } = require('../shared/voice-words');
 
-function setup({ answers = [], ready = true, transcribe, missing = [] } = {}) {
+function setup({ answers = [], ready = true, transcribe, missing = [], voices = [], voiceName = null } = {}) {
   const log = [];
   const ear = {
     call: async (cmd, args) => {
+      if (cmd === 'voices') return { voices };
       log.push([cmd, args]);
       const a = answers.shift();
       if (a instanceof Error) throw a;
@@ -19,14 +20,14 @@ function setup({ answers = [], ready = true, transcribe, missing = [] } = {}) {
   let ensures = 0;
   const model = { ready: () => ready, words: () => null, missing: () => new Set(missing), ensure: () => { ensures += 1; return Promise.resolve(); } };
   const sent = [];
-  const tb = createTalkBack({ ear, model, transcribe: transcribe || (async (a, m) => { sent.push([a, m]); return 'yes'; }) });
+  const tb = createTalkBack({ ear, model, voiceName: () => voiceName, transcribe: transcribe || (async (a, m) => { sent.push([a, m]); return 'yes'; }) });
   return { tb, log, sent, ensures: () => ensures };
 }
 
 test('say speaks and returns nothing', async () => {
   const { tb, log } = setup({ answers: [{}] });
   assert.strictEqual(await tb.say('Send it?'), undefined);
-  assert.deepStrictEqual(log, [['say', { text: 'Send it?' }]]);
+  assert.deepStrictEqual(log, [['say', { text: 'Send it?', voiceName: null }]]);
 });
 
 test('hear with the model ready: the grammar, no server, and the words decide', async () => {
@@ -98,4 +99,33 @@ test('stop stops the ear', () => {
   const s = setup();
   s.tb.stop();
   assert.deepStrictEqual(s.log, [['stop']]);
+});
+
+const DEVICE = [{ name: 'Daniel', lang: 'en-GB' }, { name: 'Rishi', lang: 'en-IN' }, { name: 'Zarvox', lang: 'en-US' }];
+
+test('say uses the best English voice when none is chosen', async () => {
+  const { tb, log } = setup({ answers: [{}], voices: DEVICE });
+  await tb.say('Hello');
+  assert.deepStrictEqual(log, [['say', { text: 'Hello', voiceName: 'Rishi' }]]);
+});
+
+test('say uses the chosen voice, and falls back silently when it is gone', async () => {
+  const a = setup({ answers: [{}], voices: DEVICE, voiceName: 'Daniel' });
+  await a.tb.say('Hello');
+  assert.strictEqual(a.log[0][1].voiceName, 'Daniel');
+  const b = setup({ answers: [{}], voices: DEVICE, voiceName: 'Removed' });
+  await b.tb.say('Hello');
+  assert.strictEqual(b.log[0][1].voiceName, 'Rishi');
+});
+
+test('say can try a voice before it is saved (Play)', async () => {
+  const { tb, log } = setup({ answers: [{}], voices: DEVICE, voiceName: 'Daniel' });
+  await tb.say('Hi', null);
+  assert.strictEqual(log[0][1].voiceName, 'Rishi');
+});
+
+test('say still speaks when the voices cannot be listed', async () => {
+  const { tb, log } = setup({ answers: [{}] });
+  await tb.say('Hello');
+  assert.deepStrictEqual(log, [['say', { text: 'Hello', voiceName: null }]]);
 });

@@ -118,14 +118,14 @@ data class SettingsState(
     val lines: Map<Line, Status> = emptyMap(),
     /** Listen for "Hey <name>" (voice/WakeListener.kt): off until the person turns it on. */
     val wakeOn: Boolean = false,
-    /** What it says under the switch: the model download, a name that cannot be heard, signed out, the microphone refused. */
+    /** What it says under the switch: the model download, signed out, the microphone refused. */
     val wakeLine: Status? = null,
     /** Test it is running (10 s), and how many wakes it heard. */
     val wakeTesting: Boolean = false,
     val wakeHeard: Int = 0,
-    /** The model can hear the name; when not, nothing listens and Test it is hidden. */
-    val wakeCanHear: Boolean = true,
-    /** On, the name can be heard and the model is there: it is listening, so the spelling hint shows under the switch. */
+    /** "Hey <name>" wakes it too (the model can hear the name, and it is not Buddy); else only "Hey Buddy" does. */
+    val wakeNameHeard: Boolean = true,
+    /** On and the model is there: it is listening (for "Hey Buddy" at least), so a hint shows under the switch. */
     val wakeListening: Boolean = false,
 )
 
@@ -162,11 +162,6 @@ class SettingsModel(
     val state: StateFlow<SettingsState> = current.asStateFlow()
     private val fading = mutableMapOf<Line, Job>()
 
-    init {
-        val s = current.value
-        if (settings.wakeOn && !s.wakeCanHear) current.update { it.copy(wakeLine = Status(VoiceWords.WakeLines.cantListen(settings.buddyName), Tone.ERROR)) }
-    }
-
     // Buddy on was asked for while it could not float: it comes on once "Display over other apps" is allowed.
     private var waitingToFloat = false
 
@@ -184,8 +179,8 @@ class SettingsModel(
             tagOn = settings.tagOn,
             learning = memory.learning,
             wakeOn = settings.wakeOn,
-            wakeCanHear = !settings.wakeOn || WakeRules.nameHeard(settings.buddyName, modelMissing()),
-            wakeListening = settings.wakeOn && WakeRules.nameHeard(settings.buddyName, modelMissing()) && voiceModel?.ready() != false,
+            wakeNameHeard = WakeRules.nameHeard(settings.buddyName, modelMissing()),
+            wakeListening = settings.wakeOn && voiceModel?.ready() != false,
         )
     }
 
@@ -279,7 +274,7 @@ class SettingsModel(
         if (!settings.wakeOn || cut.isBlank()) return
         renameCheck = scope.launch {
             delay(WAKE_DEBOUNCE_MS)
-            if (settings.wakeOn) checkWake(renamed = true)
+            if (settings.wakeOn) checkWake()
         }
     }
 
@@ -326,7 +321,7 @@ class SettingsModel(
         if (!on) {
             fetching?.cancel(); testing?.cancel(); renameCheck?.cancel()
             settings.wakeOn = false
-            current.update { it.copy(wakeOn = false, wakeLine = null, wakeTesting = false, wakeCanHear = true, wakeListening = false) }
+            current.update { it.copy(wakeOn = false, wakeLine = null, wakeTesting = false, wakeListening = false) }
             wakeChanged()
             return
         }
@@ -343,13 +338,13 @@ class SettingsModel(
         settings.wakeOn = true
         current.update { it.copy(wakeOn = true, wakeLine = null) }
         val model = voiceModel
-        if (model == null || model.ready()) return checkWake(renamed = false)
+        if (model == null || model.ready()) return checkWake()
         current.update { it.copy(wakeLine = Status(VoiceWords.WakeLines.GETTING_EARS)) }
         fetching?.cancel()
         fetching = scope.launch {
             try {
                 model.fetch()
-                if (settings.wakeOn) checkWake(renamed = false)
+                if (settings.wakeOn) checkWake()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -360,32 +355,27 @@ class SettingsModel(
     }
 
     /**
-     * With the model there: a name it cannot hear is said, and nothing listens (a rename stops the listening for the
-     * earlier name); else the line goes and listening begins, for the name as it is now.
+     * With the model there: listening begins (again, after a rename), for "Hey Buddy" and, when the model can hear the name,
+     * "Hey <name>"; a name it cannot hear is only a hint under the switch.
      */
-    private fun checkWake(renamed: Boolean) {
-        val name = settings.buddyName
-        if (!WakeRules.nameHeard(name, modelMissing())) {
-            current.update { it.copy(wakeCanHear = false, wakeListening = false, wakeLine = Status(VoiceWords.WakeLines.cantListen(name), Tone.ERROR)) }
-            if (renamed) wakeChanged()
-            return
-        }
-        current.update { it.copy(wakeCanHear = true, wakeListening = true, wakeLine = null) }
+    private fun checkWake() {
+        current.update { it.copy(wakeNameHeard = WakeRules.nameHeard(settings.buddyName, modelMissing()), wakeListening = true, wakeLine = null) }
         wakeChanged()
     }
 
-    /** Test it: for 10 s each "Hey <name>" heard is counted, and nothing is asked of the chat. */
+    /** Test it: for 10 s each wake heard is counted, and nothing is asked of the chat. */
     fun testWake() {
-        if (current.value.wakeTesting || !settings.wakeOn || !current.value.wakeCanHear) return
+        if (current.value.wakeTesting || !settings.wakeOn) return
         val name = settings.buddyName
-        current.update { it.copy(wakeTesting = true, wakeHeard = 0, wakeLine = Status(VoiceWords.WakeLines.sayNow(name))) }
+        val heard = current.value.wakeNameHeard
+        current.update { it.copy(wakeTesting = true, wakeHeard = 0, wakeLine = Status(VoiceWords.WakeLines.sayNow(name, heard))) }
         testing = scope.launch {
             try {
                 test(TEST_MS) {
                     current.update { it.copy(wakeHeard = it.wakeHeard + 1, wakeLine = Status(VoiceWords.WakeLines.HEARD, Tone.GOOD)) }
                 }
                 current.update {
-                    it.copy(wakeTesting = false, wakeLine = if (it.wakeHeard > 0) null else Status(VoiceWords.WakeLines.notHeard(name), Tone.ERROR))
+                    it.copy(wakeTesting = false, wakeLine = if (it.wakeHeard > 0) null else Status(VoiceWords.WakeLines.notHeard(name, heard), Tone.ERROR))
                 }
             } catch (e: CancellationException) {
                 current.update { it.copy(wakeTesting = false) }

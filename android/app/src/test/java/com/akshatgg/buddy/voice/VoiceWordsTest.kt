@@ -90,6 +90,8 @@ class VoiceWordsTest {
             val want = c.getValue("phrase").let { if (it is JsonNull) null else it.jsonPrimitive.content }
             assertEquals(c.str("name"), want, VoiceWords.wakePhrase(c.str("name")))
             assertEquals(c.str("name"), c.getValue("missing").jsonArray.strings(), VoiceWords.wakeMissing(c.str("name"), lacks))
+            assertEquals(c.str("name"), c.getValue("all").jsonArray.strings(), VoiceWords.wakePhrases(c.str("name"), lacks))
+            assertEquals(c.str("name"), c.str("nameHeard").toBoolean(), VoiceWords.wakeNameHeard(c.str("name"), lacks))
         }
         assertEquals(wake.getValue("floor").jsonPrimitive.content.toFloat(), VoiceWords.WAKE_FLOOR)
         val request = wake.getValue("request").jsonObject
@@ -103,23 +105,30 @@ class VoiceWordsTest {
             val words = said.getValue("result").jsonArray.map { it.jsonObject }.map {
                 VoskWord(it.str("word"), it.str("conf").toFloat(), it.str("start").toFloat(), it.str("end").toFloat())
             }
-            val got = VoiceWords.wakeFrom(VoskSaid(said.str("text"), words), c.str("phrase"), VoiceWords.WAKE_FLOOR)
+            val got = VoiceWords.wakeFrom(VoskSaid(said.str("text"), words), c.getValue("phrases").jsonArray.strings(), VoiceWords.WAKE_FLOOR)
             val want = c.getValue("wake").let { if (it is JsonNull) null else it.jsonObject }
             if (want == null) assertEquals(null, got)
-            else assertEquals(Wake(want.str("endSec").toFloat(), want.str("follows").toBoolean()), got)
+            else assertEquals(Wake(want.str("endSec").toFloat(), want.str("follows").toBoolean(), want.str("phrase")), got)
         }
         val lines = wake.getValue("lines").jsonObject
         val n = lines.str("name")
         val l = VoiceWords.WakeLines
         assertEquals(lines.str("cantListen"), l.cantListen(n))
-        assertEquals(lines.str("notCaught"), l.notCaught(n))
-        assertEquals(lines.str("sayNow"), l.sayNow(n))
+        assertEquals(lines.str("notCaught"), l.notCaught(n, true))
+        assertEquals(lines.str("sayNow"), l.sayNow(n, true))
         assertEquals(lines.str("heard"), l.HEARD)
-        assertEquals(lines.str("notHeard"), l.notHeard(n))
-        assertEquals(lines.str("privacy"), l.privacy(n))
-        assertEquals(lines.str("label"), l.label(n))
+        assertEquals(lines.str("notHeard"), l.notHeard(n, true))
+        assertEquals(lines.str("privacy"), l.privacy(n, true))
+        assertEquals(lines.str("label"), l.label(n, true))
         assertEquals(lines.str("tapToListen"), l.TAP_TO_LISTEN)
-        assertEquals(lines.str("listening"), l.listening(n))
+        assertEquals(lines.str("listening"), l.listening(n, true))
+        val un = wake.getValue("unheard").jsonObject // the same lines when only "Hey Buddy" wakes it
+        assertEquals(un.str("notCaught"), l.notCaught(" Aarav ", false))
+        assertEquals(un.str("sayNow"), l.sayNow(" Aarav ", false))
+        assertEquals(un.str("notHeard"), l.notHeard(" Aarav ", false))
+        assertEquals(un.str("privacy"), l.privacy(" Aarav ", false))
+        assertEquals(un.str("label"), l.label(" Aarav ", false))
+        assertEquals(un.str("listening"), l.listening(" Aarav ", false))
         assertEquals(lines.str("gettingEars"), l.GETTING_EARS)
         assertEquals(lines.str("earsFailed"), l.EARS_FAILED)
         assertEquals(lines.str("signIn"), l.SIGN_IN)

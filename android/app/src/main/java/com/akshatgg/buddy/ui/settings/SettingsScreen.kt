@@ -441,8 +441,8 @@ private fun WakeRow(state: SettingsState, onChange: (Boolean) -> Unit, test: () 
     Column(Modifier.rowPadding()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f)) {
-                Text(VoiceWords.WakeLines.label(name))
-                Text(VoiceWords.WakeLines.privacy(name), color = colors.muted, style = MaterialTheme.typography.bodySmall)
+                Text(VoiceWords.WakeLines.label(name, state.wakeNameHeard))
+                Text(VoiceWords.WakeLines.privacy(name, state.wakeNameHeard), color = colors.muted, style = MaterialTheme.typography.bodySmall)
             }
             Switch(
                 checked = state.wakeOn,
@@ -450,12 +450,14 @@ private fun WakeRow(state: SettingsState, onChange: (Boolean) -> Unit, test: () 
                 colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.accentFg),
             )
         }
-        if (state.wakeOn && state.wakeCanHear) {
+        if (state.wakeOn) {
             Row(Modifier.padding(top = 8.dp)) { Secondary("Test it", onClick = { if (!state.wakeTesting) test() }) }
         }
         StatusLine(state.wakeLine)
-        if (state.wakeOn && state.wakeCanHear && state.wakeListening) {
-            Text(VoiceWords.WakeLines.SPELLING_HINT, color = colors.muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+        if (state.wakeOn && state.wakeListening) {
+            // A name the model can't hear (not Buddy itself) is a hint, not a stop: "Hey Buddy" still works.
+            val unheard = state.name.isNotBlank() && VoiceWords.wakePhrase(state.name) != "hey buddy" && !state.wakeNameHeard
+            Text(if (unheard) VoiceWords.WakeLines.cantListen(state.name) else VoiceWords.WakeLines.SPELLING_HINT, color = colors.muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
         }
     }
 }

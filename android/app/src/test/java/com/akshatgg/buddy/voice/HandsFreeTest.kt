@@ -29,7 +29,7 @@ class HandsFreeTest {
     @Test fun noRecordingSaysItWasNotCaught() = runTest {
         handsFree().request(null)
         handsFree().request(ByteArray(0))
-        val line = "I didn't catch that. Say 'Hey Rahul' and try again."
+        val line = "I didn't catch that. Say 'Hey Buddy' or 'Hey Rahul' and try again."
         assertEquals(listOf(line, line), said)
         assertEquals(listOf(line, line), shown)
         assertEquals(emptyList<String>(), log)
@@ -38,7 +38,7 @@ class HandsFreeTest {
     @Test fun nothingWrittenDownByTheServerSaysTheSame() = runTest {
         transcribed = { _, _ -> "  " }
         handsFree().request(ByteArray(10))
-        assertEquals(listOf("I didn't catch that. Say 'Hey Rahul' and try again."), said)
+        assertEquals(listOf("I didn't catch that. Say 'Hey Buddy' or 'Hey Rahul' and try again."), said)
         assertEquals(emptyList<String>(), log)
     }
 

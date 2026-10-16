@@ -8,7 +8,7 @@ import org.junit.Test
 class WakeRulesTest {
     private val all = WakeSituation(
         wakeOn = true, buddyOn = true, signedIn = true, voiceOn = true,
-        micAllowed = true, modelReady = true, nameOk = true, micService = true,
+        micAllowed = true, modelReady = true, micService = true,
     )
 
     @Test fun listensWhenEverythingIsTrue() = assertTrue(WakeRules.listen(all))
@@ -20,7 +20,6 @@ class WakeRulesTest {
         assertFalse(WakeRules.listen(all.copy(voiceOn = false)))
         assertFalse(WakeRules.listen(all.copy(micAllowed = false)))
         assertFalse(WakeRules.listen(all.copy(modelReady = false)))
-        assertFalse(WakeRules.listen(all.copy(nameOk = false)))
         assertFalse(WakeRules.listen(all.copy(micService = false)))
     }
 
@@ -32,7 +31,14 @@ class WakeRulesTest {
         assertTrue(WakeRules.paused(inCall = false, micBusy = 0, turn = true))
     }
 
+    @Test fun aNameTheModelCannotHearDoesNotStopTheListening() {
+        // nameHeard only picks the copy: WakeSituation has no name at all, and "Hey Buddy" always wakes it
+        assertTrue(WakeRules.listen(all))
+        assertEquals(listOf("hey buddy", "buddy"), VoiceWords.wakePhrases("Aarav", setOf("aarav")))
+    }
+
     @Test fun aNameIsHeardUnlessLettersOrModelLackIt() {
+        assertFalse(WakeRules.nameHeard("Buddy", emptySet()))
         assertTrue(WakeRules.nameHeard("Rahul", emptySet()))
         assertFalse(WakeRules.nameHeard("Rahul", setOf("rahul")))
         assertFalse(WakeRules.nameHeard("R2D2", emptySet()))

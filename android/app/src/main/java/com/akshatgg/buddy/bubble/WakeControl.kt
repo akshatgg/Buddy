@@ -71,13 +71,13 @@ class WakeControl(
     }
 
     /**
-     * Looks at the situation again: starts listening, with the phrase of the name now, or stops. With `testMs` (Settings'
+     * Looks at the situation again: starts listening, with the phrases of the name now, or stops. With `testMs` (Settings'
      * Test it) it only listens for wakes for that long, tells BubbleBus of each, takes no request, and then goes on as before.
      */
     fun refresh(testMs: Long? = null) {
         job?.cancel(); job = null
         val name = graph.settings.buddyName
-        val phrase = VoiceWords.wakePhrase(name)
+        val phrases = VoiceWords.wakePhrases(name, graph.shared.voiceModelMissing)
         job = scope.launch {
             val situation = WakeSituation(
                 wakeOn = graph.settings.wakeOn,
@@ -86,24 +86,23 @@ class WakeControl(
                 voiceOn = runCatching { graph.cloud.voiceOn() }.getOrDefault(false),
                 micAllowed = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
                 modelReady = graph.voiceModel.ready(),
-                nameOk = WakeRules.nameHeard(name, graph.shared.voiceModelMissing),
                 micService = micService,
             )
-            if (!WakeRules.listen(situation) || phrase == null) return@launch
+            if (!WakeRules.listen(situation)) return@launch
             if (testMs == null) {
-                listen(phrase, testOnly = false)
+                listen(phrases, testOnly = false)
             } else {
-                kotlinx.coroutines.withTimeoutOrNull(testMs) { listen(phrase, testOnly = true) }
+                kotlinx.coroutines.withTimeoutOrNull(testMs) { listen(phrases, testOnly = true) }
                 refresh()
             }
         }
     }
 
-    private suspend fun listen(phrase: String, testOnly: Boolean) {
+    private suspend fun listen(phrases: List<String>, testOnly: Boolean) {
         val listener = WakeListener(
             mic = { AudioRecordSource() },
             spotters = Spotters { grammar -> (runCatching { graph.spotters.get() }.getOrNull() ?: throw EarsFailed()).make(grammar) },
-            phrase = phrase,
+            phrases = phrases,
             paused = ::paused,
             silenced = { silenced },
             testOnly = testOnly,

@@ -15,6 +15,8 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class WakeListenerTest {
+    private val RAHUL = listOf("hey rahul", "rahul", "hey buddy", "buddy")
+
     private fun hey(vararg words: Pair<String, Float>, conf: Float = 0.9f): String {
         // words: (word, end second)
         val parts = words.joinToString(",") { (w, end) -> """{"word":"$w","conf":$conf,"start":${end - 0.3f},"end":$end}""" }
@@ -43,7 +45,7 @@ class WakeListenerTest {
         val mic = FakeMic(voice(21) + voice(15) + quiet(15))
         val spotters = Made(mutableListOf(FakeSpotter(mapOf(20 to hey("hey" to 1.0f, "rahul" to 1.6f)), "")))
         val events = ArrayList<WakeEvent>()
-        val job = collect(WakeListener({ mic }, spotters, "hey rahul"), events)
+        val job = collect(WakeListener({ mic }, spotters, RAHUL), events)
         runCurrent()
         job.cancel()
         assertEquals(2, events.size)
@@ -59,22 +61,22 @@ class WakeListenerTest {
         val mic = FakeMic(voice(41 - 12) + quiet(12) )
         val spotters = Made(mutableListOf(FakeSpotter(mapOf(40 to hey("hey" to 1.0f, "rahul" to 1.6f, "[unk]" to 2.0f)), "")))
         val events = ArrayList<WakeEvent>()
-        val job = collect(WakeListener({ mic }, spotters, "hey rahul"), events)
+        val job = collect(WakeListener({ mic }, spotters, RAHUL), events)
         runCurrent()
         job.cancel()
         val wav = (events[1] as WakeEvent.Request).wav!!
         assertEquals(44 + (41 - 16) * 1_600 * 2, wav.size) // chunks 16..40
     }
 
-    @Test fun theNameAloneOrInTheMiddleDoesNotWake() = runTest {
+    @Test fun aPhraseInTheMiddleOrNotSureEnoughDoesNotWake() = runTest {
         val mic = FakeMic(voice(10))
         val spotters = Made(mutableListOf(FakeSpotter(mapOf(
             2 to hey("[unk]" to 0.5f, "hey" to 1.0f, "rahul" to 1.5f),
-            5 to hey("rahul" to 1.0f),
+            5 to hey("[unk]" to 0.5f, "buddy" to 1.0f),
             8 to hey("hey" to 1.0f, "rahul" to 1.5f, conf = 0.3f),
         ), "")))
         val events = ArrayList<WakeEvent>()
-        val job = collect(WakeListener({ mic }, spotters, "hey rahul"), events)
+        val job = collect(WakeListener({ mic }, spotters, RAHUL), events)
         runCurrent()
         job.cancel()
         assertTrue(events.isEmpty())
@@ -84,7 +86,7 @@ class WakeListenerTest {
         val mic = FakeMic(quiet(1) + quiet(100))
         val spotters = Made(mutableListOf(FakeSpotter(mapOf(0 to hey("hey" to 0.1f, "rahul" to 0.1f)), "")))
         val events = ArrayList<WakeEvent>()
-        val job = collect(WakeListener({ mic }, spotters, "hey rahul"), events)
+        val job = collect(WakeListener({ mic }, spotters, RAHUL), events)
         runCurrent()
         job.cancel()
         assertTrue(events[0] is WakeEvent.Woke)
@@ -96,10 +98,20 @@ class WakeListenerTest {
         val said = hey("hey" to 0.1f, "rahul" to 0.2f)
         val spotters = Made(mutableListOf(FakeSpotter(mapOf(1 to said), ""), FakeSpotter(mapOf(2 to said), "")))
         val events = ArrayList<WakeEvent>()
-        val job = collect(WakeListener({ mic }, spotters, "hey rahul", testOnly = true), events)
+        val job = collect(WakeListener({ mic }, spotters, RAHUL, testOnly = true), events)
         runCurrent()
         job.cancel()
         assertEquals(listOf(WakeEvent.Woke, WakeEvent.Woke), events)
+    }
+
+    @Test fun aBareBuddyWakesItToo() = runTest {
+        val mic = FakeMic(voice(21) + quiet(15))
+        val spotters = Made(mutableListOf(FakeSpotter(mapOf(5 to hey("buddy" to 0.5f)), "")))
+        val events = ArrayList<WakeEvent>()
+        val job = collect(WakeListener({ mic }, spotters, RAHUL, testOnly = true), events)
+        runCurrent()
+        job.cancel()
+        assertEquals(listOf(WakeEvent.Woke), events)
     }
 
     @Test fun pausedLetsGoOfTheMicAndComesBack() = runTest {
@@ -108,7 +120,7 @@ class WakeListenerTest {
         val listener = WakeListener(
             mic = { FakeMic(quiet(100)).also { mics.add(it) } },
             spotters = Made(mutableListOf()),
-            phrase = "hey rahul",
+            phrases = RAHUL,
             paused = { checks++ in 3..7 },
         )
         val job = launch { listener.run { } }
@@ -131,7 +143,7 @@ class WakeListenerTest {
         val listener = WakeListener(
             mic = { mics++; mic },
             spotters = spotters,
-            phrase = "hey rahul",
+            phrases = RAHUL,
             silenced = { checks++ in 5..14 },
         )
         val events = ArrayList<WakeEvent>()
@@ -149,19 +161,19 @@ class WakeListenerTest {
         val mic = FakeMic(quiet(300))
         val spotters = Made(mutableListOf(FakeSpotter(mapOf(0 to said), ""), FakeSpotter(mapOf(0 to said), "")))
         val events = ArrayList<WakeEvent>()
-        val job = collect(WakeListener({ mic }, spotters, "hey rahul"), events)
+        val job = collect(WakeListener({ mic }, spotters, RAHUL), events)
         runCurrent()
         advanceTimeBy(5_000)
         runCurrent()
         job.cancel()
-        assertEquals(listOf("hey rahul", "[unk]"), spotters.grammars[0])
+        assertEquals(RAHUL + "[unk]", spotters.grammars[0])
         assertTrue(spotters.made.size >= 3) // one to begin with, one after each of the two wakes
         assertTrue(spotters.made[0].let { (it as FakeSpotter).closed })
     }
 
     @Test fun aMicThatCannotStartIsRetriedEveryFiveSecondsOfClock() = runTest {
         var tries = 0
-        val listener = WakeListener({ tries++; FakeMic(emptyList(), starts = false) }, Made(mutableListOf()), "hey rahul")
+        val listener = WakeListener({ tries++; FakeMic(emptyList(), starts = false) }, Made(mutableListOf()), RAHUL)
         val job = launch { listener.run { } }
         runCurrent()
         assertEquals(1, tries)

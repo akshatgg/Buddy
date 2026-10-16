@@ -5,6 +5,7 @@ import java.io.File
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** What the settings need of the owner's voice. */
 interface MyVoiceSettings {
@@ -83,11 +84,21 @@ class MyVoice(
     private fun note(code: String) { try { Log.i("Buddy", "voice check: $code") } catch (_: Throwable) {} }
 }
 
-private val checkThreads = Executors.newCachedThreadPool { r -> Thread(r, "voice-check").apply { isDaemon = true } }
+private val checkThread = Executors.newSingleThreadExecutor { r -> Thread(r, "voice-check").apply { isDaemon = true } }
+private val checkBusy = AtomicBoolean(false)
 
-/** `block`'s answer, or null when it takes longer than `ms` (or fails): the voice check's 3 seconds, after which it is a no. */
+/**
+ * `block`'s answer, or null when it takes longer than `ms`, fails, or an earlier check is still running (a hung engine
+ * must not pile up threads): the voice check's 3 seconds, after which it is a no.
+ */
 fun <T : Any> runWithin(ms: Long, block: () -> T): T? {
-    val future = checkThreads.submit(Callable { block() })
+    if (!checkBusy.compareAndSet(false, true)) return null
+    val future = try {
+        checkThread.submit(Callable { try { block() } finally { checkBusy.set(false) } })
+    } catch (e: Throwable) {
+        checkBusy.set(false)
+        return null
+    }
     return try {
         future.get(ms, TimeUnit.MILLISECONDS)
     } catch (_: Throwable) {

@@ -14,7 +14,11 @@ fun interface Embedder { fun embed(pcm: ShortArray): FloatArray? }
 class SherpaEmbedder(model: File) : Embedder, AutoCloseable {
     private val ex = SpeakerEmbeddingExtractor(null, SpeakerEmbeddingExtractorConfig(model = model.absolutePath, numThreads = 1))
 
+    private var closed = false
+
+    /** Null once closed: a check that was still waiting when the engine was replaced must not touch freed memory. */
     @Synchronized override fun embed(pcm: ShortArray): FloatArray? {
+        if (closed) return null
         val stream = ex.createStream()
         try {
             stream.acceptWaveform(FloatArray(pcm.size) { pcm[it] / 32768f }, 16_000)
@@ -25,7 +29,7 @@ class SherpaEmbedder(model: File) : Embedder, AutoCloseable {
         }
     }
 
-    @Synchronized override fun close() = ex.release()
+    @Synchronized override fun close() { if (!closed) { closed = true; ex.release() } }
 }
 
 /**

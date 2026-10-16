@@ -14,6 +14,7 @@ import com.akshatgg.buddy.typing.Tag
 import com.akshatgg.buddy.ui.common.Status
 import com.akshatgg.buddy.ui.common.Tone
 import com.akshatgg.buddy.ui.common.failure
+import com.akshatgg.buddy.voice.ModelState
 import com.akshatgg.buddy.voice.MyVoiceRules
 import com.akshatgg.buddy.voice.MyVoiceSettings
 import com.akshatgg.buddy.voice.Setup
@@ -215,7 +216,8 @@ class SettingsModel(
     /** What stands under Only my voice when no setup is running: nothing when off, "On", or that it needs setting up again. */
     private fun restingMyVoiceLine(): Status? = when {
         !settings.myVoiceOn -> null
-        myVoice?.profileUsable() == false -> Status(MyVoiceRules.Lines.SET_UP_AGAIN, Tone.ERROR)
+        // the voice is there but cannot be used: its file is damaged, or the voice-check model is gone or damaged
+        myVoice?.profileUsable() == false || speakerModel?.ready() == false -> Status(MyVoiceRules.Lines.SET_UP_AGAIN, Tone.ERROR)
         else -> Status(MyVoiceRules.Lines.ON)
     }
 
@@ -243,7 +245,8 @@ class SettingsModel(
             signingIn = it.signingIn, newFact = it.newFact, forgetAsked = it.forgetAsked, lines = it.lines,
             wakeLine = it.wakeLine, wakeTesting = it.wakeTesting, wakeHeard = it.wakeHeard,
             myVoiceSetting = it.myVoiceSetting,
-            myVoiceLine = if (it.myVoiceSetting || it.myVoiceLine?.tone == Tone.GOOD && !settings.myVoiceOn) it.myVoiceLine else restingMyVoiceLine(),
+            // a setup in progress keeps its line; one that went wrong keeps what it said until the next thing the person does
+            myVoiceLine = if (it.myVoiceSetting) it.myVoiceLine else keptSetupLine ?: restingMyVoiceLine(),
         )
     }
 
@@ -437,6 +440,20 @@ class SettingsModel(
 
     private var setupJob: Job? = null
 
+    /** The last setup's error, kept across reload() until the person turns the switch on or off or sets up again. */
+    private var keptSetupLine: Status? = null
+
+    /** A setup that did not finish (or finished): the line says how, the switch stops waiting. */
+    private fun setupEnded(status: Status) {
+        keptSetupLine = status.takeIf { it.tone == Tone.ERROR }
+        current.update { it.copy(myVoiceSetting = false, myVoiceLine = status) }
+    }
+
+    /** Settings was left: a setup that is still listening stops (the microphone goes back to the normal phrases). */
+    fun leaveSettings() {
+        setupJob?.cancel()
+    }
+
     private fun myVoiceSays(status: Status) = current.update { it.copy(myVoiceLine = status) }
 
     /** The name said in setup's lines: the one shown on the switch when the model can hear it, else Buddy. */
@@ -450,6 +467,7 @@ class SettingsModel(
     fun setMyVoiceOn(on: Boolean) {
         if (!on) {
             setupJob?.cancel()
+            keptSetupLine = null
             myVoice?.off()
             settings.myVoiceOn = false
             current.update { it.copy(myVoiceOn = false, myVoiceLine = null, myVoiceSetting = false) }
@@ -469,20 +487,28 @@ class SettingsModel(
     private fun setUpMyVoice() {
         val voice = myVoice ?: return
         if (current.value.myVoiceSetting) return
+        keptSetupLine = null
         current.update { it.copy(myVoiceSetting = true) }
         setupJob = scope.launch {
             var finished = false // done or failed: the clips are no longer wanted
             try {
                 val model = speakerModel
                 if (model != null && !model.ready()) {
-                    myVoiceSays(Status(MyVoiceRules.Lines.GETTING_MODEL)) // shown under the switch
+                    myVoiceSays(Status(MyVoiceRules.Lines.GETTING_MODEL)) // shown under the switch, with the percent as it comes
+                    val percent = launch {
+                        model.state.collect { st ->
+                            if (st is ModelState.Getting && st.percent > 0) myVoiceSays(Status("${MyVoiceRules.Lines.GETTING_MODEL} ${st.percent}%"))
+                        }
+                    }
                     try {
                         model.fetch()
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        current.update { it.copy(myVoiceSetting = false, myVoiceLine = Status(MyVoiceRules.Lines.MODEL_FAILED, Tone.ERROR)) }
+                        setupEnded(Status(MyVoiceRules.Lines.MODEL_FAILED, Tone.ERROR))
                         return@launch
+                    } finally {
+                        percent.cancel()
                     }
                 }
                 val name = setupName()
@@ -501,14 +527,24 @@ class SettingsModel(
                                 "odd" -> myVoiceSays(Status(MyVoiceRules.Lines.odd(name), Tone.ERROR))
                                 "done" -> {
                                     finished = true
-                                    voice.save(step.profile!!)
-                                    settings.myVoiceOn = true
-                                    current.update { it.copy(myVoiceOn = true, myVoiceSetting = false, myVoiceLine = Status(MyVoiceRules.Lines.DONE, Tone.GOOD)) }
+                                    val saved = try {
+                                        voice.save(step.profile!!); true
+                                    } catch (e: Exception) { // the voice could not be written: not learnt
+                                        Log.w("Buddy", "voice save: ${e.javaClass.simpleName}")
+                                        false
+                                    }
+                                    if (saved) {
+                                        settings.myVoiceOn = true
+                                        current.update { it.copy(myVoiceOn = true) }
+                                        setupEnded(Status(MyVoiceRules.Lines.DONE, Tone.GOOD))
+                                    } else {
+                                        setupEnded(Status(MyVoiceRules.Lines.FAILED, Tone.ERROR))
+                                    }
                                     here.cancel("done")
                                 }
                                 else -> { // "failed"
                                     finished = true
-                                    current.update { it.copy(myVoiceSetting = false, myVoiceLine = Status(MyVoiceRules.Lines.FAILED, Tone.ERROR)) }
+                                    setupEnded(Status(MyVoiceRules.Lines.FAILED, Tone.ERROR))
                                     here.cancel("done")
                                 }
                             }
@@ -518,7 +554,7 @@ class SettingsModel(
                     if (!finished) throw e
                 }
                 if (!finished) { // the time is up
-                    current.update { it.copy(myVoiceSetting = false, myVoiceLine = Status(MyVoiceRules.Lines.TIMED_OUT, Tone.ERROR)) }
+                    setupEnded(Status(MyVoiceRules.Lines.TIMED_OUT, Tone.ERROR))
                 }
                 wakeChanged()
             } catch (e: CancellationException) {

@@ -96,7 +96,11 @@ class WakeControl(
             // "Only my voice": the check on each wake phrase (normal listening and Test it, not setup). Warmed now, so that
             // the first wake does not wait for the engine to load.
             val checkVoice = graph.settings.myVoiceOn && !clips
-            if (checkVoice) launch(Dispatchers.IO) { graph.embedder.warm() }
+            if (checkVoice) {
+                // the voice-check model is fetched again if it is gone (it is never backed up); until then every wake is a no
+                if (!graph.speakerModel.ready()) graph.speakerModel.fetchInBackground()
+                launch(Dispatchers.IO) { graph.embedder.warm() }
+            }
             val check: ((ShortArray?) -> Boolean)? =
                 if (checkVoice) { clip -> runWithin(MyVoiceRules.CHECK_MS) { graph.myVoice.allows(clip) } ?: false } else null
             if (testMs == null) {

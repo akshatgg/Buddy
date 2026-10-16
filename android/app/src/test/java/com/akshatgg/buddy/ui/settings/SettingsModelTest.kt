@@ -506,7 +506,8 @@ class SettingsModelTest {
         override val on get() = onNow
         override fun profileUsable() = usable
         override fun embed(clip: ShortArray): FloatArray? { embeds++; return takes.removeFirstOrNull() }
-        override fun save(profile: FloatArray) { saved = profile; onNow = true }
+        var saveFails = false
+        override fun save(profile: FloatArray) { if (saveFails) throw java.io.IOException("disk"); saved = profile; onNow = true }
         override fun off() { offs++; onNow = false; saved = null }
     }
 
@@ -714,5 +715,69 @@ class SettingsModelTest {
         advanceTimeBy(10_000); runCurrent()
         assertEquals(Status(MyVoiceRules.Lines.NOT_YOU, Tone.ERROR), m.state.value.wakeLine)
         assertFalse(m.state.value.wakeTesting)
+    }
+
+    @Test fun aVoiceThatCannotBeWrittenIsAFailureNotACrash() = runTest {
+        val m = myVoiceModel(); listening(m)
+        voice.saveFails = true
+        voice.takes.addAll(listOf(ME, NEAR, ME, NEAR, ME))
+        clipsToFeed = List(5) { clip() }
+        m.setMyVoiceOn(true)
+        advanceUntilIdle()
+        assertEquals(Status(MyVoiceRules.Lines.FAILED, Tone.ERROR), m.state.value.myVoiceLine)
+        assertFalse(settings.myVoiceOn); assertFalse(m.state.value.myVoiceOn); assertFalse(m.state.value.myVoiceSetting)
+    }
+
+    @Test fun aSetupErrorStaysAcrossReloadUntilThePersonActsAgain() = runTest {
+        val m = myVoiceModel(); listening(m)
+        clipsToFeed = emptyList()
+        m.setMyVoiceOn(true)
+        advanceUntilIdle()
+        val timedOut = Status(MyVoiceRules.Lines.TIMED_OUT, Tone.ERROR)
+        assertEquals(timedOut, m.state.value.myVoiceLine)
+        m.reload()
+        assertEquals(timedOut, m.state.value.myVoiceLine)
+        m.setMyVoiceOn(false)
+        m.reload()
+        assertNull(m.state.value.myVoiceLine)
+    }
+
+    @Test fun aGoneVoiceCheckModelAsksToBeSetUpAgain() = runTest {
+        val body = ByteArray(100) { it.toByte() }
+        val spec = SpeakerModelSpec("m", "m.onnx", "https://x", MessageDigest.getInstance("SHA-256").digest(body).joinToString("") { "%02x".format(it) }, body.size.toLong(), 192)
+        val file = SpeakerModelFile(File(tmp.root, "speaker2"), spec, { _, f, _ -> f.writeBytes(body) }, backgroundScope)
+        val m = myVoiceModel(file); listening(m)
+        settings.myVoiceOn = true
+        m.reload()
+        assertEquals(Status(MyVoiceRules.Lines.SET_UP_AGAIN, Tone.ERROR), m.state.value.myVoiceLine)
+        file.fetch()
+        m.reload()
+        assertEquals(Status(MyVoiceRules.Lines.ON), m.state.value.myVoiceLine)
+    }
+
+    @Test fun leavingSettingsEndsASetupAndSavesNothing() = runTest {
+        val m = myVoiceModel(); listening(m)
+        voice.takes.addAll(listOf(ME, NEAR))
+        clipsToFeed = List(2) { clip() }
+        gate = kotlinx.coroutines.CompletableDeferred()
+        m.setMyVoiceOn(true)
+        runCurrent()
+        assertTrue(m.state.value.myVoiceSetting)
+        m.leaveSettings()
+        advanceUntilIdle()
+        assertFalse(m.state.value.myVoiceSetting)
+        assertNull(voice.saved); assertFalse(settings.myVoiceOn)
+        gate = null
+    }
+
+    @Test fun theModelDownloadShowsAPercent() = runTest {
+        val body = ByteArray(100) { it.toByte() }
+        val spec = SpeakerModelSpec("m", "m.onnx", "https://x", MessageDigest.getInstance("SHA-256").digest(body).joinToString("") { "%02x".format(it) }, body.size.toLong(), 192)
+        val file = SpeakerModelFile(File(tmp.root, "speaker3"), spec, { _, f, progress -> progress(40); kotlinx.coroutines.yield(); f.writeBytes(body) }, backgroundScope)
+        val m = myVoiceModel(file); listening(m)
+        val lines = linesOf(m)
+        m.setMyVoiceOn(true)
+        advanceUntilIdle()
+        assertTrue(lines.toString(), lines.contains("${MyVoiceRules.Lines.GETTING_MODEL} 40%"))
     }
 }

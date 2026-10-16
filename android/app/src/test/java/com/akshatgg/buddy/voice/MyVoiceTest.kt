@@ -94,12 +94,23 @@ class MyVoiceTest {
 }
 
 class RunWithinTest {
+    // an earlier test's hung or cancelled check may still be finishing: wait until it has
+    @org.junit.Before fun settle() { Thread.sleep(700) }
+
     @Test fun anAnswerInTimeIsGiven() = assertEquals(true, runWithin(2_000) { true })
 
     @Test fun aCheckThatTakesTooLongIsNull() {
         val t0 = System.nanoTime()
         assertNull(runWithin(100) { Thread.sleep(5_000); true })
         assertTrue((System.nanoTime() - t0) / 1_000_000 < 2_000)
+    }
+
+    @Test fun aCheckStillRunningMeansTheNextOneIsSkipped() {
+        val until = System.nanoTime() + 400_000_000L
+        assertNull(runWithin(50) { while (System.nanoTime() < until) { /* a hung native call: ignores interrupts */ }; true })
+        assertNull("skipped, not queued", runWithin(2_000) { true })
+        Thread.sleep(600)
+        assertEquals(true, runWithin(2_000) { true })
     }
 
     @Test fun aCheckThatThrowsIsNull() = assertNull(runWithin<Boolean>(2_000) { error("engine") })

@@ -38,9 +38,12 @@ val fetchSherpaOnnx by tasks.registering {
         if (out.isFile && sha(out) == sherpaSha256) return@doLast
         out.parentFile.mkdirs()
         val part = File(out.path + ".part")
-        URI("https://github.com/k2-fsa/sherpa-onnx/releases/download/v$sherpaVersion/${out.name}").toURL().openStream().use { input -> part.outputStream().use { input.copyTo(it) } }
+        val connection = URI("https://github.com/k2-fsa/sherpa-onnx/releases/download/v$sherpaVersion/${out.name}").toURL().openConnection()
+        connection.connectTimeout = 30_000
+        connection.readTimeout = 60_000
+        connection.getInputStream().use { input -> part.outputStream().use { input.copyTo(it) } }
         check(sha(part) == sherpaSha256) { "sherpa-onnx AAR did not match its SHA-256" }
-        part.renameTo(out)
+        check(part.renameTo(out)) { "could not move the sherpa-onnx AAR into place" }
     }
 }
 tasks.named("preBuild") { dependsOn(fetchSherpaOnnx) }
@@ -97,7 +100,8 @@ android {
     // Minify is off. If it is ever turned on, it needs: -keep class com.k2fsa.sherpa.onnx.** { *; }
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
-        // Keeps the native libraries uncompressed-out of the APK's way: the APK is about 17 MB larger instead of about 40.
+        // The native libraries stay compressed inside the APK (Android unpacks them on install), so sherpa-onnx makes the APK
+        // about 17 MB larger instead of about 40.
         jniLibs { useLegacyPackaging = true }
     }
 }

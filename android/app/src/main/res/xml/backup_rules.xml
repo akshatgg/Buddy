@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Before Android 12: the owner's voice and the voice-check model are not backed up. -->
+<full-backup-content>
+    <exclude domain="file" path="my-voice.json" />
+    <exclude domain="file" path="voice-model" />
+</full-backup-content>

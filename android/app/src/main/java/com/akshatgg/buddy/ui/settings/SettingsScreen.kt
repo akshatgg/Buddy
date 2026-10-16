@@ -40,6 +40,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -151,6 +152,7 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
     var disclosing by rememberSaveable { mutableStateOf(false) } // Buddy can type for you: its disclosure is up
 
     LaunchedEffect(Unit) { model.refreshFree() }
+    DisposableEffect(Unit) { onDispose { model.leaveSettings() } } // leaving Settings ends a running Only my voice setup
     LifecycleResumeEffect(Unit) {
         if (model.resumed(canFloat = context.allowed().float)) on.powerChanged(true)
         model.memoryShown()

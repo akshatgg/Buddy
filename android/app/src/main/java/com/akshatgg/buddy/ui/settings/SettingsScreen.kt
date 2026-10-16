@@ -96,6 +96,7 @@ import com.akshatgg.buddy.ui.panel.Segmented
 import com.akshatgg.buddy.ui.theme.Buddy
 import com.akshatgg.buddy.ui.theme.BuddyRadius
 import com.akshatgg.buddy.update.UpdateState
+import com.akshatgg.buddy.voice.MyVoiceRules
 import com.akshatgg.buddy.voice.VoiceWords
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
@@ -227,6 +228,10 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
                         },
                         test = model::testWake,
                     )
+                    if (state.wakeOn && state.wakeListening) {
+                        Hairline()
+                        MyVoiceRow(state, onChange = model::setMyVoiceOn, redo = model::redoMyVoice)
+                    }
                     Hairline()
                     Row(Modifier.rowPadding(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f)) {
@@ -458,6 +463,32 @@ private fun WakeRow(state: SettingsState, onChange: (Boolean) -> Unit, test: () 
             // A name the model can't hear (not Buddy itself) is a hint, not a stop: "Hey Buddy" still works.
             val unheard = state.name.isNotBlank() && VoiceWords.wakePhrase(state.name) != "hey buddy" && !state.wakeNameHeard
             Text(if (unheard) VoiceWords.WakeLines.cantListen(state.name) else VoiceWords.WakeLines.SPELLING_HINT, color = colors.muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+        }
+    }
+}
+
+/**
+ * Only my voice: after "Hey <name>" Buddy answers only the owner. Turning it on gets the voice check (28 MB) and has the
+ * person say the phrase five times; the voice stays on this phone. Shown only while Listen for Hey <name> is listening.
+ */
+@Composable
+private fun MyVoiceRow(state: SettingsState, onChange: (Boolean) -> Unit, redo: () -> Unit) {
+    val colors = Buddy.colors
+    Column(Modifier.rowPadding()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(MyVoiceRules.Lines.LABEL)
+                Text(MyVoiceRules.Lines.ABOUT, color = colors.muted, style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(
+                checked = state.myVoiceOn || state.myVoiceSetting,
+                onCheckedChange = onChange,
+                colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.accentFg),
+            )
+        }
+        StatusLine(state.myVoiceLine)
+        if (state.myVoiceOn && !state.myVoiceSetting) {
+            Row(Modifier.padding(top = 8.dp)) { Secondary(MyVoiceRules.Lines.REDO, onClick = redo) }
         }
     }
 }

@@ -57,12 +57,27 @@ class MainViewModel(saved: SavedStateHandle) : ViewModel() {
         wakeChanged = { BubbleService.listen(graph.appContext); BubbleService.wakeChanged(graph.appContext) },
         micAllowed = { ContextCompat.checkSelfPermission(graph.appContext, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED },
         modelMissing = { graph.shared.voiceModelMissing },
-        test = { ms, heard ->
+        test = { ms, heard, notYou ->
             coroutineScope {
                 val counting = launch { BubbleBus.wakes.collect { heard() } }
+                val turnedAway = launch { BubbleBus.notYou.collect { notYou() } }
                 BubbleService.test(graph.appContext, ms)
                 delay(ms)
                 counting.cancel()
+                turnedAway.cancel()
+            }
+        },
+        speakerModel = graph.speakerModel,
+        myVoice = graph.myVoice,
+        collectClips = { phrase, ms, onClip ->
+            // the listener hears only this phrase for `ms`, with no voice check; each phrase's audio comes here
+            try {
+                coroutineScope {
+                    BubbleService.enroll(graph.appContext, phrase, ms)
+                    kotlinx.coroutines.withTimeoutOrNull(ms) { BubbleBus.clips.collect { onClip(it) } }
+                }
+            } finally {
+                BubbleService.stopEnroll(graph.appContext)
             }
         },
     )

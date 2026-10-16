@@ -11,16 +11,16 @@ sealed interface WakeEvent {
 }
 
 /**
- * Listens to the microphone all the time for the wake phrase ("hey <name>") and nothing else: the recognizer runs on the
- * device over a grammar of the phrase and [unk], and nothing is sent anywhere. Only an exact final result that begins with
- * the phrase, each word at least `floor` sure, is a wake. The last 25 s are kept in memory only, so that a request said in
+ * Listens to the microphone all the time for the wake phrases ("hey buddy", "buddy", and "hey <name>", "<name>" when the
+ * model can hear the name) and nothing else: the recognizer runs on the device over a grammar of the phrases and [unk], and
+ * nothing is sent anywhere. Only an exact final result that begins with a phrase, each word at least `floor` sure, is a wake. The last 25 s are kept in memory only, so that a request said in
  * the same breath ("hey rahul call mom") is taken from where the phrase ended. After a wake the recognizer starts afresh.
  * Time is counted in samples. Used from one coroutine; the caller picks a thread that may block (Dispatchers.IO).
  */
 class WakeListener(
     private val mic: () -> PcmSource,
     private val spotters: Spotters,
-    private val phrase: String,
+    private val phrases: List<String>,
     private val floor: Float = VoiceWords.WAKE_FLOOR,
     private val paused: () -> Boolean = { false }, // a call, MicBus busy, a hands-free turn: the mic is let go of
     private val silenced: () -> Boolean = { false }, // another app records: the mic stays open (it reads zeros), nothing is fed
@@ -35,7 +35,7 @@ class WakeListener(
 
     /** Listens until cancelled: each wake gives Woke, then (unless testOnly) Request with the WAV of what followed. */
     suspend fun run(on: suspend (WakeEvent) -> Unit) {
-        val grammar = listOf(phrase, "[unk]")
+        val grammar = phrases + "[unk]"
         val chunk = ShortArray(CHUNK)
         var source: PcmSource? = null
         var spotter: Spotter? = null
@@ -66,7 +66,7 @@ class WakeListener(
                 total += n
                 kept.add(chunk, n)
                 val final = spotter?.accept(chunk, n) ?: continue
-                val wake = VoiceWords.wakeFrom(parseVosk(final), phrase, floor) ?: continue
+                val wake = VoiceWords.wakeFrom(parseVosk(final), phrases, floor) ?: continue
 
                 on(WakeEvent.Woke)
                 if (testOnly) {

@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   heardWords, heardAnswer, wantsServer, answerGrammar, spokenQuestion, spokenLines, asksBack, unlockLine, callingLine, VOICE_LINES,
-  wakePhrase, wakeMissing, wakeFrom, WAKE_FLOOR, REQUEST, WAKE_LINES,
+  wakePhrase, wakeMissing, wakePhrases, wakeNameHeard, wakeFrom, WAKE_FLOOR, REQUEST, WAKE_LINES,
 } = require('../shared/voice-words');
 
 test('a yes word, or the card\'s own verb, is yes; any no word wins; nothing decisive is no', () => {
@@ -138,30 +138,63 @@ test('the name words the model can\'t hear', () => {
   assert.deepStrictEqual(wakeMissing('Rahul'), []);
 });
 
-test('a wake is the phrase as the first words, each sure enough; what follows is the request', () => {
+test('the phrases that wake Buddy: the name twice (when it can be heard), then Buddy twice', () => {
+  const lacks = ['aarav', 'priya'];
+  assert.deepStrictEqual(wakePhrases('Rahul', lacks), ['hey rahul', 'rahul', 'hey buddy', 'buddy']);
+  assert.deepStrictEqual(wakePhrases('Aarav', lacks), ['hey buddy', 'buddy']);
+  assert.deepStrictEqual(wakePhrases('Aarav'), ['hey buddy', 'buddy'], 'the shared list by default');
+  assert.deepStrictEqual(wakePhrases('Buddy', lacks), ['hey buddy', 'buddy']);
+  assert.deepStrictEqual(wakePhrases('Max Power', lacks), ['hey max power', 'max power', 'hey buddy', 'buddy']);
+  assert.deepStrictEqual(wakePhrases('', lacks), ['hey buddy', 'buddy']);
+  assert.deepStrictEqual(wakePhrases('Hey', lacks), ['hey buddy', 'buddy']);
+  assert.deepStrictEqual(wakePhrases('Hey Buddy', lacks), ['hey buddy', 'buddy']);
+  assert.deepStrictEqual(wakePhrases('Hey Rahul', lacks), ['hey rahul', 'rahul', 'hey buddy', 'buddy']);
+  assert.strictEqual(wakeNameHeard('Hey Buddy', lacks), false);
+  assert.strictEqual(WAKE_LINES.label('Hey Rahul', true), 'Listen for "Hey Buddy" or "Hey Rahul"');
+  assert.deepStrictEqual(wakePhrases('123', lacks), ['hey buddy', 'buddy']);
+  assert.strictEqual(wakeNameHeard('Rahul', lacks), true);
+  assert.strictEqual(wakeNameHeard('Aarav', lacks), false);
+  assert.strictEqual(wakeNameHeard('Buddy', lacks), false);
+});
+
+test('a wake is a phrase as the first words, each sure enough; what follows is the request', () => {
   const w = (word, conf, start, end) => ({ word, conf, start, end });
   const said = (...words) => ({ text: words.map((x) => x.word).join(' '), result: words });
-  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 1, 1.2), w('rahul', 0.8, 1.2, 1.6)), 'hey rahul', 0.6), { endSec: 1.6, follows: false });
-  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 1, 1.2), w('rahul', 0.8, 1.2, 1.6), w('[unk]', 1, 1.7, 2.5)), 'hey rahul', 0.6), { endSec: 1.6, follows: true });
-  assert.strictEqual(wakeFrom(said(w('[unk]', 1, 0, 1), w('hey', 0.9, 1, 1.2), w('rahul', 0.9, 1.2, 1.6)), 'hey rahul', 0.6), null, 'the name in the middle of talk');
-  assert.strictEqual(wakeFrom(said(w('rahul', 0.9, 0, 0.4)), 'hey rahul', 0.6), null, '"Hey" is required');
-  assert.strictEqual(wakeFrom(said(w('hey', 0.5, 1, 1.2), w('rahul', 0.9, 1.2, 1.6)), 'hey rahul', 0.6), null, 'not sure enough');
-  assert.strictEqual(wakeFrom({ text: '', result: [] }, 'hey rahul', 0.6), null);
-  assert.strictEqual(wakeFrom(null, 'hey rahul', 0.6), null);
+  const P = ['hey rahul', 'rahul', 'hey buddy', 'buddy'];
+  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 1, 1.2), w('rahul', 0.8, 1.2, 1.6)), P, 0.6), { endSec: 1.6, follows: false, phrase: 'hey rahul' });
+  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 1, 1.2), w('rahul', 0.8, 1.2, 1.6), w('[unk]', 1, 1.7, 2.5)), 'hey rahul', 0.6), { endSec: 1.6, follows: true, phrase: 'hey rahul' }, 'one string still works');
+  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 1, 1.2), w('rahul', 0.9, 1.2, 1.6), w('call', 0.9, 1.7, 2), w('mom', 0.9, 2, 2.3)), P, 0.6),
+    { endSec: 1.6, follows: true, phrase: 'hey rahul' }, '"hey rahul" is preferred over "rahul"');
+  assert.deepStrictEqual(wakeFrom(said(w('hey', 0.9, 1, 1.2), w('buddy', 0.9, 1.2, 1.5), w('what', 0.9, 1.6, 1.8)), P, 0.6), { endSec: 1.5, follows: true, phrase: 'hey buddy' });
+  assert.deepStrictEqual(wakeFrom(said(w('buddy', 0.9, 0, 0.4)), P, 0.6), { endSec: 0.4, follows: false, phrase: 'buddy' });
+  assert.deepStrictEqual(wakeFrom(said(w('rahul', 0.9, 0, 0.4), w('call', 0.9, 0.5, 0.8)), P, 0.6), { endSec: 0.4, follows: true, phrase: 'rahul' });
+  assert.strictEqual(wakeFrom(said(w('[unk]', 1, 0, 1), w('hey', 0.9, 1, 1.2), w('rahul', 0.9, 1.2, 1.6)), P, 0.6), null, 'the name in the middle of talk');
+  assert.strictEqual(wakeFrom(said(w('[unk]', 1, 0, 1), w('buddy', 0.9, 1, 1.4)), P, 0.6), null, 'must start with a phrase');
+  assert.strictEqual(wakeFrom(said(w('rahul', 0.9, 0, 0.4)), ['hey rahul'], 0.6), null, '"Hey" is required by that phrase');
+  assert.strictEqual(wakeFrom(said(w('hey', 0.5, 1, 1.2), w('rahul', 0.9, 1.2, 1.6)), P, 0.6), null, 'not sure enough');
+  assert.strictEqual(wakeFrom(said(w('buddy', 0.5, 0, 0.4)), P, 0.6), null, 'a low-confidence word');
+  assert.strictEqual(wakeFrom({ text: '', result: [] }, P, 0.6), null);
+  assert.strictEqual(wakeFrom(null, P, 0.6), null);
 });
 
 test('the wake numbers and lines', () => {
   assert.strictEqual(WAKE_FLOOR, 0.6);
   assert.deepStrictEqual(REQUEST, { quietMs: 1200, nothingMs: 8000, maxMs: 20000 });
-  assert.strictEqual(WAKE_LINES.cantListen('Xyzzy'), "Buddy can't listen for 'Xyzzy'. Try another spelling.");
-  assert.strictEqual(WAKE_LINES.notCaught('Rahul'), "I didn't catch that. Say 'Hey Rahul' and try again.");
-  assert.strictEqual(WAKE_LINES.sayNow('Rahul'), 'Say "Hey Rahul" now.');
+  assert.strictEqual(WAKE_LINES.cantListen('Aarav'), `Buddy can't hear 'Aarav'. Say "Hey Buddy" instead, or try another spelling.`);
+  assert.strictEqual(WAKE_LINES.notCaught('Rahul', true), `I didn't catch that. Say 'Hey Buddy' or 'Hey Rahul' and try again.`);
+  assert.strictEqual(WAKE_LINES.notCaught('Aarav', false), `I didn't catch that. Say 'Hey Buddy' and try again.`);
+  assert.strictEqual(WAKE_LINES.sayNow('Rahul', true), 'Say "Hey Buddy" or "Hey Rahul" now.');
+  assert.strictEqual(WAKE_LINES.sayNow('Aarav', false), 'Say "Hey Buddy" now.');
   assert.strictEqual(WAKE_LINES.heard, 'Heard you ✓');
-  assert.strictEqual(WAKE_LINES.notHeard('Rahul'), 'I didn\'t hear "Hey Rahul". Try again.');
-  assert.strictEqual(WAKE_LINES.privacy('Rahul'), "Your microphone stays on. Nothing leaves this device until you say 'Hey Rahul'.");
-  assert.strictEqual(WAKE_LINES.label('Rahul'), 'Listen for "Hey Rahul"');
+  assert.strictEqual(WAKE_LINES.notHeard('Rahul', true), 'I didn\'t hear "Hey Buddy" or "Hey Rahul". Try again.');
+  assert.strictEqual(WAKE_LINES.notHeard('Aarav', false), 'I didn\'t hear "Hey Buddy". Try again.');
+  assert.strictEqual(WAKE_LINES.privacy('Rahul', true), "Your microphone stays on. Nothing leaves this device until you say 'Hey Buddy' or 'Hey Rahul'.");
+  assert.strictEqual(WAKE_LINES.privacy('Aarav', false), "Your microphone stays on. Nothing leaves this device until you say 'Hey Buddy'.");
+  assert.strictEqual(WAKE_LINES.label('Rahul', true), 'Listen for "Hey Buddy" or "Hey Rahul"');
+  assert.strictEqual(WAKE_LINES.label('Buddy', false), 'Listen for "Hey Buddy"');
   assert.strictEqual(WAKE_LINES.tapToListen, 'Tap me to listen again');
-  assert.strictEqual(WAKE_LINES.listening('Rahul'), 'Listening for "Hey Rahul"');
+  assert.strictEqual(WAKE_LINES.listening('Rahul', true), 'Listening for "Hey Buddy" or "Hey Rahul"');
+  assert.strictEqual(WAKE_LINES.listening('Aarav', false), 'Listening for "Hey Buddy"');
   assert.strictEqual(WAKE_LINES.gettingEars, "Getting Buddy's ears ready (36 MB)…");
   assert.strictEqual(WAKE_LINES.earsFailed, "Couldn't get Buddy's ears ready. Check the internet and try again.");
   assert.strictEqual(WAKE_LINES.signIn, 'Sign in to talk to Buddy.');

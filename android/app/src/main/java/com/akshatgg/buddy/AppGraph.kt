@@ -63,6 +63,7 @@ import com.akshatgg.buddy.ui.panel.PanelHands
 import com.akshatgg.buddy.ui.panel.PanelModel
 import com.akshatgg.buddy.voice.HandsFree
 import com.akshatgg.buddy.voice.SpokenChat
+import com.akshatgg.buddy.voice.WakeRules
 import com.akshatgg.buddy.voice.AudioRecordSource
 import com.akshatgg.buddy.voice.Ears
 import com.akshatgg.buddy.voice.KeyguardLock
@@ -189,7 +190,7 @@ class AppGraph(
             override fun sendSpoken(text: String) = model.sendSpoken(text)
             override val busy: Boolean get() = model.state.value.busy
         }
-        HandsFree(chat, talkBack, { audio, mime -> cloud.transcribe(audio, mime) }, { settings.buddyName }, BubbleBus::say)
+        HandsFree(chat, talkBack, { audio, mime -> cloud.transcribe(audio, mime) }, { settings.buddyName }, BubbleBus::say, { WakeRules.nameHeard(settings.buddyName, shared.voiceModelMissing) })
     }
 
     /** How the panel and the Fix sheet ask the AI: through the router, unless a test answers instead. */

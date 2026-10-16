@@ -153,7 +153,7 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
       if (listeners[event]) listeners[event].push(fn);
     },
     /**
-     * Starts the always-on wake loop ({ phrase, floor, testOnly }) or, with null, ends it. It runs beside the commands:
+     * Starts the always-on wake loop ({ phrases, floor, testOnly }) or, with null, ends it. It runs beside the commands:
      * the page pauses it while one runs and goes on after. Only a window made for the loop (or already there) is used:
      * ending the loop never makes one.
      */

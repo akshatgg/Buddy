@@ -2,7 +2,7 @@ package com.akshatgg.buddy.voice
 
 import kotlinx.coroutines.delay
 
-/** Everything that must be so for Buddy to listen for "Hey <name>" at all. */
+/** Everything that must be so for Buddy to listen for "Hey Buddy" (and "Hey <name>") at all. */
 data class WakeSituation(
     val wakeOn: Boolean, // the switch in Settings
     val buddyOn: Boolean, // the floating buddy runs (the service the microphone belongs to)
@@ -10,14 +10,13 @@ data class WakeSituation(
     val voiceOn: Boolean, // the server can write down what is said
     val micAllowed: Boolean, // Android's microphone permission
     val modelReady: Boolean, // the on-device model is there
-    val nameOk: Boolean, // a name the model can hear
     val micService: Boolean, // the service is a microphone one now (it can only become one with the app on screen)
 )
 
 object WakeRules {
     /** All must be true. */
     fun listen(s: WakeSituation): Boolean =
-        s.wakeOn && s.buddyOn && s.signedIn && s.voiceOn && s.micAllowed && s.modelReady && s.nameOk && s.micService
+        s.wakeOn && s.buddyOn && s.signedIn && s.voiceOn && s.micAllowed && s.modelReady && s.micService
 
     /**
      * The listener lets go of the microphone while a call rings or runs, while Buddy's own 🎤 or a spoken answer records
@@ -27,9 +26,11 @@ object WakeRules {
     fun paused(inCall: Boolean, micBusy: Int, turn: Boolean): Boolean =
         inCall || micBusy > 0 || turn
 
-    /** A name the model can hear: letters, and none of the words the model lacks. */
-    fun nameHeard(name: String, missing: Set<String>): Boolean =
-        VoiceWords.wakePhrase(name) != null && VoiceWords.wakeMissing(name, missing).isEmpty()
+    /**
+     * Whether "Hey <name>" wakes Buddy besides "Hey Buddy": letters, none of the words the model lacks, and not Buddy itself.
+     * Only picks the copy and the hint: a name the model can't hear never stops the listening.
+     */
+    fun nameHeard(name: String, missing: Set<String>): Boolean = VoiceWords.wakeNameHeard(name, missing)
 
     /**
      * Waits until `busy` has been false twice in a row, a poll apart (a spoken turn goes from thinking to speaking to

@@ -131,16 +131,17 @@ function registerSettingsIpc({
   function wakeSection(buddyName) {
     const state = wake?.state() ?? { on: false, line: null };
     const name = shownName(buddyName); // the same (at most) three words that are listened for
+    const heard = wake?.nameHeard?.(buddyName) ?? true; // "Hey <name>" wakes it too, not only "Hey Buddy"
     return {
       on: state.on === true,
       line: state.line ?? null,
       testing: wakeTesting,
-      label: WAKE_LINES.label(name),
-      privacy: WAKE_LINES.privacy(name),
+      label: WAKE_LINES.label(name, heard),
+      privacy: WAKE_LINES.privacy(name, heard),
       heard: WAKE_LINES.heard,
-      sayNow: WAKE_LINES.sayNow(name),
-      notHeard: WAKE_LINES.notHeard(name),
-      hint: SPELLING_HINT, // under the switch while it listens
+      sayNow: WAKE_LINES.sayNow(name, heard),
+      notHeard: WAKE_LINES.notHeard(name, heard),
+      hint: state.hint ?? SPELLING_HINT, // under the switch while it listens
       percent: state.percent ?? null, // the model download, while it runs
     };
   }

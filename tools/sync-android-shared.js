@@ -46,12 +46,17 @@ const LINE_ITEMS = [[{ type: 'buddy', say: 'Okay!', text: 'x' }, { type: 'buddy'
   { type: 'buddy', say: '', text: 'y'.repeat(241) }, { type: 'event', text: '✅ Opened YouTube' }, { type: 'event', text: '📝 Remembered: x' },
   { type: 'error', text: 'x', code: 'network' }, { type: 'error', text: 'Sign in to use Buddy.', code: 'signed_out' }, { type: 'question', text: 'q' }]];
 const ASKS = ['Who should I call?', 'I found lots of apps called a. Tell me the full name.', "I couldn't find YouTube on this phone.", ''];
-const WAKE_NAMES = ['Rahul', 'Anaya', 'R2D2', 'Aarav Priya', '  Mr.  Rahul  Kumar Singh ', 'Zoë', '123', '', 'Xyzzy', 'Aarav'];
+const WAKE_NAMES = ['Rahul', 'Anaya', 'R2D2', 'Aarav Priya', '  Mr.  Rahul  Kumar Singh ', 'Zoë', '123', '', 'Xyzzy', 'Aarav', 'Buddy', 'Max Power', 'Hey', 'Hey Buddy', 'Hey Rahul'];
 const wk = (word, conf, start, end) => ({ word, conf, start, end });
 const wsaid = (...words) => ({ text: words.map((x) => x.word).join(' '), result: words });
 const WAKE_SAID = [wsaid(wk('hey', 0.9, 1, 1.2), wk('rahul', 0.8, 1.2, 1.6)), wsaid(wk('hey', 0.9, 1, 1.2), wk('rahul', 0.8, 1.2, 1.6), wk('[unk]', 1, 1.7, 2.5)),
   wsaid(wk('[unk]', 1, 0, 1), wk('hey', 0.9, 1, 1.2), wk('rahul', 0.9, 1.2, 1.6)), wsaid(wk('rahul', 0.9, 0, 0.4)), wsaid(wk('hey', 0.5, 1, 1.2), wk('rahul', 0.9, 1.2, 1.6)),
-  wsaid(wk('hey', 0.6, 1, 1.2), wk('rahul', 0.6, 1.2, 1.6)), { text: '', result: [] }];
+  wsaid(wk('hey', 0.6, 1, 1.2), wk('rahul', 0.6, 1.2, 1.6)), { text: '', result: [] },
+  wsaid(wk('hey', 0.9, 1, 1.2), wk('rahul', 0.9, 1.2, 1.6), wk('call', 0.9, 1.7, 2), wk('mom', 0.9, 2, 2.3)),
+  wsaid(wk('hey', 0.9, 1, 1.2), wk('buddy', 0.9, 1.2, 1.5), wk('what', 0.9, 1.6, 1.8)), wsaid(wk('buddy', 0.9, 0, 0.4)),
+  wsaid(wk('rahul', 0.9, 0, 0.4), wk('call', 0.9, 0.5, 0.8)), wsaid(wk('buddy', 0.5, 0, 0.4)), wsaid(wk('[unk]', 1, 0, 1), wk('buddy', 0.9, 1, 1.4))];
+const WAKE_LIST = ['hey rahul', 'rahul', 'hey buddy', 'buddy'];
+const WAKE_UNSORTED = ['rahul', 'hey rahul']; // the longest still wins
 const KNOWN = [null, ['yes', 'okay', 'send', 'no', 'cancel', 'stop']];
 
 function buildVoiceCases() {
@@ -65,12 +70,17 @@ function buildVoiceCases() {
     lines: LINE_ITEMS.map((items) => ({ items, said: voice.spokenLines(items) })),
     asksBack: ASKS.map((line) => ({ line, asks: voice.asksBack(line) })),
     wake: {
-      phrases: WAKE_NAMES.map((name) => ({ name, phrase: voice.wakePhrase(name), missing: voice.wakeMissing(name, ['aarav', 'priya']) })),
+      phrases: WAKE_NAMES.map((name) => ({
+        name, phrase: voice.wakePhrase(name), missing: voice.wakeMissing(name, ['aarav', 'priya']),
+        all: voice.wakePhrases(name, ['aarav', 'priya']), nameHeard: voice.wakeNameHeard(name, ['aarav', 'priya']),
+      })),
       lacks: ['aarav', 'priya'],
       floor: voice.WAKE_FLOOR,
       request: voice.REQUEST,
-      from: WAKE_SAID.map((said) => ({ said, phrase: 'hey rahul', wake: voice.wakeFrom(said, 'hey rahul', voice.WAKE_FLOOR) })),
-      lines: { name: ' Rahul ', ...Object.fromEntries(Object.entries(voice.WAKE_LINES).map(([k, v]) => [k, typeof v === 'function' ? v(' Rahul ') : v])) },
+      from: [...WAKE_SAID.map((said) => ({ said, phrases: WAKE_LIST })), { said: WAKE_SAID[7], phrases: WAKE_UNSORTED }]
+        .map((c) => ({ ...c, wake: voice.wakeFrom(c.said, c.phrases, voice.WAKE_FLOOR) })),
+      lines: { name: ' Rahul ', ...Object.fromEntries(Object.entries(voice.WAKE_LINES).map(([k, v]) => [k, typeof v === 'function' ? v(' Rahul ', true) : v])) },
+      unheard: Object.fromEntries(Object.entries(voice.WAKE_LINES).filter(([, v]) => typeof v === 'function').map(([k, v]) => [k, v(' Aarav ', false)])),
     },
     unlock: [['phone', 'message'], ['phone', 'call'], ['Mac', 'message'], ['Mac', 'call']]
       .map(([device, kind]) => ({ device, kind, name: 'Priya Sharma', said: voice.unlockLine(device, kind, 'Priya Sharma') })),

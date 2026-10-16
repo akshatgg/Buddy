@@ -71,7 +71,7 @@ function setup({
   // older main.js would.
   withHome = true, hasNotch = false, claude = CLAUDE_OUT,
   // "Hey <name>" (wake.js): a stand-in that notes refresh() and answers `wakeHeard` wakes (after `wakeGate`, a promise, if given).
-  wakeHeard = 2, wakeGate = null, wakeState = { on: true, line: 'Listening' },
+  wakeHeard = 2, wakeGate = null, wakeState = { on: true, line: 'Listening' }, nameHeard = true,
 } = {}) {
   let wakeChanged = null;
   const data = { ...structuredClone(DEFAULTS), ...stored };
@@ -199,6 +199,7 @@ function setup({
     wake: {
       refresh: () => calls.push(['wakeRefresh']),
       state: () => wakeState,
+      nameHeard: () => nameHeard,
       onChange: (fn) => { wakeChanged = fn; },
       async test(onHeard) {
         calls.push(['wakeTest']);
@@ -1481,21 +1482,29 @@ test('the snapshot has the wake row: its state and its worded lines', async () =
     on: false,
     line: 'Allow the microphone in Settings.',
     testing: false,
-    label: 'Listen for "Hey Rahul"',
-    privacy: "Your microphone stays on. Nothing leaves this device until you say 'Hey Rahul'.",
+    label: 'Listen for "Hey Buddy" or "Hey Rahul"',
+    privacy: "Your microphone stays on. Nothing leaves this device until you say 'Hey Buddy' or 'Hey Rahul'.",
     heard: 'Heard you ✓',
-    sayNow: 'Say "Hey Rahul" now.',
-    notHeard: 'I didn\'t hear "Hey Rahul". Try again.',
+    sayNow: 'Say "Hey Buddy" or "Hey Rahul" now.',
+    notHeard: 'I didn\'t hear "Hey Buddy" or "Hey Rahul". Try again.',
     hint: "If Test it doesn't hear you, try another spelling of the name.",
     percent: null,
   });
 });
 
+test('a name the model can\'t hear: the row names Hey Buddy only, and the hint is the state\'s', async () => {
+  const s = setup({ stored: { buddyName: 'Aarav' }, wakeState: { on: true, line: 'x', hint: 'the hint' }, nameHeard: false });
+  const r = (await s.call('settings:get')).wake;
+  assert.strictEqual(r.label, 'Listen for "Hey Buddy"');
+  assert.strictEqual(r.sayNow, 'Say "Hey Buddy" now.');
+  assert.strictEqual(r.hint, 'the hint');
+});
+
 test('a long name: the row names the same three words that are listened for', async () => {
   const s = setup({ stored: { buddyName: 'Sir Reginald Of Wessex' } });
   const r = (await s.call('settings:get')).wake;
-  assert.strictEqual(r.label, 'Listen for "Hey Sir Reginald Of"');
-  assert.strictEqual(r.sayNow, 'Say "Hey Sir Reginald Of" now.');
+  assert.strictEqual(r.label, 'Listen for "Hey Buddy" or "Hey Sir Reginald Of"');
+  assert.strictEqual(r.sayNow, 'Say "Hey Buddy" or "Hey Sir Reginald Of" now.');
 });
 
 test('a change of the wake state (download progress, finish, failure) is pushed to Settings live', async () => {

@@ -378,20 +378,34 @@ class SettingsModelTest {
         assertEquals(0, woke)
     }
 
-    @Test fun aNameTheModelLacksStaysOnButNothingListens() = runTest {
+    @Test fun aNameTheModelLacksStillListensForHeyBuddy() = runTest {
         missing = setOf("xyzzy")
         val m = wakeModel()
         m.setName("Xyzzy")
         m.setWakeOn(true)
         assertTrue(settings.wakeOn)
-        assertEquals(Status("Buddy can't listen for 'Xyzzy'. Try another spelling.", Tone.ERROR), m.state.value.wakeLine)
-        assertEquals(0, woke)
-        assertFalse(m.state.value.wakeCanHear) // Test it is hidden
+        assertNull(m.state.value.wakeLine) // no error: it listens
+        assertEquals(1, woke)
+        assertFalse(m.state.value.wakeNameHeard) // only "Hey Buddy" is named, and the hint says so
+        assertTrue(m.state.value.wakeListening)
         m.setName("Rahul") // a name the model knows
         testScheduler.advanceTimeBy(600); testScheduler.runCurrent()
         assertNull(m.state.value.wakeLine)
-        assertTrue(m.state.value.wakeCanHear)
-        assertEquals(1, woke)
+        assertTrue(m.state.value.wakeNameHeard)
+        assertEquals(2, woke)
+    }
+
+    @Test fun renamingWithTheSwitchOffStillUpdatesWhichNamesAreHeard() = runTest {
+        missing = setOf("aarav")
+        val m = wakeModel()
+        m.setName("Rahul")
+        assertTrue(m.state.value.wakeNameHeard)
+        m.setName("Aarav")
+        assertFalse(m.state.value.wakeNameHeard)
+        m.setName("")
+        assertFalse(m.state.value.wakeNameHeard)
+        m.setName("Rahul")
+        assertTrue(m.state.value.wakeNameHeard)
     }
 
     @Test fun renamingWaitsForTheTypingToStop() = runTest {
@@ -407,7 +421,7 @@ class SettingsModelTest {
         assertEquals(1, woke)
     }
 
-    @Test fun theSpellingHintShowsOnlyWhileItListens() = runTest {
+    @Test fun theHintShowsOnlyWhileItListens() = runTest {
         missing = setOf("xyzzy")
         val m = wakeModel()
         assertFalse(m.state.value.wakeListening) // off
@@ -415,7 +429,8 @@ class SettingsModelTest {
         assertTrue(m.state.value.wakeListening)
         assertEquals("If Test it doesn't hear you, try another spelling of the name.", com.akshatgg.buddy.voice.VoiceWords.WakeLines.SPELLING_HINT)
         m.setName("Xyzzy"); testScheduler.advanceTimeBy(600); testScheduler.runCurrent()
-        assertFalse(m.state.value.wakeListening) // a name it cannot hear
+        assertTrue(m.state.value.wakeListening) // a name it cannot hear still listens (for Hey Buddy)
+        assertFalse(m.state.value.wakeNameHeard)
         m.setName("Rahul"); testScheduler.advanceTimeBy(600); testScheduler.runCurrent()
         assertTrue(m.state.value.wakeListening)
         m.setWakeOn(false)
@@ -462,10 +477,10 @@ class SettingsModelTest {
         testRuns = { ms, _ -> kotlinx.coroutines.delay(ms) }
         m.testWake()
         runCurrent()
-        assertEquals(Status("Say \"Hey Aarav\" now.", Tone.MUTED), m.state.value.wakeLine)
+        assertEquals(Status("Say \"Hey Buddy\" or \"Hey Aarav\" now.", Tone.MUTED), m.state.value.wakeLine)
         advanceTimeBy(10_000)
         runCurrent()
-        assertEquals(Status("I didn't hear \"Hey Aarav\". Try again.", Tone.ERROR), m.state.value.wakeLine)
+        assertEquals(Status("I didn't hear \"Hey Buddy\" or \"Hey Aarav\". Try again.", Tone.ERROR), m.state.value.wakeLine)
         assertEquals(0, m.state.value.wakeHeard)
     }
 }

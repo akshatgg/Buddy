@@ -257,7 +257,7 @@ class BubbleService : LifecycleService() {
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.bubble_on))
-            .setContentText(if (microphone) VoiceWords.WakeLines.listening(settings.buddyName) else getString(R.string.bubble_on_text))
+            .setContentText(if (microphone) VoiceWords.WakeLines.listening(settings.buddyName, nameHeard()) else getString(R.string.bubble_on_text))
             .setContentIntent(open)
             .addAction(0, getString(R.string.bubble_turn_off), PendingIntent.getService(this, 0, off, PendingIntent.FLAG_IMMUTABLE))
             .setOngoing(true)
@@ -271,9 +271,6 @@ class BubbleService : LifecycleService() {
      */
     private fun startListening() {
         if (!settings.wakeOn || listening) return
-        // A name the model cannot hear: the switch stays on, but nothing listens, so no microphone service and no
-        // "Listening for…" (Settings says so).
-        if (!nameHeard()) return
         if (!micAllowed()) return needsTap() // taken away in Android's settings: the line says to allow it
         if (foreground(capturing = false, microphone = true)) {
             listening = true
@@ -285,7 +282,7 @@ class BubbleService : LifecycleService() {
         }
     }
 
-    /** The switch or the name changed in Settings: listen for the new phrase, or stop (and stop being a microphone service). */
+    /** The switch or the name changed in Settings: listen for the new phrases, or stop (and stop being a microphone service). */
     private fun wakeChanged() {
         if (!settings.wakeOn) {
             settings.wakeNeedsTap = false
@@ -296,18 +293,13 @@ class BubbleService : LifecycleService() {
             }
             return
         }
-        if (listening && !nameHeard()) { // renamed to a name the model cannot hear: no longer a microphone service
-            listening = false
-            wakeControl.stop()
-            foreground(capturing = false, microphone = false)
-            return
-        }
         if (listening) {
             foreground(capturing = false) // the notification names the buddy
             wakeControl.refresh()
         }
     }
 
+    /** Whether "Hey <name>" wakes it too, besides "Hey Buddy" (the notification's words). */
     private fun nameHeard() = WakeRules.nameHeard(settings.buddyName, AppGraph.instance.shared.voiceModelMissing)
 
     private fun micAllowed() = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -319,7 +311,6 @@ class BubbleService : LifecycleService() {
 
     /** "Tap me to listen again", or, when the microphone was taken away, to allow it. */
     private fun tapLine() {
-        if (!nameHeard()) return
         say(if (micAllowed()) VoiceWords.WakeLines.TAP_TO_LISTEN else VoiceWords.WakeLines.MIC_NEEDED, ::openPanel)
     }
 

@@ -26,13 +26,14 @@ class HandsFree(
     private val transcribe: suspend (ByteArray, String) -> String,
     private val name: () -> String,
     private val bubble: (String) -> Unit = {},
+    private val nameHeard: () -> Boolean = { true }, // "Hey <name>" wakes it too, besides "Hey Buddy" (for the words said back)
 ) {
     /** The last hands-free turn is still being answered: the wake listener waits. */
     val busy: Boolean get() = chat.busy
 
     suspend fun request(wav: ByteArray?) {
         if (chat.busy) return tell(VoiceWords.WakeLines.STILL_BUSY) // not written down: the chat would drop it
-        if (wav == null || wav.isEmpty()) return tell(VoiceWords.WakeLines.notCaught(name()))
+        if (wav == null || wav.isEmpty()) return tell(VoiceWords.WakeLines.notCaught(name(), nameHeard()))
         val words = try {
             transcribe(wav, "audio/wav").trim()
         } catch (e: CancellationException) {
@@ -40,9 +41,9 @@ class HandsFree(
         } catch (e: BuddyError) {
             return tell(if (e.code == "network" || e.code == "timeout") VoiceWords.NO_INTERNET else e.message.orEmpty())
         } catch (e: Exception) {
-            return tell(VoiceWords.WakeLines.notCaught(name()))
+            return tell(VoiceWords.WakeLines.notCaught(name(), nameHeard()))
         }
-        if (words.isEmpty()) return tell(VoiceWords.WakeLines.notCaught(name()))
+        if (words.isEmpty()) return tell(VoiceWords.WakeLines.notCaught(name(), nameHeard()))
         chat.open()
         chat.hidden()
         chat.sendSpoken(words)

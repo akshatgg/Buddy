@@ -1,10 +1,10 @@
 'use strict';
 
-const { WAKE_FLOOR, REQUEST, WAKE_LINES, VOICE_LINES, wakePhrase, wakeMissing } = require('../../shared/voice-words');
+const { WAKE_FLOOR, REQUEST, WAKE_LINES, VOICE_LINES, wakePhrase, wakePhrases, wakeNameHeard } = require('../../shared/voice-words');
 
 /**
  * "Hey <name>" on the Mac: the ear window listens for the phrase all the time, on the device (nothing leaves the Mac before
- * it). This decides when it may listen (shouldListen), tells the ear page the phrase, and sends what is said after a wake
+ * it). This decides when it may listen (shouldListen), tells the ear page the phrases ("Hey Buddy", "Buddy", and the name's two when the model can hear it), and sends what is said after a wake
  * the same way the panel's 🎤 does: written down, then a spoken chat in the panel (actions.voice). Any card that comes of it
  * is still asked aloud and needs its yes. It pauses while the Mac is locked or asleep, while the panel records, and while a
  * spoken turn runs; it resumes after.
@@ -15,7 +15,7 @@ const NO_INTERNET = ['network', 'timeout'];
 const MIC_LINE = 'Allow the microphone in Settings.';
 const BUSY_LINE = "I'm still on the last one. Ask me again in a moment.";
 // vosk-browser 0.0.8 has no call to ask whether the model knows a word, so a name the model does not know is only caught by the
-// static list (model.missing). Under the switch, Settings says what to do when Test it does not hear the person.
+// static list (model.missing). Such a name is not a reason to stop: "Hey Buddy" still wakes it. Under the switch, Settings says what to do when Test it does not hear the person.
 const SPELLING_HINT = WAKE_LINES.spellingHint;
 
 /** The name as shown and said: the same (at most) three words that are listened for. */
@@ -30,8 +30,8 @@ function shownName(name) {
 }
 
 /** Whether the ear may listen now. Every rule must hold. */
-function shouldListen({ wakeOn, buddyOn, signedIn, voiceOn, mic, modelReady, nameOk, locked, asleep, panelListening, turn }) {
-  return Boolean(wakeOn && buddyOn && signedIn && voiceOn && mic === 'granted' && modelReady && nameOk
+function shouldListen({ wakeOn, buddyOn, signedIn, voiceOn, mic, modelReady, locked, asleep, panelListening, turn }) {
+  return Boolean(wakeOn && buddyOn && signedIn && voiceOn && mic === 'granted' && modelReady
     && !locked && !asleep && !panelListening && !turn);
 }
 
@@ -42,7 +42,7 @@ function createWake({
   let turns = 0; // spoken turns running (a say, hear or listen of Buddy's own)
   let asleep = false;
   let locked = false;
-  let sent = null; // what the ear page was last told: null (not listening) or the phrase it listens for
+  let sent = null; // what the ear page was last told: null (not listening) or the phrases it listens for, joined
   let testing = null; // { count, finish } while "Test it" runs
   let modelFailed = false;
   let percent = 0; // the model download, while it runs
@@ -50,8 +50,10 @@ function createWake({
   const changed = () => { for (const fn of listeners) fn(stateOf()); }; // Settings follows the download and the switch live
 
   const name = () => String(store.get('buddyName') ?? '').trim();
-  const phrase = () => wakePhrase(name());
-  const nameOk = () => Boolean(phrase()) && wakeMissing(name(), [...model.missing()]).length === 0;
+  const phrases = () => wakePhrases(name(), [...model.missing()]);
+  const nameHeard = () => wakeNameHeard(name(), [...model.missing()]); // "Hey <name>" wakes it too, not only "Hey Buddy"
+  // A name the model can't hear (not Buddy itself): only a hint, "Hey Buddy" still works.
+  const nameHint = () => name() !== '' && wakePhrase(name()) !== 'hey buddy' && !nameHeard();
   const signedIn = () => account.isSignedIn();
   const voiceOn = () => signedIn() && cloud.last()?.voiceOn === true && cloud.last()?.blocked !== true;
 
@@ -62,7 +64,6 @@ function createWake({
     voiceOn: voiceOn(),
     mic: microphone.status(),
     modelReady: model.ready(),
-    nameOk: nameOk(),
     locked,
     asleep,
     panelListening: panel,
@@ -72,7 +73,6 @@ function createWake({
   /** Why it is not listening (a line for Settings), or null when the person did not ask for it. */
   function reason(i) {
     if (!i.wakeOn) return null;
-    if (!i.nameOk) return WAKE_LINES.cantListen(name());
     if (!i.signedIn) return WAKE_LINES.signIn;
     if (i.mic !== 'granted') return MIC_LINE;
     if (!i.modelReady) return modelFailed ? WAKE_LINES.earsFailed : WAKE_LINES.gettingEars;
@@ -98,19 +98,20 @@ function createWake({
   /** Brings the ear page in line with the rules: it listens for the phrase, or it does not. */
   function apply() {
     const i = inputs();
-    const want = shouldListen(i) ? phrase() : null;
+    const want = shouldListen(i) ? phrases() : null;
     // The window stays through every pause, sleep too: waking from sleep must not send the 37 MB model to a new page.
-    ear.keep(Boolean(want || (i.wakeOn && i.nameOk && i.signedIn && i.mic === 'granted' && i.modelReady)));
-    if (want === sent) return;
-    sent = want;
-    ear.wake(want ? { phrase: want, floor: WAKE_FLOOR, request: REQUEST, testOnly: testing !== null } : null);
+    ear.keep(Boolean(want || (i.wakeOn && i.signedIn && i.mic === 'granted' && i.modelReady)));
+    const key = want ? want.join('|') : null;
+    if (key === sent) return;
+    sent = key;
+    ear.wake(want ? { phrases: want, floor: WAKE_FLOOR, request: REQUEST, testOnly: testing !== null } : null);
     if (!want && !i.wakeOn && !turns) ear.close?.();
   }
 
   function refresh() {
     locked = Boolean(lock?.locked());
     const i = inputs();
-    if (i.wakeOn && i.nameOk && i.signedIn && i.mic === 'granted' && !i.modelReady) getModel();
+    if (i.wakeOn && i.signedIn && i.mic === 'granted' && !i.modelReady) getModel();
     apply();
   }
 
@@ -131,7 +132,7 @@ function createWake({
       const audio = msg && msg.audio;
       const words = audio ? String((await actions.transcribe(audio, 'audio/wav')).text ?? '').trim() : '';
       if (!words) {
-        await talkBack?.say(WAKE_LINES.notCaught(name()));
+        await talkBack?.say(WAKE_LINES.notCaught(shownName(name()), nameHeard()));
         return;
       }
       const r = await actions.voice(words);
@@ -156,6 +157,8 @@ function createWake({
 
   return {
     refresh,
+    /** Whether "Hey <name>" wakes it besides "Hey Buddy" (for the copy in Settings). */
+    nameHeard: (n) => wakeNameHeard(n ?? name(), [...model.missing()]),
     panelListening(on) {
       panel = Boolean(on);
       apply();
@@ -165,7 +168,7 @@ function createWake({
       turns = Math.max(0, turns + (on ? 1 : -1));
       apply();
     },
-    /** Listens for the phrase for 10 s and answers how many times it was heard; `onHeard(n)` hears each one as it comes. */
+    /** Listens for the phrases for 10 s and answers how many times it was heard; `onHeard(n)` hears each one as it comes. */
     test(onHeard) {
       if (!shouldListen(inputs()) || testing) return Promise.resolve(0);
       return new Promise((resolve) => {
@@ -192,7 +195,10 @@ function createWake({
     const i = inputs();
     if (!i.wakeOn) return { on: false, line: modelFailed && !model.ready() ? WAKE_LINES.earsFailed : null };
     const why = reason(i);
-    if (!why) return { on: true, line: WAKE_LINES.listening(shownName(name())) };
+    if (!why) {
+      const line = WAKE_LINES.listening(shownName(name()), nameHeard());
+      return nameHint() ? { on: true, line, hint: WAKE_LINES.cantListen(shownName(name())) } : { on: true, line };
+    }
     return !i.modelReady && !modelFailed ? { on: false, line: why, percent } : { on: false, line: why };
   }
 }

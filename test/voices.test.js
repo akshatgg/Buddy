@@ -65,3 +65,9 @@ test('labels: short name, then the quality and region', () => {
   assert.strictEqual(voiceLabel(v('Odd', 'en-NZ')), 'Odd (NZ)');
   assert.strictEqual(shortName('Ava (Premium)'), 'Ava');
 });
+
+test('names Chromium gives with the language inside are skipped as novelty and shown by their short name', () => {
+  const list = [v('Eddy (English (United Kingdom))', 'en-GB'), v('Grandma (English (United States))', 'en-US'), v('Samantha', 'en-US')];
+  assert.deepStrictEqual(rankVoices(list).map((x) => x.name), ['Samantha']);
+  assert.strictEqual(voiceLabel(v('Moira (English (Ireland))', 'en-IE')), 'Moira (Ireland)');
+});

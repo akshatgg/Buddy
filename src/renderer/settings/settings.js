@@ -238,6 +238,7 @@ function showSection(name) {
     if (s === section) item.setAttribute('aria-current', 'page');
     else item.removeAttribute('aria-current');
   }
+  if (section === 'general') renderVoice(); // not waited for: the list fills in when it arrives
 }
 
 const navItems = [...document.querySelectorAll('.nav-item')];
@@ -408,11 +409,16 @@ function renderWake({ force = false } = {}) {
   wakeReason = reason;
 }
 
-// "Buddy's voice": the English voices on this Mac, best first. Asked for once the page is up (macOS can take a moment to list them).
+// "Buddy's voice": the English voices on this Mac, best first. Asked for when General is shown, never waited for (macOS can take a moment to list them).
+let voiceBusy = false;
 async function renderVoice() {
-  if (onWindows()) return;
+  if (!snap || onWindows() || voiceBusy || $('section-general').hidden) return; // only asked for while General is shown
+  voiceBusy = true;
+  try { await listVoices(); } finally { voiceBusy = false; }
+}
+async function listVoices() {
   const r = await window.buddy.voices();
-  if (!r.ok || !r.available) return;
+  if (!r.ok || !r.available || !r.options.length) return; // no voice to pick from: the row stays hidden
   const select = $('voice');
   select.textContent = '';
   const add = (value, text) => {
@@ -841,7 +847,6 @@ window.addEventListener('focus', async () => {
   const update = await window.buddy.updates();
   if (update.ok) renderUpdates(update);
   await renderPermissions();
-  await renderVoice();
   await mountAiForm($('ai'));
   await renderClaude();
   await loadProjects();
@@ -853,4 +858,5 @@ window.addEventListener('focus', async () => {
     snap = fresh;
     render({ fields: false });
   }
+  renderVoice(); // when General is the section shown; showSection asks for it otherwise
 })();

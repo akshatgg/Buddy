@@ -105,14 +105,14 @@ function listVoices() {
 
 const voices = async () => ({ voices: await listVoices() });
 
-function say({ text, voiceName }) {
+function say({ text, voiceName, fallbackName }) {
   loadModel(); // the ears load while the question is spoken
   return command((finish) => {
     const u = new SpeechSynthesisUtterance(String(text || ''));
-    if (voiceName) {
-      const voice = speechSynthesis.getVoices().find((v) => v.name === voiceName);
-      if (voice) { u.voice = voice; u.lang = voice.lang; } // a voice that is gone: the default one speaks
-    }
+    // The chosen voice, else the best automatic one (main's list may be a little old); neither there: the default voice.
+    const have = speechSynthesis.getVoices();
+    const voice = [voiceName, fallbackName].filter(Boolean).map((n) => have.find((v) => v.name === n)).find(Boolean);
+    if (voice) { u.voice = voice; u.lang = voice.lang; }
     const timer = setTimeout(() => { speechSynthesis.cancel(); finish({}); }, SAY_MAX_MS);
     const end = () => { clearTimeout(timer); finish({}); };
     u.addEventListener('end', end);
@@ -219,7 +219,7 @@ function listen({ quietMs, nothingMs, maxMs }) {
   });
 }
 
-const COMMANDS = { say, hear, listen, voices };
+const COMMANDS = { say, hear, listen };
 
 // ---- the wake loop ("Hey <name>") ----
 // Runs beside the commands, not as one: main starts it (ear:wake { phrases, floor, testOnly }) and ends it (null). It owns the
@@ -325,6 +325,11 @@ window.ear.onWake((args) => {
 });
 
 window.ear.onDo(({ id, cmd, args }) => {
+  // Listing the voices is no command: it needs no microphone, so it neither waits in the queue nor stops the wake loop.
+  if (cmd === 'voices') {
+    voices().then((r) => window.ear.done(id, r), () => window.ear.done(id, { voices: [] }));
+    return;
+  }
   // One command at a time, in the order sent.
   const stopsBefore = stopped;
   commands += 1;
@@ -342,7 +347,7 @@ window.ear.onDo(({ id, cmd, args }) => {
   });
 });
 
-loadModel(); // and once when the window loads
+if (!location.search.includes('quiet')) loadModel(); // and once when the window loads (not for a window made only to list the voices)
 
 window.ear.onStop(() => {
   stopped += 1; // commands still queued behind the running one are flushed

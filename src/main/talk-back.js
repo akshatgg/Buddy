@@ -1,6 +1,6 @@
 'use strict';
 
-const { chooseVoice } = require('./voices');
+const { chooseVoice, bestVoice } = require('./voices');
 const { answerGrammar, heardAnswer, YES_WORDS, NO_WORDS } = require('../../shared/voice-words');
 
 /**
@@ -15,17 +15,19 @@ function createTalkBack({ ear, model, transcribe, voiceName = () => null, now = 
   // The voices macOS has, as [{ name, lang }]; [] when the ear cannot say (then Buddy speaks with the default voice).
   async function voices() {
     if (known && now() - known.at < VOICES_KEEP_MS) return known.list;
+    let list = [];
     try {
-      const r = await ear.call('voices', {});
-      const list = Array.isArray(r?.voices) ? r.voices : [];
-      if (list.length) known = { list, at: now() };
-      return list;
-    } catch {
-      return [];
-    }
+      const r = await ear.call('voices', {}, { quiet: true });
+      if (Array.isArray(r?.voices)) list = r.voices;
+    } catch { /* none */ }
+    known = { list, at: now() }; // an empty list is kept too, so that no line pays the round trip again at once
+    return list;
   }
   // The voice for a line: the one chosen if still on this device, else the best English one, else null (the default).
-  const pickVoice = async (chosen) => chooseVoice(await voices(), chosen === undefined ? voiceName() : chosen);
+  const pickVoice = async (chosen) => {
+    const list = await voices();
+    return { name: chooseVoice(list, chosen === undefined ? voiceName() : chosen), fallback: bestVoice(list) };
+  };
   const writtenDown = async (audio) => String(await transcribe(audio, 'audio/wav')).trim();
   // Every yes/no word except the ones the model is known not to have; those are heard by the server instead.
   const knownWords = (verb) => {
@@ -38,9 +40,9 @@ function createTalkBack({ ear, model, transcribe, voiceName = () => null, now = 
     voices,
     /** `chosen`: a voice to try instead of the saved one (Settings → Play); null is Automatic. */
     say: async (text, chosen) => {
-      let name = null;
-      try { name = await pickVoice(chosen); } catch { /* the default voice */ }
-      await ear.call('say', { text, voiceName: name });
+      let pick = { name: null, fallback: null };
+      try { pick = await pickVoice(chosen); } catch { /* the default voice */ }
+      await ear.call('say', { text, voiceName: pick.name, fallbackName: pick.fallback });
     },
     async hear(verb) {
       try {

@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld('buddy', {
   myVoiceOff: () => ipcRenderer.invoke('settings:my-voice-off'),
   onMyVoiceLine: (fn) => ipcRenderer.on('myvoice:line', (_event, data) => fn(data)),
   onMyVoiceChanged: (fn) => ipcRenderer.on('myvoice:changed', (_event, data) => fn(data)),
+  voices: () => ipcRenderer.invoke('settings:voices'),
+  playVoice: (voiceName) => ipcRenderer.invoke('settings:voice-play', voiceName),
   claudeStatus: (force) => ipcRenderer.invoke('claude:status', { force }),
   claudeGet: () => ipcRenderer.invoke('claude:get'),
   claudeProjects: () => ipcRenderer.invoke('claude:projects'),

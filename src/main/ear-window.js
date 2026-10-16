@@ -4,7 +4,7 @@
  * Buddy's ear: a hidden window whose page speaks (speechSynthesis), listens (the microphone, only while a command
  * runs) and recognises yes or no on the device (vosk). Made on first use, closed `idleMs` after the last call (unless
  * kept), made again after a crash. Main sends the page `ear:do` { id, cmd, args } and `ear:stop`; the page answers
- * `ear:done` { id, result }, accepted only from this window's own page. Commands: say, hear, listen (ear.js).
+ * `ear:done` { id, result }, accepted only from this window's own page. Commands: say, hear, listen, voices (ear.js).
  */
 
 const path = require('node:path');
@@ -79,7 +79,7 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
     forget(w);
   }
 
-  function create() {
+  function create({ quiet = false } = {}) {
     const w = new BrowserWindow({
       width: 200,
       height: 100,
@@ -106,7 +106,7 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
       console.error('[buddy] the ear page crashed:', details?.reason);
       drop(w);
     });
-    ready = w.loadFile(path.join(__dirname, '..', 'renderer', 'ear', 'index.html')).catch((err) => {
+    ready = w.loadFile(path.join(__dirname, '..', 'renderer', 'ear', 'index.html'), quiet ? { query: { quiet: '1' } } : undefined).catch((err) => {
       console.error('[buddy] could not load the ear page:', err.message);
       drop(w);
     });
@@ -178,12 +178,12 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
         console.error('[buddy] the ear:', err.message);
       }
     },
-    /** Never rejects: a page that is gone answers { gone: true }. */
-    async call(cmd, args) {
+    /** Never rejects: a page that is gone answers { gone: true }. `voices` is not queued (ear.js) and needs `quiet` only to avoid the model. */
+    async call(cmd, args, { quiet = false } = {}) {
       clearTimeout(idleTimer);
       idleTimer = null;
       try {
-        if (!win) create();
+        if (!win) create({ quiet }); // quiet: made only to list the voices, so its page loads no model
         const w = win;
         const id = nextId++;
         const answer = new Promise((resolve) => {

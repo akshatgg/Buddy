@@ -28,7 +28,7 @@ function setup(t, { model = null, idleMs = 120000 } = {}) {
       };
       made.push(this);
     }
-    loadFile(file) { this.loaded = file; return Promise.resolve(); }
+    loadFile(file, options) { this.loaded = file; this.loadOptions = options; return Promise.resolve(); }
     on(event, fn) { this.events[event] = fn; }
     isDestroyed() { return this.destroyed; }
     close() { this.destroy(); }
@@ -225,4 +225,22 @@ test('an ear:request with no message at all is a request with no audio and no ph
   ear.on('request', (r) => seen.push(r));
   ipcMain.emit('ear:request', { sender: made[0].webContents }, null);
   assert.deepStrictEqual(seen, [{ audio: null, phrase: null }]);
+});
+
+test('a window made only to list the voices is loaded quietly; any other is not', async (t) => {
+  const a = setup(t);
+  const p = a.ear.call('voices', {}, { quiet: true });
+  await a.tick();
+  assert.deepStrictEqual(a.made[0].loadOptions, { query: { quiet: '1' } });
+  a.answer(a.made[0], { voices: [] });
+  await p;
+});
+
+test('a window made for any other command is not loaded quietly', async (t) => {
+  const b = setup(t);
+  const q = b.ear.call('say', { text: 'Hi' });
+  await b.tick();
+  assert.strictEqual(b.made[0].loadOptions, undefined);
+  b.answer(b.made[0], {});
+  await q;
 });

@@ -151,6 +151,8 @@ class AppGraph(
     val spotters: SharedSpotters by lazy {
         SharedSpotters(ready = voiceModel::ready, generation = { voiceModel.generation }, load = { VoskSpotters(voiceModel.folder()) })
     }
+    /** Buddy's voice for every spoken line, and for Settings' Play. */
+    val speaker: TtsSpeaker by lazy { TtsSpeaker(appContext) { settings.voiceName } }
     val talkBack: TalkBack by lazy {
         val ears = Ears(
             mic = { AudioRecordSource() },
@@ -158,7 +160,7 @@ class AppGraph(
             missing = { shared.voiceModelMissing }, // words the model lacks: not offered, and the server hears the answer too
             transcribe = { audio, mime -> cloud.transcribe(audio, mime) },
         )
-        PhoneTalkBack(TtsSpeaker(appContext), ears, voiceModel, { audio, mime -> cloud.transcribe(audio, mime) },
+        PhoneTalkBack(speaker, ears, voiceModel, { audio, mime -> cloud.transcribe(audio, mime) },
             warm = { scope.launch(Dispatchers.Default) { spotters.warm() } })
     }
     val lock: Lock by lazy { KeyguardLock(appContext) }

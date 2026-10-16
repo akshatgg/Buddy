@@ -13,9 +13,10 @@ const { cleanFact } = require('../../../shared/memory-rules');
 const { WAKE_LINES } = require('../../../shared/voice-words');
 const { MY_VOICE_LINES, setupPhrase } = require('../../../shared/my-voice');
 const { shownName, SPELLING_HINT } = require('../wake');
+const { rankVoices, bestVoice, voiceLabel, shortName } = require('../voices');
 const { PROVIDER_ID: CLAUDE_ID, MODELS: CLAUDE_MODELS, MODEL_LABELS, GET_URL } = require('../claude/find');
 
-const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models', 'listenOnOpen', 'tagOn', 'wakeOn', 'home', 'notchLook'];
+const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models', 'listenOnOpen', 'tagOn', 'wakeOn', 'home', 'notchLook', 'voiceName'];
 const HOMES = ['notch', 'floating']; // where Buddy lives (src/main/home.js)
 const { LOOKS } = require('../notch-window'); // how Buddy shows in the notch
 const NAME_MAX = 24;
@@ -84,6 +85,8 @@ function registerSettingsIpc({
   wake = null,
   // "Only my voice" (my-voice.js); null where there is none (Windows).
   myVoice = null,
+  // Buddy's voice (talk-back.js): lists the voices on this Mac and speaks a line; null where Buddy does not speak (Windows).
+  talkBack = null,
 }) {
   let wakeTesting = false; // "Test it" is listening now
   // The model download's progress, its end or failure (which also turns the switch off): the open Settings follows live.
@@ -225,6 +228,9 @@ function registerSettingsIpc({
     if (Object.hasOwn(changes, 'tagOn') && typeof changes.tagOn !== 'boolean') {
       throw new BuddyError('bad_request', 'Fix where I type must be on or off.');
     }
+    if (Object.hasOwn(changes, 'voiceName') && changes.voiceName !== null && (typeof changes.voiceName !== 'string' || !changes.voiceName || changes.voiceName.length > 100)) {
+      throw new BuddyError('bad_request', 'That voice is not valid.');
+    }
     if (Object.hasOwn(changes, 'wakeOn') && typeof changes.wakeOn !== 'boolean') {
       throw new BuddyError('bad_request', 'Listen for the name must be on or off.');
     }
@@ -298,6 +304,29 @@ function registerSettingsIpc({
     myVoice?.off();
     myVoiceChanged();
     return { myVoice: myVoiceSection() };
+  });
+
+  // Settings → General's "Buddy's voice": the English voices on this Mac, best first; the chosen one only while it is still there.
+  handleSettings('settings:voices', async () => {
+    if (!talkBack?.voices) return { available: false, options: [], automatic: null, chosen: null };
+    const all = await talkBack.voices();
+    const ranked = rankVoices(all);
+    const best = bestVoice(all);
+    const chosen = store.get('voiceName');
+    return {
+      available: true,
+      automatic: best ? shortName(best) : null,
+      options: ranked.map((voice) => ({ name: voice.name, label: voiceLabel(voice) })),
+      chosen: ranked.some((voice) => voice.name === chosen) ? chosen : null, // gone from this Mac: Automatic, silently
+    };
+  });
+
+  // "Play": says a line with the voice picked in the list (not saved yet); null is Automatic.
+  handleSettings('settings:voice-play', async (voiceName = null) => {
+    if (!talkBack) return {};
+    if (voiceName !== null && (typeof voiceName !== 'string' || !voiceName || voiceName.length > 100)) throw new BuddyError('bad_request', 'That voice is not valid.');
+    await talkBack.say(`Hi, I'm ${shownName(store.get('buddyName'))}. This is how I sound.`, voiceName);
+    return {};
   });
 
   handle('settings:save-key', async (providerId, key) => {

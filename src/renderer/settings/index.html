@@ -226,6 +226,15 @@
           </div>
           <input id="myvoice-on" class="switch" type="checkbox" role="switch" aria-label="Only my voice">
         </div>
+        <div id="voice-row" class="group-row" hidden>
+          <div class="grow">
+            <p class="row-title">Buddy's voice</p>
+            <p class="muted small">For a more natural voice, download one: System Settings → Accessibility → Spoken Content → System voice → Manage Voices. Premium voices sound best.</p>
+            <p id="voice-status" class="status muted small" aria-live="polite"></p>
+          </div>
+          <select id="voice" aria-label="Buddy's voice"></select>
+          <button id="voice-play" type="button" class="btn small">Play</button>
+        </div>
         <div class="group-row">
           <div class="grow">
             <p class="row-title">Fix where I type</p>

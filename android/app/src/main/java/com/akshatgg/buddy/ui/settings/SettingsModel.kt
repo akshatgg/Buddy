@@ -19,7 +19,9 @@ import com.akshatgg.buddy.voice.MyVoiceRules
 import com.akshatgg.buddy.voice.MyVoiceSettings
 import com.akshatgg.buddy.voice.Setup
 import com.akshatgg.buddy.voice.SpeakerModelFile
+import com.akshatgg.buddy.voice.VoiceInfo
 import com.akshatgg.buddy.voice.VoiceModel
+import com.akshatgg.buddy.voice.VoiceRank
 import com.akshatgg.buddy.voice.VoiceWords
 import com.akshatgg.buddy.voice.WakeRules
 import kotlinx.coroutines.CancellationException
@@ -143,6 +145,10 @@ data class SettingsState(
     val myVoiceLine: Status? = null,
     /** The model is being fetched or the person is saying "Hey <name>" for it: Set up again waits. */
     val myVoiceSetting: Boolean = false,
+    /** Buddy's voice: the English voices on the phone, best first (name to menu text); null is Automatic. */
+    val voices: List<Pair<String, String>> = emptyList(),
+    val voiceName: String? = null,
+    val playing: Boolean = false,
 )
 
 /**
@@ -170,6 +176,10 @@ class SettingsModel(
      * for each one that "Only my voice" turned away.
      */
     private val test: suspend (Long, () -> Unit, () -> Unit) -> Unit = { ms, _, _ -> delay(ms) },
+    /** The voices of the phone's TextToSpeech, best first (empty until its engine has started). */
+    private val voiceList: suspend () -> List<VoiceInfo> = { emptyList() },
+    /** Speaks the words with the voice now saved. */
+    private val speak: suspend (String) -> Unit = {},
     private val speakerModel: SpeakerModelFile? = null,
     private val myVoice: MyVoiceSettings? = null,
     /**
@@ -188,6 +198,9 @@ class SettingsModel(
     private val current = MutableStateFlow(read(name = settings.buddyName))
     val state: StateFlow<SettingsState> = current.asStateFlow()
     private val fading = mutableMapOf<Line, Job>()
+    private var voiceInfos: List<VoiceInfo> = emptyList()
+
+    init { scope.launch { loadVoices() } }
 
     // Buddy on was asked for while it could not float: it comes on once "Display over other apps" is allowed.
     private var waitingToFloat = false
@@ -210,6 +223,7 @@ class SettingsModel(
             wakeListening = settings.wakeOn && voiceModel?.ready() != false,
             myVoiceOn = settings.myVoiceOn,
             myVoiceLine = restingMyVoiceLine(),
+            voiceName = settings.voiceName,
         )
     }
 
@@ -219,6 +233,39 @@ class SettingsModel(
         // the voice is there but cannot be used: its file is damaged, or the voice-check model is gone or damaged
         myVoice?.profileUsable() == false || speakerModel?.ready() == false -> Status(MyVoiceRules.Lines.SET_UP_AGAIN, Tone.ERROR)
         else -> Status(MyVoiceRules.Lines.ON)
+    }
+
+    private suspend fun loadVoices() {
+        val ranked = VoiceRank.ranked(voiceList())
+        voiceInfos = ranked
+        val labels = VoiceRank.labels(ranked)
+        current.update { it.copy(voices = ranked.map { v -> v.name }.zip(labels)) }
+    }
+
+    /** The menu's first row: "Automatic (India 1)", the voice Buddy would pick. */
+    fun automaticLabel(state: SettingsState): String {
+        val best = VoiceRank.best(voiceInfos)
+        val label = state.voices.firstOrNull { it.first == best }?.second
+        return if (label == null) "Automatic" else "Automatic (${label.substringBefore(" (")})"
+    }
+
+    /** null is Automatic. A voice that is gone from the phone counts as Automatic when Buddy speaks (VoiceRank.resolve). */
+    fun setVoice(name: String?) {
+        settings.voiceName = name
+        current.update { it.copy(voiceName = settings.voiceName) }
+    }
+
+    /** Play: "Hi, I'm <name>. This is how I sound." with the voice now chosen. */
+    fun playVoice() {
+        if (current.value.playing) return
+        current.update { it.copy(playing = true) }
+        scope.launch {
+            try {
+                speak("Hi, I'm ${settings.buddyName.ifBlank { "Buddy" }}. This is how I sound.")
+            } finally {
+                current.update { it.copy(playing = false) }
+            }
+        }
     }
 
     /** Turn on's Continue: off to Android's Accessibility settings. Back with it still off, how to unlock it shows. */
@@ -247,8 +294,9 @@ class SettingsModel(
             myVoiceSetting = it.myVoiceSetting,
             // a setup in progress keeps its line; one that went wrong keeps what it said until the next thing the person does
             myVoiceLine = if (it.myVoiceSetting) it.myVoiceLine else keptSetupLine ?: restingMyVoiceLine(),
+            voices = it.voices, playing = it.playing,
         )
-    }
+    }.also { scope.launch { loadVoices() } } // voices installed meanwhile (Voice settings), or a slow first start
 
     /** The admin may have changed free mode since the app last asked. A failure is only logged: the last known settings show. */
     fun refreshFree() {

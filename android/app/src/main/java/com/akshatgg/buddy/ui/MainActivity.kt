@@ -37,6 +37,7 @@ import com.akshatgg.buddy.update.ApkInstaller
 import com.akshatgg.buddy.update.UpdateState
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import com.akshatgg.buddy.voice.MicBus
 import kotlinx.coroutines.launch
 
 // The panel's and the Fix sheet's "Open Settings" name the part of Settings that fixes the error: "ai", "account" or
@@ -57,6 +58,8 @@ class MainViewModel(saved: SavedStateHandle) : ViewModel() {
         wakeChanged = { BubbleService.listen(graph.appContext); BubbleService.wakeChanged(graph.appContext) },
         micAllowed = { ContextCompat.checkSelfPermission(graph.appContext, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED },
         modelMissing = { graph.shared.voiceModelMissing },
+        voiceList = graph.speaker::voices,
+        speak = { text -> MicBus.holding { graph.speaker.say(text) } }, // the wake listener must not hear it
         test = { ms, heard, notYou ->
             coroutineScope {
                 val counting = launch { BubbleBus.wakes.collect { heard() } }

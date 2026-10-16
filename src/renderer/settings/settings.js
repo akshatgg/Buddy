@@ -238,6 +238,7 @@ function showSection(name) {
     if (s === section) item.setAttribute('aria-current', 'page');
     else item.removeAttribute('aria-current');
   }
+  if (section === 'general') renderVoice(); // not waited for: the list fills in when it arrives
 }
 
 const navItems = [...document.querySelectorAll('.nav-item')];
@@ -410,7 +411,7 @@ function renderWake({ force = false } = {}) {
 }
 
 // "Only my voice": under the wake row, while the wake listens. Its words come worded in the snapshot (snap.myVoice).
-let voiceBusy = false; // a setup is running: its lines are on the row, and a render leaves them alone
+let myVoiceBusy = false; // a setup is running: its lines are on the row, and a render leaves them alone
 function renderMyVoice() {
   const mv = snap.myVoice;
   $('myvoice-row').hidden = onWindows() || !mv || snap.settings.wakeOn !== true || $('wake-row').hidden;
@@ -418,24 +419,48 @@ function renderMyVoice() {
   $('myvoice-title').textContent = mv.label;
   $('myvoice-line').textContent = mv.about;
   $('myvoice-redo').textContent = mv.redo;
-  $('myvoice-on').checked = mv.on === true || voiceBusy;
-  $('myvoice-redo').hidden = !(mv.on === true && !voiceBusy);
-  $('myvoice-redo').disabled = voiceBusy;
-  if (!voiceBusy) setLine('myvoice-status', mv.on ? mv.line || '' : '', mv.tone === 'error' ? 'error' : 'muted');
+  $('myvoice-on').checked = mv.on === true || myVoiceBusy;
+  $('myvoice-redo').hidden = !(mv.on === true && !myVoiceBusy);
+  $('myvoice-redo').disabled = myVoiceBusy;
+  if (!myVoiceBusy) setLine('myvoice-status', mv.on ? mv.line || '' : '', mv.tone === 'error' ? 'error' : 'muted');
 }
 
 /** Runs the setup: lines arrive as main learns the voice (onMyVoiceLine); the answer is the last one. */
 async function runVoiceSetup() {
-  voiceBusy = true;
+  myVoiceBusy = true;
   renderMyVoice();
   const r = await window.buddy.myVoiceSetup();
-  voiceBusy = false;
+  myVoiceBusy = false;
   const line = r.line ?? r.error?.message ?? '';
   if (line) showStatus('myvoice-status', line, r.ok ? 'good' : 'error'); // '' is a setup that was cancelled: nothing to say
   const fresh = await window.buddy.get(); // where it stands now (on only when it was learned)
   if (fresh.ok) snap = fresh;
   renderMyVoice();
   if (line) showStatus('myvoice-status', line, r.ok ? 'good' : 'error');
+}
+
+// "Buddy's voice": the English voices on this Mac, best first. Asked for when General is shown, never waited for (macOS can take a moment to list them).
+let voiceBusy = false;
+async function renderVoice() {
+  if (!snap || onWindows() || voiceBusy || $('section-general').hidden) return; // only asked for while General is shown
+  voiceBusy = true;
+  try { await listVoices(); } finally { voiceBusy = false; }
+}
+async function listVoices() {
+  const r = await window.buddy.voices();
+  if (!r.ok || !r.available || !r.options.length) return; // no voice to pick from: the row stays hidden
+  const select = $('voice');
+  select.textContent = '';
+  const add = (value, text) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = text;
+    select.append(option);
+  };
+  add('', r.automatic ? `Automatic (${r.automatic})` : 'Automatic');
+  for (const voice of r.options) add(voice.name, voice.label);
+  select.value = r.chosen || '';
+  $('voice-row').hidden = false;
 }
 
 async function save(patch, statusId) {
@@ -777,6 +802,13 @@ $('perm-microphone-btn').addEventListener('click', async () => {
   if (!r.ok) showStatus('perm-status', r.error.message, 'error');
 });
 $('listen-on-open').addEventListener('change', () => save({ listenOnOpen: $('listen-on-open').checked }, 'listen-status'));
+$('voice').addEventListener('change', () => save({ voiceName: $('voice').value || null }, 'voice-status'));
+$('voice-play').addEventListener('click', async () => {
+  $('voice-play').disabled = true;
+  const r = await window.buddy.playVoice($('voice').value || null);
+  $('voice-play').disabled = false;
+  if (!r.ok) showStatus('voice-status', r.error.message, 'error');
+});
 $('wake-on').addEventListener('change', () => save({ wakeOn: $('wake-on').checked }, 'wake-status'));
 $('wake-test').addEventListener('click', async () => {
   const wake = snap.wake;
@@ -801,7 +833,7 @@ $('myvoice-on').addEventListener('change', async () => {
   if ($('myvoice-on').checked) return runVoiceSetup();
   const r = await window.buddy.myVoiceOff(); // also ends a setup that is running
   if (r.ok) snap.myVoice = r.myVoice;
-  voiceBusy = false;
+  myVoiceBusy = false;
   renderMyVoice();
   if (!r.ok) showStatus('myvoice-status', r.error.message, 'error');
 });
@@ -876,4 +908,5 @@ window.addEventListener('focus', async () => {
     snap = fresh;
     render({ fields: false });
   }
+  renderVoice(); // when General is the section shown; showSection asks for it otherwise
 })();

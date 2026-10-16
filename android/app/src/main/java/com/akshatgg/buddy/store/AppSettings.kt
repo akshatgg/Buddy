@@ -98,6 +98,11 @@ class AppSettings(private val kv: KeyValue) {
         get() = flag("wakeNeedsTap", false)
         set(v) = kv.putString("wakeNeedsTap", v.toString())
 
+    /** The TextToSpeech voice Buddy speaks with; null is Automatic (the most natural English one, voice/VoiceRank.kt). */
+    var voiceName: String?
+        get() = kv.getString("voiceName")?.takeIf { it.isNotBlank() }
+        set(v) = kv.putString("voiceName", v)
+
     /** The server's last answer about free mode, null when there is none. */
     var cloud: FreeSettings?
         get() = FreeSettings.fromJson(kv.getString("cloud"))

@@ -33,7 +33,7 @@ class HandsFree(
 
     suspend fun request(wav: ByteArray?) {
         if (chat.busy) return tell(VoiceWords.WakeLines.STILL_BUSY) // not written down: the chat would drop it
-        if (wav == null || wav.isEmpty()) return tell(VoiceWords.WakeLines.notCaught(name(), nameHeard()))
+        if (wav == null || wav.isEmpty()) return // nothing heard: stay quiet, the person just says the wake words again
         val words = try {
             transcribe(wav, "audio/wav").trim()
         } catch (e: CancellationException) {
@@ -41,9 +41,9 @@ class HandsFree(
         } catch (e: BuddyError) {
             return tell(if (e.code == "network" || e.code == "timeout") VoiceWords.NO_INTERNET else e.message.orEmpty())
         } catch (e: Exception) {
-            return tell(VoiceWords.WakeLines.notCaught(name(), nameHeard()))
+            return
         }
-        if (words.isEmpty()) return tell(VoiceWords.WakeLines.notCaught(name(), nameHeard()))
+        if (words.isEmpty()) return
         chat.open()
         chat.hidden()
         chat.sendSpoken(words)

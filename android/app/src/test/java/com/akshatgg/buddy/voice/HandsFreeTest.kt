@@ -26,19 +26,19 @@ class HandsFreeTest {
 
     private fun handsFree() = HandsFree(chat, talk, { audio, mime -> transcribed(audio, mime) }, { "Rahul" }, { shown += it })
 
-    @Test fun noRecordingSaysItWasNotCaught() = runTest {
+    @Test fun noRecordingStaysSilent() = runTest {
         handsFree().request(null)
         handsFree().request(ByteArray(0))
-        val line = "I didn't catch that. Say 'Hey Buddy' or 'Hey Rahul' and try again."
-        assertEquals(listOf(line, line), said)
-        assertEquals(listOf(line, line), shown)
+        assertEquals(emptyList<String>(), said)
+        assertEquals(emptyList<String>(), shown)
         assertEquals(emptyList<String>(), log)
     }
 
-    @Test fun nothingWrittenDownByTheServerSaysTheSame() = runTest {
+    @Test fun nothingWrittenDownByTheServerStaysSilent() = runTest {
         transcribed = { _, _ -> "  " }
         handsFree().request(ByteArray(10))
-        assertEquals(listOf("I didn't catch that. Say 'Hey Buddy' or 'Hey Rahul' and try again."), said)
+        assertEquals(emptyList<String>(), said)
+        assertEquals(emptyList<String>(), shown)
         assertEquals(emptyList<String>(), log)
     }
 

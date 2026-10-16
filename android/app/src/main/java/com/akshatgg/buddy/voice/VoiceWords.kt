@@ -165,21 +165,21 @@ object VoiceWords {
         return digits + (wakePhrase(name)?.split(' ')?.filter { it in missing } ?: emptyList())
     }
 
-    /** Every phrase that wakes Buddy: "hey <name>", "<name>" (both only when the model can hear the name), "hey buddy", "buddy". */
+    /** Every phrase that wakes Buddy: "hey <name>" (only when the model can hear the name) and "hey buddy". Never a bare name. */
     fun wakePhrases(name: String, missing: Set<String>): List<String> {
         val phrase = wakePhrase(name)
         // a name that starts with "hey" is not said as "hey hey ..."
         val said = phrase?.split(' ')?.drop(1)?.dropWhile { it == "hey" }?.joinToString(" ").orEmpty()
-        val named = if (said.isNotEmpty() && said != "buddy" && wakeMissing(name, missing).isEmpty()) listOf("hey $said", said) else emptyList()
-        return (named + listOf("hey buddy", "buddy")).distinct()
+        val named = if (said.isNotEmpty() && said != "buddy" && wakeMissing(name, missing).isEmpty()) listOf("hey $said") else emptyList()
+        return (named + "hey buddy").distinct()
     }
 
     /** Whether "Hey <name>" wakes Buddy besides "Hey Buddy": the name can be heard, and it is not Buddy itself. */
-    fun wakeNameHeard(name: String, missing: Set<String>): Boolean = wakePhrases(name, missing).size > 2
+    fun wakeNameHeard(name: String, missing: Set<String>): Boolean = wakePhrases(name, missing).size > 1
 
     /**
      * Whether the result starts with one of the phrases: its words first, in order, each at least `floor` sure. The longest
-     * phrase that matches wins ("hey rahul" over "rahul").
+     * phrase that matches wins .
      */
     fun wakeFrom(said: VoskSaid, phrases: List<String>, floor: Float): Wake? {
         val got = said.words

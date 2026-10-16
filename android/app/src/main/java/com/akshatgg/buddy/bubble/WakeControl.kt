@@ -13,6 +13,8 @@ import androidx.core.content.ContextCompat
 import com.akshatgg.buddy.AppGraph
 import com.akshatgg.buddy.voice.AudioRecordSource
 import com.akshatgg.buddy.voice.MicBus
+import com.akshatgg.buddy.voice.MyVoiceRules
+import com.akshatgg.buddy.voice.runWithin
 import com.akshatgg.buddy.voice.Spotters
 import com.akshatgg.buddy.voice.VoiceWords
 import com.akshatgg.buddy.voice.WakeEvent
@@ -73,11 +75,13 @@ class WakeControl(
     /**
      * Looks at the situation again: starts listening, with the phrases of the name now, or stops. With `testMs` (Settings'
      * Test it) it only listens for wakes for that long, tells BubbleBus of each, takes no request, and then goes on as before.
+     * With `clips` too (setting up "Only my voice") it listens for `only` and gives no voice check: each phrase's audio goes
+     * to BubbleBus.clips instead, to learn the owner's voice from.
      */
-    fun refresh(testMs: Long? = null) {
+    fun refresh(testMs: Long? = null, only: List<String>? = null, clips: Boolean = false) {
         job?.cancel(); job = null
         val name = graph.settings.buddyName
-        val phrases = VoiceWords.wakePhrases(name, graph.shared.voiceModelMissing)
+        val phrases = only ?: VoiceWords.wakePhrases(name, graph.shared.voiceModelMissing)
         job = scope.launch {
             val situation = WakeSituation(
                 wakeOn = graph.settings.wakeOn,
@@ -89,16 +93,22 @@ class WakeControl(
                 micService = micService,
             )
             if (!WakeRules.listen(situation)) return@launch
+            // "Only my voice": the check on each wake phrase (normal listening and Test it, not setup). Warmed now, so that
+            // the first wake does not wait for the engine to load.
+            val checkVoice = graph.settings.myVoiceOn && !clips
+            if (checkVoice) launch(Dispatchers.IO) { graph.embedder.warm() }
+            val check: ((ShortArray?) -> Boolean)? =
+                if (checkVoice) { clip -> runWithin(MyVoiceRules.CHECK_MS) { graph.myVoice.allows(clip) } ?: false } else null
             if (testMs == null) {
-                listen(phrases, testOnly = false)
+                listen(phrases, testOnly = false, check = check)
             } else {
-                kotlinx.coroutines.withTimeoutOrNull(testMs) { listen(phrases, testOnly = true) }
+                kotlinx.coroutines.withTimeoutOrNull(testMs) { listen(phrases, testOnly = true, check = check, clips = clips) }
                 refresh()
             }
         }
     }
 
-    private suspend fun listen(phrases: List<String>, testOnly: Boolean) {
+    private suspend fun listen(phrases: List<String>, testOnly: Boolean, check: ((ShortArray?) -> Boolean)?, clips: Boolean = false) {
         val listener = WakeListener(
             mic = { AudioRecordSource() },
             spotters = Spotters { grammar -> (runCatching { graph.spotters.get() }.getOrNull() ?: throw EarsFailed()).make(grammar) },
@@ -106,12 +116,13 @@ class WakeControl(
             paused = ::paused,
             silenced = { silenced },
             testOnly = testOnly,
+            check = check,
         )
         try {
             kotlinx.coroutines.withContext(Dispatchers.IO) {
                 listener.run { event ->
                     when (event) {
-                        is WakeEvent.Woke -> if (testOnly) BubbleBus.woke() else BubbleBus.mood(Mood.THINKING)
+                        is WakeEvent.Woke -> if (clips) BubbleBus.clip(event.phrase) else if (testOnly) BubbleBus.woke() else BubbleBus.mood(Mood.THINKING)
                         WakeEvent.NotYou -> BubbleBus.notYou()
                         is WakeEvent.Request -> {
                             turnRunning = true

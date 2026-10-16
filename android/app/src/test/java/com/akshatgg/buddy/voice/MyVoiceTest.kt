@@ -92,3 +92,15 @@ class MyVoiceTest {
         assertNull(v.embed(clip(3100)))
     }
 }
+
+class RunWithinTest {
+    @Test fun anAnswerInTimeIsGiven() = assertEquals(true, runWithin(2_000) { true })
+
+    @Test fun aCheckThatTakesTooLongIsNull() {
+        val t0 = System.nanoTime()
+        assertNull(runWithin(100) { Thread.sleep(5_000); true })
+        assertTrue((System.nanoTime() - t0) / 1_000_000 < 2_000)
+    }
+
+    @Test fun aCheckThatThrowsIsNull() = assertNull(runWithin<Boolean>(2_000) { error("engine") })
+}

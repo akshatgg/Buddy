@@ -2,6 +2,9 @@ package com.akshatgg.buddy.voice
 
 import android.util.Log
 import java.io.File
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /** What the settings need of the owner's voice. */
 interface MyVoiceSettings {
@@ -78,4 +81,17 @@ class MyVoice(
     private fun readProfile(): FloatArray? = runCatching { MyVoiceRules.readProfile(file.takeIf { it.isFile }?.readText(), spec) }.getOrNull()
 
     private fun note(code: String) { try { Log.i("Buddy", "voice check: $code") } catch (_: Throwable) {} }
+}
+
+private val checkThreads = Executors.newCachedThreadPool { r -> Thread(r, "voice-check").apply { isDaemon = true } }
+
+/** `block`'s answer, or null when it takes longer than `ms` (or fails): the voice check's 3 seconds, after which it is a no. */
+fun <T : Any> runWithin(ms: Long, block: () -> T): T? {
+    val future = checkThreads.submit(Callable { block() })
+    return try {
+        future.get(ms, TimeUnit.MILLISECONDS)
+    } catch (_: Throwable) {
+        future.cancel(true)
+        null
+    }
 }

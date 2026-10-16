@@ -11,3 +11,4 @@ cloud.json
 *-debug.log
 android/cloud.properties
 release/voice-model/
+android/app/libs/*.aar

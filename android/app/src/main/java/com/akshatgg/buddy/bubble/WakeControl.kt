@@ -40,6 +40,8 @@ class WakeControl(
     private val graph: AppGraph,
     private val scope: CoroutineScope,
     private val chatBusy: () -> Boolean = { false }, // the hands-free chat is still answering
+    private val canAsk: () -> Boolean = { false }, // a wake with nothing after it may be answered with "Yes?"
+    private val ask: suspend () -> Unit = {},
     private val onRequest: suspend (ByteArray?) -> Unit,
 ) {
     private val audio = context.getSystemService(AudioManager::class.java)
@@ -121,6 +123,8 @@ class WakeControl(
             silenced = { silenced },
             testOnly = testOnly,
             check = check,
+            canAsk = canAsk,
+            ask = ask,
         )
         try {
             kotlinx.coroutines.withContext(Dispatchers.IO) {

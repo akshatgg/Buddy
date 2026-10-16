@@ -1297,6 +1297,7 @@
       "privacy": "Your microphone stays on. Nothing leaves this device until you say 'Hey Buddy' or 'Hey Rahul'.",
       "label": "Listen for \"Hey Buddy\" or \"Hey Rahul\"",
       "tapToListen": "Tap me to listen again",
+      "yes": "Yes?",
       "listening": "Listening for \"Hey Buddy\" or \"Hey Rahul\"",
       "gettingEars": "Getting Buddy's ears ready (36 MB)…",
       "earsFailed": "Couldn't get Buddy's ears ready. Check the internet and try again.",

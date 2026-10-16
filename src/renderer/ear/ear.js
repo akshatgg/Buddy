@@ -194,13 +194,15 @@ function hear({ grammar, needsServer, decisive }) {
   });
 }
 
-function listen({ quietMs, nothingMs, maxMs }) {
+function listen({ quietMs, nothingMs, maxMs, settleMs = 0 }) {
   let h = null; // this command's own microphone
   return command(async (finish, over) => {
     const timing = VoiceTiming.createVoiceTiming({ quietMs, nothingMs, maxMs });
     const keeper = new EarCore.PcmKeeper(Math.ceil((maxMs / 1000 + 1) * RATE));
     let samples = 0;
     try {
+      if (settleMs > 0) await pause(settleMs); // the tail of Buddy's own "Yes?" is never part of the request
+      if (over()) return;
       h = await openMic();
       if (over()) { h.close(); return; }
       h.onChunk = (chunk) => {
@@ -286,8 +288,11 @@ function startWake(args) {
         if (!woke) return;
         // The phrase's own audio, for "Only my voice" (main checks it; it is never written down).
         const phrase = woke.phrase ? EarCore.pcmBase64(keeper.from(woke.phrase.from).subarray(0, woke.phrase.to - woke.phrase.from)) : null;
-        window.ear.woke({ phrase });
-        if (args.testOnly) { fresh(); return; }
+        // Nothing said right after the phrase: main answers "Yes?" and then asks for the request (a listen command), so no
+        // request is cut here, and Buddy's own "Yes?" can never be in it. A test never takes a request.
+        const asks = !args.testOnly && !woke.follows;
+        window.ear.woke({ phrase, asks });
+        if (args.testOnly || asks) { fresh(); return; }
         const timing = VoiceTiming.createVoiceTiming(args.request);
         request = { fromSample: woke.fromSample, timing, phrase };
         run.request = request;

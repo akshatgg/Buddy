@@ -186,12 +186,15 @@ test('the page\'s woke and request reach main\'s listeners, only from the ear\'s
   ipcMain.emit('ear:woke', { sender: made[0].webContents }, {});
   ipcMain.emit('ear:woke', { sender: made[0].webContents }, { phrase: 'A'.repeat(200000) });
   ipcMain.emit('ear:woke', { sender: made[0].webContents }, { phrase: 5 });
+  ipcMain.emit('ear:woke', { sender: made[0].webContents }, { phrase: 'AAAA', asks: true });
+  ipcMain.emit('ear:woke', { sender: made[0].webContents }, { phrase: 'AAAA', asks: 'yes' });
   ipcMain.emit('ear:request', { sender: made[0].webContents }, { audio: 'x', phrase: 'AAAA' });
   ipcMain.emit('ear:request', { sender: made[0].webContents }, { audio: 5 });
   ipcMain.emit('ear:woke', { sender: {} }, { phrase: 'AAAA' });
   ipcMain.emit('ear:request', { sender: {} }, { audio: 'AAAA', phrase: 'AAAA' });
   assert.deepStrictEqual(seen, [
-    ['woke', { phrase: 'AAAA' }], ['woke', { phrase: null }], ['woke', { phrase: null }], ['woke', { phrase: null }],
+    ['woke', { phrase: 'AAAA', asks: false }], ['woke', { phrase: null, asks: false }], ['woke', { phrase: null, asks: false }], ['woke', { phrase: null, asks: false }],
+    ['woke', { phrase: 'AAAA', asks: true }], ['woke', { phrase: 'AAAA', asks: false }],
     { audio: 'x', phrase: 'AAAA' }, { audio: null, phrase: null },
   ]);
   ipcMain.emit('ear:woke', { sender: made[0].webContents }, { phrase: 'A'.repeat(128000) });

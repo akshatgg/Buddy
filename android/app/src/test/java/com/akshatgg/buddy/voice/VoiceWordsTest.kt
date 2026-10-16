@@ -121,6 +121,7 @@ class VoiceWordsTest {
         assertEquals(lines.str("privacy"), l.privacy(n, true))
         assertEquals(lines.str("label"), l.label(n, true))
         assertEquals(lines.str("tapToListen"), l.TAP_TO_LISTEN)
+        assertEquals(lines.str("yes"), l.YES)
         assertEquals(lines.str("listening"), l.listening(n, true))
         val un = wake.getValue("unheard").jsonObject // the same lines when only "Hey Buddy" wakes it
         assertEquals(un.str("notCaught"), l.notCaught(" Aarav ", false))

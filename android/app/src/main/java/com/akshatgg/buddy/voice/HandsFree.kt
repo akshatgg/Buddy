@@ -31,6 +31,12 @@ class HandsFree(
     /** The last hands-free turn is still being answered: the wake listener waits. */
     val busy: Boolean get() = chat.busy
 
+    /** Whether "Yes?" may be said after a bare wake: not while the chat is still answering (that gets the busy line). */
+    fun canAsk(): Boolean = !chat.busy
+
+    /** "Yes?" out loud, so the person knows Buddy heard the wake phrase. */
+    suspend fun askYes() = tell(VoiceWords.WakeLines.YES)
+
     suspend fun request(wav: ByteArray?) {
         if (chat.busy) return tell(VoiceWords.WakeLines.STILL_BUSY) // not written down: the chat would drop it
         if (wav == null || wav.isEmpty()) return // nothing heard: stay quiet, the person just says the wake words again

@@ -118,7 +118,7 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
 
   // The always-on wake loop (ear.js): the page says it heard the phrase, and sends the request that followed.
   ipcMain.on('ear:woke', (event, msg) => {
-    if (mine(event?.sender)) for (const fn of listeners.woke) fn({ phrase: phraseOf(msg?.phrase) });
+    if (mine(event?.sender)) for (const fn of listeners.woke) fn({ phrase: phraseOf(msg?.phrase), asks: msg?.asks === true });
   });
   ipcMain.on('ear:request', (event, msg) => {
     if (!mine(event?.sender)) return;
@@ -154,7 +154,7 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
       } else armIdle();
     },
     stop: stopPage,
-    /** Listens for events from the wake loop: 'woke' ({ phrase }), 'request' ({ audio, phrase }; audio may be null; phrase is base64 PCM16 of the wake phrase or null) and 'gone' (the window went while the loop ran). */
+    /** Listens for events from the wake loop: 'woke' ({ phrase, asks }), 'request' ({ audio, phrase }; audio may be null; phrase is base64 PCM16 of the wake phrase or null) and 'gone' (the window went while the loop ran). */
     on(event, fn) {
       if (listeners[event]) listeners[event].push(fn);
     },

@@ -31,12 +31,17 @@ class WakeListener(
     // "Only my voice": whether the phrase's own audio (null when too short) is the owner's. A no is silence: nothing is
     // recorded or sent, and the listener goes on listening. Null when the switch is off.
     private val check: ((ShortArray?) -> Boolean)? = null,
+    // A wake with nothing said after it: when canAsk() (not busy), the microphone is let go of, ask() says "Yes?" out loud, and
+    // only then is the microphone started again for the request, so Buddy's own voice is never in it.
+    private val canAsk: () -> Boolean = { false },
+    private val ask: suspend () -> Unit = {},
 ) {
     private companion object {
         const val CHUNK = 1_600 // 100 ms
         const val KEEP_SAMPLES = 25 * Wav.RATE
         const val RETRY_MS = 5_000L
         const val PAUSED_MS = 1_000L
+        const val AFTER_YES_MS = 250L // quiet after "Yes?", so its tail is not heard
     }
 
     /** Listens until cancelled: each wake gives Woke, then (unless testOnly) Request with the WAV of what followed. */
@@ -86,6 +91,16 @@ class WakeListener(
                 if (testOnly) {
                     runCatching { spotter?.close() }
                     spotter = spotters.make(grammar); spotterStart = total
+                    continue
+                }
+                if (!wake.follows && canAsk()) {
+                    release()
+                    ask()
+                    delay(AFTER_YES_MS)
+                    val m = mic()
+                    val wav = if (m.start()) takeRequest(m, chunk, PcmKeeper(KEEP_SAMPLES), 0L, 0L).first else null
+                    runCatching { m.stop() }
+                    on(WakeEvent.Request(wav))
                     continue
                 }
                 val from = (spotterStart + (wake.endSec * Wav.RATE).toLong()).coerceIn(maxOf(0L, total - KEEP_SAMPLES), total)

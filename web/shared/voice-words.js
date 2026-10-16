@@ -142,6 +142,7 @@ const WAKE_LINES = {
   privacy: (name, heard = true) => `Your microphone stays on. Nothing leaves this device until you say ${calls(name, heard, "'")}.`,
   label: (name, heard = true) => `Listen for ${calls(name, heard, '"')}`,
   tapToListen: 'Tap me to listen again',
+  yes: 'Yes?', // said after "Hey <name>" with nothing after it, before listening for the request
   listening: (name, heard = true) => `Listening for ${calls(name, heard, '"')}`,
   gettingEars: "Getting Buddy's ears ready (36 MB)…",
   earsFailed: "Couldn't get Buddy's ears ready. Check the internet and try again.",

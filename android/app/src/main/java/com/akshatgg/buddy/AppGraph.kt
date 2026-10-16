@@ -72,7 +72,10 @@ import com.akshatgg.buddy.voice.MediaRecorderRecorder
 import com.akshatgg.buddy.voice.PhoneTalkBack
 import com.akshatgg.buddy.voice.TalkBack
 import com.akshatgg.buddy.voice.TtsSpeaker
+import com.akshatgg.buddy.voice.MyVoice
+import com.akshatgg.buddy.voice.SharedEmbedder
 import com.akshatgg.buddy.voice.SharedSpotters
+import com.akshatgg.buddy.voice.SherpaEmbedder
 import com.akshatgg.buddy.voice.SpeakerModelFile
 import com.akshatgg.buddy.voice.VoskSpotters
 import com.akshatgg.buddy.voice.Voice
@@ -140,6 +143,10 @@ class AppGraph(
     /** The one Vosk model of this process, loaded when first needed and reused for every question (voice/Spotter.kt). */
     /** The voice-check model for "Only my voice" (voice/SpeakerModelFile.kt), downloaded the first time it is switched on. */
     val speakerModel: SpeakerModelFile by lazy { SpeakerModelFile(File(appContext.filesDir, "voice-model"), shared.speakerModel, ApkInstaller::download, scope) }
+
+    /** The voice-check engine, loaded once (voice/Embedder.kt), and the owner's voice (voice/MyVoice.kt, filesDir/my-voice.json). */
+    val embedder: SharedEmbedder by lazy { SharedEmbedder(speakerModel::ready, { speakerModel.generation }, { SherpaEmbedder(speakerModel.file()) }) }
+    val myVoice: MyVoice by lazy { MyVoice(File(appContext.filesDir, "my-voice.json"), shared.speakerModel, embedder::get, { settings.myVoiceOn }, { settings.myVoiceOn = it }) }
 
     val spotters: SharedSpotters by lazy {
         SharedSpotters(ready = voiceModel::ready, generation = { voiceModel.generation }, load = { VoskSpotters(voiceModel.folder()) })

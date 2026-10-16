@@ -14,7 +14,9 @@ import com.akshatgg.buddy.typing.Tag
 import com.akshatgg.buddy.ui.common.Status
 import com.akshatgg.buddy.ui.common.Tone
 import com.akshatgg.buddy.ui.common.failure
+import com.akshatgg.buddy.voice.VoiceInfo
 import com.akshatgg.buddy.voice.VoiceModel
+import com.akshatgg.buddy.voice.VoiceRank
 import com.akshatgg.buddy.voice.VoiceWords
 import com.akshatgg.buddy.voice.WakeRules
 import kotlinx.coroutines.CancellationException
@@ -127,6 +129,10 @@ data class SettingsState(
     val wakeNameHeard: Boolean = true,
     /** On and the model is there: it is listening (for "Hey Buddy" at least), so a hint shows under the switch. */
     val wakeListening: Boolean = false,
+    /** Buddy's voice: the English voices on the phone, best first (name to menu text); null is Automatic. */
+    val voices: List<Pair<String, String>> = emptyList(),
+    val voiceName: String? = null,
+    val playing: Boolean = false,
 )
 
 /**
@@ -151,6 +157,10 @@ class SettingsModel(
     private val modelMissing: () -> Set<String> = { emptySet() }, // words the model cannot hear (shared voiceModelMissing)
     /** Test it: runs a `testOnly` listener for the given ms, calling the second argument for each wake heard. */
     private val test: suspend (Long, () -> Unit) -> Unit = { ms, _ -> delay(ms) },
+    /** The voices of the phone's TextToSpeech, best first (empty until its engine has started). */
+    private val voiceList: suspend () -> List<VoiceInfo> = { emptyList() },
+    /** Speaks the words with the voice now saved. */
+    private val speak: suspend (String) -> Unit = {},
 ) {
     val user: StateFlow<User?> = account.user
     val free: StateFlow<FreeSettings?> = cloud.free
@@ -161,6 +171,9 @@ class SettingsModel(
     private val current = MutableStateFlow(read(name = settings.buddyName))
     val state: StateFlow<SettingsState> = current.asStateFlow()
     private val fading = mutableMapOf<Line, Job>()
+    private var voiceInfos: List<VoiceInfo> = emptyList()
+
+    init { scope.launch { loadVoices() } }
 
     // Buddy on was asked for while it could not float: it comes on once "Display over other apps" is allowed.
     private var waitingToFloat = false
@@ -181,7 +194,41 @@ class SettingsModel(
             wakeOn = settings.wakeOn,
             wakeNameHeard = WakeRules.nameHeard(settings.buddyName, modelMissing()),
             wakeListening = settings.wakeOn && voiceModel?.ready() != false,
+            voiceName = settings.voiceName,
         )
+    }
+
+    private suspend fun loadVoices() {
+        val ranked = VoiceRank.ranked(voiceList())
+        voiceInfos = ranked
+        val labels = VoiceRank.labels(ranked)
+        current.update { it.copy(voices = ranked.map { v -> v.name }.zip(labels)) }
+    }
+
+    /** The menu's first row: "Automatic (India 1)", the voice Buddy would pick. */
+    fun automaticLabel(state: SettingsState): String {
+        val best = VoiceRank.best(voiceInfos)
+        val label = state.voices.firstOrNull { it.first == best }?.second
+        return if (label == null) "Automatic" else "Automatic ($label)"
+    }
+
+    /** null is Automatic. A voice that is gone from the phone counts as Automatic when Buddy speaks (VoiceRank.resolve). */
+    fun setVoice(name: String?) {
+        settings.voiceName = name
+        current.update { it.copy(voiceName = settings.voiceName) }
+    }
+
+    /** Play: "Hi, I'm <name>. This is how I sound." with the voice now chosen. */
+    fun playVoice() {
+        if (current.value.playing) return
+        current.update { it.copy(playing = true) }
+        scope.launch {
+            try {
+                speak("Hi, I'm ${settings.buddyName}. This is how I sound.")
+            } finally {
+                current.update { it.copy(playing = false) }
+            }
+        }
     }
 
     /** Turn on's Continue: off to Android's Accessibility settings. Back with it still off, how to unlock it shows. */
@@ -207,6 +254,7 @@ class SettingsModel(
         read(name = it.name).copy(
             signingIn = it.signingIn, newFact = it.newFact, forgetAsked = it.forgetAsked, lines = it.lines,
             wakeLine = it.wakeLine, wakeTesting = it.wakeTesting, wakeHeard = it.wakeHeard,
+            voices = it.voices, playing = it.playing,
         )
     }
 

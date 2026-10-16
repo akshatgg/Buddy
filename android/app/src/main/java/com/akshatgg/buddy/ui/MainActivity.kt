@@ -57,6 +57,8 @@ class MainViewModel(saved: SavedStateHandle) : ViewModel() {
         wakeChanged = { BubbleService.listen(graph.appContext); BubbleService.wakeChanged(graph.appContext) },
         micAllowed = { ContextCompat.checkSelfPermission(graph.appContext, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED },
         modelMissing = { graph.shared.voiceModelMissing },
+        voiceList = graph.speaker::voices,
+        speak = graph.speaker::say,
         test = { ms, heard ->
             coroutineScope {
                 val counting = launch { BubbleBus.wakes.collect { heard() } }

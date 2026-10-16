@@ -6,6 +6,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -29,6 +31,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -227,6 +231,8 @@ fun SettingsScreen(model: SettingsModel, ai: AiFormModel, section: SectionReques
                         },
                         test = model::testWake,
                     )
+                    Hairline()
+                    VoiceRow(state, model)
                     Hairline()
                     Row(Modifier.rowPadding(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f)) {
@@ -459,6 +465,55 @@ private fun WakeRow(state: SettingsState, onChange: (Boolean) -> Unit, test: () 
             val unheard = state.name.isNotBlank() && VoiceWords.wakePhrase(state.name) != "hey buddy" && !state.wakeNameHeard
             Text(if (unheard) VoiceWords.WakeLines.cantListen(state.name) else VoiceWords.WakeLines.SPELLING_HINT, color = colors.muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
         }
+    }
+}
+
+/** Buddy's voice: Automatic (the most natural English voice on the phone) or one of the English voices, and Play. */
+@Composable
+private fun VoiceRow(state: SettingsState, model: SettingsModel) {
+    val colors = Buddy.colors
+    val context = LocalContext.current
+    var open by remember { mutableStateOf(false) }
+    val auto = model.automaticLabel(state)
+    val chosen = state.voices.firstOrNull { it.first == state.voiceName }?.second ?: auto
+    Column(Modifier.rowPadding()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Buddy's voice", Modifier.weight(1f))
+            Box(Modifier.widthIn(max = 220.dp)) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(ROUNDED)
+                        .border(1.dp, colors.line, ROUNDED)
+                        .selectable(selected = open, role = Role.DropdownList, onClick = { open = true })
+                        .semantics { contentDescription = "Buddy's voice" }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(chosen, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("▾", color = colors.muted)
+                }
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    DropdownMenuItem(text = { Text(auto) }, onClick = { open = false; model.setVoice(null) })
+                    for ((name, label) in state.voices) {
+                        DropdownMenuItem(text = { Text(label) }, onClick = { open = false; model.setVoice(name) })
+                    }
+                }
+            }
+        }
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Secondary("Play", onClick = model::playVoice)
+            Secondary("Voice settings", onClick = { context.openVoiceSettings() })
+        }
+        Text("For a more natural voice, install Google's voices: Settings → Text-to-speech.", color = colors.muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+    }
+}
+
+/** Android's text-to-speech settings, where the voices are installed. */
+private fun android.content.Context.openVoiceSettings() {
+    val intent = android.content.Intent("com.android.settings.TTS_SETTINGS").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    try { startActivity(intent) } catch (_: android.content.ActivityNotFoundException) {
+        runCatching { startActivity(android.content.Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
 }
 

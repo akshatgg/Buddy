@@ -208,6 +208,7 @@ object VoiceWords {
         fun privacy(name: String, heard: Boolean) = "Your microphone stays on. Nothing leaves this device until you say ${calls(name, heard, "'")}."
         fun label(name: String, heard: Boolean) = "Listen for ${calls(name, heard, "\"")}"
         const val TAP_TO_LISTEN = "Tap me to listen again"
+        const val YES = "Yes?" // said after the wake phrase with nothing after it, before the request is listened to
         fun listening(name: String, heard: Boolean) = "Listening for ${calls(name, heard, "\"")}"
         const val GETTING_EARS = "Getting Buddy's ears ready (36 MB)…"
         const val EARS_FAILED = "Couldn't get Buddy's ears ready. Check the internet and try again."

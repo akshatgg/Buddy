@@ -42,7 +42,8 @@ function createTalkBack({ ear, model, transcribe, voiceName = () => null, now = 
     say: async (text, chosen) => {
       let pick = { name: null, fallback: null };
       try { pick = await pickVoice(chosen); } catch { /* the default voice */ }
-      await ear.call('say', { text, voiceName: pick.name, fallbackName: pick.fallback });
+      const r = await ear.call('say', { text, voiceName: pick.name, fallbackName: pick.fallback });
+      return r?.gone ? { gone: true } : undefined; // only that the page went is told
     },
     async hear(verb) {
       try {

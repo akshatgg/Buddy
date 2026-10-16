@@ -12,6 +12,7 @@ const { WAKE_FLOOR, REQUEST, WAKE_LINES, VOICE_LINES, wakePhrase, wakePhrases, w
 
 const TEST_MS = 10000; // "Test it" listens this long
 const NO_INTERNET = ['network', 'timeout'];
+const YES_SETTLE_MS = 250; // quiet after "Yes?" before the request is listened to
 const MIC_LINE = 'Allow the microphone in Settings.';
 const BUSY_LINE = "I'm still on the last one. Ask me again in a moment.";
 // vosk-browser 0.0.8 has no call to ask whether the model knows a word, so a name the model does not know is only caught by the
@@ -41,6 +42,7 @@ function createWake({
 }) {
   let panel = false; // the panel's 🎤 records
   let turns = 0; // spoken turns running (a say, hear or listen of Buddy's own)
+  let asking = false; // the "Yes?" flow runs (voice check, say, listen, written down): other wakes and requests wait it out
   let asleep = false;
   let locked = false;
   let sent = null; // what the ear page was last told: null (not listening) or the phrases it listens for, joined
@@ -123,18 +125,49 @@ function createWake({
   powerMonitor.on('suspend', () => { asleep = true; apply(); });
   powerMonitor.on('resume', () => { asleep = false; apply(); });
 
-  async function onRequest(msg) {
-    if (clipping || testing) return; // a test, or setting up Only my voice, never acts on what follows
-    if (store.get('wakeOn') !== true) return;
+  /** Only my voice, then the busy line: whether a wake may go on to a request. Anyone else gets silence, the busy get the busy line. */
+  async function allowed(phrase) {
+    if (clipping || testing) return false; // a test, or setting up Only my voice, never acts on what follows
+    if (store.get('wakeOn') !== true) return false;
     // Only my voice: anyone else gets silence -- not transcribed, not sent anywhere, not even the busy line.
-    if (myVoice?.on() && !(await myVoice.allows(msg?.phrase))) return;
+    if (myVoice?.on() && !(await myVoice.allows(phrase))) return false;
     // A spoken turn or the chat is busy: nothing is sent to be written down, and the person is told, not ignored.
     if (turns > 0 || busy()) {
       await talkBack?.say(BUSY_LINE).catch?.(() => {});
-      return;
+      return false;
     }
+    return true;
+  }
+
+  async function onRequest(msg) {
+    if (asking) return;
+    if (await allowed(msg?.phrase)) await handle(msg && msg.audio);
+  }
+
+  // The phrase came with nothing after it: say "Yes?", then listen for the request the same way (the ear page leaves the
+  // listening to this, so that the line is never in the recording). The voice check and the busy line come first.
+  async function onAsk(msg) {
+    if (asking) return; // one "Yes?" at a time: a second wake while it runs is ignored, silently
+    asking = true;
     try {
-      const audio = msg && msg.audio;
+      if (!(await allowed(msg?.phrase))) return;
+      const said = await talkBack.say(WAKE_LINES.yes);
+      if (said?.gone || !mayListen()) return; // the ear page is gone, or Wake went off / the screen locked / the panel records meanwhile
+      const r = await ear.call('listen', { ...REQUEST, settleMs: YES_SETTLE_MS });
+      if (!mayListen()) return; // switched off while listening: the audio is dropped, not written down
+      await handle(r && r.audio);
+    } catch (err) {
+      console.warn('[buddy] wake:', err?.code || err?.message);
+    } finally {
+      asking = false;
+    }
+  }
+
+  // Whether listening is still allowed between the steps of "Yes?" (the turn rule aside: the say and the listen are Buddy's own turn).
+  const mayListen = () => shouldListen({ ...inputs(), turn: false });
+
+  async function handle(audio) {
+    try {
       const words = audio ? String((await actions.transcribe(audio, 'audio/wav')).text ?? '').trim() : '';
       if (!words) return; // nothing made out: stay quiet, the person just says "Hey <name>" again
       const r = await actions.voice(words);
@@ -151,7 +184,10 @@ function createWake({
       return;
     }
     const t = testing;
-    if (!t) return;
+    if (!t) {
+      if (msg?.asks && store.get('wakeOn') === true && talkBack) await onAsk(msg);
+      return;
+    }
     if (myVoice?.on() && !(await myVoice.allows(msg?.phrase))) {
       if (testing === t) t.onNotYou?.(); // not after Test it has finished
       return;

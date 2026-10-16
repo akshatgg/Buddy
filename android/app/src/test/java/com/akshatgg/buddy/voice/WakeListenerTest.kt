@@ -264,4 +264,77 @@ class WakeListenerTest {
         job.cancel()
         assertNotNull((events[0] as WakeEvent.Woke).phrase)
     }
+
+    // --- "Yes?" after a bare wake ---
+
+    private class Asked {
+        val log = ArrayList<String>()
+        val mics = ArrayList<FakeMic>()
+    }
+
+    private fun asking(a: Asked, canAsk: Boolean = true, testOnly: Boolean = false, check: ((ShortArray?) -> Boolean)? = null, said: String, second: List<Pair<Float, Int>>) =
+        WakeListener(
+            mic = {
+                a.log += "mic ${a.mics.size}"
+                (if (a.mics.isEmpty()) FakeMic(voice(21)) else FakeMic(second)).also { a.mics.add(it) }
+            },
+            spotters = Made(mutableListOf(FakeSpotter(mapOf(2 to said), ""), FakeSpotter(emptyMap(), ""))),
+            phrases = RAHUL, testOnly = testOnly, check = check,
+            canAsk = { canAsk }, ask = { a.log += "yes (mic0 stopped=${a.mics[0].stopped})" },
+        )
+
+    @Test fun aBareWakeSaysYesWithTheMicLetGoOfThenRecordsOnlyAfterIt() = runTest {
+        val a = Asked()
+        val events = ArrayList<WakeEvent>()
+        val l = asking(a, said = hey("hey" to 0.1f, "rahul" to 0.2f), second = voice(10) + quiet(15))
+        val job = collect(l, events)
+        runCurrent()
+        advanceTimeBy(300); runCurrent() // after "Yes?"
+        job.cancel()
+        assertEquals(listOf("mic 0", "yes (mic0 stopped=true)", "mic 1"), a.log.take(3)) // then it listens for the next wake
+        assertTrue(events[0] is WakeEvent.Woke)
+        val wav = (events[1] as WakeEvent.Request).wav
+        assertNotNull(wav)
+        assertEquals(44 + 22 * 1_600 * 2, wav!!.size) // only the new microphone's audio: 10 of voice, 12 quiet
+    }
+
+    @Test fun aWakeWithWordsAfterItDoesNotSayYes() = runTest {
+        val a = Asked()
+        val events = ArrayList<WakeEvent>()
+        val l = asking(a, said = hey("hey" to 0.1f, "rahul" to 0.2f, "call" to 0.5f), second = quiet(5))
+        val job = collect(l, events)
+        runCurrent()
+        job.cancel()
+        assertTrue(a.log.none { it.startsWith("yes") })
+        assertTrue(events[1] is WakeEvent.Request)
+    }
+
+    @Test fun busyTestOnlyAndANoFromTheCheckNeverSayYes() = runTest {
+        val said = hey("hey" to 0.1f, "rahul" to 0.2f)
+        for (case in 0..2) {
+            val a = Asked()
+            val events = ArrayList<WakeEvent>()
+            val l = when (case) {
+                0 -> asking(a, canAsk = false, said = said, second = quiet(5))
+                1 -> asking(a, testOnly = true, said = said, second = quiet(5))
+                else -> asking(a, check = { false }, said = said, second = quiet(5))
+            }
+            val job = collect(l, events)
+            runCurrent()
+            job.cancel()
+            assertTrue("case $case", a.log.none { it.startsWith("yes") })
+            if (case == 2) assertTrue(events.isEmpty())
+        }
+    }
+
+    @Test fun nothingSaidAfterYesIsNoRecording() = runTest {
+        val a = Asked()
+        val events = ArrayList<WakeEvent>()
+        val l = asking(a, said = hey("hey" to 0.1f, "rahul" to 0.2f), second = quiet(100))
+        val job = collect(l, events)
+        runCurrent()
+        advanceTimeBy(300); runCurrent() // after "Yes?"
+        job.cancel()
+        assertNull((events[1] as WakeEvent.Request).wav)
+    }
 }

@@ -131,10 +131,7 @@ function createWake({
     try {
       const audio = msg && msg.audio;
       const words = audio ? String((await actions.transcribe(audio, 'audio/wav')).text ?? '').trim() : '';
-      if (!words) {
-        await talkBack?.say(WAKE_LINES.notCaught(shownName(name()), nameHeard()));
-        return;
-      }
+      if (!words) return; // nothing made out: stay quiet, the person just says "Hey <name>" again
       const r = await actions.voice(words);
       if (r && r.busy) await talkBack?.say(BUSY_LINE); // the chat got busy while the words were written down
     } catch (err) {

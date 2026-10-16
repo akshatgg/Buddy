@@ -55,8 +55,8 @@ const WAKE_SAID = [wsaid(wk('hey', 0.9, 1, 1.2), wk('rahul', 0.8, 1.2, 1.6)), ws
   wsaid(wk('hey', 0.9, 1, 1.2), wk('rahul', 0.9, 1.2, 1.6), wk('call', 0.9, 1.7, 2), wk('mom', 0.9, 2, 2.3)),
   wsaid(wk('hey', 0.9, 1, 1.2), wk('buddy', 0.9, 1.2, 1.5), wk('what', 0.9, 1.6, 1.8)), wsaid(wk('buddy', 0.9, 0, 0.4)),
   wsaid(wk('rahul', 0.9, 0, 0.4), wk('call', 0.9, 0.5, 0.8)), wsaid(wk('buddy', 0.5, 0, 0.4)), wsaid(wk('[unk]', 1, 0, 1), wk('buddy', 0.9, 1, 1.4))];
-const WAKE_LIST = ['hey rahul', 'rahul', 'hey buddy', 'buddy'];
-const WAKE_UNSORTED = ['rahul', 'hey rahul']; // the longest still wins
+const WAKE_LIST = ['hey rahul', 'hey buddy'];
+const WAKE_UNSORTED = ['hey buddy', 'hey rahul']; // the order does not matter
 const KNOWN = [null, ['yes', 'okay', 'send', 'no', 'cancel', 'stop']];
 
 function buildVoiceCases() {

@@ -6,7 +6,7 @@ const { EventEmitter } = require('node:events');
 const { createWake, shouldListen, shownName } = require('../src/main/wake');
 const { WAKE_LINES, WAKE_FLOOR, REQUEST } = require('../shared/voice-words');
 
-const RAHUL = ['hey rahul', 'rahul', 'hey buddy', 'buddy'];
+const RAHUL = ['hey rahul', 'hey buddy'];
 const ALL = {
   wakeOn: true, buddyOn: true, signedIn: true, voiceOn: true, mic: 'granted', modelReady: true,
   locked: false, asleep: false, panelListening: false, turn: false,
@@ -112,7 +112,7 @@ test('a turn running pauses it until the turn ends', (t) => {
 test('a name the model lacks still listens, for the Buddy phrases, with a hint', (t) => {
   const s = setup(t, { name: 'Aarav', missing: ['aarav'] });
   s.wake.refresh();
-  assert.deepStrictEqual(s.last('wake')[1].phrases, ['hey buddy', 'buddy']);
+  assert.deepStrictEqual(s.last('wake')[1].phrases, ['hey buddy']);
   assert.deepStrictEqual(s.last('keep'), ['keep', true]);
   assert.deepStrictEqual(s.wake.state(), { on: true, line: WAKE_LINES.listening('Aarav', false), hint: WAKE_LINES.cantListen('Aarav') });
 });
@@ -123,7 +123,7 @@ test('a name the model hears: no hint; the name Buddy: no hint either', (t) => {
   assert.strictEqual(a.wake.state().hint, undefined);
   const b = setup(t, { name: 'Buddy' });
   b.wake.refresh();
-  assert.deepStrictEqual(b.last('wake')[1].phrases, ['hey buddy', 'buddy']);
+  assert.deepStrictEqual(b.last('wake')[1].phrases, ['hey buddy']);
   assert.deepStrictEqual(b.wake.state(), { on: true, line: WAKE_LINES.listening('Buddy', false) });
 });
 
@@ -143,7 +143,7 @@ test('listening: the state says so', (t) => {
   assert.deepStrictEqual(s.wake.state(), { on: true, line: WAKE_LINES.listening('Rahul', true) });
 });
 
-test('a request with words calls actions.voice once; an empty one says the not-caught line', async (t) => {
+test('a request with words calls actions.voice once; an empty one stays silent', async (t) => {
   const s = setup(t);
   s.wake.refresh();
   await s.handlers.request({ audio: 'AAAA' });
@@ -152,7 +152,7 @@ test('a request with words calls actions.voice once; an empty one says the not-c
   await s.handlers.request({ audio: 'AAAA' });
   await s.handlers.request({ audio: null });
   assert.strictEqual(s.log.filter((l) => l[0] === 'voice').length, 1);
-  assert.deepStrictEqual(s.log.filter((l) => l[0] === 'say').map((l) => l[1]), [WAKE_LINES.notCaught('Rahul'), WAKE_LINES.notCaught('Rahul')]);
+  assert.deepStrictEqual(s.log.filter((l) => l[0] === 'say'), []);
 });
 
 test('no internet while writing it down: the internet line, and nothing is sent', async (t) => {

@@ -174,24 +174,27 @@ function wakeMissing(name, missing = VOICE_MODEL.missing) {
   return [...digits, ...(phrase ? phrase.split(' ').filter((w) => lacks.has(w)) : [])];
 }
 
-/** Every phrase that wakes Buddy: "hey <name>", "<name>" (both only when the model can hear the name), "hey buddy", "buddy". */
+/**
+ * Every phrase that wakes Buddy: "hey <name>" (only when the model can hear the name) and "hey buddy". Never a bare name:
+ * the recognizer's grammar is tiny, so ordinary speech would be forced onto a one-word phrase and wake Buddy by mistake.
+ */
 function wakePhrases(name, missing = VOICE_MODEL.missing) {
   const phrase = wakePhrase(name);
   const words = phrase ? phrase.split(' ').slice(1) : [];
   while (words[0] === 'hey') words.shift(); // a name that starts with "hey" is not said as "hey hey ..."
   const said = words.join(' ');
-  const named = said && said !== 'buddy' && wakeMissing(name, missing).length === 0 ? [`hey ${said}`, said] : [];
-  return [...new Set([...named, 'hey buddy', 'buddy'])];
+  const named = said && said !== 'buddy' && wakeMissing(name, missing).length === 0 ? [`hey ${said}`] : [];
+  return [...new Set([...named, 'hey buddy'])];
 }
 
 /** Whether "Hey <name>" wakes Buddy besides "Hey Buddy": the name can be heard, and it is not Buddy itself. */
 function wakeNameHeard(name, missing = VOICE_MODEL.missing) {
-  return wakePhrases(name, missing).length > 2;
+  return wakePhrases(name, missing).length > 1;
 }
 
 /**
  * Whether Vosk's final result starts with one of the phrases (a list; one string is a list of one): its words first, in
- * order, each at least `floor` sure. The longest phrase that matches wins ("hey rahul" over "rahul"). `endSec` is when the
+ * order, each at least `floor` sure. The longest phrase that matches wins. `endSec` is when the
  * last phrase word ended; `follows` whether more was said after it (the request in the same breath); `phrase` the one heard.
  */
 function wakeFrom(result, phrases, floor) {

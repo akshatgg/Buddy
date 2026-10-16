@@ -752,9 +752,7 @@
         "missing": [],
         "all": [
           "hey rahul",
-          "rahul",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "nameHeard": true
       },
@@ -764,9 +762,7 @@
         "missing": [],
         "all": [
           "hey anaya",
-          "anaya",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "nameHeard": true
       },
@@ -777,8 +773,7 @@
           "r2d2"
         ],
         "all": [
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "nameHeard": false
       },
@@ -790,8 +785,7 @@
           "priya"
         ],
         "all": [
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "nameHeard": false
       },
@@ -801,9 +795,7 @@
         "missing": [],
         "all": [
           "hey mr rahul kumar",
-          "mr rahul kumar",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "nameHeard": true
       },
@@ -813,9 +805,7 @@
         "missing": [],
         "all": [
           "hey zoe",
-          "zoe",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "nameHeard": true
       },
@@ -826,8 +816,7 @@
           "123"
         ],
         "all": [
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "nameHeard": false
       },
@@ -836,8 +825,7 @@
         "phrase": null,
         "missing": [],
         "all": [
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "nameHeard": false
       },
@@ -847,9 +835,7 @@
         "missing": [],
         "all": [
           "hey xyzzy",
-          "xyzzy",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "nameHeard": true
       },
@@ -860,8 +846,7 @@
           "aarav"
         ],
         "all": [
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "nameHeard": false
       },
@@ -870,8 +855,7 @@
         "phrase": "hey buddy",
         "missing": [],
         "all": [
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "nameHeard": false
       },
@@ -881,9 +865,7 @@
         "missing": [],
         "all": [
           "hey max power",
-          "max power",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "nameHeard": true
       },
@@ -892,8 +874,7 @@
         "phrase": "hey hey",
         "missing": [],
         "all": [
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "nameHeard": false
       },
@@ -902,8 +883,7 @@
         "phrase": "hey hey buddy",
         "missing": [],
         "all": [
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "nameHeard": false
       },
@@ -913,9 +893,7 @@
         "missing": [],
         "all": [
           "hey rahul",
-          "rahul",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "nameHeard": true
       }
@@ -951,9 +929,7 @@
         },
         "phrases": [
           "hey rahul",
-          "rahul",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "wake": {
           "endSec": 1.6,
@@ -987,9 +963,7 @@
         },
         "phrases": [
           "hey rahul",
-          "rahul",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "wake": {
           "endSec": 1.6,
@@ -1023,9 +997,7 @@
         },
         "phrases": [
           "hey rahul",
-          "rahul",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "wake": null
       },
@@ -1043,15 +1015,9 @@
         },
         "phrases": [
           "hey rahul",
-          "rahul",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
-        "wake": {
-          "endSec": 0.4,
-          "follows": false,
-          "phrase": "rahul"
-        }
+        "wake": null
       },
       {
         "said": {
@@ -1073,9 +1039,7 @@
         },
         "phrases": [
           "hey rahul",
-          "rahul",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "wake": null
       },
@@ -1099,9 +1063,7 @@
         },
         "phrases": [
           "hey rahul",
-          "rahul",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "wake": {
           "endSec": 1.6,
@@ -1116,9 +1078,7 @@
         },
         "phrases": [
           "hey rahul",
-          "rahul",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "wake": null
       },
@@ -1154,9 +1114,7 @@
         },
         "phrases": [
           "hey rahul",
-          "rahul",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "wake": {
           "endSec": 1.6,
@@ -1190,9 +1148,7 @@
         },
         "phrases": [
           "hey rahul",
-          "rahul",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "wake": {
           "endSec": 1.5,
@@ -1214,15 +1170,9 @@
         },
         "phrases": [
           "hey rahul",
-          "rahul",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
-        "wake": {
-          "endSec": 0.4,
-          "follows": false,
-          "phrase": "buddy"
-        }
+        "wake": null
       },
       {
         "said": {
@@ -1244,15 +1194,9 @@
         },
         "phrases": [
           "hey rahul",
-          "rahul",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
-        "wake": {
-          "endSec": 0.4,
-          "follows": true,
-          "phrase": "rahul"
-        }
+        "wake": null
       },
       {
         "said": {
@@ -1268,9 +1212,7 @@
         },
         "phrases": [
           "hey rahul",
-          "rahul",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "wake": null
       },
@@ -1294,9 +1236,7 @@
         },
         "phrases": [
           "hey rahul",
-          "rahul",
-          "hey buddy",
-          "buddy"
+          "hey buddy"
         ],
         "wake": null
       },
@@ -1331,7 +1271,7 @@
           ]
         },
         "phrases": [
-          "rahul",
+          "hey buddy",
           "hey rahul"
         ],
         "wake": {

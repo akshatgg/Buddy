@@ -15,7 +15,7 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class WakeListenerTest {
-    private val RAHUL = listOf("hey rahul", "rahul", "hey buddy", "buddy")
+    private val RAHUL = listOf("hey rahul", "hey buddy")
 
     private fun hey(vararg words: Pair<String, Float>, conf: Float = 0.9f): String {
         // words: (word, end second)
@@ -104,14 +104,14 @@ class WakeListenerTest {
         assertEquals(listOf(WakeEvent.Woke, WakeEvent.Woke), events)
     }
 
-    @Test fun aBareBuddyWakesItToo() = runTest {
+    @Test fun aBareBuddyDoesNotWake() = runTest {
         val mic = FakeMic(voice(21) + quiet(15))
-        val spotters = Made(mutableListOf(FakeSpotter(mapOf(5 to hey("buddy" to 0.5f)), "")))
+        val spotters = Made(mutableListOf(FakeSpotter(mapOf(5 to hey("buddy" to 0.5f), 9 to hey("rahul" to 0.5f)), "")))
         val events = ArrayList<WakeEvent>()
         val job = collect(WakeListener({ mic }, spotters, RAHUL, testOnly = true), events)
         runCurrent()
         job.cancel()
-        assertEquals(listOf(WakeEvent.Woke), events)
+        assertTrue(events.isEmpty())
     }
 
     @Test fun pausedLetsGoOfTheMicAndComesBack() = runTest {

@@ -69,6 +69,7 @@ function setup(stored = {}) {
     }
 
     getBounds() {
+      if (this.destroyed) throw new TypeError('Object has been destroyed'); // as Electron does, once the window is gone
       return { ...this.bounds };
     }
 
@@ -463,4 +464,26 @@ test('where Clawd walks goes to the page when it changes, and to a page that loa
   assert.deepStrictEqual(win().sent.slice(before), [['buddy:pause', false], ['buddy:clawd-look', 'face']]);
   buddy.clawdLook('nonsense');
   assert.deepStrictEqual(win().sent.at(-1), ['buddy:clawd-look', 'head'], 'anything else is the head');
+});
+
+// Quitting destroys the window before the screen and Claude Code events stop: one arriving then used the gone window,
+// and the throw was an uncaught error in the main process, a blocking error dialog as Buddy quit.
+test('a window destroyed as Buddy quits is left alone: no method throws, and bounds() is where it will be', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] }); // show() starts the cursor timer
+  const { buddy, win } = setup();
+  buddy.show();
+  const before = buddy.bounds();
+  win().destroy();
+  assert.doesNotThrow(() => {
+    buddy.reclamp();
+    buddy.resize();
+    buddy.beginDrag({ x: 1, y: 1 });
+    buddy.dragTo({ x: 5, y: 5 });
+    buddy.endDrag();
+    buddy.setHover(true);
+    buddy.hide();
+  });
+  assert.deepStrictEqual(buddy.bounds(), before);
+  assert.strictEqual(buddy.isVisible(), false);
+  assert.strictEqual(buddy.window(), null);
 });

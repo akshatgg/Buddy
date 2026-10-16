@@ -191,14 +191,17 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
     });
   }
 
+  // The window, unless it is gone: while Buddy quits it is destroyed before the screen and Claude Code events stop.
+  const live = () => (win && !win.isDestroyed() ? win : null);
+
   // Where the buddy is: its own box, without the room above it. The panel and the bubble go beside this, and the work
   // area is the one of the screen it is on. Dragging, snapping and keeping it on the screen move the whole window.
-  const bounds = () => buddyBox(win ? win.getBounds() : startBounds());
+  const bounds = () => buddyBox(live() ? win.getBounds() : startBounds());
 
   return {
-    window: () => win,
+    window: live,
     show() {
-      if (!win) create();
+      if (!live()) create();
       paused = false;
       win.showInactive();
       send('buddy:pause', false);
@@ -206,11 +209,11 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
     },
     hide() {
       paused = true;
-      if (win) win.hide();
+      if (live()) win.hide();
       send('buddy:pause', true);
       stopCursor();
     },
-    isVisible: () => Boolean(win && win.isVisible()),
+    isVisible: () => Boolean(live() && win.isVisible()),
     bounds,
     display: () => screen.getDisplayMatching(bounds()),
     /**
@@ -268,16 +271,19 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
     },
     reloadModel: () => send('buddy:reload'),
     setHover(over) {
-      if (win) win.setIgnoreMouseEvents(!over, { forward: true });
+      if (live()) win.setIgnoreMouseEvents(!over, { forward: true });
     },
     beginDrag(p) {
+      if (!live()) return;
       const b = win.getBounds();
       drag = { dx: p.x - b.x, dy: p.y - b.y };
     },
     dragTo(p) {
+      if (!live()) return;
       win.setPosition(Math.round(p.x - drag.dx), Math.round(p.y - drag.dy));
     },
     endDrag() {
+      if (!live()) return;
       const b = win.getBounds();
       const target = snapToEdge(b, screen.getDisplayMatching(b).workArea);
       win.setBounds(target, animate);
@@ -285,14 +291,14 @@ function createBuddyWindow({ store, screen, animate = true, onGiveUp = () => {},
       drag = { dx: 0, dy: 0 };
     },
     resize() {
-      if (!win) return;
+      if (!live()) return;
       const b = win.getBounds();
       const next = resizeAround(b, buddyWindowSize(store.get('size')), screen.getDisplayMatching(b).workArea);
       win.setBounds(next);
       remember(next);
     },
     reclamp() {
-      if (!win) return;
+      if (!live()) return;
       const b = win.getBounds();
       const next = clampBuddy(b, screen.getDisplayMatching(b).workArea);
       if (next.x !== b.x || next.y !== b.y) win.setBounds(next);

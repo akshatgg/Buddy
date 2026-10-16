@@ -108,7 +108,7 @@ class VoiceWordsTest {
             val got = VoiceWords.wakeFrom(VoskSaid(said.str("text"), words), c.getValue("phrases").jsonArray.strings(), VoiceWords.WAKE_FLOOR)
             val want = c.getValue("wake").let { if (it is JsonNull) null else it.jsonObject }
             if (want == null) assertEquals(null, got)
-            else assertEquals(Wake(want.str("endSec").toFloat(), want.str("follows").toBoolean(), want.str("phrase")), got)
+            else assertEquals(Wake(want.str("endSec").toFloat(), want.str("follows").toBoolean(), want.str("phrase"), want.str("startSec").toFloat()), got)
         }
         val lines = wake.getValue("lines").jsonObject
         val n = lines.str("name")

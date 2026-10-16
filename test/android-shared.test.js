@@ -7,7 +7,7 @@ const prompts = require('../shared/prompts');
 const { PROVIDER_IDS } = require('../shared/providers');
 const memoryRules = require('../shared/memory-rules');
 const memorySync = require('../shared/memory-sync');
-const { buildShared, buildChatCases, buildPickCases, buildLineCases, TO, CASES_TO, PICK_TO, LINES_TO, buildVoiceCases, VOICE_TO } = require('../tools/sync-android-shared');
+const { buildShared, buildChatCases, buildPickCases, buildLineCases, TO, CASES_TO, PICK_TO, LINES_TO, buildVoiceCases, VOICE_TO, buildMyVoiceCases, MY_VOICE_TO } = require('../tools/sync-android-shared');
 const { pickChat, pickLine } = require('../shared/message-pick');
 const { contactLine, appLine } = require('../shared/pick-lines');
 
@@ -93,4 +93,12 @@ test('voice-cases.json is up to date, and covers yes, no, nothing, questions and
   const cases = JSON.parse(fs.readFileSync(VOICE_TO, 'utf8'));
   for (const answer of ['yes', 'no', null]) assert.ok(cases.heard.some((c) => c.words === answer), String(answer));
   assert.ok(cases.questions.length >= 4 && cases.lines.length >= 1 && cases.asksBack.length >= 3 && cases.grammar.length >= 2);
+});
+
+test('my-voice-cases.json is up to date, and covers every setup step', () => {
+  assert.equal(fs.readFileSync(MY_VOICE_TO, 'utf8'), `${JSON.stringify(buildMyVoiceCases(), null, 2)}\n`);
+  const cases = JSON.parse(fs.readFileSync(MY_VOICE_TO, 'utf8'));
+  const steps = new Set(cases.setups.flatMap((s) => s.steps.map((x) => x.step)));
+  for (const step of ['more', 'again', 'odd', 'done', 'failed']) assert.ok(steps.has(step), step);
+  assert.ok(cases.isMe.length >= 4 && cases.spans.length >= 5 && cases.profiles.length >= 4);
 });

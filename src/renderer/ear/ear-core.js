@@ -81,7 +81,7 @@ const EarCore = (() => {
 
   /**
    * A copy of voice-words.js wakeFrom(): whether Vosk's final result starts with one of the phrases, its words first and in
-   * order, each at least `floor` sure; the longest phrase that matches wins. `endSec` is when the last phrase word ended;
+   * order, each at least `floor` sure; the longest phrase that matches wins. `startSec` is when the first phrase word began; `endSec` is when the last phrase word ended;
    * `follows` whether more was said after it.
    */
   function wakeFrom(result, phrases, floor) {
@@ -93,7 +93,7 @@ const EarCore = (() => {
     for (const want of list) {
       if (got.length < want.length) continue;
       if (want.every((w, i) => got[i].word === w && got[i].conf >= floor)) {
-        return { endSec: got[want.length - 1].end, follows: got.length > want.length, phrase: want.join(' ') };
+        return { startSec: got[0].start, endSec: got[want.length - 1].end, follows: got.length > want.length, phrase: want.join(' ') };
       }
     }
     return null;
@@ -109,7 +109,7 @@ const EarCore = (() => {
       result(json, keptFrom) {
         const w = wakeFrom(json, phrases, floor);
         if (!w) return null;
-        return { follows: w.follows, fromSample: keptFrom + Math.round(w.endSec * 16000) };
+        return { follows: w.follows, fromSample: keptFrom + Math.round(w.endSec * 16000), phraseStartSec: w.startSec, phraseEndSec: w.endSec };
       },
     };
   }

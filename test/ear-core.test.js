@@ -105,6 +105,7 @@ test('the wake turn decides as wakeFrom does, for every case Android is checked 
     else {
       assert.strictEqual(got.follows, c.wake.follows, JSON.stringify(c.said));
       assert.strictEqual(got.fromSample, Math.round(c.wake.endSec * 16000), JSON.stringify(c.said));
+      assert.strictEqual(got.phraseStartSec, c.wake.startSec);
     }
   }
 });
@@ -112,7 +113,7 @@ test('the wake turn decides as wakeFrom does, for every case Android is checked 
 test('the wake turn says where the request begins: after the phrase, counted in samples from the keeper\'s start', () => {
   const turn = EarCore.createWakeTurn({ phrases: ['rahul', 'hey rahul'], floor: 0.6 });
   const said = { result: [{ word: 'hey', conf: 0.9, start: 1, end: 1.2 }, { word: 'rahul', conf: 0.8, start: 1.2, end: 1.6 }, { word: 'call', conf: 0.9, start: 1.7, end: 2 }] };
-  assert.deepStrictEqual(turn.result(said, 32000), { follows: true, fromSample: 32000 + 25600 });
+  assert.deepStrictEqual(turn.result(said, 32000), { follows: true, fromSample: 32000 + 25600, phraseStartSec: 1, phraseEndSec: 1.6 });
   assert.strictEqual(turn.result({ result: [] }, 0), null);
   assert.strictEqual(turn.result(null, 0), null);
 });

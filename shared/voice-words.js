@@ -194,7 +194,8 @@ function wakeNameHeard(name, missing = VOICE_MODEL.missing) {
 
 /**
  * Whether Vosk's final result starts with one of the phrases (a list; one string is a list of one): its words first, in
- * order, each at least `floor` sure. The longest phrase that matches wins. `endSec` is when the
+ * order, each at least `floor` sure. The longest phrase that matches wins. `startSec` is when the first phrase word began;
+ * `endSec` is when the
  * last phrase word ended; `follows` whether more was said after it (the request in the same breath); `phrase` the one heard.
  */
 function wakeFrom(result, phrases, floor) {
@@ -206,7 +207,7 @@ function wakeFrom(result, phrases, floor) {
   for (const want of list) {
     if (got.length < want.length) continue;
     if (want.every((w, i) => got[i].word === w && got[i].conf >= floor)) {
-      return { endSec: got[want.length - 1].end, follows: got.length > want.length, phrase: want.join(' ') };
+      return { startSec: got[0].start, endSec: got[want.length - 1].end, follows: got.length > want.length, phrase: want.join(' ') };
     }
   }
   return null;

@@ -40,7 +40,11 @@
     "globals": "^17.13.0"
   },
   "dependencies": {
+    "sherpa-onnx-node": "1.13.8",
     "three": "^0.186.1",
     "vosk-browser": "0.0.8"
+  },
+  "overrides": {
+    "sherpa-onnx-darwin-arm64": "1.13.8"
   }
 }

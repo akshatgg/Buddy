@@ -43,12 +43,19 @@ async function makeAsar(t, files, contents = {}) {
  * identity named, the build is taken to have a certificate (electron-builder signs after the hook), so the hook stops
  * after its checks and never calls codesign.
  */
-function contextFor(t, archive) {
+function contextFor(t, archive, withEngine = true) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-pack-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const resources = path.join(dir, 'Buddy.app', 'Contents', 'Resources');
   fs.mkdirSync(resources, { recursive: true });
   fs.copyFileSync(archive, path.join(resources, 'app.asar'));
+  if (withEngine) {
+    for (const f of afterPack.UNPACKED_NATIVE) {
+      const file = path.join(resources, 'app.asar.unpacked', f);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, 'x');
+    }
+  }
   return {
     electronPlatformName: 'darwin',
     appOutDir: dir,
@@ -134,7 +141,14 @@ test('the build goes on when everything is packed and cloud.json is valid', asyn
   assert.deepStrictEqual(log.mock.calls.map((call) => call.arguments[0]), [
     '  • app.asar holds the three.js loader and environment, and cloud.json',
     '  • cloud.json is in app.asar and valid',
+    '  • app.asar.unpacked holds the voice check engine',
   ]);
+});
+
+test('the Mac build fails when the voice check engine is not unpacked', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  const archive = await makeAsar(t, REQUIRED_IN_ASAR, { 'cloud.json': JSON.stringify(CLOUD) });
+  await assert.rejects(afterPack.default(contextFor(t, archive, false)), /app\.asar\.unpacked is missing .*sherpa-onnx\.node/);
 });
 
 /**
@@ -195,4 +209,24 @@ test('the permissions stay across updates only when the identity macOS keeps the
   assert.strictEqual(afterPack.keepsPermissions(`designated => identifier "com.akshatgg.buddy" and certificate leaf = H"${id.toLowerCase()}"`, id), true);
   assert.strictEqual(afterPack.keepsPermissions('designated => cdhash H"a79cdb53ba63a78dbce082452cc893be7cc60039"', id), false, 'ad-hoc: tied to the build');
   assert.strictEqual(afterPack.keepsPermissions('designated => identifier "x" and certificate root = H"0000000000000000000000000000000000000000"', id), false);
+});
+
+test('the Mac package must hold the voice check engine outside the asar', () => {
+  const { UNPACKED_NATIVE, missingUnpacked } = require('../build/afterPack');
+  assert.deepStrictEqual(UNPACKED_NATIVE, [
+    'node_modules/sherpa-onnx-darwin-arm64/sherpa-onnx.node',
+    'node_modules/sherpa-onnx-darwin-arm64/libsherpa-onnx-c-api.dylib',
+    'node_modules/sherpa-onnx-darwin-arm64/libonnxruntime.dylib',
+  ]);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unpacked-'));
+  assert.deepStrictEqual(missingUnpacked(dir), UNPACKED_NATIVE);
+  for (const f of UNPACKED_NATIVE) { fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), 'x'); }
+  assert.deepStrictEqual(missingUnpacked(dir), []);
+});
+
+test('the build config unpacks the engine on the Mac and leaves it out on Windows', () => {
+  const config = require('../electron-builder.config');
+  assert.ok(config.asarUnpack.includes('node_modules/sherpa-onnx-darwin-arm64/**'));
+  assert.ok(config.asarUnpack.includes('node_modules/sherpa-onnx-node/**'));
+  assert.ok(config.win.files.includes('!node_modules/sherpa-onnx-*/**'));
 });

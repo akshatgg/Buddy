@@ -55,7 +55,7 @@ module.exports = {
   productName: 'Buddy',
   copyright: 'Copyright (c) 2026 akshatgg',
   directories: { output: 'release', buildResources: 'build' },
-  // Buddy has no native Node modules, so there is nothing to rebuild.
+  // One prebuilt Node-API module (sherpa-onnx-node, the voice check's engine), nothing to rebuild.
   npmRebuild: false,
   // What runs: the app's code (shared/ is required by the main process) and its assets.
   // The production dependencies (three.js) come along automatically. Not art/, docs/,
@@ -95,6 +95,8 @@ module.exports = {
     },
   ],
   afterPack: 'build/afterPack.js',
+  // The voice check's engine runs from real files (a native addon and its libraries cannot load from inside the asar).
+  asarUnpack: ['node_modules/sherpa-onnx-node/**', 'node_modules/sherpa-onnx-darwin-arm64/**'],
 
   mac: {
     category: 'public.app-category.productivity',
@@ -137,6 +139,8 @@ module.exports = {
   // Windows: `npm run dist:win`, on Windows (the helper is built there). Nothing is signed: Buddy has no Windows
   // code-signing certificate, so SmartScreen asks once ("More info", then "Run anyway"), as Gatekeeper does on the Mac.
   win: {
+    // Windows has no wake loop, so no voice check: the engine stays out.
+    files: ['!node_modules/sherpa-onnx-*/**', '!node_modules/sherpa-onnx-node/**'],
     // x64 only; Windows on ARM runs it through its x64 emulation.
     target: [{ target: 'nsis', arch: ['x64'] }],
     // electron-builder makes the .ico from this 1024 x 1024 picture.

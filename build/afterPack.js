@@ -15,6 +15,19 @@ const REQUIRED_IN_ASAR = [
   'cloud.json',
 ];
 
+// The voice check's engine (sherpa-onnx), which must sit in app.asar.unpacked: a native addon cannot load from inside the
+// asar. electron-builder's asarUnpack puts it there (electron-builder.config.js); the Mac build checks it did.
+const UNPACKED_NATIVE = [
+  'node_modules/sherpa-onnx-darwin-arm64/sherpa-onnx.node',
+  'node_modules/sherpa-onnx-darwin-arm64/libsherpa-onnx-c-api.dylib',
+  'node_modules/sherpa-onnx-darwin-arm64/libonnxruntime.dylib',
+];
+
+/** The engine files that `unpackedDir` (app.asar.unpacked) does not hold. */
+function missingUnpacked(unpackedDir) {
+  return UNPACKED_NATIVE.filter((name) => !fs.existsSync(path.join(unpackedDir, name)));
+}
+
 // What the build says about a packed cloud.json that the app would refuse (see cloudConfigProblem).
 const CLOUD_CONFIG_NOT_VALID =
   'cloud.json in the app is not valid: it needs serverUrl (https), firebaseApiKey, googleClientId and ' +
@@ -125,7 +138,11 @@ function checkWindowsPackage(appOutDir) {
  * installed app cannot do without (REQUIRED_IN_ASAR: the files the buddy page
  * cannot show the robot without, and cloud.json, which sign-in needs) and for a
  * cloud.json that is valid (cloudConfigProblem): the build fails when one is
- * missing or not valid. The Windows package gets the same check, and one for its C# helper
+ * missing or not valid. The voice check's engine (UNPACKED_NATIVE) must be in app.asar.unpacked, and with Buddy's own
+ * certificate its three files are signed before the bundle (like the helper) and verified after. If the hardened
+ * runtime is ever turned on (hardenedRuntime in electron-builder.config.js),
+ * com.apple.security.cs.disable-library-validation is needed in build/entitlements.mac.plist, or the addon would not
+ * load. The Windows package gets the same check, and one for its C# helper
  * (checkWindowsPackage); nothing on Windows is signed.
  */
 exports.default = async function afterPack(context) {
@@ -138,6 +155,13 @@ exports.default = async function afterPack(context) {
   const appName = `${context.packager.appInfo.productFilename}.app`;
   const appPath = path.join(context.appOutDir, appName);
   requirePackedFiles(path.join(appPath, 'Contents', 'Resources', 'app.asar'));
+  const unpackedDir = path.join(appPath, 'Contents', 'Resources', 'app.asar.unpacked');
+  const absent = missingUnpacked(unpackedDir);
+  if (absent.length > 0) {
+    throw new Error(`app.asar.unpacked is missing ${absent.join(' and ')}: without them the voice check cannot start (asarUnpack in electron-builder.config.js).`);
+  }
+  const engine = UNPACKED_NATIVE.map((name) => path.join(unpackedDir, name));
+  console.log('  • app.asar.unpacked holds the voice check engine');
 
   // With a certificate electron-builder signs the bundle itself, after this hook.
   if (context.packager.platformSpecificBuildOptions.identity !== null) return;
@@ -153,6 +177,8 @@ exports.default = async function afterPack(context) {
     console.log(`  • signing  ${appName} as ${bundleId} with Buddy's own certificate`);
     // The helper first: the bundle's seal records it as a file, so it must not change after.
     execFileSync('codesign', ['--force', ...from, '--sign', identity, helper], { stdio: 'inherit' });
+    // The engine's files too, for the same reason (they are not nested code either).
+    for (const file of engine) execFileSync('codesign', ['--force', ...from, '--sign', identity, file], { stdio: 'inherit' });
   }
 
   execFileSync('codesign', [
@@ -169,6 +195,7 @@ exports.default = async function afterPack(context) {
 
   // Fails when the helper is missing (run `npm run build:native` first) or was changed after sealing.
   execFileSync('codesign', ['--verify', '--strict', helper], { stdio: 'inherit' });
+  for (const file of engine) execFileSync('codesign', ['--verify', '--strict', file], { stdio: 'inherit' });
 
   // With Buddy's own certificate, the identity macOS keeps the permissions for must name it: else they would go again.
   if (identity !== '-') {
@@ -202,6 +229,8 @@ function keepsPermissions(requirement, identity) {
 }
 
 exports.REQUIRED_IN_ASAR = REQUIRED_IN_ASAR;
+exports.UNPACKED_NATIVE = UNPACKED_NATIVE;
+exports.missingUnpacked = missingUnpacked;
 exports.signingIdentity = signingIdentity;
 exports.keepsPermissions = keepsPermissions;
 exports.missingFromAsar = missingFromAsar;

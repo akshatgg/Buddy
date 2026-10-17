@@ -11,6 +11,7 @@ const PANEL = { width: 360, height: 480 }; // the panel as it first opens
 const PANEL_MIN = { width: 320, height: 380 }; // the smallest the person can make it
 const PANEL_BIG = { width: 560, height: 760 }; // the header's ⤢: as big as this, or as the screen allows
 const BUBBLE = { width: 230, height: 54 };
+const SPEECH = { width: 280, height: 110 }; // the speech bubble: a hands-free answer, up to 4 lines (bubble-window.js speak)
 const ROOM_ABOVE = 0.6; // room above the buddy for its symbols (src/renderer/buddy/symbols.js), times its size
 // How far the buddy's box may go above the work area's top, times its height: the box has room above the head for the
 // float (the camera frames the character with about an eighth of the box empty above it, layout.js), so the head
@@ -124,6 +125,7 @@ function resizedPanel(start, dx, dy, grip, area) {
   return panelSize({ width, height }, area);
 }
 const bubbleBounds = (buddy, area) => besideBuddy(buddy, area, BUBBLE, true);
+const speechBounds = (buddy, area) => besideBuddy(buddy, area, SPEECH, true);
 
 /** A new size, keeping the bottom-centre point where it was. */
 function resizeAround(b, size, area) {
@@ -133,7 +135,7 @@ function resizeAround(b, size, area) {
 }
 
 module.exports = {
-  SIZES, MARGIN, PANEL, PANEL_MIN, PANEL_BIG, BUBBLE,
-  TOP_TUCK, buddyWindowSize, buddyBox, windowAtBox, clampToArea, clampBuddy, defaultBounds, snapToEdge, panelBounds, bubbleBounds, resizeAround,
+  SIZES, MARGIN, PANEL, PANEL_MIN, PANEL_BIG, BUBBLE, SPEECH,
+  TOP_TUCK, buddyWindowSize, buddyBox, windowAtBox, clampToArea, clampBuddy, defaultBounds, snapToEdge, panelBounds, bubbleBounds, speechBounds, resizeAround,
   panelSize, panelGrip, resizedPanel,
 };

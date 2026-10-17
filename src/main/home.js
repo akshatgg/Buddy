@@ -39,6 +39,15 @@ function createHome({ floating, notch, bubble, store, helper, screen, platform =
     }
   }
 
+  /**
+   * Where the panel goes (panel-window.js show): under the notch, or beside the floating buddy. The work area is
+   * asked for now, not kept from the last refresh: the Dock or the menu bar may have changed since.
+   */
+  function panelAt() {
+    if (where === 'notch') return { kind: 'below', notch: current.notch, area: screen.getDisplayMatching(current.notch).workArea };
+    return { kind: 'beside', buddy: floating.bounds(), area: floating.display().workArea };
+  }
+
   return {
     ...floating,
     show,
@@ -76,14 +85,11 @@ function createHome({ floating, notch, bubble, store, helper, screen, platform =
       if (where === 'notch') notch.say(text);
       else bubble.say(text, floating.bounds(), floating.display().workArea);
     },
-    /**
-     * Where the panel goes (panel-window.js show): under the notch, or beside the floating buddy. The work area is
-     * asked for now, not kept from the last refresh: the Dock or the menu bar may have changed since.
-     */
-    panelAt() {
-      if (where === 'notch') return { kind: 'below', notch: current.notch, area: screen.getDisplayMatching(current.notch).workArea };
-      return { kind: 'beside', buddy: floating.bounds(), area: floating.display().workArea };
-    },
+    panelAt,
+    /** A hands-free answer in the speech bubble (bubble-window.js speak), where the panel would go. Null keeps the words up. */
+    speak: (text) => bubble.speak(text, panelAt()),
+    /** Buddy stopped speaking: the speech bubble goes a few seconds later. */
+    speakDone: () => bubble.release(),
     where: () => where,
     /** A notch screen is on now (from the last refresh), whichever home the person chose. */
     hasNotch: () => found.length > 0,

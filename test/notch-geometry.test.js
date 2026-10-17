@@ -59,3 +59,7 @@ test('chooseHome: the notch on a Mac that has one and wants it; floating otherwi
   assert.strictEqual(g.chooseHome({ platform: 'darwin', home: undefined, notches }), 'floating');
   assert.strictEqual(g.chooseHome({ platform: 'darwin', home: 'notch', notches: undefined }), 'floating');
 });
+
+test('the speech bubble under the notch is centred on it at the top of the work area', () => {
+  assert.deepStrictEqual(g.speechUnderNotch(NOTCH, AREA), { x: 666 + 90 - 140, y: 37, width: 280, height: 110 });
+});

@@ -13,7 +13,7 @@ import kotlin.math.sin
 // head forward (down) when positive, as the Mac's headPitch; only the look where the person
 // types (Look.kt) turns it, so no mood sets it.
 
-enum class Mood { IDLE, THINKING, HAPPY, SLEEPY, WAVE, WOBBLE }
+enum class Mood { IDLE, THINKING, HAPPY, SLEEPY, WAVE, WOBBLE, LISTENING }
 
 data class Pose(
     val lift: Float = 0f, val scaleX: Float = 1f, val scaleY: Float = 1f, val headTilt: Float = 0f,
@@ -113,6 +113,12 @@ object Moods {
         }
         Mood.SLEEPY -> Pose(eyesClosed = true, scaleY = (1 + 0.02 * sin(since * 1.6)).toFloat(), headTilt = 0.12f)
         Mood.WOBBLE -> Pose(headTilt = (0.15 * sin(since * 18)).toFloat(), mouthO = 0.5f)
+        // Listening ("Hey <name>", and a card's question asked aloud): the head leans in and the eyes look up, eased in
+        // over 0.4 s, until another mood. The Mac's listening face, without its ears.
+        Mood.LISTENING -> {
+            val leaning = min(since / 0.4, 1.0)
+            Pose(headTilt = (0.14 * leaning).toFloat(), eyeL = (0.25 * leaning).toFloat(), eyeR = (0.25 * leaning).toFloat())
+        }
         Mood.IDLE -> Pose()
     }
 }

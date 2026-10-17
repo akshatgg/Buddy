@@ -140,7 +140,10 @@ async function start(options = {}) {
     animate: options.animate !== false,
     onGiveUp: () => tray?.refresh(), // the page crashed again and again, and the window is gone: the menu must say so
   });
-  const bubble = createBubbleWindow();
+  // A click on a speech bubble's words opens the chat it is about (onBubbleClick, below): it only opens, never closes.
+  const bubble = createBubbleWindow({
+    ipcMain, cursor: () => screen.getCursorScreenPoint(), onClick: () => { bubble.hide(); onBubbleClick(); },
+  });
   // Buddy as the rest of main sees it: in the notch (on a Mac with one) or the floating buddy, whichever is in use.
   const notch = createNotchWindow({ screen, look: () => store.get('notchLook') }); // the face or the eyes (Settings)
   const buddy = createHome({ floating, notch, bubble, store, helper, screen });
@@ -189,6 +192,16 @@ async function start(options = {}) {
     ? createWake({
       store, ear, model: voiceModel, lock, microphone, power: { isOn: () => power.isOn() }, account, cloud, powerMonitor, myVoice,
       actions: { transcribe: (...a) => actions.transcribe(...a), voice: (words) => actions.voice(words) }, talkBack: rawTalkBack,
+      // Buddy's face for a wake (feelings.js) and its own lines in the speech bubble (bubble-window.js speak).
+      feel: {
+        listening: (on) => feelings.listening(on),
+        mood: (name) => actions.mood(name), // through actions.js, which keeps track of the last mood
+        bubble: (text) => { // not over an open panel: its chat has the words, and a click there would be a click on the chat
+          if (ui.isPanelVisible()) return;
+          buddy.speak(text);
+          buddy.speakDone();
+        },
+      },
       busy: () => actions.state().busy === true, // the chat is still answering: "Hey <name>" says so instead of dropping the request
     })
     : null;
@@ -210,6 +223,7 @@ async function start(options = {}) {
     onGone: () => ui.listening(false),
     // While the panel is open the buddy does not fall asleep or fidget, however the panel opens and closes.
     onVisible: (visible) => {
+      if (visible) bubble.hide(); // the chat is on screen: the speech bubble's words are in it
       feelings.panel(visible);
       if (visible) memorySync.syncIfStale(); // facts another device learnt meanwhile, for this chat
     },
@@ -259,6 +273,10 @@ async function start(options = {}) {
     panelWindowHandle: () => windowHandle(panel.window()), // for the helper on Windows (actions.js)
     openSettings,
     bubble: (text) => buddy.say(text),
+    // A hands-free answer while the panel is hidden (actions.js quiet chat): its words in the speech bubble, held while
+    // Buddy speaks (null keeps what is up), and gone a few seconds after.
+    speech: (text) => buddy.speak(text),
+    speechDone: () => buddy.speakDone(),
     status(value) { // Claude Code's status beside Buddy in the notch (claude/watch.js), and the session a click opens
       claudeSession = value?.session ?? null;
       buddy.status(value);
@@ -343,6 +361,10 @@ async function start(options = {}) {
     wake?.refresh();
     if (store.get('watchClaudeCode') !== true) return;
     watch.start().catch((err) => console.warn('[buddy] could not watch Claude Code:', err.message));
+  };
+  const onBubbleClick = () => {
+    if (!power.isOn()) return;
+    actions.open().catch((err) => console.error('[buddy] could not open the panel', err));
   };
   const onCall = () => {
     // The shortcut is let go while Buddy is off. This is the second guard, for a press that was already on its way.

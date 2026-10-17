@@ -23,6 +23,8 @@ const BHEJ = ['bhej', 'bhejo', 'bhejdo', 'bhejna', 'bhejiye'];
 for (const w of BHEJ) SAME[w] = 'send';
 const UNK = 'unk'; // a word the recognizer could not make out: never allowed, so never a yes
 const SPOKEN_MAX = 240; // a line of Buddy's own longer than this is only shown
+const BUBBLE_MAX = 140; // a hands-free answer in the speech bubble: longer is cut at a word, with "…" (the chat has it all)
+const BUBBLE_HIDE_MS = 8000; // the speech bubble goes this long after Buddy stops speaking
 const ANSWER_MS = 8000; // nothing decisive heard this long after the question: no
 const UNLOCK_WAIT_MS = 60000;
 const MAX_FOLLOW_UPS = 2; // "Which Priya?" answered by voice, at most twice in a row
@@ -34,6 +36,7 @@ const VOICE_LINES = {
   notSent: 'Okay, not sent.',
   notNow: 'Okay, not now.',
   noInternet: "I can't reach the internet right now.",
+  didntCatch: "I didn't catch that.", // the words after "Hey <name>" came back empty: shown, not said
   didntSend: "I didn't send it.",
   didntCall: "I didn't call.",
 };
@@ -214,8 +217,33 @@ function wakeFrom(result, phrases, floor) {
   return null;
 }
 
+/** A line as the speech bubble shows it: spaces tidied; past `max`, cut at a word (or where it is) with "…". */
+function bubbleLine(text, max = BUBBLE_MAX) {
+  const line = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (line.length <= max) return line;
+  const cut = line.slice(0, max - 1);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:.!?-]+$/, '')}…`;
+}
+
+/**
+ * The answer as the speech bubble shows it: each buddy line's words and text, an error (the internet line for no
+ * internet), a done line without its mark; through bubbleLine. Unlike spokenLines, a long text is shown (cut), not dropped.
+ */
+function bubbleText(items) {
+  const parts = [];
+  for (const item of items) {
+    const say = String(item.say || '').trim();
+    const text = String(item.text || '').trim();
+    if (item.type === 'buddy') parts.push(say, text);
+    else if (item.type === 'error') parts.push(NO_INTERNET.includes(item.code) ? VOICE_LINES.noInternet : text);
+    else if (item.type === 'event' && DONE.test(text)) parts.push(text.replace(DONE, ''));
+  }
+  return bubbleLine(parts.filter(Boolean).join(' '));
+}
+
 module.exports = {
-  YES_WORDS, NO_WORDS, VERBS, FILLERS, BHEJ, SPOKEN_MAX, ANSWER_MS, UNLOCK_WAIT_MS, MAX_FOLLOW_UPS, VOICE_LINES,
-  heardWords, heardAnswer, wantsServer, answerGrammar, GRAMMAR_FILLERS, spokenQuestion, spokenLines, asksBack, unlockLine, callingLine,
+  YES_WORDS, NO_WORDS, VERBS, FILLERS, BHEJ, SPOKEN_MAX, BUBBLE_MAX, BUBBLE_HIDE_MS, ANSWER_MS, UNLOCK_WAIT_MS, MAX_FOLLOW_UPS, VOICE_LINES,
+  heardWords, heardAnswer, wantsServer, answerGrammar, GRAMMAR_FILLERS, spokenQuestion, spokenLines, bubbleLine, bubbleText, asksBack, unlockLine, callingLine,
   WAKE_FLOOR, REQUEST, WAKE_LINES, wakePhrase, wakeMissing, wakePhrases, wakeNameHeard, wakeFrom,
 };

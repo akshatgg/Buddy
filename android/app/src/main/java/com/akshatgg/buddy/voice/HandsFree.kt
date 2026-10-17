@@ -12,6 +12,8 @@ interface SpokenChat {
     fun sendSpoken(text: String)
     /** The last spoken message is still being answered. */
     val busy: Boolean
+    /** The chat is on screen right now: a new wake goes on in it, nothing is reopened. */
+    val onScreen: Boolean get() = false
 }
 
 /**
@@ -19,6 +21,7 @@ interface SpokenChat {
  * and the words go to a chat of their own, not the panel's, through the same path as the 🎤. The chat answers out loud and
  * asks a card's question out loud; a card needs the spoken yes (or its button) as ever. When the words cannot be had,
  * Buddy says why, out loud and in the speech bubble (`bubble`).
+ * Words that come back empty show "I didn't catch that." in the bubble, without a word said.
  */
 class HandsFree(
     private val chat: SpokenChat,
@@ -49,9 +52,11 @@ class HandsFree(
         } catch (e: Exception) {
             return
         }
-        if (words.isEmpty()) return
-        chat.open()
-        chat.hidden()
+        if (words.isEmpty()) return bubble(VoiceWords.DIDNT_CATCH) // shown, not said: the person just says the wake words again
+        if (!chat.onScreen) { // on screen, the words go into the chat the person is looking at
+            chat.open()
+            chat.hidden()
+        }
         chat.sendSpoken(words)
     }
 

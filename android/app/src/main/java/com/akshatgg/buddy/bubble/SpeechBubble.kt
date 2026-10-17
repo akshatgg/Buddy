@@ -18,6 +18,7 @@ import kotlin.math.max
 
 private const val MAX_DP = 240
 private const val SHOW_MS = 3500L
+private const val STAY_MAX_MS = 60_000L // a held bubble goes at last even if its SpeechDone never came
 private const val TAP_SHOW_MS = 15_000L // words that can be tapped (Fix where I type's Undo) stay as long as that works
 
 /**
@@ -29,11 +30,15 @@ internal class SpeechBubble(private val context: Context, private val windows: W
     private var view: TextView? = null // while it is on screen
     private var timer: Job? = null
 
+    /** The words up are a hands-free answer's (said with `stay`): a tap on the head opens that chat too. */
+    var spoken = false
+        private set
+
     /**
      * Show `text` beside the head's window `head`, inside `area`, the part of the screen the head keeps to. `onTap`, when
-     * given, is done on a tap, which closes the bubble.
+     * given, is done on a tap, which closes the bubble. `stay`: a hands-free answer, held until release().
      */
-    fun say(text: String, head: Rect, area: Rect, onTap: (() -> Unit)? = null) {
+    fun say(text: String, head: Rect, area: Rect, onTap: (() -> Unit)? = null, stay: Boolean = false) {
         val bubble = view ?: make()
         bubble.text = text
         if (onTap != null) {
@@ -63,13 +68,35 @@ internal class SpeechBubble(private val context: Context, private val windows: W
             windows.updateViewLayout(bubble, place)
         }
         timer?.cancel()
+        spoken = stay
         timer = scope.launch {
-            delay(if (onTap == null) SHOW_MS else TAP_SHOW_MS)
+            delay(if (stay) STAY_MAX_MS else if (onTap == null) SHOW_MS else TAP_SHOW_MS)
+            hide()
+        }
+    }
+
+    /** A hands-free bubble stays up: its timer starts over, with the safety cap. */
+    fun keep() {
+        if (!spoken) return
+        timer?.cancel()
+        timer = scope.launch {
+            delay(STAY_MAX_MS)
+            hide()
+        }
+    }
+
+    /** A hands-free bubble goes `ms` from now. */
+    fun release(ms: Long) {
+        if (!spoken || view == null) return
+        timer?.cancel()
+        timer = scope.launch {
+            delay(ms)
             hide()
         }
     }
 
     fun hide() {
+        spoken = false
         timer?.cancel()
         timer = null
         view?.let { windows.removeView(it) }

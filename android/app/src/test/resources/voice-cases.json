@@ -744,6 +744,123 @@
       "asks": false
     }
   ],
+  "bubble": {
+    "max": 140,
+    "hideMs": 8000,
+    "didntCatch": "I didn't catch that.",
+    "lines": [
+      {
+        "text": "Paris.",
+        "shown": "Paris."
+      },
+      {
+        "text": "  two\n  lines  ",
+        "shown": "two lines"
+      },
+      {
+        "text": "",
+        "shown": ""
+      },
+      {
+        "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+        "shown": "word word word word word word word word word word word word word word word word word word word word word word word word word word word…"
+      },
+      {
+        "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "shown": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+      },
+      {
+        "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "shown": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…"
+      },
+      {
+        "text": "Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. ",
+        "shown": "Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. Hello, world. Hello…"
+      },
+      {
+        "text": "Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? ",
+        "shown": "Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan ho? Kahan…"
+      }
+    ],
+    "texts": [
+      {
+        "items": [
+          {
+            "type": "buddy",
+            "say": "Okay!",
+            "text": "x"
+          },
+          {
+            "type": "buddy",
+            "say": "",
+            "text": "Which Priya: A or B? Tell me the full name."
+          },
+          {
+            "type": "buddy",
+            "say": "",
+            "text": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+          },
+          {
+            "type": "event",
+            "text": "✅ Opened YouTube"
+          },
+          {
+            "type": "event",
+            "text": "📝 Remembered: x"
+          },
+          {
+            "type": "error",
+            "text": "x",
+            "code": "network"
+          },
+          {
+            "type": "error",
+            "text": "Sign in to use Buddy.",
+            "code": "signed_out"
+          },
+          {
+            "type": "question",
+            "text": "q"
+          }
+        ],
+        "shown": "Okay! x Which Priya: A or B? Tell me the full name. yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…"
+      },
+      {
+        "items": [
+          {
+            "type": "buddy",
+            "say": "Sure!",
+            "text": "Here it is."
+          }
+        ],
+        "shown": "Sure! Here it is."
+      },
+      {
+        "items": [
+          {
+            "type": "buddy",
+            "say": "",
+            "text": "y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y "
+          }
+        ],
+        "shown": "y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y…"
+      },
+      {
+        "items": [
+          {
+            "type": "error",
+            "text": "x",
+            "code": "timeout"
+          }
+        ],
+        "shown": "I can't reach the internet right now."
+      },
+      {
+        "items": [],
+        "shown": ""
+      }
+    ]
+  },
   "wake": {
     "phrases": [
       {

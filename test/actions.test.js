@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
 const { createActions, COPIED } = require('../src/main/actions');
+const { BUBBLE_MAX } = require('../shared/voice-words');
 const { onPlatform } = require('./helpers/platform');
 
 const {
@@ -2788,7 +2789,7 @@ test('Send pressed while Buddy asks "Send it?": sent once, and the late yes does
   assert.strictEqual(sendKeys(s).length, 1);
 });
 
-test('voice(words), after "Hey <name>": opens the chat and sends the words as a spoken message; the card is still asked aloud', async () => {
+test('voice(words), after "Hey <name>": the words go as a spoken message; the card is still asked aloud', async () => {
   const s = setup({ answers: [message()], talk: { answers: ['no'] }, replies: WA });
   await s.actions.voice('message priya hi');
   await settle();
@@ -2809,4 +2810,107 @@ test('voice(words) while the chat is still answering: says it is busy (so "Hey <
   assert.strictEqual(entries(s.log, 'ask').length, asks);
   answer();
   await first;
+});
+
+// "Hey <name>" with the panel hidden: the chat is not shown; the answer is said and shown in the speech bubble
+
+const speeches = (s) => s.log.filter((e) => e[0] === 'speech' || e[0] === 'speechDone').map((e) => (e[0] === 'speech' ? e[1] : 'done'));
+
+test('voice(words) with the panel hidden: no panel; the answer is said, shown in the speech bubble meanwhile, then let go of', async () => {
+  const s = setup({ answers: [reply({ kind: 'answer', say: 'Paris is the capital of France.' })], talk: {} });
+  await s.actions.voice('capital of france');
+  await settle();
+  assert.strictEqual(entries(s.log, 'showPanel').length, 0);
+  assert.deepStrictEqual(spokenOf(s), ['Paris is the capital of France.']);
+  assert.deepStrictEqual(speeches(s), ['Paris is the capital of France.', 'done']);
+});
+
+test('a long answer: the speech bubble shows it cut with "…", the chat keeps it all', async () => {
+  const long = `${'word '.repeat(60)}end`;
+  const s = setup({ answers: [reply({ kind: 'answer', say: 'Here it is.', text: long })], talk: {} });
+  await s.actions.voice('tell me something long');
+  await settle();
+  const shown = speeches(s)[0];
+  assert.ok(shown.startsWith('Here it is. word'), shown);
+  assert.ok(shown.endsWith('…') && shown.length <= BUBBLE_MAX, shown);
+  assert.strictEqual(chatOf(s).find((i) => i.type === 'buddy').text, long);
+});
+
+test('a message card from a wake: asked in the speech bubble with no panel; no yes sends nothing', async () => {
+  const s = setup({ answers: [message()], talk: { answers: ['no'] }, replies: WA });
+  await s.actions.voice('message priya hi');
+  await settle();
+  assert.strictEqual(entries(s.log, 'showPanel').length, 0);
+  assert.deepStrictEqual(speeches(s).filter((x) => x !== 'done'), ['To Priya Sharma: hi. Send it?', 'Okay, not sent.']);
+  assert.strictEqual(waSends(s).length, 0);
+});
+
+test('a yes to a wake\'s card sends it once, as with the panel open, and the panel stays hidden', async () => {
+  const s = setup({ answers: [message()], talk: { answers: ['yes'] }, replies: WA });
+  await s.actions.voice('message priya hi');
+  await settle();
+  assert.deepStrictEqual(waSends(s).map((e) => e[2]), [{ name: 'Priya Sharma', text: 'hi' }]);
+  assert.strictEqual(entries(s.log, 'showPanel').length, 0);
+});
+
+test('opening the panel after a wake (a click on the bubble or on Buddy) shows that chat; then no speech bubble', async () => {
+  const s = setup({ answers: [reply({ kind: 'answer', say: 'Paris.' }), reply({ kind: 'answer', say: 'Berlin.' })], talk: {} });
+  await s.actions.voice('capital of france');
+  await settle();
+  await s.actions.toggle();
+  const shown = entries(s.log, 'showPanel')[0][1];
+  assert.strictEqual(shown.resumed, true);
+  assert.deepStrictEqual(shown.chat.map((i) => i.type), ['you', 'buddy']);
+  const before = entries(s.log, 'speech').length;
+  await s.actions.send('and germany?', { spoken: true });
+  await settle();
+  assert.strictEqual(entries(s.log, 'speech').length, before, 'the chat is on screen');
+});
+
+test('a wake\'s chat over five minutes old: opening the panel starts a new chat, as today', async () => {
+  const s = setup({ answers: [reply({ kind: 'answer', say: 'Paris.' })], talk: {} });
+  await s.actions.voice('capital of france');
+  await settle();
+  s.wait(5 * 60_000);
+  await s.actions.toggle();
+  assert.deepStrictEqual(entries(s.log, 'showPanel')[0][1].chat, []);
+});
+
+test('a second wake within five minutes goes on in the same chat', async () => {
+  const s = setup({ answers: [reply({ kind: 'answer', say: 'Which Priya?' }), reply({ kind: 'answer', say: 'Okay.' })], talk: {} });
+  await s.actions.voice('message priya');
+  await settle();
+  s.wait(60_000);
+  await s.actions.voice('priya sharma');
+  await settle();
+  assert.deepStrictEqual(chatOf(s).filter((i) => i.type === 'you').map((i) => i.text), ['message priya', 'priya sharma']);
+});
+
+test('a wake while the panel is open goes into the open panel, with no speech bubble', async () => {
+  const s = setup({ answers: [reply({ kind: 'answer', say: 'Paris.' })], talk: {} });
+  await s.actions.open();
+  await s.actions.voice('capital of france');
+  await settle();
+  assert.deepStrictEqual(spokenOf(s), ['Paris.']);
+  assert.strictEqual(entries(s.log, 'speech').length, 0);
+});
+
+test('the panel asked for while a quiet open is still running is shown once that one is done', async () => {
+  const s = setup({ answers: [], talk: {} });
+  const quiet = s.actions.open({ show: false });
+  const shown = s.actions.open();
+  await Promise.all([quiet, shown]);
+  assert.strictEqual(entries(s.log, 'showPanel').length, 1);
+});
+
+test('a quiet open asked for again while one runs just joins it', async () => {
+  const s = setup({ answers: [], talk: {} });
+  await Promise.all([s.actions.open({ show: false }), s.actions.open({ show: false })]);
+  assert.strictEqual(entries(s.log, 'showPanel').length, 0);
+});
+
+test('actions.mood goes through the same mood path as the chat\'s own', async () => {
+  const s = setup({ answers: [] });
+  s.actions.mood('thinking');
+  assert.deepStrictEqual(moods(s.log), ['thinking']);
 });

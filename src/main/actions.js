@@ -26,7 +26,7 @@ const { TRANSCRIBE_TIMEOUT_MS } = require('./cloud');
 const platform = require('./platform');
 const { ERRORS: CLAUDE_ERRORS } = require('./claude/job');
 const {
-  spokenQuestion, spokenLines, asksBack, unlockLine, callingLine, VOICE_LINES, UNLOCK_WAIT_MS, MAX_FOLLOW_UPS,
+  spokenQuestion, spokenLines, bubbleLine, bubbleText, asksBack, unlockLine, callingLine, VOICE_LINES, UNLOCK_WAIT_MS, MAX_FOLLOW_UPS,
 } = require('../../shared/voice-words');
 
 const COPIED = `Copied — press ${platform.pasteKeys}`;
@@ -146,6 +146,7 @@ function createActions({
   };
   let chat = newChat();
   let opening = null; // the open() in progress, if any
+  let openingQuiet = false; // that open does not show the panel (a hands-free request's)
   let aside = 0; // how many of Buddy's steps in the app are under way with the panel hidden on purpose for them
   let lane = Promise.resolve(); // Buddy's work in the app, one step after the other (inApp)
   let working = 0; // how many steps in the app are under way or waiting their turn
@@ -155,12 +156,13 @@ function createActions({
    * A chat: the app it is about, its items, the selection the next message uses, the notice about that selection (and
    * `noticeFix`, the error code whose fix is a click away, when it has one), and whether the buddy is waiting for the AI (`busy`, which the page shows). `talking` counts its messages still being
    * worked on (until what each answer says is done), and `lastPut` is the buddy item Buddy last put in the app, which a
-   * new version of it replaces. `live` once the panel has opened on it; `resumed` when an opening came back to it.
+   * new version of it replaces. `live` once the panel has opened on it; `resumed` when an opening came back to it. `quiet` while it is a
+   * hands-free chat the panel has not shown (sayToBuddy), as recent as `quietAt`.
    */
   function newChat(app = null) {
     return {
       app, items: [], nextId: 1, selection: '', notice: '', noticeFix: '', busy: false, talking: 0, lastPut: null, resumed: false, live: false,
-      spoken: false, asking: null, followUps: 0, run: 0, speaking: false, listening: false, cancelWait: null, waitingFor: null, saying: 0, epoch: 0,
+      quiet: false, quietAt: 0, spoken: false, asking: null, followUps: 0, run: 0, speaking: false, listening: false, cancelWait: null, waitingFor: null, saying: 0, epoch: 0,
     };
   }
 
@@ -186,12 +188,23 @@ function createActions({
     c.asking = null;
   }
 
-  /** Said out loud, only in a spoken chat. Never rejects: a voice that fails leaves the chat as it is. */
-  function speak(c, text) {
+  /** A hands-free chat the panel has not shown: what Buddy says goes in the speech bubble (ui.speech). */
+  const quietly = (c) => c.quiet && c === chat;
+
+  /**
+   * Said out loud, only in a spoken chat. Never rejects: a voice that fails leaves the chat as it is. In a quiet chat the
+   * speech bubble shows `shown` (null: what it shows already) while the line is said, and goes a few seconds after.
+   */
+  function speak(c, text, shown = text) {
     if (!c.spoken || !talkBack || !text) return Promise.resolve();
+    const bubbled = quietly(c);
+    if (bubbled) ui.speech?.(shown === null ? null : bubbleLine(shown));
     c.saying += 1; // hush() stops whatever line is being said
     return Promise.resolve().then(() => talkBack.say(text)).catch((err) => console.warn('[buddy] could not speak:', err.message))
-      .finally(() => { c.saying -= 1; });
+      .finally(() => {
+        c.saying -= 1;
+        if (bubbled) ui.speechDone?.();
+      });
   }
 
   /** Text as it goes on the clipboard, with the system's line breaks. */
@@ -251,7 +264,11 @@ function createActions({
     c.items[c.items.indexOf(item)] = { id: item.id, ...fields };
   }
 
-  async function openPanel() {
+  /**
+   * `show: false` (a hands-free request with the panel hidden): the chat is made ready but not shown; it is quiet until
+   * the panel shows it.
+   */
+  async function openPanel({ show = true } = {}) {
     const app = helper.lastApp;
     let selection = '';
     let notice = '';
@@ -273,12 +290,14 @@ function createActions({
       }
     }
     // The same chat comes back when the panel only hid, from the same app, a short while ago; the selection is read
-    // again all the same, since the person may have selected something else meanwhile.
+    // again all the same, since the person may have selected something else meanwhile. A quiet chat is as recent as its
+    // last request, and the panel opened on it shows it whatever the app is now: its words were in the speech bubble.
     const sameApp = (app?.pid ?? null) === (chat.app?.pid ?? null);
-    const resumed = chat.live && sameApp && now() - ui.panelHiddenAt() < RESUME_MS;
+    const seen = chat.quiet ? chat.quietAt : ui.panelHiddenAt();
+    const resumed = chat.live && now() - seen < RESUME_MS && (sameApp || (show && chat.quiet));
     if (!resumed) replaceChat(newChat(app));
-    Object.assign(chat, { app, selection, notice, noticeFix, resumed, live: true });
-    await showPanel(stateOf(chat));
+    Object.assign(chat, { app, selection, notice, noticeFix, resumed, live: true, quiet: !show, quietAt: show ? 0 : now() });
+    if (show) await showPanel(stateOf(chat));
   }
 
   /**
@@ -315,12 +334,15 @@ function createActions({
   }
 
   /** One opening at a time: asking again while the selection is still being read joins the one in progress. */
-  function open() {
-    if (!opening) {
-      opening = openPanel().finally(() => {
-        opening = null;
-      });
+  function open(options) {
+    if (opening && (options?.show === false || !openingQuiet)) return opening;
+    if (opening) { // a show asked while a quiet open runs: the panel is shown once that one is done
+      return opening.then(() => (ui.isPanelVisible() ? undefined : open(options)));
     }
+    openingQuiet = options?.show === false;
+    opening = openPanel(options).finally(() => {
+      opening = null;
+    });
     return opening;
   }
 
@@ -357,7 +379,7 @@ function createActions({
    * means they have moved on: Buddy does not read their box, look at their app or type into it behind their back.
    */
   function present(c) {
-    return c === chat && (aside > 0 || ui.isPanelVisible());
+    return c === chat && (aside > 0 || ui.isPanelVisible() || c.quiet);
   }
 
   /** Buddy stopped short of reading the box or looking at the app (present()): the chat says what to do then. */
@@ -370,7 +392,7 @@ function createActions({
    * it back, not the person, so it does not listen by itself (`voice.auto` is false in this state only).
    */
   async function comeBack(c) {
-    if (c !== chat) return;
+    if (c !== chat || c.quiet) return; // a quiet chat stays in the speech bubble
     c.resumed = true;
     const state = stateOf(c);
     await showPanel({ ...state, voice: { ...state.voice, auto: false } });
@@ -634,10 +656,15 @@ function createActions({
     const added = c.items.slice(c.items.indexOf(you) + 1);
     const card = [...added].reverse().find((i) => ((i.message || i.call) || plainSend(i)) && i.buttons?.length);
     const lines = spokenLines(added.filter((i) => i !== card));
+    const shown = bubbleText(added.filter((i) => i !== card)); // the answer in the speech bubble (quiet chat)
+    if (!lines.length && shown && quietly(c)) { // a long text, only shown
+      ui.speech?.(shown);
+      ui.speechDone?.();
+    }
     c.speaking = true;
     try {
-      for (const line of lines) {
-        await speak(c, line);
+      for (const [n, line] of lines.entries()) {
+        await speak(c, line, n === 0 ? shown || line : null); // the bubble shows the answer, held through its lines
         if (!live()) return;
       }
     } finally {
@@ -1271,11 +1298,12 @@ function createActions({
 
   /**
    * Words said after "Hey <name>": the same path as the panel's 🎤, which sends what was said as a spoken message. The
-   * panel's chat opens first when it is hidden. A chat that is still answering is not interrupted: the words are not sent, and
+   * With the panel hidden the chat is made ready but not shown (a quiet chat): Buddy answers out loud and in the
+   * speech bubble, and opening the panel shows it. A chat that is still answering is not interrupted: the words are not sent, and
    * `{ busy: true }` says so, so that Buddy can tell the person (wake.js).
    */
   async function sayToBuddy(words) {
-    if (!ui.isPanelVisible()) await open();
+    if (!ui.isPanelVisible()) await open({ show: false }); // not shown: the answer goes in the speech bubble
     if (chat.busy) return { busy: true };
     return send(words, { spoken: true });
   }
@@ -1288,7 +1316,7 @@ function createActions({
     hush(chat);
   }
 
-  return { open, toggle, dismiss, send, voice: sayToBuddy, act, dropSelection, transcribe, hushVoice, state: () => stateOf(chat) };
+  return { open, mood: (name) => ui.mood(name), toggle, dismiss, send, voice: sayToBuddy, act, dropSelection, transcribe, hushVoice, state: () => stateOf(chat) };
 }
 
 module.exports = { createActions, sectionFor, COPIED };

@@ -34,6 +34,7 @@ const { createEarWindow } = require('./ear-window');
 const { createLock } = require('./lock');
 const { createTalkBack } = require('./talk-back');
 const { createWake } = require('./wake');
+const { createQuitGuard } = require('./quit');
 const { createVoiceModel } = require('./voice-model');
 const { createSpeakerModel } = require('./speaker-model');
 const { createVoiceCheck } = require('./voice-check');
@@ -95,6 +96,8 @@ async function start(options = {}) {
   await app.whenReady();
   if (app.dock) app.dock.hide();
   app.on('window-all-closed', () => {}); // a menu bar (or tray) app: closing windows must not quit it
+  // A quit that finishes even when a window is made while it closes them (quit.js): Update now must install.
+  const quit = createQuitGuard({ app });
 
   const userData = app.getPath('userData');
   const store = createStore({ file: path.join(userData, 'settings.json') });
@@ -152,6 +155,8 @@ async function start(options = {}) {
   const voiceModel = createVoiceModel({ dir: path.join(userData, 'voice-model') });
   // The end-to-end test passes `ear: null`, so that no ear window (and so no microphone) is ever made.
   const ear = options.ear !== undefined ? options.ear : createEarWindow({ BrowserWindow, ipcMain, model: voiceModel });
+  // As Buddy quits the ear's window goes, and the wake loop would ask for it again (wake.js 'gone'): no new one then.
+  quit.onQuit(() => ear?.quit?.());
   const lock = createLock({ powerMonitor });
   // Spoken chats are on the Mac only (Windows keeps its cards). The server writes down an answer the model cannot hear;
   // `actions` is read lazily, as it is made below. The end-to-end test passes `talkBack: null`, so that it never opens an ear or speaks (only an undefined option builds the real one).

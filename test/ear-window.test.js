@@ -247,3 +247,17 @@ test('a window made for any other command is not loaded quietly', async (t) => {
   b.answer(b.made[0], {});
   await q;
 });
+
+test('once Buddy quits no window is made: the loop is not told the window went, wake does nothing and call answers gone', async (t) => {
+  const { ear, made, tick } = setup(t);
+  let gone = 0;
+  ear.on('gone', () => { gone += 1; });
+  await ear.wake({ phrases: ['hey rahul', 'hey buddy'], floor: 0.6 });
+  await tick();
+  ear.quit();
+  made[0].destroy(); // the quit closes it
+  assert.strictEqual(gone, 0);
+  await ear.wake({ phrases: ['hey rahul', 'hey buddy'], floor: 0.6 });
+  assert.deepStrictEqual(await ear.call('say', { text: 'Bye' }), { gone: true });
+  assert.strictEqual(made.length, 1);
+});

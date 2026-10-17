@@ -48,6 +48,10 @@ const LINE_ITEMS = [[{ type: 'buddy', say: 'Okay!', text: 'x' }, { type: 'buddy'
   { type: 'buddy', say: '', text: 'y'.repeat(241) }, { type: 'event', text: '✅ Opened YouTube' }, { type: 'event', text: '📝 Remembered: x' },
   { type: 'error', text: 'x', code: 'network' }, { type: 'error', text: 'Sign in to use Buddy.', code: 'signed_out' }, { type: 'question', text: 'q' }]];
 const ASKS = ['Who should I call?', 'I found lots of apps called a. Tell me the full name.', "I couldn't find YouTube on this phone.", ''];
+const BUBBLE_LINES = ['Paris.', '  two\n  lines  ', '', 'word '.repeat(40), 'x'.repeat(200), `${'a'.repeat(100)} ${'b'.repeat(60)}`,
+  'Hello, world. '.repeat(15), 'Kahan ho? '.repeat(20)];
+const BUBBLE_ITEMS = [...LINE_ITEMS, [{ type: 'buddy', say: 'Sure!', text: 'Here it is.' }], [{ type: 'buddy', say: '', text: 'y '.repeat(200) }],
+  [{ type: 'error', text: 'x', code: 'timeout' }], []];
 const WAKE_NAMES = ['Rahul', 'Anaya', 'R2D2', 'Aarav Priya', '  Mr.  Rahul  Kumar Singh ', 'Zoë', '123', '', 'Xyzzy', 'Aarav', 'Buddy', 'Max Power', 'Hey', 'Hey Buddy', 'Hey Rahul'];
 const wk = (word, conf, start, end) => ({ word, conf, start, end });
 const wsaid = (...words) => ({ text: words.map((x) => x.word).join(' '), result: words });
@@ -71,6 +75,13 @@ function buildVoiceCases() {
     questions: QUESTIONS.map((card) => ({ card, said: voice.spokenQuestion(card) })),
     lines: LINE_ITEMS.map((items) => ({ items, said: voice.spokenLines(items) })),
     asksBack: ASKS.map((line) => ({ line, asks: voice.asksBack(line) })),
+    bubble: {
+      max: voice.BUBBLE_MAX,
+      hideMs: voice.BUBBLE_HIDE_MS,
+      didntCatch: voice.VOICE_LINES.didntCatch,
+      lines: BUBBLE_LINES.map((text) => ({ text, shown: voice.bubbleLine(text) })),
+      texts: BUBBLE_ITEMS.map((items) => ({ items, shown: voice.bubbleText(items) })),
+    },
     wake: {
       phrases: WAKE_NAMES.map((name) => ({
         name, phrase: voice.wakePhrase(name), missing: voice.wakeMissing(name, ['aarav', 'priya']),

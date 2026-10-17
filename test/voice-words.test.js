@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const {
-  heardWords, heardAnswer, wantsServer, answerGrammar, spokenQuestion, spokenLines, asksBack, unlockLine, callingLine, VOICE_LINES,
+  heardWords, heardAnswer, wantsServer, answerGrammar, spokenQuestion, spokenLines, bubbleLine, bubbleText, BUBBLE_MAX, BUBBLE_HIDE_MS, asksBack, unlockLine, callingLine, VOICE_LINES,
   wakePhrase, wakeMissing, wakePhrases, wakeNameHeard, wakeFrom, WAKE_FLOOR, REQUEST, WAKE_LINES,
 } = require('../shared/voice-words');
 
@@ -199,4 +199,31 @@ test('the wake numbers and lines', () => {
   assert.strictEqual(WAKE_LINES.gettingEars, "Getting Buddy's ears ready (36 MB)…");
   assert.strictEqual(WAKE_LINES.earsFailed, "Couldn't get Buddy's ears ready. Check the internet and try again.");
   assert.strictEqual(WAKE_LINES.signIn, 'Sign in to talk to Buddy.');
+});
+
+test('bubbleLine: short lines as they are (spaces tidied); long ones cut at a word with "…", never past BUBBLE_MAX', () => {
+  assert.strictEqual(BUBBLE_MAX, 140);
+  assert.strictEqual(BUBBLE_HIDE_MS, 8000);
+  assert.strictEqual(VOICE_LINES.didntCatch, "I didn't catch that.");
+  assert.strictEqual(bubbleLine('Paris.'), 'Paris.');
+  assert.strictEqual(bubbleLine('  two\n  lines  '), 'two lines');
+  assert.strictEqual(bubbleLine(''), '');
+  assert.strictEqual(bubbleLine(null), '');
+  const cut = bubbleLine('word '.repeat(40));
+  assert.ok(cut.endsWith('word…'), cut);
+  assert.ok(cut.length <= BUBBLE_MAX);
+  const one = bubbleLine('x'.repeat(200)); // no space to cut at: cut where it is
+  assert.strictEqual(one, `${'x'.repeat(139)}…`);
+  assert.ok(bubbleLine('Okay. '.repeat(40)).endsWith(' Okay…'), 'no full stop (or comma) before the "…"');
+  assert.strictEqual(bubbleLine(bubbleLine('word '.repeat(40))), cut, 'cutting again changes nothing');
+});
+
+test('bubbleText: what the answer says and writes, errors and done lines; long text shown cut, not dropped', () => {
+  assert.strictEqual(bubbleText([{ type: 'buddy', say: 'Sure!', text: 'Here it is.' }]), 'Sure! Here it is.');
+  assert.strictEqual(bubbleText([{ type: 'error', text: 'x', code: 'timeout' }]), VOICE_LINES.noInternet);
+  assert.strictEqual(bubbleText([{ type: 'error', text: 'Sign in to use Buddy.', code: 'signed_out' }]), 'Sign in to use Buddy.');
+  assert.strictEqual(bubbleText([{ type: 'event', text: '✅ Opened YouTube' }, { type: 'event', text: '📝 Remembered: x' }]), 'Opened YouTube');
+  assert.strictEqual(bubbleText([{ type: 'question', text: 'Send it?' }, { type: 'you', text: 'hi' }]), '');
+  const long = bubbleText([{ type: 'buddy', say: '', text: 'y '.repeat(200) }]);
+  assert.ok(long.endsWith('…') && long.length <= BUBBLE_MAX);
 });

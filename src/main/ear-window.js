@@ -5,6 +5,7 @@
  * runs) and recognises yes or no on the device (vosk). Made on first use, closed `idleMs` after the last call (unless
  * kept), made again after a crash. Main sends the page `ear:do` { id, cmd, args } and `ear:stop`; the page answers
  * `ear:done` { id, result }, accepted only from this window's own page. Commands: say, hear, listen, voices (ear.js).
+ * Once Buddy quits (quit()) no window is made any more: one made while Electron closes the windows would keep Buddy open.
  */
 
 const path = require('node:path');
@@ -26,6 +27,7 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
   const pending = new Map(); // id -> { resolve, timer }
   const listeners = { woke: [], request: [], gone: [] }; // main's ears on the wake loop (wake.js)
   let wakeArgs = null; // what the page was last told to listen for, sent again to a page made after a crash
+  let quitting = false; // Buddy quits: no new window, and the loop is not told the window went
 
   const mine = (sender) => Boolean(win) && !win.isDestroyed() && sender === win.webContents;
 
@@ -71,7 +73,7 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
     win = null;
     ready = null;
     goneAll();
-    if (wakeArgs) for (const fn of listeners.gone) fn(); // the loop's page is gone
+    if (wakeArgs && !quitting) for (const fn of listeners.gone) fn(); // the loop's page is gone
   }
 
   function drop(w) {
@@ -154,6 +156,17 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
       } else armIdle();
     },
     stop: stopPage,
+    /**
+     * Buddy is quitting. Electron closes every window and quits only when none is left, so a window made meanwhile (the
+     * wake loop asking again for the page that went, a spoken line) would keep Buddy open, and every later quit with it.
+     * From now on wake() does nothing and call() answers { gone: true }.
+     */
+    quit() {
+      quitting = true;
+      wakeArgs = null;
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    },
     /** Listens for events from the wake loop: 'woke' ({ phrase, asks }), 'request' ({ audio, phrase }; audio may be null; phrase is base64 PCM16 of the wake phrase or null) and 'gone' (the window went while the loop ran). */
     on(event, fn) {
       if (listeners[event]) listeners[event].push(fn);
@@ -164,6 +177,7 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
      * ending the loop never makes one.
      */
     async wake(args) {
+      if (quitting) return;
       wakeArgs = args;
       if (!args && !win) return;
       try {
@@ -180,6 +194,7 @@ function createEarWindow({ BrowserWindow, ipcMain, idleMs = 120000, model = null
     },
     /** Never rejects: a page that is gone answers { gone: true }. `voices` is not queued (ear.js) and needs `quiet` only to avoid the model. */
     async call(cmd, args, { quiet = false } = {}) {
+      if (quitting && !win) return { gone: true };
       clearTimeout(idleTimer);
       idleTimer = null;
       try {

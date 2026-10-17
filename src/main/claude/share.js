@@ -75,10 +75,15 @@ function createShare({
     if (!view) return null;
     // Claude's thinking is for the panel here only: the phone draws a kind it does not know as a plain line.
     const items = view.items.filter((item) => item.kind !== 'thinking').slice(-ITEMS_SENT);
-    const key = `${id}:${view.status}:${view.canTalk}:${items.length}:${items.length ? items[items.length - 1].id : 0}`;
+    // The status line and the workers (usage.js): small, so they go whole, and their change counts as a change.
+    const extra = {
+      ...(view.stats ? { stats: view.stats } : {}),
+      ...(Array.isArray(view.workers) ? { workers: view.workers } : {}),
+    };
+    const key = `${id}:${view.status}:${view.canTalk}:${items.length}:${items.length ? items[items.length - 1].id : 0}:${JSON.stringify(extra)}`;
     if (key === sentKey) return null;
     sentKey = key;
-    return { id: view.id, name: view.name, title: view.title ?? null, status: view.status, canTalk: view.canTalk, items };
+    return { id: view.id, name: view.name, title: view.title ?? null, status: view.status, canTalk: view.canTalk, items, ...extra };
   }
 
   /** Type each new word from the phone into its session's terminal; one that cannot be typed is let go, with a note. */

@@ -9,7 +9,7 @@
  *   devices    { [deviceId]: { name, seenAt, sessions: [{ id, name, status, canTalk }] } }: each sharing computer, when
  *              it last reported (ms; online for ONLINE_MS after) and the sessions running on it
  *   watch      { sessionId, at } | null: the session being watched; it lapses WATCH_MS after the watcher's last look
- *   feed       { sessionId, device, name, status, canTalk, items, at } | null: its newest items, from its computer
+ *   feed       { sessionId, device, name, status, canTalk, items, stats, workers, at } | null: its newest items, from its computer
  *   inbox      [{ id, sessionId, text, at }]: words for a session that its computer has not typed yet
  *
  * Only what is watched is kept, and only while it is watched: the feed goes when the watch lapses or the watcher
@@ -45,6 +45,12 @@ const NO_SESSION = 'That session is not running any more. Pick another one.';
 
 const isObject = (value) => Object.prototype.toString.call(value) === '[object Object]';
 const cut = (text, max) => (text.length > max ? `${text.slice(0, max)}…` : text);
+const WORKERS_MAX = 20;
+const WORKER_STATUSES = ['running', 'done', 'failed', 'stopped'];
+const WORKER_ID = /^[\w-]{1,100}$/;
+const MODEL_ID = /^[\w.\-[\]<>]{1,80}$/; // claude-opus-5-5, claude-sonnet-4-5[1m]; never HTML (the phone sets text only anyway)
+const TASK_CHARS = 120;
+const TOKENS_MAX = 1e13;
 
 /** The sessions as the Mac sent them, cleaned: at most SESSIONS_MAX, each with known fields only. */
 function cleanSessions(value) {
@@ -72,6 +78,27 @@ function cleanItems(value) {
     total += items[from].text.length;
   }
   return items.slice(from);
+}
+
+const whole = (value) => (Number.isFinite(value) && value > 0 ? Math.min(Math.round(value), TOKENS_MAX) : 0);
+const msOrNull = (value) => (Number.isFinite(value) && value > 0 ? Math.round(value) : null);
+
+/** The watched session's tokens and model as the computer sent them (live.js stats), cleaned; null for none. */
+function cleanStats(value) {
+  if (!isObject(value)) return null;
+  const model = typeof value.model === 'string' && MODEL_ID.test(value.model) ? value.model : null;
+  return { model, input: whole(value.input), output: whole(value.output) };
+}
+
+/** The watched session's workers as the computer sent them (live.js workers), cleaned: the newest WORKERS_MAX, known fields only. */
+function cleanWorkers(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((w) => isObject(w) && typeof w.id === 'string' && WORKER_ID.test(w.id) && WORKER_STATUSES.includes(w.status))
+    .slice(-WORKERS_MAX)
+    .map((w) => {
+      const task = typeof w.task === 'string' ? w.task.replace(/\s+/g, ' ').trim() : '';
+      return { id: w.id, task: task ? cut(task, TASK_CHARS) : 'A worker', status: w.status, startedAt: msOrNull(w.startedAt), endedAt: msOrNull(w.endedAt), tokens: whole(w.tokens) };
+    });
 }
 
 const watching = (doc, now, within = WATCH_MS) => (doc?.watch && now - doc.watch.at < within ? doc.watch.sessionId : null);
@@ -117,7 +144,8 @@ function macReport(doc, body, now) {
   if (myWatch && sent && sent.id === myWatch) {
     const [view] = cleanSessions([sent]);
     feed = {
-      sessionId: myWatch, device: device.name, name: view.name, title: view.title, status: view.status, canTalk: view.canTalk, items: cleanItems(sent.items), at: now,
+      sessionId: myWatch, device: device.name, name: view.name, title: view.title, status: view.status, canTalk: view.canTalk, items: cleanItems(sent.items),
+      stats: cleanStats(sent.stats), workers: cleanWorkers(sent.workers), at: now,
     };
   }
   const changed = !mine
@@ -148,8 +176,8 @@ function phoneLook(doc, sessionId, now, exclude = null) {
   if (!devices.length || sessionId === null) return { next: undefined, result };
   if (!sessions.some((s) => s.id === sessionId)) throw new BuddyError('not_found', NO_SESSION);
   if (doc.feed?.sessionId === sessionId) {
-    const { sessionId: id, device, name, title = null, status, canTalk, items } = doc.feed;
-    result.feed = { id, device, name, title, status, canTalk, items };
+    const { sessionId: id, device, name, title = null, status, canTalk, items, stats = null, workers = [] } = doc.feed;
+    result.feed = { id, device, name, title, status, canTalk, items, stats, workers };
   }
   const fresh = doc.watch?.sessionId === sessionId && now - doc.watch.at < WATCH_MS / 3;
   const next = fresh ? undefined : { ...doc, watch: { sessionId, at: now }, feed: doc.feed?.sessionId === sessionId ? doc.feed : null };
@@ -210,5 +238,5 @@ function checkSessionId(value, { required = false } = {}) {
 
 module.exports = {
   ONLINE_MS, WATCH_MS, NOTIFY_WATCH_MS, SEEN_EVERY_MS, INBOX_MAX, INBOX_KEEP_MS, ITEMS_MAX, ITEM_CHARS, FEED_CHARS, TEXT_MAX, OFFLINE, NO_SESSION,
-  cleanSessions, cleanItems, macReport, justFinished, phoneLook, phoneSend, phoneStop, checkText, checkSessionId, checkDeviceId,
+  cleanSessions, cleanItems, cleanStats, cleanWorkers, WORKERS_MAX, macReport, justFinished, phoneLook, phoneSend, phoneStop, checkText, checkSessionId, checkDeviceId,
 };

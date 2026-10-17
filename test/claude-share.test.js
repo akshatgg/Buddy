@@ -137,3 +137,19 @@ test("this computer: an id made once and kept, and its name from macOS, else the
   assert.strictEqual(thisDevice({ store, platform: 'win32', hostname: () => 'OFFICE-PC' }).id, mac.id, 'the same id every time');
   assert.strictEqual(thisDevice({ store, platform: 'win32', hostname: () => 'OFFICE-PC' }).name, 'OFFICE-PC');
 });
+
+test("the watched session's tokens and workers go with it, and again when only they change", async () => {
+  const s = setup({ answers: Array.from({ length: 4 }, () => ({ watch: 's1', inbox: [] })) });
+  const stats = { model: 'claude-opus-5-5', input: 10, output: 2 };
+  const workers = [{ id: 'toolu_01', task: 'Fix it', status: 'running', startedAt: 1, endedAt: null, tokens: 5 }];
+  s.live.view = (id) => (id === 's1' ? { ...S1, items: [...s.live.items], stats: { ...stats }, workers: workers.map((w) => ({ ...w })) } : null);
+  s.share.start();
+  await s.step();
+  await s.step();
+  assert.deepStrictEqual([s.reports[1].feed.stats, s.reports[1].feed.workers], [stats, workers]);
+  await s.step();
+  assert.strictEqual(s.reports[2].feed, undefined, 'nothing new');
+  workers[0].tokens = 900;
+  await s.step();
+  assert.strictEqual(s.reports[3].feed.workers[0].tokens, 900, 'only the tokens changed: sent again');
+});

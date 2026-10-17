@@ -202,7 +202,9 @@ test("another computer's session: waiting until its items come, then looked at e
   ] });
   const s = setup({ remote });
   const { session } = await s.mode.open('r1');
-  assert.deepStrictEqual(session, { id: 'r1', name: 'api', title: null, status: 'waiting', canTalk: true, device: 'Office PC', remote: true, waiting: true, items: [] });
+  assert.deepStrictEqual(session, {
+    id: 'r1', name: 'api', title: null, status: 'waiting', canTalk: true, device: 'Office PC', remote: true, waiting: true, items: [], stats: null, workers: [],
+  });
   assert.strictEqual(s.timers[0].ms, 1500);
   s.timers[0].fn();
   await new Promise((r) => setImmediate(r));

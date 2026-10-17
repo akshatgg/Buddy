@@ -190,6 +190,12 @@ async function start(options = {}) {
     ? createWake({
       store, ear, model: voiceModel, lock, microphone, power: { isOn: () => power.isOn() }, account, cloud, powerMonitor, myVoice,
       actions: { transcribe: (...a) => actions.transcribe(...a), voice: (words) => actions.voice(words) }, talkBack: rawTalkBack,
+      // Buddy's face for a wake (feelings.js) and its own lines in the speech bubble (bubble-window.js speak).
+      feel: {
+        listening: (on) => feelings.listening(on),
+        mood: (name) => feelings.mood(name),
+        bubble: (text) => { buddy.speak(text); buddy.speakDone(); },
+      },
       busy: () => actions.state().busy === true, // the chat is still answering: "Hey <name>" says so instead of dropping the request
     })
     : null;

@@ -7,7 +7,8 @@ const { WAKE_FLOOR, REQUEST, WAKE_LINES, VOICE_LINES, wakePhrase, wakePhrases, w
  * it). This decides when it may listen (shouldListen), tells the ear page the phrases ("Hey Buddy", "Buddy", and the name's two when the model can hear it), and sends what is said after a wake
  * the same way the panel's 🎤 does: written down, then a spoken chat in the panel (actions.voice). Any card that comes of it
  * is still asked aloud and needs its yes. It pauses while the Mac is locked or asleep, while the panel records, and while a
- * spoken turn runs; it resumes after.
+ * spoken turn runs; it resumes after. Buddy's face listens from its "Yes?" until the request is in, and thinks while it is
+ * written down (`feel`); its own lines (busy, no internet, nothing made out) also show in the speech bubble.
  */
 
 const TEST_MS = 10000; // "Test it" listens this long
@@ -39,6 +40,7 @@ function shouldListen({ wakeOn, buddyOn, signedIn, voiceOn, mic, modelReady, loc
 function createWake({
   store, ear, model, lock, microphone, power, account, cloud, powerMonitor, actions, talkBack, testMs = TEST_MS, busy = () => false, onChange = null,
   myVoice = null, // "Only my voice" (my-voice.js): when on, a wake counts only when its phrase clip is the owner's
+  feel = null, // the face and the speech bubble (main.js): { listening(on), mood(name), bubble(text) }
 }) {
   let panel = false; // the panel's 🎤 records
   let turns = 0; // spoken turns running (a say, hear or listen of Buddy's own)
@@ -125,6 +127,12 @@ function createWake({
   powerMonitor.on('suspend', () => { asleep = true; apply(); });
   powerMonitor.on('resume', () => { asleep = false; apply(); });
 
+  /** A line of the loop's own: in the speech bubble, and said. Never rejects. */
+  async function tell(line) {
+    feel?.bubble(line);
+    await Promise.resolve(talkBack?.say(line)).catch(() => {});
+  }
+
   /** Only my voice, then the busy line: whether a wake may go on to a request. Anyone else gets silence, the busy get the busy line. */
   async function allowed(phrase) {
     if (clipping || testing) return false; // a test, or setting up Only my voice, never acts on what follows
@@ -133,7 +141,7 @@ function createWake({
     if (myVoice?.on() && !(await myVoice.allows(phrase))) return false;
     // A spoken turn or the chat is busy: nothing is sent to be written down, and the person is told, not ignored.
     if (turns > 0 || busy()) {
-      await talkBack?.say(BUSY_LINE).catch?.(() => {});
+      await tell(BUSY_LINE);
       return false;
     }
     return true;
@@ -151,11 +159,8 @@ function createWake({
     asking = true;
     try {
       if (!(await allowed(msg?.phrase))) return;
-      const said = await talkBack.say(WAKE_LINES.yes);
-      if (said?.gone || !mayListen()) return; // the ear page is gone, or Wake went off / the screen locked / the panel records meanwhile
-      const r = await ear.call('listen', { ...REQUEST, settleMs: YES_SETTLE_MS });
-      if (!mayListen()) return; // switched off while listening: the audio is dropped, not written down
-      await handle(r && r.audio);
+      const r = await askedAndHeard();
+      if (r) await handle(r.audio);
     } catch (err) {
       console.warn('[buddy] wake:', err?.code || err?.message);
     } finally {
@@ -163,18 +168,43 @@ function createWake({
     }
   }
 
+  // "Yes?", then the request, with Buddy's listening face from the "Yes?" until the request is in. Null when listening
+  // may not go on: the ear page is gone, or Wake went off / the screen locked / the panel records meanwhile (then any
+  // audio is dropped, not written down).
+  async function askedAndHeard() {
+    feel?.listening(true);
+    try {
+      const said = await talkBack.say(WAKE_LINES.yes);
+      if (said?.gone || !mayListen()) return null;
+      const r = await ear.call('listen', { ...REQUEST, settleMs: YES_SETTLE_MS });
+      return mayListen() ? r || {} : null;
+    } finally {
+      feel?.listening(false);
+    }
+  }
+
   // Whether listening is still allowed between the steps of "Yes?" (the turn rule aside: the say and the listen are Buddy's own turn).
   const mayListen = () => shouldListen({ ...inputs(), turn: false });
 
   async function handle(audio) {
+    if (!audio) return; // nothing said: stay quiet, the person just says "Hey <name>" again
+    feel?.mood('thinking'); // written down, then answered (actions.js takes the face over from there)
     try {
-      const words = audio ? String((await actions.transcribe(audio, 'audio/wav')).text ?? '').trim() : '';
-      if (!words) return; // nothing made out: stay quiet, the person just says "Hey <name>" again
+      const words = String((await actions.transcribe(audio, 'audio/wav')).text ?? '').trim();
+      if (!words) {
+        feel?.mood('idle');
+        feel?.bubble(VOICE_LINES.didntCatch); // shown, not said: the person just says "Hey <name>" again
+        return;
+      }
       const r = await actions.voice(words);
-      if (r && r.busy) await talkBack?.say(BUSY_LINE); // the chat got busy while the words were written down
+      if (r && r.busy) { // the chat got busy while the words were written down
+        feel?.mood('idle');
+        await tell(BUSY_LINE);
+      }
     } catch (err) {
       console.warn('[buddy] wake:', err?.code || err?.message);
-      if (NO_INTERNET.includes(err?.code)) await talkBack?.say(VOICE_LINES.noInternet).catch(() => {});
+      feel?.mood('sad');
+      if (NO_INTERNET.includes(err?.code)) await tell(VOICE_LINES.noInternet);
     }
   }
 

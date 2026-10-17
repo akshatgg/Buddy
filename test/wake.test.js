@@ -53,6 +53,7 @@ function setup(t, { name = 'Rahul', wakeOn = true, mic = 'granted', modelReady =
     cloud: { last: () => ({ voiceOn: true, blocked: false }) },
     powerMonitor, actions, talkBack: { say: async (line) => { said.push(line); log.push(['say', line]); await talk.hold; talk.onSay?.(); return talk.sayResult; } },
     busy: () => state.busy,
+    feel: { listening: (on) => log.push(['listening', on]), mood: (name) => log.push(['mood', name]), bubble: (text) => log.push(['bubble', text]) },
     onChange: (st) => changes.push(st),
     testMs: 10000,
   });
@@ -479,4 +480,63 @@ test('a second wake during the Yes? flow starts no second flow', async (t) => {
   await first;
   assert.deepStrictEqual(order(s), ['say Yes?', 'call listen', 'voice']);
   assert.strictEqual(transcribed, 1);
+});
+
+const felt = (s) => s.log.filter((l) => ['listening', 'mood', 'bubble'].includes(l[0])).map((l) => `${l[0]} ${l[1]}`);
+
+test('"Hey Buddy" alone: the listening face comes with Yes? and stays until the request is in; then thinking', async (t) => {
+  const s = setup(t);
+  s.wake.refresh();
+  await s.handlers.woke(ASK);
+  assert.deepStrictEqual(felt(s), ['listening true', 'listening false', 'mood thinking']);
+  const at = (kind) => s.log.findIndex((l) => l[0] === kind);
+  assert.ok(at('listening') < at('say'), 'the face before Yes?');
+  assert.ok(s.log.findIndex((l) => l[0] === 'listening' && l[1] === false) > at('call'), 'until the listening is over');
+});
+
+test('"Hey Buddy, call Mom" in one go: thinking while it is written down', async (t) => {
+  const s = setup(t);
+  s.wake.refresh();
+  await s.handlers.request({ audio: 'AAAA' });
+  assert.deepStrictEqual(felt(s), ['mood thinking']);
+});
+
+test('nothing made out: idle again, and "I didn\'t catch that." in the bubble, not said', async (t) => {
+  const s = setup(t);
+  s.wake.refresh();
+  s.actions.transcribe = async () => ({ text: '  ' });
+  await s.handlers.request({ audio: 'AAAA' });
+  assert.deepStrictEqual(felt(s), ['mood thinking', 'mood idle', "bubble I didn't catch that."]);
+  assert.deepStrictEqual(s.log.filter((l) => l[0] === 'say'), []);
+});
+
+test('Yes? and then nothing said: the face ends, nothing shown', async (t) => {
+  const s = setup(t, { listenResult: {} });
+  s.wake.refresh();
+  await s.handlers.woke(ASK);
+  assert.deepStrictEqual(felt(s), ['listening true', 'listening false']);
+});
+
+test('no internet: sad, and the line in the bubble as well as said', async (t) => {
+  const s = setup(t);
+  s.wake.refresh();
+  s.actions.transcribe = async () => { const e = new Error('x'); e.code = 'network'; throw e; };
+  await s.handlers.request({ audio: 'AAAA' });
+  assert.deepStrictEqual(felt(s), ['mood thinking', 'mood sad', "bubble I can't reach the internet right now."]);
+});
+
+test('busy: the busy line in the bubble, no face', async (t) => {
+  const s = setup(t);
+  s.wake.refresh();
+  s.state.busy = true;
+  await s.handlers.woke(ASK);
+  assert.deepStrictEqual(felt(s), ["bubble I'm still on the last one. Ask me again in a moment."]);
+});
+
+test('Only my voice, not the owner: no face at all', async (t) => {
+  const s = setup(t, { myVoice: { on: true, allow: (p) => p === 'ME' } });
+  s.wake.refresh();
+  await s.handlers.woke({ phrase: 'THEM', asks: true });
+  await s.handlers.request({ audio: 'AAAA', phrase: 'THEM' });
+  assert.deepStrictEqual(felt(s), []);
 });

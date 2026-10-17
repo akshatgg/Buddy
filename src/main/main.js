@@ -140,8 +140,10 @@ async function start(options = {}) {
     animate: options.animate !== false,
     onGiveUp: () => tray?.refresh(), // the page crashed again and again, and the window is gone: the menu must say so
   });
-  // A click on a speech bubble's words opens the chat it is about, as a click on Buddy does (onCall, below).
-  const bubble = createBubbleWindow({ ipcMain, onClick: () => { bubble.hide(); onCall(); } });
+  // A click on a speech bubble's words opens the chat it is about (onBubbleClick, below): it only opens, never closes.
+  const bubble = createBubbleWindow({
+    ipcMain, cursor: () => screen.getCursorScreenPoint(), onClick: () => { bubble.hide(); onBubbleClick(); },
+  });
   // Buddy as the rest of main sees it: in the notch (on a Mac with one) or the floating buddy, whichever is in use.
   const notch = createNotchWindow({ screen, look: () => store.get('notchLook') }); // the face or the eyes (Settings)
   const buddy = createHome({ floating, notch, bubble, store, helper, screen });
@@ -193,8 +195,12 @@ async function start(options = {}) {
       // Buddy's face for a wake (feelings.js) and its own lines in the speech bubble (bubble-window.js speak).
       feel: {
         listening: (on) => feelings.listening(on),
-        mood: (name) => feelings.mood(name),
-        bubble: (text) => { buddy.speak(text); buddy.speakDone(); },
+        mood: (name) => actions.mood(name), // through actions.js, which keeps track of the last mood
+        bubble: (text) => { // not over an open panel: its chat has the words, and a click there would be a click on the chat
+          if (ui.isPanelVisible()) return;
+          buddy.speak(text);
+          buddy.speakDone();
+        },
       },
       busy: () => actions.state().busy === true, // the chat is still answering: "Hey <name>" says so instead of dropping the request
     })
@@ -355,6 +361,10 @@ async function start(options = {}) {
     wake?.refresh();
     if (store.get('watchClaudeCode') !== true) return;
     watch.start().catch((err) => console.warn('[buddy] could not watch Claude Code:', err.message));
+  };
+  const onBubbleClick = () => {
+    if (!power.isOn()) return;
+    actions.open().catch((err) => console.error('[buddy] could not open the panel', err));
   };
   const onCall = () => {
     // The shortcut is let go while Buddy is off. This is the second guard, for a press that was already on its way.

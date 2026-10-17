@@ -6,7 +6,7 @@
  */
 
 const path = require('node:path');
-const { BrowserWindow } = require('electron');
+const { BrowserWindow: ElectronWindow } = require('electron');
 const { BUBBLE_HIDE_MS } = require('../../shared/voice-words');
 const { BUBBLE, bubbleBounds, speechBounds } = require('./geometry');
 const { speechUnderNotch } = require('./notch-geometry');
@@ -17,7 +17,7 @@ const SHOW_MS = 2600;
 // The error code of a load that was cancelled rather than one that failed.
 const ERR_ABORTED = -3;
 
-function createBubbleWindow({ ipcMain = null, onClick = () => {} } = {}) {
+function createBubbleWindow({ ipcMain = null, onClick = () => {}, cursor = () => null, BrowserWindow = ElectronWindow } = {}) {
   let win = null;
   let ready = null;
   let timer = null;
@@ -100,7 +100,10 @@ function createBubbleWindow({ ipcMain = null, onClick = () => {} } = {}) {
     if (w !== win) return null; // the window was closed or dropped (a crash, a failed load) while its page was loading
     clearTimeout(timer);
     speech = asSpeech;
-    w.setIgnoreMouseEvents(true, asSpeech ? { forward: true } : {});
+    // A pointer resting where the words appear sends no mouseenter: the window takes the pointer from the start then.
+    const p = asSpeech ? cursor() : null;
+    const under = Boolean(p) && p.x >= bounds.x && p.x < bounds.x + bounds.width && p.y >= bounds.y && p.y < bounds.y + bounds.height;
+    w.setIgnoreMouseEvents(!under, asSpeech ? { forward: true } : {});
     w.setBounds(bounds);
     w.webContents.send('bubble:text', text, asSpeech);
     w.showInactive();

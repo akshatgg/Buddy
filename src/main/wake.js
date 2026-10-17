@@ -1,5 +1,6 @@
 'use strict';
 
+const { BuddyError } = require('../../shared/errors');
 const { WAKE_FLOOR, REQUEST, WAKE_LINES, VOICE_LINES, wakePhrase, wakePhrases, wakeNameHeard } = require('../../shared/voice-words');
 
 /**
@@ -197,14 +198,12 @@ function createWake({
         return;
       }
       const r = await actions.voice(words);
-      if (r && r.busy) { // the chat got busy while the words were written down
-        feel?.mood('idle');
-        await tell(BUSY_LINE);
-      }
+      if (r && r.busy) await tell(BUSY_LINE); // the chat got busy while the words were written down: its face stays as it is
     } catch (err) {
       console.warn('[buddy] wake:', err?.code || err?.message);
       feel?.mood('sad');
       if (NO_INTERNET.includes(err?.code)) await tell(VOICE_LINES.noInternet);
+      else if (err instanceof BuddyError && err.message) feel?.bubble(err.message); // any other error of ours, shown as the chat would
     }
   }
 

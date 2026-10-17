@@ -540,3 +540,19 @@ test('Only my voice, not the owner: no face at all', async (t) => {
   await s.handlers.request({ audio: 'AAAA', phrase: 'THEM' });
   assert.deepStrictEqual(felt(s), []);
 });
+
+test('the chat got busy while the words were written down: the busy line, and the face is left as it is', async (t) => {
+  const s = setup(t, { voiceResult: { busy: true } });
+  s.wake.refresh();
+  await s.handlers.request({ audio: 'AAAA' });
+  assert.deepStrictEqual(felt(s), ['mood thinking', "bubble I'm still on the last one. Ask me again in a moment."]);
+});
+
+test('an error of ours from the chat: sad, and its message in the bubble', async (t) => {
+  const { BuddyError } = require('../shared/errors');
+  const s = setup(t);
+  s.wake.refresh();
+  s.actions.voice = async () => { throw new BuddyError('bad_request', 'That message is too long.'); };
+  await s.handlers.request({ audio: 'AAAA' });
+  assert.deepStrictEqual(felt(s), ['mood thinking', 'mood sad', 'bubble That message is too long.']);
+});

@@ -2894,3 +2894,23 @@ test('a wake while the panel is open goes into the open panel, with no speech bu
   assert.deepStrictEqual(spokenOf(s), ['Paris.']);
   assert.strictEqual(entries(s.log, 'speech').length, 0);
 });
+
+test('the panel asked for while a quiet open is still running is shown once that one is done', async () => {
+  const s = setup({ answers: [], talk: {} });
+  const quiet = s.actions.open({ show: false });
+  const shown = s.actions.open();
+  await Promise.all([quiet, shown]);
+  assert.strictEqual(entries(s.log, 'showPanel').length, 1);
+});
+
+test('a quiet open asked for again while one runs just joins it', async () => {
+  const s = setup({ answers: [], talk: {} });
+  await Promise.all([s.actions.open({ show: false }), s.actions.open({ show: false })]);
+  assert.strictEqual(entries(s.log, 'showPanel').length, 0);
+});
+
+test('actions.mood goes through the same mood path as the chat\'s own', async () => {
+  const s = setup({ answers: [] });
+  s.actions.mood('thinking');
+  assert.deepStrictEqual(moods(s.log), ['thinking']);
+});

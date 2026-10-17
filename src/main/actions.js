@@ -146,6 +146,7 @@ function createActions({
   };
   let chat = newChat();
   let opening = null; // the open() in progress, if any
+  let openingQuiet = false; // that open does not show the panel (a hands-free request's)
   let aside = 0; // how many of Buddy's steps in the app are under way with the panel hidden on purpose for them
   let lane = Promise.resolve(); // Buddy's work in the app, one step after the other (inApp)
   let working = 0; // how many steps in the app are under way or waiting their turn
@@ -334,11 +335,14 @@ function createActions({
 
   /** One opening at a time: asking again while the selection is still being read joins the one in progress. */
   function open(options) {
-    if (!opening) {
-      opening = openPanel(options).finally(() => {
-        opening = null;
-      });
+    if (opening && (options?.show === false || !openingQuiet)) return opening;
+    if (opening) { // a show asked while a quiet open runs: the panel is shown once that one is done
+      return opening.then(() => (ui.isPanelVisible() ? undefined : open(options)));
     }
+    openingQuiet = options?.show === false;
+    opening = openPanel(options).finally(() => {
+      opening = null;
+    });
     return opening;
   }
 
@@ -1312,7 +1316,7 @@ function createActions({
     hush(chat);
   }
 
-  return { open, toggle, dismiss, send, voice: sayToBuddy, act, dropSelection, transcribe, hushVoice, state: () => stateOf(chat) };
+  return { open, mood: (name) => ui.mood(name), toggle, dismiss, send, voice: sayToBuddy, act, dropSelection, transcribe, hushVoice, state: () => stateOf(chat) };
 }
 
 module.exports = { createActions, sectionFor, COPIED };

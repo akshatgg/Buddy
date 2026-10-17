@@ -90,3 +90,14 @@ test('Claude Code is not watched until the person asks; the port and the token c
   assert.strictEqual(store.get('claudeHookPort'), null);
   assert.strictEqual(store.get('claudeHookToken'), null);
 });
+
+test('an effort an earlier build kept in models moves to claudeEffort, so Settings can save models', (t) => {
+  const file = tmpFile(t);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ models: { anthropic: 'claude-opus-5-5', 'claude-code': 'opus', 'claude-code-effort': 'high' } }));
+  const store = createStore({ file });
+  assert.deepStrictEqual(store.get('models'), { anthropic: 'claude-opus-5-5', 'claude-code': 'opus' });
+  assert.strictEqual(store.get('claudeEffort'), 'high');
+  fs.writeFileSync(file, JSON.stringify({ claudeEffort: 'huge' }));
+  assert.strictEqual(createStore({ file }).get('claudeEffort'), null, 'only the five levels');
+});

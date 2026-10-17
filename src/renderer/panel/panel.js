@@ -302,7 +302,14 @@ function closePanel() {
 
 document.addEventListener('keydown', (e) => {
   if (e.isComposing) return; // Esc belongs to the input method while it is composing
-  if (e.key === 'Escape') closePanel();
+  if (e.key === 'Escape') {
+    if (mode === 'claude' && claude.picker) { // the picker first, wherever the focus is
+      claude.picker = null;
+      drawClaude(claude.session);
+      return;
+    }
+    closePanel();
+  }
 });
 
 window.buddy.onOpen((s) => {
@@ -1030,36 +1037,36 @@ async function runCommand(cmd) {
 
 /** /model and /effort alone: the picker opens at the end of the session, on the current model and effort. */
 async function openPicker(focus) {
-  const prefs = await window.buddy.claudePrefs();
-  if (mode !== 'claude' || !claude.session) return;
+  const id = claude.session?.id;
+  const prefs = await window.buddy.claudePrefs(id);
+  if (mode !== 'claude' || !claude.session || claude.session.id !== id) return; // left or changed session meanwhile
   claude.picker = pickerOpen({
     stats: claude.session.stats, savedModel: prefs.ok ? prefs.model : null, savedEffort: prefs.ok ? prefs.effort : null, focus,
   });
   drawClaude(claude.session, { scroll: true });
 }
 
-/** Enter on the picker: /model and /effort typed for what changed, and one note for both. */
+/** Enter on the picker: /model and /effort typed for what was chosen (main copies both together where it cannot type), one note. */
 async function applyPicker() {
   const p = claude.picker;
   if (!p || !claude.session || claude.talking) return;
   const id = claude.session.id;
   const { commands, note: words } = pickerApply(p);
   claude.picker = null;
+  if (!commands.length) return note(words);
   claude.talking = true;
   updateSend();
-  const failed = [];
+  let r;
   try {
-    for (const c of commands) {
-      const r = c.name === 'model' ? await window.buddy.claudeModel(id, c.arg) : await window.buddy.claudeEffort(id, c.arg);
-      if (!r.ok) { failed.push(r.error.message); break; }
-      if (r.typed === false && r.message) showSendError(r.message); // copied, to paste in the terminal
-    }
+    r = await window.buddy.claudePick(id, Object.fromEntries(commands.map((c) => [c.name, c.arg])));
   } finally {
     claude.talking = false;
     updateSend();
   }
   if (mode !== 'claude' || claude.session?.id !== id) return;
-  note(failed[0] || words);
+  if (!r.ok) return note(r.error.message);
+  if (r.typed === false && r.message) showSendError(r.message); // copied, to paste in the terminal
+  note(words);
 }
 
 /** The picker's keys, while the box is empty: ↑↓ the model, ←→ the effort, Enter applies, Esc closes. True when used. */

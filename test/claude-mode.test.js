@@ -314,5 +314,30 @@ test('/clear: when the person opens another session meanwhile, it is not replace
 
 test('/model: a name that is no model is refused with words that list the real ones', async () => {
   const s = setup();
-  await assert.rejects(s.mode.model('a', 'gpt'), { message: 'There is no model called gpt. Try fable, opus, sonnet or haiku.' });
+  await assert.rejects(s.mode.model('a', 'gpt'), { message: 'There is no model called gpt. Try fable, opus, sonnet, haiku or default.' });
+});
+
+test('the picker\'s Enter types /model and /effort in turn, keeps them, and remembers the effort for that session only', async () => {
+  const s = setup();
+  assert.deepStrictEqual(await s.mode.pick('a', { model: 'sonnet', effort: 'high' }), { typed: true, model: 'sonnet', effort: 'high' });
+  assert.deepStrictEqual(s.typed.map((t) => t.text), ['/model sonnet', '/effort high']);
+  assert.deepStrictEqual(s.saved, ['sonnet', 'effort:high']);
+  assert.deepStrictEqual(s.mode.prefs('a'), { model: 'default', effort: 'high' });
+  assert.deepStrictEqual(s.mode.prefs('b'), { model: 'default', effort: null }, 'per session');
+  await assert.rejects(s.mode.pick('a', { model: 'gpt' }), { code: 'bad_request' });
+  await assert.rejects(s.mode.pick('a', { effort: 'huge' }), { code: 'bad_request' });
+  assert.strictEqual(s.typed.length, 2);
+});
+
+test('the picker where Buddy cannot type: both commands are copied in one text', async () => {
+  const s = setup({ typeFails: new BuddyError('no_terminal', 'Buddy cannot type there.') });
+  const r = await s.mode.pick('a', { model: 'default', effort: 'low' });
+  assert.deepStrictEqual([r.typed, r.message], [false, 'Buddy cannot type there.']);
+  assert.deepStrictEqual(s.copied.at(-1), '/model default\n/effort low');
+});
+
+test('picking Default types /model default and saves nothing of Buddy\'s model', async () => {
+  const s = setup();
+  await s.mode.pick('a', { model: 'default' });
+  assert.deepStrictEqual(s.typed.map((t) => t.text), ['/model default']);
 });

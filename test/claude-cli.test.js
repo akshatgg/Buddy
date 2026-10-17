@@ -158,7 +158,7 @@ test('slash commands: a name and what follows it; a path is not one; "/" suggest
 
 test("the answers the page gives itself: help, an unknown command, and the session's tokens", () => {
   assert.deepStrictEqual(helpLines(), [...COMMANDS.map((c) => `/${c.name} · ${c.hint}`), 'Other / commands go to Claude Code.']);
-  assert.strictEqual(helpLines()[0], '/model · pick the model: fable, opus, sonnet or haiku');
+  assert.strictEqual(helpLines()[0], '/model · pick the model: default, fable, opus, sonnet or haiku');
   assert.deepStrictEqual(costLines({ stats: { model: 'claude-opus-5-5', input: 1_200_000, output: 34_000 }, workers: [{ tokens: 100_000 }, { tokens: 20_000 }] }), [
     'Tokens so far: 1.2M in · 34k out', 'Model: Opus 5.5', 'Workers: 2 · 120k tokens', "Cost isn't in the session file. Type /cost in the terminal for it.",
   ]);

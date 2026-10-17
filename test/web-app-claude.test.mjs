@@ -270,3 +270,11 @@ test('screen says what the session shows: rows, workers, the working verb, the s
   assert.strictEqual(view.ticking, true);
   assert.deepStrictEqual(screen({ session: null, items: null, workers: [], stats: null }, 0).rows, []);
 });
+
+test('a look keeps the same caps as the server: a long model, task or worker id', () => {
+  const long = { ...W, id: 'x'.repeat(101) };
+  const r = readLook({ online: true, sessions: [S1], feed: { ...S1, items: [], stats: { ...STATS, model: 'm'.repeat(200) }, workers: [long, { ...W, task: 't'.repeat(500) }] } });
+  assert.strictEqual(r.feed.stats.model.length, 80);
+  assert.strictEqual(r.feed.workers.length, 1);
+  assert.strictEqual(r.feed.workers[0].task.length, 120);
+});

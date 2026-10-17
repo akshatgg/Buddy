@@ -42,19 +42,23 @@ function readItem(j) {
   return { id: j.id, kind: KINDS.includes(j.kind) ? j.kind : 'event', text: j.text, error: j.error === true };
 }
 
+// The caps the server keeps (web/lib/remote.js), so what is drawn is never longer than what it would send.
+const MODEL_CHARS = 80;
+const WORKER_ID_CHARS = 100;
+const TASK_CHARS = 120;
 const count = (value) => (Number.isFinite(value) && value > 0 ? value : 0);
 const msOrNull = (value) => (Number.isFinite(value) ? value : null);
 
 /** The session's tokens and model (the Mac's live.js stats), or null. */
 function readStats(j) {
   if (!j || typeof j !== 'object' || Array.isArray(j)) return null;
-  return { model: text(j.model) || null, input: count(j.input), output: count(j.output) };
+  return { model: text(j.model).slice(0, MODEL_CHARS) || null, input: count(j.input), output: count(j.output) };
 }
 
 /** One worker Claude started, or null when it is not one. */
 function readWorker(j) {
-  if (!j || typeof j.id !== 'string' || !j.id || !WORKER_STATUS.includes(j.status)) return null;
-  return { id: j.id, task: text(j.task) || 'A worker', status: j.status, startedAt: msOrNull(j.startedAt), endedAt: msOrNull(j.endedAt), tokens: count(j.tokens) };
+  if (!j || typeof j.id !== 'string' || !j.id || j.id.length > WORKER_ID_CHARS || !WORKER_STATUS.includes(j.status)) return null;
+  return { id: j.id, task: text(j.task).slice(0, TASK_CHARS) || 'A worker', status: j.status, startedAt: msOrNull(j.startedAt), endedAt: msOrNull(j.endedAt), tokens: count(j.tokens) };
 }
 
 /** Only the first of each id: the lists are drawn by id. */
@@ -255,10 +259,13 @@ export function createClaude({ look, send, interrupt = async () => {}, stop, lat
       if (r.ok && still()) note(STOPPING);
       return r;
     }
-    // /clear: Claude Code starts a new session (a new id) in that terminal, so this one is left for the list.
-    const r = await deliver(() => send(session.id, '/clear'));
-    if (r.ok && still()) list(CLEARED);
-    return r;
+    if (cmd.name === 'clear') {
+      // Claude Code starts a new session (a new id) in that terminal, so this one is left for the list.
+      const r = await deliver(() => send(session.id, '/clear'));
+      if (r.ok && still()) list(CLEARED);
+      return r;
+    }
+    return deliver(() => send(session.id, `/${cmd.name}${cmd.arg ? ` ${cmd.arg}` : ''}`)); // any other: Claude Code's, as typed
   }
 
   return {

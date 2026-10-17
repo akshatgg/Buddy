@@ -6,7 +6,7 @@ const { remoteMac, remotePhone, handle } = require('../web/lib/handlers');
 const remote = require('../web/lib/remote');
 const { fakeDb } = require('./helpers/fake-db');
 
-const { macReport, phoneLook, phoneSend, phoneStop, cleanItems, cleanStats, cleanWorkers, cleanSessions, ONLINE_MS, WATCH_MS, SEEN_EVERY_MS, INBOX_KEEP_MS, OFFLINE, NO_SESSION } = remote;
+const { macReport, phoneLook, phoneSend, phoneStop, cleanItems, cleanStats, cleanWorkers, cleanSessions, ONLINE_MS, ESC_KEEP_MS, WATCH_MS, SEEN_EVERY_MS, INBOX_KEEP_MS, OFFLINE, NO_SESSION } = remote;
 
 const T = 1_800_000_000_000;
 const S1 = { id: 'aaaa-1111', name: 'shop', title: 'Fix the cart total', status: 'working', canTalk: true };
@@ -161,6 +161,7 @@ test('Esc for a session waits for its computer like words, without text; an olde
   assert.deepStrictEqual(sent.next.inbox, [{ id: 'k1', sessionId: S1.id, key: 'esc', at: T + 1000 }]);
   assert.deepStrictEqual(report(sent.next, {}, T + 2000).result.inbox, [{ id: 'k1', sessionId: S1.id, key: 'esc' }]);
   assert.throws(() => phoneSend(record(), { sessionId: 'zzzz', key: 'esc', id: 'k' }, T), { code: 'not_found' });
+  assert.deepStrictEqual(report(sent.next, {}, T + 1000 + ESC_KEEP_MS).result.inbox, [], 'a stale Esc is never handed on');
 });
 
 test('a computer not seen for a day leaves the record', () => {

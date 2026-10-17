@@ -258,3 +258,30 @@ test('the session shows a message sent while Claude worked at once, and not agai
   await live.refresh(home.id);
   assert.deepStrictEqual(texts().slice(5), ['you: also the docs', 'you: use vitest']);
 });
+
+test("the session's tokens, model and workers come with its view; a running worker's tokens from its own file", async (t) => {
+  const usage = { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 90, output_tokens: 5 };
+  const reply = (id, content = []) => assistant(content, {
+    timestamp: '2026-10-17T10:00:00.000Z', message: { id, model: 'claude-sonnet-5-5', role: 'assistant', content, usage },
+  });
+  const home = claudeHome(t, [user('hi'), reply('m1', [{ type: 'tool_use', id: 'toolu_1', name: 'Agent', input: { description: 'Read the docs' } }])]);
+  const live = createLive({ configDirs: () => [home.dir], now: () => 2000, ttys: async () => ({}) });
+  await live.discover();
+  await live.refresh(home.id);
+  const view = live.view(home.id);
+  assert.deepStrictEqual(view.stats, { model: 'claude-sonnet-5-5', input: 100, output: 5 });
+  assert.deepStrictEqual(view.workers.map((w) => [w.task, w.status, w.tokens]), [['Read the docs', 'running', 0]]);
+
+  // The worker's own file, which its .meta.json names: its newest reply's tokens, with nothing new in the session's file.
+  const sub = path.join(home.transcript.slice(0, -'.jsonl'.length), 'subagents');
+  fs.mkdirSync(sub, { recursive: true });
+  fs.writeFileSync(path.join(sub, 'agent-abc123.meta.json'), JSON.stringify({ agentType: 'general-purpose', toolUseId: 'toolu_1' }));
+  fs.writeFileSync(path.join(sub, 'agent-abc123.jsonl'), `${JSON.stringify(reply('s1'))}\n`);
+  const changed = [];
+  live.onChange((id) => changed.push(id));
+  await live.refresh(home.id);
+  assert.strictEqual(live.view(home.id).workers[0].tokens, 105);
+  assert.deepStrictEqual(changed, [home.id]);
+  await live.refresh(home.id);
+  assert.deepStrictEqual(changed, [home.id], 'nothing new: nobody is told');
+});

@@ -14,6 +14,7 @@
 
 const path = require('node:path');
 const { needsYou } = require('./hooks');
+const { newTally, tally, workerTokens, running, viewOf } = require('./usage');
 
 const KEEP = 500; // the items kept for a session: the newest
 const QUEUED_MAX = 20; // messages sent while Claude worked that are waiting for it, kept to know them when they reach it
@@ -340,8 +341,8 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
     }
   }
 
-  /** Read what was added to the session's file since the last read. Answers whether new items came. */
-  async function readNew(s) {
+  /** Read what was added to the session's file since the last read. Answers whether anything shown changed. */
+  async function readLines(s) {
     if (!s.transcript) return false;
     let handle;
     try {
@@ -354,6 +355,9 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
         s.skipFirst = s.offset > 0;
         s.items = [];
         s.queued = [];
+        s.tally = newTally(); // the tokens and workers are counted again with the items
+        s.agents = new Map(); // a worker's tool_use id → its own file: { file, offset, rest }
+        s.metaSeen = new Set(); // the .meta.json files read
       }
       if (size === s.offset) return false;
       const length = Math.min(size - s.offset, READ_MAX);
@@ -367,6 +371,7 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
         s.skipFirst = false;
       }
       let added = 0;
+      let touched = false; // the tokens or the workers changed
       const title = titleIn(lines.join('\n'));
       if (title) s.title = title;
       for (const line of lines) {
@@ -377,6 +382,7 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
         } catch {
           continue;
         }
+        if (tally(s.tally, entry)) touched = true;
         // A message sent while Claude worked shows the moment it is queued, as the terminal shows it; when it reaches
         // Claude later, it is not shown again.
         const queue = queueOf(entry);
@@ -395,13 +401,88 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
         }
       }
       if (s.items.length > KEEP) s.items.splice(0, s.items.length - KEEP);
-      return added > 0;
+      return added > 0 || touched;
     } catch (err) {
       if (err.code !== 'ENOENT') console.warn('[buddy] could not read a Claude Code session:', err.code || err.name);
       return false;
     } finally {
       await handle?.close();
     }
+  }
+
+  /** The whole lines added to a worker's file ({ file, offset, rest }) since the last read; none when it is not there. */
+  async function newLines(f) {
+    let handle;
+    try {
+      handle = await fs.open(f.file, 'r');
+      const { size } = await handle.stat();
+      if (size <= f.offset) return [];
+      const length = Math.min(size - f.offset, READ_MAX);
+      const buffer = Buffer.alloc(length);
+      const { bytesRead } = await handle.read(buffer, 0, length, f.offset);
+      f.offset += bytesRead;
+      const lines = (f.rest + buffer.subarray(0, bytesRead).toString('utf8')).split('\n');
+      f.rest = lines.pop(); // a line still being written ends in the next read
+      return lines;
+    } catch {
+      return [];
+    } finally {
+      await handle?.close();
+    }
+  }
+
+  /**
+   * The tokens of the workers still running, from their own files: subagents/agent-<id>.jsonl next to the session's
+   * file, whose agent-<id>.meta.json names the Agent tool_use it runs for. Answers whether a worker's tokens changed.
+   */
+  async function readWorkers(s) {
+    const ids = running(s.tally);
+    if (!ids.length || !s.transcript) return false;
+    s.agents ??= new Map();
+    s.metaSeen ??= new Set();
+    const dir = path.join(s.transcript.slice(0, -'.jsonl'.length), 'subagents');
+    let names;
+    try {
+      names = await fs.readdir(dir);
+    } catch {
+      return false; // no worker has written yet
+    }
+    for (const name of names) {
+      const m = /^agent-([\w-]{1,100})\.meta\.json$/.exec(name);
+      if (!m || s.metaSeen.has(name)) continue;
+      try {
+        const meta = JSON.parse(await fs.readFile(path.join(dir, name), 'utf8'));
+        s.metaSeen.add(name);
+        if (typeof meta?.toolUseId === 'string') s.agents.set(meta.toolUseId, { file: path.join(dir, `agent-${m[1]}.jsonl`), offset: 0, rest: '' });
+      } catch {
+        // being written: read again next time
+      }
+    }
+    let changed = false;
+    for (const id of ids) {
+      const f = s.agents.get(id);
+      if (!f) continue;
+      let usage = null;
+      for (const line of await newLines(f)) {
+        if (!line.includes('"usage"')) continue;
+        try {
+          const e = JSON.parse(line);
+          if (e?.type === 'assistant' && e.message?.usage) usage = e.message.usage;
+        } catch {
+          // not a whole line
+        }
+      }
+      if (usage && workerTokens(s.tally, id, usage)) changed = true;
+    }
+    return changed;
+  }
+
+  /** Read what was added to the session's file and to its running workers' files. Answers whether anything changed. */
+  async function readNew(s) {
+    s.tally ??= newTally();
+    const lines = await readLines(s);
+    const workers = await readWorkers(s);
+    return lines || workers;
   }
 
   /** Read the session's new lines (one read at a time); onChange hears of it when items came. */
@@ -416,11 +497,11 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
     return run;
   }
 
-  /** What the panel shows of a session: its name, status, whether Buddy can type into it, and its items. */
+  /** What the panel shows of a session: its name, status, whether Buddy can type into it, its items, its tokens and workers. */
   function view(id) {
     const s = sessions.get(id);
     if (!s) return null;
-    return { id: s.id, name: s.name, title: s.title ?? null, status: s.status, canTalk: Boolean(s.tty), items: s.items };
+    return { id: s.id, name: s.name, title: s.title ?? null, status: s.status, canTalk: Boolean(s.tty), items: s.items, ...viewOf(s.tally ?? newTally()) };
   }
 
   return {

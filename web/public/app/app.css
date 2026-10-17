@@ -76,36 +76,107 @@ button { cursor: pointer; }
 .chip { padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); font-size: 15px; font-weight: 600; }
 .empty { margin: auto 24px; color: var(--ink-2); text-align: center; }
 
-/* Claude Code */
-.claude-pick { display: flex; flex: 1; flex-direction: column; gap: 12px; padding: 0 14px 12px; overflow-y: auto; }
-.claude-pick h2, .settings h2 { margin: 6px 0 0; font: 700 22px/1.1 var(--display); }
+/* Claude Code, drawn as the Mac panel's Claude mode draws it: as Claude Code's terminal (src/renderer/panel/panel.css
+   .panel.cli), monospace, ● ⎿ ❯ and its greens, reds and oranges. Always the Mac's black, in light and dark alike: it is
+   the same screen. claude-cli.js says what each row is. */
+:root {
+  --cli-bg: #000000; --cli-fg: #F2F2F2; --cli-dim: #8C8C8C; --cli-bar: #2C2C2C; --cli-line: #3A3A3A;
+  --cli-panel: #0D0D0D; --cli-hover: #1A1A1A;
+  --cli-green: #4EBA65; --cli-red: #FF6B80; --cli-orange: #D77757; --cli-blue: #B1B9F9;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
+.cli { background: var(--cli-bg); color: var(--cli-fg); font: 13px/1.5 var(--mono); }
+.cli .muted { color: var(--cli-dim); font-size: 13px; }
+.cli .icon { color: var(--cli-fg); }
+.cli .btn--ghost { border: 1px solid var(--cli-line); border-radius: 6px; color: var(--cli-fg); font: inherit; }
+.cli .error { margin: 0 16px 8px; border-radius: 6px; background: color-mix(in srgb, var(--cli-red) 15%, transparent); color: var(--cli-red); font-size: 13px; }
+
+/* the sessions, by computer */
+.claude-pick { display: flex; flex: 1; flex-direction: column; gap: 12px; padding: 12px 16px; overflow-y: auto; }
+.claude-pick h2 { margin: 0; font: 700 15px/1.3 var(--mono); }
+.settings h2 { margin: 6px 0 0; font: 700 22px/1.1 var(--display); }
 .claude-pick .btn { align-self: center; }
 .groups { display: grid; gap: 14px; }
-.group h3 { margin: 0 0 6px; color: var(--ink-2); font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.group h3 { margin: 0 0 6px; color: var(--cli-dim); font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
 .sessions { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.sessions button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 12px 14px; border: 0; border-radius: 16px; background: var(--paper); box-shadow: 0 0 0 1px var(--line); text-align: left; }
+.sessions button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid var(--cli-line); border-radius: 6px; background: var(--cli-panel); color: var(--cli-fg); font: inherit; text-align: left; }
+.sessions button:active { background: var(--cli-hover); }
 .sessions .name { min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.sessions .name .under { display: block; font-size: 12px; font-weight: 400; opacity: 0.6; }
-.status-chip { flex: none; padding: 1px 10px; border-radius: 999px; background: var(--line); color: var(--ink-2); font-size: 13px; }
-.status-chip.working { background: var(--orange-tint); color: var(--ink); }
-.status-chip.waiting { background: var(--bad-bg); color: var(--bad-ink); }
-.status-chip.done { background: var(--ok-bg); color: var(--ok-ink); }
+.sessions .name .under { display: block; color: var(--cli-dim); font-size: 12px; font-weight: 400; }
+.status-chip { flex: none; padding: 1px 8px; border-radius: 999px; background: var(--cli-bar); color: var(--cli-dim); font: 12px/1.6 var(--mono); }
+.status-chip.working { background: color-mix(in srgb, var(--cli-orange) 20%, transparent); color: var(--cli-orange); }
+.status-chip.waiting, .status-chip.failed { background: color-mix(in srgb, var(--cli-red) 18%, transparent); color: var(--cli-red); }
+.status-chip.done { background: color-mix(in srgb, var(--cli-green) 18%, transparent); color: var(--cli-green); }
+
+/* one session */
 .claude-session { display: flex; flex: 1; flex-direction: column; min-height: 0; }
-.claude-bar { display: flex; flex: none; align-items: center; gap: 6px; padding: 0 6px 4px; border-bottom: 1px solid var(--line); }
+.claude-bar { display: flex; flex: none; align-items: center; gap: 4px; padding: 0 8px 4px; border-bottom: 1px solid var(--cli-line); }
 .claude-bar .grow { flex: 1; min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.claude-items { display: flex; flex: 1; flex-direction: column; gap: 8px; margin: 0; padding: 10px 12px; overflow-y: auto; font-size: 15px; list-style: none; }
+.claude-items { display: flex; flex: 1; flex-direction: column; gap: 12px; margin: 0; padding: 10px 16px 12px; overflow-x: hidden; overflow-y: auto; list-style: none; overscroll-behavior: contain; }
 .claude-items > li { flex: none; min-width: 0; }
-.claude-items p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
-.claude-items .cl-you { align-self: flex-end; max-width: 86%; padding: 7px 11px; border-radius: 14px; border-bottom-right-radius: 5px; background: var(--orange-tint); }
-.claude-items .cl-claude { align-self: flex-start; max-width: 96%; padding: 7px 11px; border-radius: 14px; border-bottom-left-radius: 5px; background: var(--paper); box-shadow: 0 0 0 1px var(--line); }
-.claude-items .cl-tool, .claude-items .cl-result { font: 13px/1.4 ui-monospace, Menlo, monospace; }
-.claude-items .cl-tool::before { content: "⏺ "; color: var(--orange); }
-.claude-items .cl-result { margin-top: -3px; padding: 4px 8px; border-left: 2px solid var(--line); color: var(--ink-2); }
-.claude-items .cl-result.error { border-left-color: var(--bad-ink); color: var(--bad-ink); }
-.claude-items .cl-event, .claude-items .cl-note { align-self: center; color: var(--ink-2); font-size: 13px; text-align: center; }
-/* full screen: the head and the tabs make room, and the box keeps clear of the home bar */
+.claude-items p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cl-text { flex: 1; min-width: 0; }
+.cl-text p.blank { height: .75em; }
+.cl-text code { color: var(--cli-blue); font: inherit; }
+.cl-text strong, .cl-heading { font-weight: 700; }
+.cl-marker { color: var(--cli-dim); }
+/* code and tables: the only places that scroll sideways */
+.cl-code, .cl-table { max-width: 100%; margin: 2px 0; overflow-x: auto; font: inherit; white-space: pre; -webkit-overflow-scrolling: touch; }
+.cl-code { color: var(--cli-blue); }
+.cl-probe { position: absolute; visibility: hidden; white-space: pre; }
+.claude-items .cl-you { display: flex; gap: 8px; margin: 0 -16px; padding: 2px 16px; background: var(--cli-bar); }
+.cl-prompt { flex: none; color: var(--cli-dim); }
+.claude-items .cl-claude { display: flex; gap: 8px; }
+.cl-dot { flex: none; width: 1ch; }
+.cl-tool .cl-call { overflow-wrap: anywhere; }
+.cl-tool .cl-dot { display: inline-block; margin-right: 8px; color: var(--cli-green); }
+.cl-tool.error .cl-dot { color: var(--cli-red); }
+.cl-out, .claude-items .cl-event { display: flex; gap: 8px; padding-left: 2ch; color: var(--cli-dim); }
+.cl-out.error, .claude-items .cl-event.error { color: var(--cli-red); }
+.cl-elbow { flex: none; }
+/* Ran 3 shell commands: folded, grey; a tap unfolds the tools. ∴ Thinking and many workers: the same. */
+.cl-fold { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; margin: 0; padding: 0 0 0 calc(1ch + 8px); border: 0; background: none; color: var(--cli-dim); font: inherit; text-align: left; }
+.cl-summary.error .cl-fold { color: var(--cli-red); }
+.cl-thinking .cl-fold, .cl-workers .cl-fold { padding-left: 0; }
+.cl-mark { flex: none; width: 1ch; }
+.cl-thought { margin: 4px 0 0 calc(1ch + 8px); color: var(--cli-dim); font-style: italic; }
+.cl-inner { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 0; padding: 0; list-style: none; }
+.claude-items .cl-working { display: flex; gap: 8px; color: var(--cli-orange); }
+.cl-spin { flex: none; width: 1ch; }
+.cl-spin::before { content: "✻"; animation: cli-spin 1.2s steps(1, end) infinite; }
+@keyframes cli-spin {
+  0% { content: "·"; } 16% { content: "✢"; } 33% { content: "✳"; } 50% { content: "✶"; } 66% { content: "✻"; } 83% { content: "✽"; }
+}
+.claude-items .cl-waiting { color: var(--cli-orange); }
+.claude-items .cl-note { color: var(--cli-dim); }
+.claude-items .cl-worker { display: flex; gap: 8px; padding-left: 2ch; color: var(--cli-dim); }
+.cl-worker.running .cl-dot { color: var(--cli-orange); }
+.cl-worker.done .cl-dot { color: var(--cli-green); }
+.cl-worker.failed .cl-dot, .cl-worker.stopped .cl-dot { color: var(--cli-red); }
+.cl-said { flex: 1; min-width: 0; }
+.cl-picks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.cl-pick { min-height: 40px; padding: 4px 16px; border: 1px solid var(--cli-line); border-radius: 6px; background: var(--cli-panel); color: var(--cli-fg); font: inherit; }
+.cl-pick:active { background: var(--cli-hover); }
+/* the status line: Opus 5.5 · 1.2M in · 34k out */
+.cl-line { flex: none; margin: 0; padding: 4px 16px; overflow: hidden; border-top: 1px solid var(--cli-line); color: var(--cli-dim); text-overflow: ellipsis; white-space: nowrap; }
+/* typing "/": the commands it could be */
+.cl-suggest { flex: none; margin: 0 16px 6px; padding: 4px 0; border: 1px solid var(--cli-line); border-radius: 6px; background: var(--cli-panel); list-style: none; }
+.cl-suggestion { display: block; width: 100%; min-height: 40px; padding: 8px 12px; border: 0; background: none; color: var(--cli-dim); font: inherit; text-align: left; }
+.cl-suggestion strong { color: var(--cli-fg); font-weight: 400; }
+.cl-suggestion:active { background: var(--cli-hover); }
+/* the box: ❯ between two lines, as the terminal's prompt; 16px so iOS does not zoom in */
+.cli .box { align-items: center; margin: 0; padding: 2px 8px 2px 16px; border-top: 1px solid var(--cli-line); border-bottom: 1px solid var(--cli-line); border-radius: 0; background: transparent; box-shadow: none; }
+.cli .box::before { content: "❯"; flex: none; color: var(--cli-fg); }
+.cli .box textarea { color: var(--cli-fg); font: 16px/1.4 var(--mono); }
+.cli .box textarea::placeholder { color: var(--cli-dim); }
+.cli .send { background: var(--cli-fg); color: var(--cli-bg); }
+/* full screen (a session opens so): the head and the tabs make room, and the box keeps clear of the home bar */
+.app.full { background: var(--cli-bg); }
 .app.full .stage, .app.full .tabs { display: none; }
 .app.full .claude-session { padding-bottom: var(--bottom); }
+/* the keyboard is up: the tabs make room, and the box sits on the keys */
+.app.keys .tabs { display: none; }
+.app.keys .claude-session { padding-bottom: 0; }
 
 /* settings */
 .settings { gap: 10px; padding: 0 14px 16px; overflow-y: auto; }

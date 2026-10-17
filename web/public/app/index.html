@@ -55,7 +55,7 @@
     </form>
   </section>
 
-  <section class="pane" id="claude-pane" aria-label="Claude Code" hidden>
+  <section class="pane cli" id="claude-pane" aria-label="Claude Code" hidden>
     <div class="claude-pick" id="claude-pick">
       <h2>Your Claude Code sessions</h2>
       <div class="groups" id="claude-groups"></div>
@@ -69,12 +69,14 @@
         <span class="status-chip" id="claude-status"></span>
         <button class="icon" id="claude-full" type="button" aria-label="Full screen">⤢</button>
       </div>
-      <ol class="claude-items" id="claude-items" aria-live="polite"></ol>
+      <ol class="claude-items" id="claude-items" aria-label="The session" aria-live="polite"></ol>
+      <p class="cl-line" id="claude-line" aria-live="off" hidden></p>
       <p class="error" id="claude-problem" role="alert" hidden></p>
       <p class="error" id="claude-error" role="alert" hidden></p>
+      <ul class="cl-suggest" id="claude-suggest" aria-label="Commands" hidden></ul>
       <form class="box" id="claude-form">
         <button class="icon mic" id="claude-mic" type="button" aria-label="Speak" aria-pressed="false" hidden>🎤</button>
-        <textarea id="claude-input" rows="1" enterkeyhint="send" aria-label="Message Claude"></textarea>
+        <textarea id="claude-input" rows="1" enterkeyhint="send" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Message Claude"></textarea>
         <button class="icon send" id="claude-send" type="submit" aria-label="Send" disabled>↑</button>
       </form>
     </div>

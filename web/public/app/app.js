@@ -183,6 +183,18 @@ function toggleVoice() {
 
 const claudeView = startClaudeView({ api, onMic: toggleVoice, onFull: (on) => app.classList.toggle('full', on) });
 
+// The keyboard: iOS leaves 100dvh under it, so the app is fitted to what shows, and the box sits on the keys.
+const viewport = window.visualViewport;
+if (viewport) {
+  const fit = () => {
+    app.style.height = `${Math.round(viewport.height)}px`;
+    app.classList.toggle('keys', window.innerHeight - viewport.height > 120);
+    if (window.scrollY) window.scrollTo(0, 0);
+  };
+  viewport.addEventListener('resize', fit);
+  fit();
+}
+
 // ---- notifications and settings ----
 
 const push = createPush({ api, pushKey: () => config?.pushKey || null });

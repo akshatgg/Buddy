@@ -29,11 +29,15 @@ internal class SpeechBubble(private val context: Context, private val windows: W
     private var view: TextView? = null // while it is on screen
     private var timer: Job? = null
 
+    /** The words up are a hands-free answer's (said with `stay`): a tap on the head opens that chat too. */
+    var spoken = false
+        private set
+
     /**
      * Show `text` beside the head's window `head`, inside `area`, the part of the screen the head keeps to. `onTap`, when
-     * given, is done on a tap, which closes the bubble.
+     * given, is done on a tap, which closes the bubble. `stay`: a hands-free answer, held until release().
      */
-    fun say(text: String, head: Rect, area: Rect, onTap: (() -> Unit)? = null) {
+    fun say(text: String, head: Rect, area: Rect, onTap: (() -> Unit)? = null, stay: Boolean = false) {
         val bubble = view ?: make()
         bubble.text = text
         if (onTap != null) {
@@ -63,13 +67,32 @@ internal class SpeechBubble(private val context: Context, private val windows: W
             windows.updateViewLayout(bubble, place)
         }
         timer?.cancel()
-        timer = scope.launch {
+        spoken = stay
+        timer = if (stay) null else scope.launch {
             delay(if (onTap == null) SHOW_MS else TAP_SHOW_MS)
             hide()
         }
     }
 
+    /** A hands-free bubble stays up: its timer, if one runs, is let go of. */
+    fun keep() {
+        if (!spoken) return
+        timer?.cancel()
+        timer = null
+    }
+
+    /** A hands-free bubble goes `ms` from now. */
+    fun release(ms: Long) {
+        if (!spoken || view == null) return
+        timer?.cancel()
+        timer = scope.launch {
+            delay(ms)
+            hide()
+        }
+    }
+
     fun hide() {
+        spoken = false
         timer?.cancel()
         timer = null
         view?.let { windows.removeView(it) }

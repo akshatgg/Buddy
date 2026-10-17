@@ -28,9 +28,9 @@ import com.akshatgg.buddy.voice.MicButton
  * handle closes it, and the chat ends. When Buddy puts text in the app it steps aside instead (it goes behind
  * that app): a tap on the buddy within five minutes brings it back on the same chat.
  */
-class PanelActivity : ComponentActivity(), ChatHost {
+open class PanelActivity : ComponentActivity(), ChatHost {
     private val kept: ChatViewModel by viewModels()
-    private val model: PanelModel get() = kept.model
+    protected open val model: PanelModel get() = kept.model
     private val settings = AppGraph.instance.settings
     // Full screen or the card, as the person left the last panel.
     private var full by mutableStateOf(settings.panelFull)
@@ -129,7 +129,7 @@ class PanelActivity : ComponentActivity(), ChatHost {
      * The panel opens: the chat starts (or goes on), and what Buddy knows is synced with the account if the last sync
      * is over two minutes old, so that a fact learnt on another device is known here too.
      */
-    private fun opened() {
+    protected open fun opened() {
         model.open()
         AppGraph.instance.memorySyncer.requestIfStale()
     }

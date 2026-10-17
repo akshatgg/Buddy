@@ -20,6 +20,12 @@ sealed interface BubbleEvent {
 
     /** Look back to the front: the box lost the focus, or another window came up. */
     data object LookAway : BubbleEvent
+
+    /** A hands-free answer (or its question) in the speech bubble, held until SpeechDone; null holds what is up. A tap opens that chat. */
+    data class Speech(val text: String?) : BubbleEvent
+
+    /** Buddy stopped speaking: the speech bubble goes VoiceWords.BUBBLE_HIDE_MS later. */
+    data object SpeechDone : BubbleEvent
 }
 
 /**

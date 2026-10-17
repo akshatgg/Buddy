@@ -34,11 +34,11 @@ class HandsFreeTest {
         assertEquals(emptyList<String>(), log)
     }
 
-    @Test fun nothingWrittenDownByTheServerStaysSilent() = runTest {
+    @Test fun nothingWrittenDownIsShownNotSaid() = runTest {
         transcribed = { _, _ -> "  " }
         handsFree().request(ByteArray(10))
         assertEquals(emptyList<String>(), said)
-        assertEquals(emptyList<String>(), shown)
+        assertEquals(listOf(VoiceWords.DIDNT_CATCH), shown)
         assertEquals(emptyList<String>(), log)
     }
 

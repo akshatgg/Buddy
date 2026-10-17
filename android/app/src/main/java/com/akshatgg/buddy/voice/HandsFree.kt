@@ -19,6 +19,7 @@ interface SpokenChat {
  * and the words go to a chat of their own, not the panel's, through the same path as the 🎤. The chat answers out loud and
  * asks a card's question out loud; a card needs the spoken yes (or its button) as ever. When the words cannot be had,
  * Buddy says why, out loud and in the speech bubble (`bubble`).
+ * Words that come back empty show "I didn't catch that." in the bubble, without a word said.
  */
 class HandsFree(
     private val chat: SpokenChat,
@@ -49,7 +50,7 @@ class HandsFree(
         } catch (e: Exception) {
             return
         }
-        if (words.isEmpty()) return
+        if (words.isEmpty()) return bubble(VoiceWords.DIDNT_CATCH) // shown, not said: the person just says the wake words again
         chat.open()
         chat.hidden()
         chat.sendSpoken(words)

@@ -157,6 +157,20 @@ button { cursor: pointer; }
 .cl-picks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .cl-pick { min-height: 40px; padding: 4px 16px; border: 1px solid var(--cli-line); border-radius: 6px; background: var(--cli-panel); color: var(--cli-fg); font: inherit; }
 .cl-pick:active { background: var(--cli-hover); }
+/* the /model picker: models with a ✔ on the current one, the chosen row marked ❯, then the effort levels */
+.claude-items .cl-picker { padding: 8px 0; border-top: 1px solid var(--cli-line); border-bottom: 1px solid var(--cli-line); }
+.cl-picker-title { margin: 0 0 4px; color: var(--cli-orange); font-weight: 700; }
+.cl-models { margin: 0; padding: 0; list-style: none; }
+.cl-model { display: grid; grid-template-columns: 2ch auto auto 1fr; gap: 0 8px; width: 100%; min-height: 40px; padding: 4px 0; border: 0; background: none; color: var(--cli-dim); font: inherit; text-align: left; }
+.cl-model.on { color: var(--cli-blue); }
+.cl-tick { color: var(--cli-green); }
+.cl-desc { grid-column: 2 / -1; padding-left: 3ch; color: var(--cli-dim); }
+.cl-efforts { display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; margin-top: 6px; color: var(--cli-dim); }
+.cl-efforts.on .cl-effort-title { color: var(--cli-blue); }
+.cl-effort-title { margin-right: 8px; }
+.cl-effort { min-height: 40px; padding: 0 8px; border: 0; background: none; color: var(--cli-dim); font: inherit; }
+.cl-effort.on { color: var(--cli-blue); font-weight: 700; text-decoration: underline; }
+.cl-picker-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 /* the status line: Opus 5.5 · 1.2M in · 34k out */
 .cl-line { flex: none; margin: 0; padding: 4px 16px; overflow: hidden; border-top: 1px solid var(--cli-line); color: var(--cli-dim); text-overflow: ellipsis; white-space: nowrap; }
 /* typing "/": the commands it could be */

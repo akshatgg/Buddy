@@ -9,7 +9,7 @@ import { createClaude, readLook, byDevice, screen, STATUS, OFFLINE, NONE, NO_TAL
 import { TIMEOUTS } from './api.js';
 import { $, make, button, grow } from './dom.js';
 
-const { inline, blocks, tableLines, suggestions, MODEL_PICKS, MODEL_LABELS } = ClaudeCli;
+const { inline, blocks, tableLines, suggestions, EFFORTS, EFFORT_LABELS } = ClaudeCli;
 const PLACEHOLDERS = { listening: 'Listening… tap 🎤 when you are done', writing: 'Writing it down…' };
 const TICK_MS = 1000; // a worker runs: its time moves
 
@@ -182,17 +182,40 @@ export function startClaudeView({ api, onMic, onFull }) {
     return [li];
   }
 
-  /** An answer to a slash command; /model alone has the three models to tap. */
+  /** An answer to a slash command, with a ⎿ as the terminal draws it. */
   function noteRow(n) {
     const li = make('li', 'cl-event');
     const said = make('div', 'cl-said');
     said.append(make('p', '', n.text));
-    if (n.picker) {
-      const picks = make('div', 'cl-picks');
-      picks.append(...MODEL_PICKS.map((alias) => button('cl-pick', MODEL_LABELS[alias], () => core.send(`/model ${alias}`))));
-      said.append(picks);
-    }
     li.append(make('span', 'cl-elbow', '⎿'), said);
+    return li;
+  }
+
+  /** The /model picker, as Claude Code draws it: the models (✔ on the current one), then the effort levels; Apply sends. */
+  function pickerRow(p) {
+    const li = make('li', 'cl-picker');
+    li.append(make('p', 'cl-picker-title', 'Select model'));
+    const models = make('ul', 'cl-models');
+    p.rows.forEach((row, i) => {
+      const b = button(`cl-model${i === p.index ? ' on' : ''}`, '', () => core.pickerPick({ model: row.alias }));
+      b.append(
+        make('span', 'cl-cursor', i === p.index ? '❯' : ''),
+        make('span', 'cl-label', `${i + 1}. ${row.label}`),
+        make('span', 'cl-tick', row.alias === p.current ? '✔' : ''),
+        make('span', 'cl-desc', row.name ? `${row.name} · ${row.hint}` : row.hint),
+      );
+      const item = make('li');
+      item.append(b);
+      models.append(item);
+    });
+    li.append(models);
+    const levels = make('div', `cl-efforts${p.focus === 'effort' ? ' on' : ''}`);
+    levels.append(make('span', 'cl-effort-title', 'Effort'));
+    for (const level of EFFORTS) levels.append(button(`cl-effort${level === p.effort ? ' on' : ''}`, EFFORT_LABELS[level], () => core.pickerPick({ effort: level })));
+    li.append(levels);
+    const foot = make('div', 'cl-picker-foot');
+    foot.append(button('cl-pick', 'Cancel', () => core.pickerClose()), button('cl-pick apply', 'Apply', () => core.pickerApply().then((r) => !r.ok && r.error && setLine('claude-error', r.error))));
+    li.append(foot);
     return li;
   }
 
@@ -251,6 +274,7 @@ export function startClaudeView({ api, onMic, onFull }) {
     if (s.items === null) rows.push(make('li', 'cl-note', `Waiting for ${session.device || 'your computer'}…`));
     if (!session.canTalk) rows.push(make('li', 'cl-note', NO_TALK));
     rows.push(...s.notes.map(noteRow));
+    if (s.picker) rows.push(pickerRow(s.picker));
     list.replaceChildren(...rows);
     const items = s.items || [];
     const last = items.length ? items[items.length - 1].id : 0;
@@ -309,6 +333,18 @@ export function startClaudeView({ api, onMic, onFull }) {
     sendTyped();
   });
   input.addEventListener('keydown', (e) => {
+    // A keyboard (iPad, a desktop browser) drives the picker while the box is empty, as the Mac panel's: ↑↓ model, ←→ effort, Esc closes.
+    const move = !input.value && core.state.picker && { ArrowUp: () => core.pickerMove(-1), ArrowDown: () => core.pickerMove(1), ArrowLeft: () => core.pickerEffort(-1), ArrowRight: () => core.pickerEffort(1), Escape: () => core.pickerClose() }[e.key];
+    if (move) {
+      e.preventDefault();
+      move();
+      return;
+    }
+    if (e.key === 'Enter' && !input.value && core.state.picker && !e.isComposing) {
+      e.preventDefault();
+      core.pickerApply();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       sendTyped();

@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert';
-import { createClaude, readLook, byDevice, screen, POLL_MS, GONE, PICK, MODEL_SET, NO_SUCH_MODEL, STOPPING, CLEARED } from '../web/public/app/claude-core.js';
+import { createClaude, readLook, byDevice, screen, POLL_MS, GONE, MODEL_SET, EFFORT_SET, NO_SUCH_MODEL, STOPPING, CLEARED } from '../web/public/app/claude-core.js';
 import { ApiError } from '../web/public/app/api.js';
 
 const S1 = { id: 'aaaa-1111', name: 'shop', title: null, status: 'working', canTalk: true, device: 'MacBook Air' };
@@ -226,13 +226,13 @@ async function opened(feed = { session: S1, items: ITEMS, stats: STATS, workers:
 test('/help, /cost and /model are answered on the phone; an unknown / command goes to Claude Code as typed', async () => {
   const s = await opened();
   assert.deepStrictEqual(s.claude.state.stats, STATS);
-  for (const words of ['/help', '/cost', '/model', '/model gpt']) assert.deepStrictEqual(await s.claude.send(words), { ok: true });
+  for (const words of ['/help', '/cost', '/model gpt', '/effort huge']) assert.deepStrictEqual(await s.claude.send(words), { ok: true });
   assert.deepStrictEqual(s.sent, []);
   const notes = s.claude.state.notes;
   assert.match(notes[0].text, /^\/model · pick the model/);
   assert.match(notes[1].text, /^Tokens so far: 1\.2M in · 34k out\nModel: Opus 5\.5\nWorkers: 1 · 12\.3k tokens/);
-  assert.deepStrictEqual([notes[2].text, notes[2].picker], [PICK, true]);
-  assert.strictEqual(notes[3].text, NO_SUCH_MODEL('gpt'));
+  assert.strictEqual(notes[2].text, NO_SUCH_MODEL('gpt'));
+  assert.strictEqual(notes[3].text, 'There is no effort level called huge. Try low, medium, high, xhigh or max.');
   assert.deepStrictEqual(await s.claude.send('/compact'), { ok: true });
   assert.deepStrictEqual(s.sent, [{ session: S1.id, text: '/compact' }]);
   assert.strictEqual(s.claude.state.notes.length, 4, 'no answer of its own for it');
@@ -250,6 +250,47 @@ test('/model <name> goes as Claude Code\'s own command; /stop asks for Esc; /cle
   assert.deepStrictEqual(s.sent.at(-1), { session: S1.id, text: '/clear' });
   await settle();
   assert.deepStrictEqual([s.claude.state.session, s.claude.state.listError, s.claude.state.notes], [null, CLEARED, []]);
+});
+
+test('/model and /effort alone open the picker; Enter types /model and /effort for what changed, with one note', async () => {
+  const s = await opened(); // the session runs Opus 5.5
+  assert.deepStrictEqual(await s.claude.send('/model'), { ok: true });
+  const p = s.claude.state.picker;
+  assert.deepStrictEqual([p.current, p.index, p.effort, p.focus, p.rows[1].name], ['opus', 1, null, 'model', 'Opus 5.5']);
+  s.claude.pickerMove(1);
+  s.claude.pickerEffort(1);
+  assert.deepStrictEqual([s.claude.state.picker.index, s.claude.state.picker.effort], [2, 'medium']);
+  s.claude.pickerPick({ effort: 'high' });
+  assert.deepStrictEqual(await s.claude.pickerApply(), { ok: true });
+  assert.deepStrictEqual(s.sent, [{ session: S1.id, text: '/model sonnet' }, { session: S1.id, text: '/effort high' }]);
+  assert.strictEqual(s.claude.state.picker, null);
+  assert.strictEqual(s.claude.state.notes.at(-1).text, 'Model: Sonnet · Effort: High');
+  // Opened again, it knows the effort picked here; nothing changed: nothing typed.
+  await s.claude.send('/effort');
+  assert.deepStrictEqual([s.claude.state.picker.effort, s.claude.state.picker.focus], ['high', 'effort']);
+  await s.claude.pickerApply();
+  assert.strictEqual(s.sent.length, 2);
+  assert.match(s.claude.state.notes.at(-1).text, /^No change\./);
+  // Esc closes; other words put it away; a direct /effort works and is noted.
+  await s.claude.send('/model');
+  s.claude.pickerClose();
+  assert.strictEqual(s.claude.state.picker, null);
+  await s.claude.send('/model');
+  await s.claude.send('hello');
+  assert.strictEqual(s.claude.state.picker, null);
+  assert.deepStrictEqual(await s.claude.send('/effort Max'), { ok: true });
+  assert.deepStrictEqual(s.sent.at(-1), { session: S1.id, text: '/effort max' });
+  assert.strictEqual(s.claude.state.notes.at(-1).text, EFFORT_SET('Max'));
+  assert.deepStrictEqual(await s.claude.send('/model default'), { ok: true });
+  assert.deepStrictEqual(s.sent.at(-1), { session: S1.id, text: '/model default' });
+});
+
+test('the picker stops when a send fails: the box hears why, and no note says it was set', async () => {
+  const s = await opened();
+  await s.claude.send('/model');
+  s.claude.pickerPick({ model: 'haiku' });
+  assert.deepStrictEqual(await s.claude.pickerApply(), { ok: false, error: 'None of your computers is sharing right now.' });
+  assert.strictEqual(s.claude.state.notes.length, 0);
 });
 
 test('a command that cannot reach the computer gives the words back to the box', async () => {

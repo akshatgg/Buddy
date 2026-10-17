@@ -208,6 +208,7 @@ class AppGraph(
         val chat = object : SpokenChat {
             override fun open() = model.open()
             override fun hidden() = model.hidden()
+            override val onScreen: Boolean get() = model.onScreen
             override fun sendSpoken(text: String) = model.sendSpoken(text)
             override val busy: Boolean get() = model.state.value.busy
         }

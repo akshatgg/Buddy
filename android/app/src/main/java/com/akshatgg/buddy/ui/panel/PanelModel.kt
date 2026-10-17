@@ -244,6 +244,9 @@ class PanelModel(
         publish()
     }
 
+    /** The chat is on screen now (open, not hidden behind the app). */
+    val onScreen: Boolean get() = shown
+
     /** The panel is on screen again (it came back from behind the app). */
     fun shown() {
         shown = true
@@ -534,7 +537,13 @@ class PanelModel(
         aloud(question)
         if (c.asking != id || c !== chat || c.voice != epoch) return
         mood(Mood.LISTENING) // the person answers
-        val heard = talkBack.hear(verb)
+        val off = showSpoken && !shown
+        if (off) bubble(BubbleEvent.Speech(null)) // the question stays up while the answer is heard
+        val heard = try {
+            talkBack.hear(verb)
+        } finally {
+            if (off) bubble(BubbleEvent.SpeechDone)
+        }
         if (c.asking != id || c !== chat || c.voice != epoch) return
         c.asking = null
         mood(Mood.IDLE)

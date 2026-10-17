@@ -12,6 +12,8 @@ interface SpokenChat {
     fun sendSpoken(text: String)
     /** The last spoken message is still being answered. */
     val busy: Boolean
+    /** The chat is on screen right now: a new wake goes on in it, nothing is reopened. */
+    val onScreen: Boolean get() = false
 }
 
 /**
@@ -51,8 +53,10 @@ class HandsFree(
             return
         }
         if (words.isEmpty()) return bubble(VoiceWords.DIDNT_CATCH) // shown, not said: the person just says the wake words again
-        chat.open()
-        chat.hidden()
+        if (!chat.onScreen) { // on screen, the words go into the chat the person is looking at
+            chat.open()
+            chat.hidden()
+        }
         chat.sendSpoken(words)
     }
 

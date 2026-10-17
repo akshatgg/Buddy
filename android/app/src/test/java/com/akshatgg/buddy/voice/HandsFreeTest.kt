@@ -15,6 +15,7 @@ class HandsFreeTest {
         override fun hidden() { log += "hidden" }
         override fun sendSpoken(text: String) { log += "send $text" }
         override var busy = false
+        override var onScreen = false
     }
     private val talk = object : TalkBack {
         override suspend fun say(text: String) { said += text }
@@ -40,6 +41,12 @@ class HandsFreeTest {
         assertEquals(emptyList<String>(), said)
         assertEquals(listOf(VoiceWords.DIDNT_CATCH), shown)
         assertEquals(emptyList<String>(), log)
+    }
+
+    @Test fun aWakeWhileTheChatIsOnScreenGoesOnInIt() = runTest {
+        chat.onScreen = true
+        handsFree().request(ByteArray(10))
+        assertEquals(listOf("send call Mom"), log)
     }
 
     @Test fun noInternetSaysSo() = runTest {

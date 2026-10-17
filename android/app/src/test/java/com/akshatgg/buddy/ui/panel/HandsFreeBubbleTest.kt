@@ -75,7 +75,8 @@ class HandsFreeBubbleTest {
         messaging.found += Found.One(priya)
         chat(this).sendSpoken("message Priya hi")
         advanceUntilIdle()
-        assertEquals(listOf("To Priya Sharma: hi. Send it?", "Okay, not sent."), speech.filter { it != "done" })
+        assertEquals(listOf("To Priya Sharma: hi. Send it?", "Okay, not sent."), speech.filter { it != "done" && it != "(hold)" })
+        assertTrue("the question stays up while the answer is heard", "(hold)" in speech)
         assertTrue(log.none { it.startsWith("send ") })
     }
 

@@ -37,7 +37,10 @@ function setup({ on = true, signed = true, answers = [] } = {}) {
     },
     live,
     device: DEVICE,
-    terminal: { async type(args) { typed.push(args); if (args.text === 'fail') throw new BuddyError('no_terminal', 'no'); } },
+    terminal: {
+      async type(args) { typed.push(args); if (args.text === 'fail') throw new BuddyError('no_terminal', 'no'); },
+      async interrupt(args) { typed.push({ esc: true, ...args }); },
+    },
     signedIn: () => signed,
     later: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; },
     cancel: (t) => { const i = timers.indexOf(t); if (i >= 0) timers.splice(i, 1); },
@@ -103,6 +106,16 @@ test("words from the phone are typed into their session's terminal once, and the
   assert.deepStrictEqual(s.reports[1].done, ['m1', 'm2']);
   await s.step();
   assert.strictEqual(s.reports[2].done, undefined, 'told once');
+});
+
+test("Esc from the phone goes to its session's terminal once; a word without text or key is skipped", async () => {
+  const inbox = [{ id: 'k1', sessionId: 's1', key: 'esc' }, { id: 'x1', sessionId: 's1' }, { id: 'x2', sessionId: 's1', key: 'f1' }];
+  const s = setup({ answers: [{ watch: 's1', inbox }, { watch: 's1', inbox: [] }] });
+  s.share.start();
+  await s.step();
+  assert.deepStrictEqual(s.typed, [{ esc: true, tty: 'ttys001' }]);
+  await s.step();
+  assert.deepStrictEqual(s.reports[1].done, ['k1']);
 });
 
 test('the switch: on starts, off stops and has the server forget; the line says which, and asks to sign in', async () => {

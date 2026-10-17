@@ -321,7 +321,7 @@ async function remoteMac(req, deps) {
 /**
  * The watcher's side of Claude mode (the phone, or another computer). GET /api/remote/phone?session=<id>&exclude=<its
  * own device id>: { online, sessions, feed } (looking at a session keeps it watched). POST { action: 'send', session, text }: the words wait for the computer, which types them
- * into that session's terminal. POST { action: 'stop' }: the phone stops watching, and the session's items go.
+ * into that session's terminal. POST { action: 'interrupt', session }: Esc in that session's terminal. POST { action: 'stop' }: the phone stops watching, and the session's items go.
  */
 async function remotePhone(req, deps) {
   allowMethods(req, 'GET', 'POST');
@@ -334,6 +334,12 @@ async function remotePhone(req, deps) {
   }
   const body = isPlainObject(req.body) ? req.body : {};
   if (body.action === 'stop') return answer(await deps.db.updateRemote(who.uid, (doc) => remote.phoneStop(doc)));
+  if (body.action === 'interrupt') {
+    // /stop on the phone: Esc in the session's terminal on its computer (share.js, terminal.interrupt).
+    const sessionId = remote.checkSessionId(body.session, { required: true });
+    const id = deps.newId ? deps.newId() : require('node:crypto').randomUUID();
+    return answer(await deps.db.updateRemote(who.uid, (doc) => remote.phoneSend(doc, { sessionId, key: 'esc', id }, now)));
+  }
   if (body.action !== 'send') throw new BuddyError('bad_request', 'Not a Claude mode request.');
   const sessionId = remote.checkSessionId(body.session, { required: true });
   const text = remote.checkText(body.text);

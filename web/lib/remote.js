@@ -10,7 +10,7 @@
  *              it last reported (ms; online for ONLINE_MS after) and the sessions running on it
  *   watch      { sessionId, at } | null: the session being watched; it lapses WATCH_MS after the watcher's last look
  *   feed       { sessionId, device, name, status, canTalk, items, stats, workers, at } | null: its newest items, from its computer
- *   inbox      [{ id, sessionId, text, at }]: words for a session that its computer has not typed yet
+ *   inbox      [{ id, sessionId, text | key: 'esc', at }]: words for a session that its computer has not typed yet
  *
  * Only what is watched is kept, and only while it is watched: the feed goes when the watch lapses or the watcher
  * stops, a computer's entry goes when it turns sharing off (the whole record with the last one). The rules are plain
@@ -159,7 +159,8 @@ function macReport(doc, body, now) {
   const next = changed
     ? { devices: { ...devices, [device.id]: { name: device.name, seenAt: now, sessions } }, watch: watch ? before.watch : null, feed, inbox }
     : undefined;
-  const words = inbox.filter((m) => owns(m.sessionId)).map(({ id, sessionId, text }) => ({ id, sessionId, text }));
+  const words = inbox.filter((m) => owns(m.sessionId))
+    .map(({ id, sessionId, text, key }) => (key === 'esc' ? { id, sessionId, key } : { id, sessionId, text }));
   return { next, result: { watch: myWatch, inbox: words } };
 }
 
@@ -184,11 +185,15 @@ function phoneLook(doc, sessionId, now, exclude = null) {
   return { next, result };
 }
 
-/** A watcher sends words to a session: they wait in the inbox for its computer, which types them into its terminal. */
-function phoneSend(doc, { sessionId, text, id }, now) {
+/**
+ * A watcher sends words to a session, or a key (`key: 'esc'`, for /stop): they wait in the inbox for its computer, which
+ * types them into its terminal (or presses the key there).
+ */
+function phoneSend(doc, { sessionId, text, key, id }, now) {
   if (!onlineDevices(doc, now).length) throw new BuddyError('mac_offline', OFFLINE);
   if (!ownerOf(doc, sessionId, now)) throw new BuddyError('not_found', NO_SESSION);
-  const inbox = [...(doc.inbox || []), { id, sessionId, text, at: now }].slice(-INBOX_MAX);
+  const entry = key === 'esc' ? { id, sessionId, key: 'esc', at: now } : { id, sessionId, text, at: now };
+  const inbox = [...(doc.inbox || []), entry].slice(-INBOX_MAX);
   return { next: { ...doc, inbox, watch: { sessionId, at: now } }, result: { sent: true } };
 }
 

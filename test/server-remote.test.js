@@ -156,6 +156,13 @@ test("the watcher stops: the items go at once; a computer turning sharing off ta
   assert.deepStrictEqual(macOff.inbox, [], 'and the words for it');
 });
 
+test('Esc for a session waits for its computer like words, without text; an older Mac skips it', () => {
+  const sent = phoneSend(record(), { sessionId: S1.id, key: 'esc', id: 'k1' }, T + 1000);
+  assert.deepStrictEqual(sent.next.inbox, [{ id: 'k1', sessionId: S1.id, key: 'esc', at: T + 1000 }]);
+  assert.deepStrictEqual(report(sent.next, {}, T + 2000).result.inbox, [{ id: 'k1', sessionId: S1.id, key: 'esc' }]);
+  assert.throws(() => phoneSend(record(), { sessionId: 'zzzz', key: 'esc', id: 'k' }, T), { code: 'not_found' });
+});
+
 test('a computer not seen for a day leaves the record', () => {
   const old = record({ devices: { [PC.id]: on(PC, [S3], T - 25 * 60 * 60_000) } });
   assert.deepStrictEqual(Object.keys(report(old, {}, T).next.devices), [MAC.id]);
@@ -204,6 +211,16 @@ test('Mac and phone of the same person meet through the server; another person s
   assert.strictEqual(db.state.remotes.u1.feed, null);
   await handle(remoteMac, req('POST', 'a', { body: { device: MAC, off: true } }), deps(db, T + 4000));
   assert.strictEqual(db.state.remotes.u1, undefined, 'sharing off: nothing is left');
+});
+
+test('the phone asks for Esc in a session: it reaches the computer; anything else is refused', async () => {
+  const db = fakeDb({ remotes: { u1: record() } });
+  const call = (r) => handle(remotePhone, r, deps(db, T + 100));
+  assert.deepStrictEqual((await call(req('POST', 'a', { body: { action: 'interrupt', session: S1.id } }))).body, { sent: true });
+  const answer = await handle(remoteMac, req('POST', 'a', { body: { device: MAC, sessions: [S1, S2] } }), deps(db, T + 200));
+  assert.deepStrictEqual(answer.body.inbox.map(({ sessionId, key }) => ({ sessionId, key })), [{ sessionId: S1.id, key: 'esc' }]);
+  assert.strictEqual((await call(req('POST', 'a', { body: { action: 'interrupt' } }))).status, 400);
+  assert.strictEqual((await call(req('POST', 'a', { body: { action: 'interrupt', session: '../x' } }))).status, 400);
 });
 
 test('the phone and Mac calls refuse what they should', async () => {

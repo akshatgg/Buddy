@@ -6,7 +6,7 @@ const { remoteMac, remotePhone, handle } = require('../web/lib/handlers');
 const remote = require('../web/lib/remote');
 const { fakeDb } = require('./helpers/fake-db');
 
-const { macReport, phoneLook, phoneSend, phoneStop, cleanItems, cleanSessions, ONLINE_MS, WATCH_MS, SEEN_EVERY_MS, INBOX_KEEP_MS, OFFLINE, NO_SESSION } = remote;
+const { macReport, phoneLook, phoneSend, phoneStop, cleanItems, cleanStats, cleanWorkers, cleanSessions, ONLINE_MS, ESC_KEEP_MS, WATCH_MS, SEEN_EVERY_MS, INBOX_KEEP_MS, OFFLINE, NO_SESSION } = remote;
 
 const T = 1_800_000_000_000;
 const S1 = { id: 'aaaa-1111', name: 'shop', title: 'Fix the cart total', status: 'working', canTalk: true };
@@ -72,14 +72,43 @@ test('a watcher looks: the sessions while a computer is on; looking at one watch
 test("the computer sends the watched session's items; the watcher gets them; looking again soon writes nothing", () => {
   const watched = record({ watch: { sessionId: S1.id, at: T } });
   const { next } = report(watched, { feed: { ...S1, items: ITEMS } }, T + 1000);
-  assert.deepStrictEqual(next.feed, { sessionId: S1.id, device: MAC.name, name: 'shop', title: 'Fix the cart total', status: 'working', canTalk: true, items: ITEMS, at: T + 1000 });
+  assert.deepStrictEqual(next.feed, { sessionId: S1.id, device: MAC.name, name: 'shop', title: 'Fix the cart total', status: 'working', canTalk: true, items: ITEMS, stats: null, workers: [], at: T + 1000 });
   const look = phoneLook(next, S1.id, T + 2000);
-  assert.deepStrictEqual(look.result.feed, { id: S1.id, device: MAC.name, name: 'shop', title: 'Fix the cart total', status: 'working', canTalk: true, items: ITEMS });
+  assert.deepStrictEqual(look.result.feed, { id: S1.id, device: MAC.name, name: 'shop', title: 'Fix the cart total', status: 'working', canTalk: true, items: ITEMS, stats: null, workers: [] });
   assert.strictEqual(look.next, undefined, 'watched a moment ago: no write');
   assert.ok(phoneLook(next, S1.id, T + WATCH_MS / 3).next, 'a while later the watch is kept fresh');
   assert.strictEqual(report(record(), { feed: { ...S1, items: ITEMS } }, T + 1000).next, undefined, 'a feed nobody watches is not kept');
   assert.strictEqual(macReport(watched, { device: PC, sessions: [S3], feed: { ...S1, items: ITEMS } }, T + 1000).next.feed, null,
     "a computer cannot send another's session");
+});
+
+test("the watched session's tokens and workers are cleaned, kept and handed to the watcher", () => {
+  const W = { id: 'toolu_01', task: 'Fix the login bug', status: 'running', startedAt: T - 5000, endedAt: null, tokens: 12_300 };
+  assert.deepStrictEqual(cleanStats({ model: 'claude-opus-5-5', input: 1_200_000.4, output: 34_000, extra: 1 }), { model: 'claude-opus-5-5', input: 1_200_000, output: 34_000 });
+  assert.deepStrictEqual(cleanStats({ model: '<img src=x onerror=1>', input: -5, output: 'many' }), { model: null, input: 0, output: 0 });
+  assert.strictEqual(cleanStats('x'), null);
+  assert.deepStrictEqual(cleanWorkers([
+    { ...W, extra: 1 },
+    { ...W, id: '../x' },
+    { ...W, id: 'toolu_02', status: 'dancing' },
+    { id: 'toolu_03', task: '  two\nlines ', status: 'done', startedAt: 'x', endedAt: T, tokens: -1 },
+    null,
+  ]), [W, { id: 'toolu_03', task: 'two lines', status: 'done', startedAt: null, endedAt: T, tokens: 0 }]);
+  const many = Array.from({ length: 30 }, (_, i) => ({ ...W, id: `w${i}`, task: 'x'.repeat(500) }));
+  const kept = cleanWorkers(many);
+  assert.strictEqual(kept.length, 20);
+  assert.strictEqual(kept[19].id, 'w29', 'the newest are kept');
+  assert.ok(kept.every((w) => w.task.length <= 121));
+
+  const watched = record({ watch: { sessionId: S1.id, at: T } });
+  const stats = { model: 'claude-opus-5-5', input: 10, output: 2 };
+  const { next } = report(watched, { feed: { ...S1, items: ITEMS, stats, workers: [W] } }, T + 1000);
+  assert.deepStrictEqual([next.feed.stats, next.feed.workers], [stats, [W]]);
+  const { result } = phoneLook(next, S1.id, T + 2000);
+  assert.deepStrictEqual([result.feed.stats, result.feed.workers], [stats, [W]]);
+  const old = record({ watch: { sessionId: S1.id, at: T }, feed: { sessionId: S1.id, device: MAC.name, name: 'shop', status: 'done', canTalk: true, items: ITEMS, at: T } });
+  assert.deepStrictEqual([phoneLook(old, S1.id, T + 1000).result.feed.stats, phoneLook(old, S1.id, T + 1000).result.feed.workers], [null, []],
+    'a feed kept before this change');
 });
 
 test('a watch the watcher stopped keeping lapses, and the items go with it', () => {
@@ -125,6 +154,14 @@ test("the watcher stops: the items go at once; a computer turning sharing off ta
   assert.strictEqual(macOff.watch, null, "the Mac's watched session goes");
   assert.strictEqual(macOff.feed, null);
   assert.deepStrictEqual(macOff.inbox, [], 'and the words for it');
+});
+
+test('Esc for a session waits for its computer like words, without text; an older Mac skips it', () => {
+  const sent = phoneSend(record(), { sessionId: S1.id, key: 'esc', id: 'k1' }, T + 1000);
+  assert.deepStrictEqual(sent.next.inbox, [{ id: 'k1', sessionId: S1.id, key: 'esc', at: T + 1000 }]);
+  assert.deepStrictEqual(report(sent.next, {}, T + 2000).result.inbox, [{ id: 'k1', sessionId: S1.id, key: 'esc' }]);
+  assert.throws(() => phoneSend(record(), { sessionId: 'zzzz', key: 'esc', id: 'k' }, T), { code: 'not_found' });
+  assert.deepStrictEqual(report(sent.next, {}, T + 1000 + ESC_KEEP_MS).result.inbox, [], 'a stale Esc is never handed on');
 });
 
 test('a computer not seen for a day leaves the record', () => {
@@ -175,6 +212,16 @@ test('Mac and phone of the same person meet through the server; another person s
   assert.strictEqual(db.state.remotes.u1.feed, null);
   await handle(remoteMac, req('POST', 'a', { body: { device: MAC, off: true } }), deps(db, T + 4000));
   assert.strictEqual(db.state.remotes.u1, undefined, 'sharing off: nothing is left');
+});
+
+test('the phone asks for Esc in a session: it reaches the computer; anything else is refused', async () => {
+  const db = fakeDb({ remotes: { u1: record() } });
+  const call = (r) => handle(remotePhone, r, deps(db, T + 100));
+  assert.deepStrictEqual((await call(req('POST', 'a', { body: { action: 'interrupt', session: S1.id } }))).body, { sent: true });
+  const answer = await handle(remoteMac, req('POST', 'a', { body: { device: MAC, sessions: [S1, S2] } }), deps(db, T + 200));
+  assert.deepStrictEqual(answer.body.inbox.map(({ sessionId, key }) => ({ sessionId, key })), [{ sessionId: S1.id, key: 'esc' }]);
+  assert.strictEqual((await call(req('POST', 'a', { body: { action: 'interrupt' } }))).status, 400);
+  assert.strictEqual((await call(req('POST', 'a', { body: { action: 'interrupt', session: '../x' } }))).status, 400);
 });
 
 test('the phone and Mac calls refuse what they should', async () => {

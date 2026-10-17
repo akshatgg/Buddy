@@ -61,7 +61,7 @@ function createClaudeMode({
     const view = feed ?? { ...session, items: [] };
     return {
       id: session.id, name: view.name, title: view.title ?? session.title ?? null, status: view.status, canTalk: view.canTalk,
-      device: session.device, remote: true, waiting: !feed, items: view.items,
+      device: session.device, remote: true, waiting: !feed, items: view.items, stats: view.stats ?? null, workers: view.workers ?? [],
     };
   }
 

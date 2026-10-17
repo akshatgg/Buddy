@@ -183,6 +183,20 @@ function toggleVoice() {
 
 const claudeView = startClaudeView({ api, onMic: toggleVoice, onFull: (on) => app.classList.toggle('full', on) });
 
+// The keyboard: iOS leaves 100dvh under it, so the app is fitted to what shows, and the box sits on the keys.
+const viewport = window.visualViewport;
+if (viewport) {
+  const fit = () => {
+    app.style.height = `${Math.round(viewport.height)}px`;
+    app.style.transform = viewport.offsetTop ? `translateY(${Math.round(viewport.offsetTop)}px)` : ''; // iOS scrolls the page under the keys
+    app.classList.toggle('keys', window.innerHeight - viewport.height > 120);
+    if (window.scrollY) window.scrollTo(0, 0);
+  };
+  viewport.addEventListener('resize', fit);
+  viewport.addEventListener('scroll', fit);
+  fit();
+}
+
 // ---- notifications and settings ----
 
 const push = createPush({ api, pushKey: () => config?.pushKey || null });
@@ -244,6 +258,7 @@ function showTab(next, { open = null } = {}) {
   for (const b of document.querySelectorAll('#tabs button')) b.setAttribute('aria-pressed', String(b.dataset.tab === next));
   $('chat-pane').hidden = next !== 'chat';
   $('claude-pane').hidden = next !== 'claude';
+  app.classList.toggle('cli-tab', next === 'claude'); // the head and the tabs wear the terminal's black too
   $('settings-pane').hidden = next !== 'settings';
   sleep.poke();
   if (next === 'claude') claudeView.show(open);

@@ -37,7 +37,10 @@ function setup({ on = true, signed = true, answers = [] } = {}) {
     },
     live,
     device: DEVICE,
-    terminal: { async type(args) { typed.push(args); if (args.text === 'fail') throw new BuddyError('no_terminal', 'no'); } },
+    terminal: {
+      async type(args) { typed.push(args); if (args.text === 'fail') throw new BuddyError('no_terminal', 'no'); },
+      async interrupt(args) { typed.push({ esc: true, ...args }); },
+    },
     signedIn: () => signed,
     later: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; },
     cancel: (t) => { const i = timers.indexOf(t); if (i >= 0) timers.splice(i, 1); },
@@ -105,6 +108,16 @@ test("words from the phone are typed into their session's terminal once, and the
   assert.strictEqual(s.reports[2].done, undefined, 'told once');
 });
 
+test("Esc from the phone goes to its session's terminal once; a word without text or key is skipped", async () => {
+  const inbox = [{ id: 'k1', sessionId: 's1', key: 'esc' }, { id: 'x1', sessionId: 's1' }, { id: 'x2', sessionId: 's1', key: 'f1' }];
+  const s = setup({ answers: [{ watch: 's1', inbox }, { watch: 's1', inbox: [] }] });
+  s.share.start();
+  await s.step();
+  assert.deepStrictEqual(s.typed, [{ esc: true, tty: 'ttys001' }]);
+  await s.step();
+  assert.deepStrictEqual(s.reports[1].done, ['k1']);
+});
+
 test('the switch: on starts, off stops and has the server forget; the line says which, and asks to sign in', async () => {
   const s = setup({ on: false });
   assert.deepStrictEqual(s.share.status(), { on: false, canTurnOn: true, line: OFF_LINE });
@@ -136,4 +149,20 @@ test("this computer: an id made once and kept, and its name from macOS, else the
   assert.strictEqual(thisDevice({ store, platform: 'darwin', run: () => { throw new Error('no'); }, hostname: () => 'Akshats-Air.local' }).name, 'Akshats-Air');
   assert.strictEqual(thisDevice({ store, platform: 'win32', hostname: () => 'OFFICE-PC' }).id, mac.id, 'the same id every time');
   assert.strictEqual(thisDevice({ store, platform: 'win32', hostname: () => 'OFFICE-PC' }).name, 'OFFICE-PC');
+});
+
+test("the watched session's tokens and workers go with it, and again when only they change", async () => {
+  const s = setup({ answers: Array.from({ length: 4 }, () => ({ watch: 's1', inbox: [] })) });
+  const stats = { model: 'claude-opus-5-5', input: 10, output: 2 };
+  const workers = [{ id: 'toolu_01', task: 'Fix it', status: 'running', startedAt: 1, endedAt: null, tokens: 5 }];
+  s.live.view = (id) => (id === 's1' ? { ...S1, items: [...s.live.items], stats: { ...stats }, workers: workers.map((w) => ({ ...w })) } : null);
+  s.share.start();
+  await s.step();
+  await s.step();
+  assert.deepStrictEqual([s.reports[1].feed.stats, s.reports[1].feed.workers], [stats, workers]);
+  await s.step();
+  assert.strictEqual(s.reports[2].feed, undefined, 'nothing new');
+  workers[0].tokens = 900;
+  await s.step();
+  assert.strictEqual(s.reports[3].feed.workers[0].tokens, 900, 'only the tokens changed: sent again');
 });

@@ -138,3 +138,9 @@ test('the grip goes on the side away from the buddy, and a drag grows the panel 
   assert.deepStrictEqual(g.resizedPanel(start, 50, 20, 'right', AREA), { width: 450, height: 540 });
   assert.deepStrictEqual(g.resizedPanel(start, 50, 20, 'both', AREA), { width: 500, height: 520 });
 });
+
+test('the speech bubble is bigger than the bubble and goes beside the buddy the same way', () => {
+  assert.deepStrictEqual(g.SPEECH, { width: 280, height: 110 });
+  assert.deepStrictEqual(g.speechBounds({ x: 1336, y: 400, width: 96, height: 112 }, AREA), { x: 1336 - 280 - 8, y: 400, width: 280, height: 110 });
+  assert.deepStrictEqual(g.speechBounds({ x: 20, y: 400, width: 96, height: 112 }, AREA), { x: 20 + 96 + 8, y: 400, width: 280, height: 110 });
+});

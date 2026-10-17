@@ -140,7 +140,8 @@ async function start(options = {}) {
     animate: options.animate !== false,
     onGiveUp: () => tray?.refresh(), // the page crashed again and again, and the window is gone: the menu must say so
   });
-  const bubble = createBubbleWindow();
+  // A click on a speech bubble's words opens the chat it is about, as a click on Buddy does (onCall, below).
+  const bubble = createBubbleWindow({ ipcMain, onClick: () => { bubble.hide(); onCall(); } });
   // Buddy as the rest of main sees it: in the notch (on a Mac with one) or the floating buddy, whichever is in use.
   const notch = createNotchWindow({ screen, look: () => store.get('notchLook') }); // the face or the eyes (Settings)
   const buddy = createHome({ floating, notch, bubble, store, helper, screen });
@@ -210,6 +211,7 @@ async function start(options = {}) {
     onGone: () => ui.listening(false),
     // While the panel is open the buddy does not fall asleep or fidget, however the panel opens and closes.
     onVisible: (visible) => {
+      if (visible) bubble.hide(); // the chat is on screen: the speech bubble's words are in it
       feelings.panel(visible);
       if (visible) memorySync.syncIfStale(); // facts another device learnt meanwhile, for this chat
     },
@@ -259,6 +261,10 @@ async function start(options = {}) {
     panelWindowHandle: () => windowHandle(panel.window()), // for the helper on Windows (actions.js)
     openSettings,
     bubble: (text) => buddy.say(text),
+    // A hands-free answer while the panel is hidden (actions.js quiet chat): its words in the speech bubble, held while
+    // Buddy speaks (null keeps what is up), and gone a few seconds after.
+    speech: (text) => buddy.speak(text),
+    speechDone: () => buddy.speakDone(),
     status(value) { // Claude Code's status beside Buddy in the notch (claude/watch.js), and the session a click opens
       claudeSession = value?.session ?? null;
       buddy.status(value);

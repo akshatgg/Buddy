@@ -60,7 +60,11 @@ function setup({ notches = [ENTRY], displays = [PRIMARY], home = 'notch', platfo
     notch: () => shownAt,
     window: () => 'the notch window',
   };
-  const bubble = { say: (text, bounds, area) => calls.push(['bubble.say', text, bounds, area]) };
+  const bubble = {
+    say: (text, bounds, area) => calls.push(['bubble.say', text, bounds, area]),
+    speak: (text, at) => calls.push(['bubble.speak', text, at]),
+    release: () => calls.push(['bubble.release']),
+  };
   const settings = { home };
   const store = { get: (key) => settings[key], set: (patch) => Object.assign(settings, patch) };
   const helper = {
@@ -339,4 +343,14 @@ test('a helper answer with no list in it is no notch', async () => {
   s.setNotches(undefined);
   await s.home.refresh();
   assert.strictEqual(s.home.where(), 'floating');
+});
+
+test('a hands-free answer goes into the speech bubble, beside the floating buddy or under the notch, and is let go of', async () => {
+  const s = setup();
+  s.home.speak('Paris.');
+  s.home.speakDone();
+  assert.deepStrictEqual(s.calls, [['bubble.speak', 'Paris.', { kind: 'beside', buddy: BUDDY, area: PRIMARY.workArea }], ['bubble.release']]);
+  await s.home.refresh();
+  s.home.speak(null);
+  assert.deepStrictEqual(s.calls.at(-1), ['bubble.speak', null, { kind: 'below', notch: NOTCH, area: PRIMARY.workArea }]);
 });

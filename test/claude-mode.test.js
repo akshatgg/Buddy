@@ -3,8 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { BuddyError } = require('../shared/errors');
-const { createTerminal, oneLine, SCRIPT, NO_TERMINAL, NOT_ALLOWED, ONLY_MAC } = require('../src/main/claude/terminal');
-const { createClaudeMode, GONE } = require('../src/main/claude/mode');
+const { createTerminal, oneLine, SCRIPT, ESC_SCRIPT, NO_TERMINAL, NOT_ALLOWED, ONLY_MAC, PRESS_ESC } = require('../src/main/claude/terminal');
+const { createClaudeMode, GONE, NO_SUCH_MODEL, NO_SUCH_EFFORT, NO_NEW_SESSION } = require('../src/main/claude/mode');
 
 // ---- terminal.js: typing into the terminal ----
 
@@ -45,6 +45,19 @@ test('where Buddy cannot type, it says so in words that tell the person what to 
   await assert.rejects(type({ platform: 'darwin', run: fakeRun().run }, { tty: 'ttys003', text: 'x'.repeat(4001) }), { code: 'bad_request' });
 });
 
+test('Esc goes to the iTerm2 session on that tty; elsewhere the person is told to press it', async () => {
+  const f = fakeRun();
+  assert.deepStrictEqual(await createTerminal({ platform: 'darwin', run: f.run }).interrupt({ tty: 'ttys003' }), { app: 'iterm' });
+  assert.deepStrictEqual(f.calls[0].args, ['-e', ESC_SCRIPT, '/dev/ttys003']);
+  assert.ok(ESC_SCRIPT.includes('character id 27') && !ESC_SCRIPT.includes('ttys003'));
+  const stop = (opts, tty = 'ttys003') => createTerminal(opts).interrupt({ tty });
+  await assert.rejects(stop({ platform: 'darwin', run: fakeRun({ out: 'none' }).run }), { code: 'no_terminal', message: PRESS_ESC });
+  await assert.rejects(stop({ platform: 'darwin', run: fakeRun({ fail: 'Not authorized to send Apple events (-1743)' }).run }),
+    { code: 'not_allowed', message: NOT_ALLOWED });
+  await assert.rejects(stop({ platform: 'win32', run: fakeRun().run }), { code: 'no_terminal', message: PRESS_ESC });
+  await assert.rejects(stop({ platform: 'darwin', run: fakeRun().run }, null), { code: 'no_terminal', message: PRESS_ESC });
+});
+
 // ---- mode.js: the panel's Claude mode ----
 
 function fakeLive() {
@@ -64,12 +77,15 @@ function fakeLive() {
   };
 }
 
-function setup({ typeFails = null, remote = null } = {}) {
+function setup({ typeFails = null, remote = null, onWait = null } = {}) {
   const live = fakeLive();
   const sent = [];
   const typed = [];
   const copied = [];
   const timers = [];
+  const stopped = [];
+  const saved = [];
+  let waits = 0;
   const mode = createClaudeMode({
     live,
     terminal: {
@@ -78,14 +94,24 @@ function setup({ typeFails = null, remote = null } = {}) {
         if (typeFails) throw typeFails;
         return { app: 'iterm' };
       },
+      async interrupt(args) {
+        stopped.push(args);
+        return { app: 'iterm' };
+      },
     },
     clipboard: { writeText: async (text) => copied.push(text) },
     send: (view) => sent.push(view),
     remote,
+    saveModel: (alias) => saved.push(alias),
+    saveEffort: (level) => saved.push(`effort:${level}`),
+    wait: async () => {
+      waits += 1;
+      onWait?.(waits);
+    },
     every: (fn, ms) => { const t = { fn, ms, on: true }; timers.push(t); return t; },
     stopEvery: (t) => { t.on = false; },
   });
-  return { live, mode, sent, typed, copied, timers };
+  return { live, mode, sent, typed, copied, timers, stopped, saved };
 }
 
 test('the page lists the sessions, opens one, and is sent its changes while it is open', async () => {
@@ -204,4 +230,114 @@ test("another computer's session that ends: the page is told, with why, and the 
   assert.deepStrictEqual(s.sent.at(-1), { id: 'r1', gone: true, message: GONE });
   assert.strictEqual(s.timers[0].on, false);
   await assert.rejects(s.mode.open('zzz'), { code: 'not_found' }, 'not in the list: gone');
+});
+
+test("/model <name>: Claude Code's own /model is typed into the terminal, and kept as Buddy's Claude model", async () => {
+  const s = setup();
+  assert.deepStrictEqual(await s.mode.model('a', 'opus'), { typed: true, model: 'opus' });
+  assert.deepStrictEqual(s.typed, [{ tty: 'ttys001', text: '/model opus' }]);
+  assert.deepStrictEqual(s.saved, ['opus']);
+  await assert.rejects(s.mode.model('a', 'gpt'), { code: 'bad_request', message: NO_SUCH_MODEL('gpt') });
+  assert.strictEqual(s.typed.length, 1, 'nothing is typed for a name that is no model');
+  assert.deepStrictEqual(s.saved, ['opus']);
+});
+
+test('/model default and /effort <level>: typed as Claude Code\'s own, kept, and only the allow-listed words are typed', async () => {
+  const s = setup();
+  assert.deepStrictEqual(await s.mode.model('a', 'default'), { typed: true, model: 'default' });
+  assert.deepStrictEqual(await s.mode.effort('a', 'xhigh'), { typed: true, effort: 'xhigh' });
+  assert.deepStrictEqual(s.typed.map((t) => t.text), ['/model default', '/effort xhigh']);
+  assert.deepStrictEqual(s.saved, ['default', 'effort:xhigh']);
+  await assert.rejects(s.mode.effort('a', 'huge; rm'), { code: 'bad_request', message: NO_SUCH_EFFORT('huge; rm') });
+  assert.strictEqual(s.typed.length, 2);
+  assert.strictEqual(NO_SUCH_EFFORT('x'), 'There is no effort level called x. Try low, medium, high, xhigh or max.');
+});
+
+test("/stop sends Esc to the session's terminal", async () => {
+  const s = setup();
+  assert.deepStrictEqual(await s.mode.stop('a'), { stopped: true });
+  assert.deepStrictEqual(s.stopped, [{ tty: 'ttys001' }]);
+  await assert.rejects(s.mode.stop('zzz'), { code: 'bad_request', message: GONE });
+});
+
+const FOUND = (s, id = 'b') => { s.live.views[id] = { id, name: 'shop', status: 'idle', canTalk: true, items: [] }; };
+
+test('/clear: typed into the terminal, answered at once; the new session Claude Code starts there is then sent to the page', async () => {
+  const s = setup({ onWait: (n) => { if (n === 2) FOUND(s); } });
+  await s.mode.open('a');
+  assert.deepStrictEqual(await s.mode.clear('a'), { typed: true, session: null, searching: true });
+  assert.deepStrictEqual(s.typed, [{ tty: 'ttys001', text: '/clear' }]);
+  assert.deepStrictEqual(s.sent, [], 'the answer did not wait for the search');
+  await s.mode.settled();
+  assert.deepStrictEqual(s.sent, [{ ...s.live.views.b, from: 'a' }]);
+  assert.strictEqual(s.mode.isOpen(), true);
+  assert.strictEqual(s.timers[0].on, false, "the old session's reading stopped");
+});
+
+test('/clear: when no new session shows up, the page is told and goes back to the list', async () => {
+  const s = setup();
+  await s.mode.open('a');
+  await s.mode.clear('a');
+  await s.mode.settled();
+  assert.deepStrictEqual(s.sent, [{ id: 'a', gone: true, message: NO_NEW_SESSION }]);
+  assert.strictEqual(s.mode.isOpen(), false);
+});
+
+test('/clear while Claude works waits up to a minute for the new session in the background, and only a session not there before counts', async () => {
+  let waited = 0;
+  const s = setup({ onWait: (n) => { waited = n; if (n === 40) FOUND(s); } });
+  s.live.views.old = { id: 'old', name: 'shop', status: 'ended', canTalk: true, items: [] }; // an earlier session of that terminal
+  s.live.views.a.status = 'working';
+  await s.mode.open('a');
+  await s.mode.clear('a');
+  await s.mode.settled();
+  assert.strictEqual(waited, 40);
+  assert.strictEqual(s.sent[0].id, 'b');
+});
+
+test('/clear: when the person opens another session meanwhile, it is not replaced', async () => {
+  const s = setup({
+    onWait: (n) => {
+      if (n === 2) {
+        FOUND(s, 'c');
+        s.mode.open('c');
+      }
+      if (n === 3) FOUND(s);
+    },
+  });
+  await s.mode.open('a');
+  await s.mode.clear('a');
+  await s.mode.settled();
+  assert.strictEqual(s.mode.isOpen(), true, 'the other session stays open');
+  assert.deepStrictEqual(s.sent, []);
+});
+
+test('/model: a name that is no model is refused with words that list the real ones', async () => {
+  const s = setup();
+  await assert.rejects(s.mode.model('a', 'gpt'), { message: 'There is no model called gpt. Try fable, opus, sonnet, haiku or default.' });
+});
+
+test('the picker\'s Enter types /model and /effort in turn, keeps them, and remembers the effort for that session only', async () => {
+  const s = setup();
+  assert.deepStrictEqual(await s.mode.pick('a', { model: 'sonnet', effort: 'high' }), { typed: true, model: 'sonnet', effort: 'high' });
+  assert.deepStrictEqual(s.typed.map((t) => t.text), ['/model sonnet', '/effort high']);
+  assert.deepStrictEqual(s.saved, ['sonnet', 'effort:high']);
+  assert.deepStrictEqual(s.mode.prefs('a'), { model: 'default', effort: 'high' });
+  assert.deepStrictEqual(s.mode.prefs('b'), { model: 'default', effort: null }, 'per session');
+  await assert.rejects(s.mode.pick('a', { model: 'gpt' }), { code: 'bad_request' });
+  await assert.rejects(s.mode.pick('a', { effort: 'huge' }), { code: 'bad_request' });
+  assert.strictEqual(s.typed.length, 2);
+});
+
+test('the picker where Buddy cannot type: both commands are copied in one text', async () => {
+  const s = setup({ typeFails: new BuddyError('no_terminal', 'Buddy cannot type there.') });
+  const r = await s.mode.pick('a', { model: 'default', effort: 'low' });
+  assert.deepStrictEqual([r.typed, r.message], [false, 'Buddy cannot type there.']);
+  assert.deepStrictEqual(s.copied.at(-1), '/model default\n/effort low');
+});
+
+test('picking Default types /model default and saves nothing of Buddy\'s model', async () => {
+  const s = setup();
+  await s.mode.pick('a', { model: 'default' });
+  assert.deepStrictEqual(s.typed.map((t) => t.text), ['/model default']);
 });

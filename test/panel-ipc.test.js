@@ -51,6 +51,12 @@ function setup(actions = {}, { platform = 'darwin', mic = 'granted', openFails =
       sessions: async () => { calls.push('claudeSessions'); return { sessions: [] }; },
       open: async (id) => { calls.push(['claudeOpen', id]); return { session: { id } }; },
       talk: async (id, text) => { calls.push(['claudeTalk', id, text]); return { typed: true }; },
+      model: async (id, alias) => { calls.push(['claudeModel', id, alias]); return { typed: true, model: alias }; },
+      effort: async (id, level) => { calls.push(['claudeEffort', id, level]); return { typed: true, effort: level }; },
+      prefs: (id) => ({ model: 'opus', effort: id === 'a' ? 'high' : null }),
+      pick: async (id, choice) => { calls.push(['claudePick', id, choice]); return { typed: true, ...choice }; },
+      stop: async (id) => { calls.push(['claudeStop', id]); return { stopped: true }; },
+      clear: async (id) => { calls.push(['claudeClear', id]); return { typed: true, session: null }; },
       close: () => calls.push('claudeClose'),
     },
     shell: {
@@ -64,10 +70,11 @@ function setup(actions = {}, { platform = 'darwin', mic = 'granted', openFails =
   return { handlers, listeners, calls, fromPanel: { sender: PANEL_PAGE } };
 }
 
-test('the panel asks through eight channels and tells main ten things; the old ones are gone', () => {
+test('the panel asks through fourteen channels and tells main ten things; the old ones are gone', () => {
   const s = setup();
   assert.deepStrictEqual(Object.keys(s.handlers).sort(), [
-    'panel:act', 'panel:claude-open', 'panel:claude-sessions', 'panel:claude-talk', 'panel:drop-selection', 'panel:mic-access', 'panel:send', 'panel:transcribe',
+    'panel:act', 'panel:claude-clear', 'panel:claude-effort', 'panel:claude-model', 'panel:claude-open', 'panel:claude-pick', 'panel:claude-prefs', 'panel:claude-sessions', 'panel:claude-stop', 'panel:claude-talk',
+    'panel:drop-selection', 'panel:mic-access', 'panel:send', 'panel:transcribe',
   ]);
   assert.deepStrictEqual(Object.keys(s.listeners).sort(), [
     'panel:claude-close', 'panel:close', 'panel:hush', 'panel:listening', 'panel:open-settings', 'panel:resize-end', 'panel:resize-move', 'panel:resize-start',
@@ -85,6 +92,22 @@ test('Claude mode: the sessions, one opened, words for its terminal (only text),
   s.listeners['panel:claude-close'](SOMEONE_ELSE);
   s.listeners['panel:claude-close'](s.fromPanel);
   assert.deepStrictEqual(s.calls, ['claudeSessions', ['claudeOpen', 'a'], ['claudeTalk', 'a', 'run it'], ['claudeTalk', 'a', ''], 'claudeClose']);
+});
+
+test('Claude mode commands: /model (a name only as text), /stop and /clear, from the panel only', async () => {
+  const s = setup();
+  assert.deepStrictEqual(await s.handlers['panel:claude-model'](s.fromPanel, 'a', 'opus'), { ok: true, typed: true, model: 'opus' });
+  await s.handlers['panel:claude-model'](s.fromPanel, 'a', 7);
+  assert.deepStrictEqual(await s.handlers['panel:claude-effort'](s.fromPanel, 'a', 'max'), { ok: true, typed: true, effort: 'max' });
+  await s.handlers['panel:claude-effort'](s.fromPanel, 'a', 7);
+  assert.deepStrictEqual(await s.handlers['panel:claude-prefs'](s.fromPanel, 'a'), { ok: true, model: 'opus', effort: 'high' });
+  assert.deepStrictEqual(await s.handlers['panel:claude-pick'](s.fromPanel, 'a', { model: 'sonnet', effort: 'low', extra: 1 }), { ok: true, typed: true, model: 'sonnet', effort: 'low' });
+  await s.handlers['panel:claude-pick'](s.fromPanel, 'a', 5);
+  assert.strictEqual((await s.handlers['panel:claude-effort'](SOMEONE_ELSE, 'a', 'max')).ok, false, 'only the panel page');
+  assert.deepStrictEqual(await s.handlers['panel:claude-stop'](s.fromPanel, 'a'), { ok: true, stopped: true });
+  assert.deepStrictEqual(await s.handlers['panel:claude-clear'](s.fromPanel, 'a'), { ok: true, typed: true, session: null });
+  assert.strictEqual((await s.handlers['panel:claude-stop'](SOMEONE_ELSE, 'a')).ok, false, 'only the panel page');
+  assert.deepStrictEqual(s.calls, [['claudeModel', 'a', 'opus'], ['claudeModel', 'a', ''], ['claudeEffort', 'a', 'max'], ['claudeEffort', 'a', ''], ['claudePick', 'a', { model: 'sonnet', effort: 'low' }], ['claudePick', 'a', { model: undefined, effort: undefined }], ['claudeStop', 'a'], ['claudeClear', 'a']]);
 });
 
 test('a message goes to actions.send, and the answer is { ok: true } once it is in: the state events show the rest', async () => {

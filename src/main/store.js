@@ -10,6 +10,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { defaultShortcut } = require('./platform');
 
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']; // Claude Code's effort levels
+
 const DEFAULTS = Object.freeze({
   onboarded: false,
   buddyOn: false,
@@ -19,6 +21,7 @@ const DEFAULTS = Object.freeze({
   shortcut: defaultShortcut,
   provider: 'anthropic',
   models: {},
+  claudeEffort: null, // the effort last picked for Claude Code in the panel (claude/mode.js), one of EFFORTS
   positions: {},
   lastDisplayId: null,
   cloud: null, // this person's free-mode settings as the server last gave them (src/main/cloud.js)
@@ -60,6 +63,12 @@ function createStore({ file }) {
   } catch {
     // First run, or an unreadable file: start from the defaults.
   }
+  // An earlier build kept the effort inside `models`, which Settings → AI then refused to save: it moves to its own key.
+  if (data.models && Object.hasOwn(data.models, 'claude-code-effort')) {
+    const { 'claude-code-effort': old, ...models } = data.models;
+    data = { ...data, models, claudeEffort: EFFORTS.includes(data.claudeEffort) ? data.claudeEffort : EFFORTS.includes(old) ? old : null };
+  }
+  if (!EFFORTS.includes(data.claudeEffort)) data.claudeEffort = null;
 
   return {
     get: (key) => data[key],
@@ -72,4 +81,4 @@ function createStore({ file }) {
   };
 }
 
-module.exports = { createStore, DEFAULTS, writeAtomic };
+module.exports = { createStore, DEFAULTS, EFFORTS, writeAtomic };

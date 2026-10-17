@@ -42,6 +42,7 @@
         <span id="claude-status" class="status-chip"></span>
       </div>
       <ol id="claude-items" class="claude-items" aria-label="The session"></ol>
+      <p id="claude-line" class="cl-line" aria-live="off" hidden></p>
     </div>
   </div>
 
@@ -58,6 +59,7 @@
       <p class="grow"><span class="muted">Your selection:</span> <span id="selection-text"></span></p>
       <button id="drop-selection" class="icon cross" type="button" title="Leave it out" aria-label="Leave the selection out"></button>
     </div>
+    <ul id="claude-suggest" class="cl-suggest" aria-label="Commands" hidden></ul>
     <div id="box-frame" class="box">
       <textarea id="box" rows="1" placeholder="Tell me what to do…" aria-label="Tell me what to do"></textarea>
       <span id="voice-bars" class="bars" aria-hidden="true" hidden><i></i><i></i><i></i></span>

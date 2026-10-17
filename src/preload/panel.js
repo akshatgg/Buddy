@@ -28,6 +28,12 @@ contextBridge.exposeInMainWorld('buddy', {
   claudeSessions: () => ipcRenderer.invoke('panel:claude-sessions'),
   claudeOpen: (id) => ipcRenderer.invoke('panel:claude-open', id),
   claudeTalk: (id, text) => ipcRenderer.invoke('panel:claude-talk', id, text),
+  claudeModel: (id, alias) => ipcRenderer.invoke('panel:claude-model', id, alias),
+  claudeEffort: (id, level) => ipcRenderer.invoke('panel:claude-effort', id, level),
+  claudePrefs: (id) => ipcRenderer.invoke('panel:claude-prefs', id),
+  claudePick: (id, choice) => ipcRenderer.invoke('panel:claude-pick', id, choice),
+  claudeStop: (id) => ipcRenderer.invoke('panel:claude-stop', id),
+  claudeClear: (id) => ipcRenderer.invoke('panel:claude-clear', id),
   claudeClose: () => ipcRenderer.send('panel:claude-close'),
   onClaudeState: (fn) => ipcRenderer.on('panel:claude-state', (_event, session) => fn(session)),
   // Clawd was clicked in the notch: Claude mode, on this session (or the list, for null).

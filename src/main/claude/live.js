@@ -14,8 +14,10 @@
 
 const path = require('node:path');
 const { needsYou } = require('./hooks');
+const { newTally, tally, workerTokens, running, expire, viewOf } = require('./usage');
 
 const KEEP = 500; // the items kept for a session: the newest
+const WORKER_QUIET_MS = 10 * 60_000; // a running worker whose file has not grown this long is taken as stopped
 const QUEUED_MAX = 20; // messages sent while Claude worked that are waiting for it, kept to know them when they reach it
 const TITLE_READ = 512 * 1024; // a session's title is looked for in this much of the end of its file
 const TITLE_EVERY_MS = 30_000; // and looked for again this often, as Claude Code renames a session as the work goes on
@@ -340,8 +342,8 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
     }
   }
 
-  /** Read what was added to the session's file since the last read. Answers whether new items came. */
-  async function readNew(s) {
+  /** Read what was added to the session's file since the last read. Answers whether anything shown changed. */
+  async function readLines(s) {
     if (!s.transcript) return false;
     let handle;
     try {
@@ -354,6 +356,10 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
         s.skipFirst = s.offset > 0;
         s.items = [];
         s.queued = [];
+        s.tally = newTally(); // the tokens and workers are counted again with the items
+        s.agents = new Map(); // a worker's tool_use id → its own file: { file, offset, rest }
+        s.metaSeen = new Set(); // the .meta.json files read
+        s.quiet = new Map();
       }
       if (size === s.offset) return false;
       const length = Math.min(size - s.offset, READ_MAX);
@@ -367,6 +373,7 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
         s.skipFirst = false;
       }
       let added = 0;
+      let touched = false; // the tokens or the workers changed
       const title = titleIn(lines.join('\n'));
       if (title) s.title = title;
       for (const line of lines) {
@@ -377,6 +384,7 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
         } catch {
           continue;
         }
+        if (tally(s.tally, entry)) touched = true;
         // A message sent while Claude worked shows the moment it is queued, as the terminal shows it; when it reaches
         // Claude later, it is not shown again.
         const queue = queueOf(entry);
@@ -395,13 +403,103 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
         }
       }
       if (s.items.length > KEEP) s.items.splice(0, s.items.length - KEEP);
-      return added > 0;
+      return added > 0 || touched;
     } catch (err) {
       if (err.code !== 'ENOENT') console.warn('[buddy] could not read a Claude Code session:', err.code || err.name);
       return false;
     } finally {
       await handle?.close();
     }
+  }
+
+  /** The whole lines added to a worker's file ({ file, offset, rest }) since the last read; none when it is not there. */
+  async function newLines(f) {
+    let handle;
+    try {
+      handle = await fs.open(f.file, 'r');
+      const { size } = await handle.stat();
+      if (size < f.offset) {
+        f.offset = 0; // the file was replaced: from its start
+        f.rest = '';
+      }
+      if (size <= f.offset) return [];
+      const length = Math.min(size - f.offset, READ_MAX);
+      const buffer = Buffer.alloc(length);
+      const { bytesRead } = await handle.read(buffer, 0, length, f.offset);
+      f.offset += bytesRead;
+      const lines = (f.rest + buffer.subarray(0, bytesRead).toString('utf8')).split('\n');
+      f.rest = lines.pop(); // a line still being written ends in the next read
+      return lines;
+    } catch {
+      return [];
+    } finally {
+      await handle?.close();
+    }
+  }
+
+  /**
+   * The tokens of the workers still running, from their own files: subagents/agent-<id>.jsonl next to the session's
+   * file, whose agent-<id>.meta.json names the Agent tool_use it runs for. Answers whether a worker's tokens changed.
+   */
+  async function readWorkers(s) {
+    const ids = running(s.tally);
+    if (!ids.length || !s.transcript) return false;
+    if (s.status === 'ended') return expire(s.tally, ids, now()); // the session is over: its workers are too
+    s.agents ??= new Map();
+    s.metaSeen ??= new Set();
+    s.quiet ??= new Map(); // a running worker's id → when it was last seen to do something
+    const dir = path.join(s.transcript.slice(0, -'.jsonl'.length), 'subagents');
+    let names = [];
+    try {
+      names = await fs.readdir(dir);
+    } catch {
+      // no worker has written yet
+    }
+    for (const name of names) {
+      const m = /^agent-([\w-]{1,100})\.meta\.json$/.exec(name);
+      if (!m || s.metaSeen.has(name)) continue;
+      try {
+        const meta = JSON.parse(await fs.readFile(path.join(dir, name), 'utf8'));
+        s.metaSeen.add(name);
+        if (typeof meta?.toolUseId === 'string') s.agents.set(meta.toolUseId, { file: path.join(dir, `agent-${m[1]}.jsonl`), offset: 0, rest: '' });
+      } catch {
+        // being written: read again next time
+      }
+    }
+    let changed = false;
+    const stale = [];
+    for (const id of ids) {
+      if (!s.quiet.has(id)) s.quiet.set(id, s.tally.workers.get(id)?.startedAt ?? now()); // quiet since it started
+      const f = s.agents.get(id);
+      if (!f) {
+        if (now() - s.quiet.get(id) > WORKER_QUIET_MS) stale.push(id);
+        continue;
+      }
+      let usage = null;
+      const fresh = await newLines(f);
+      if (fresh.length) s.quiet.set(id, now());
+      else if (now() - s.quiet.get(id) > WORKER_QUIET_MS) stale.push(id);
+      for (const line of fresh) {
+        if (!line.includes('"usage"')) continue;
+        try {
+          const e = JSON.parse(line);
+          if (e?.type === 'assistant' && e.message?.usage) usage = e.message.usage;
+        } catch {
+          // not a whole line
+        }
+      }
+      if (usage && workerTokens(s.tally, id, usage)) changed = true;
+    }
+    if (expire(s.tally, stale, now())) changed = true;
+    return changed;
+  }
+
+  /** Read what was added to the session's file and to its running workers' files. Answers whether anything changed. */
+  async function readNew(s) {
+    s.tally ??= newTally();
+    const lines = await readLines(s);
+    const workers = await readWorkers(s);
+    return lines || workers;
   }
 
   /** Read the session's new lines (one read at a time); onChange hears of it when items came. */
@@ -416,11 +514,11 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
     return run;
   }
 
-  /** What the panel shows of a session: its name, status, whether Buddy can type into it, and its items. */
+  /** What the panel shows of a session: its name, status, whether Buddy can type into it, its items, its tokens and workers. */
   function view(id) {
     const s = sessions.get(id);
     if (!s) return null;
-    return { id: s.id, name: s.name, title: s.title ?? null, status: s.status, canTalk: Boolean(s.tty), items: s.items };
+    return { id: s.id, name: s.name, title: s.title ?? null, status: s.status, canTalk: Boolean(s.tty), items: s.items, ...viewOf(s.tally ?? newTally()) };
   }
 
   return {

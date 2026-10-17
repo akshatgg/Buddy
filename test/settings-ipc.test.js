@@ -5,7 +5,10 @@ const assert = require('node:assert');
 const { EventEmitter } = require('node:events');
 const { BuddyError } = require('../shared/errors');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
-const { DEFAULTS } = require('../src/main/store');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { DEFAULTS, createStore } = require('../src/main/store');
 const { createMemory } = require('../src/main/memory');
 const { createKeyWatch } = require('../src/main/key-watch');
 const { createShortcut } = require('../src/main/shortcut');
@@ -1697,4 +1700,17 @@ test('Play says the line with the voice picked, by the buddy\'s name', async () 
   assert.deepStrictEqual(await s.call('settings:voice-play', null), { ok: true });
   assert.deepStrictEqual(s.said, [["Hi, I'm Aarav. This is how I sound.", 'Daniel'], ["Hi, I'm Aarav. This is how I sound.", null]]);
   assert.deepStrictEqual(await s.call('settings:voice-play', 7), refused('bad_request', 'That voice is not valid.'));
+});
+
+test('settings round trip: models read from a store that held the old effort key are saved without a refusal', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-settings-'));
+  const file = path.join(dir, 'settings.json');
+  fs.writeFileSync(file, JSON.stringify({ models: { 'claude-code': 'opus', 'claude-code-effort': 'high' }, claudeEffort: 'low' }));
+  const real = createStore({ file });
+  const s = setup({ stored: real.all() });
+  const r = await s.call('settings:set', { models: { ...s.store.get('models'), anthropic: 'claude-opus-5-5' } });
+  assert.notStrictEqual(r.ok, false);
+  assert.deepStrictEqual(s.store.get('models'), { 'claude-code': 'opus', anthropic: 'claude-opus-5-5' });
+  assert.strictEqual(s.store.get('claudeEffort'), 'low');
+  fs.rmSync(dir, { recursive: true, force: true });
 });

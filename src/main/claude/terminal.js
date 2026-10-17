@@ -19,6 +19,30 @@ const ENTER_AFTER_S = 0.3;
 const NO_TERMINAL = "I can't type into that terminal. I copied it: paste it there.";
 const NOT_ALLOWED = "macOS didn't let me type into your terminal. Allow Buddy in System Settings → Privacy & Security → Automation.";
 const ONLY_MAC = "I can only type into a terminal on the Mac. I copied it: paste it there.";
+const PRESS_ESC = 'I can only stop Claude in iTerm2. Press Esc in its terminal.';
+
+// Esc for the session on that tty, as when the person presses it: Claude Code stops what it is doing. Only iTerm2 can
+// be sent a key without coming to the front; Terminal cannot, so there the person is told to press it.
+const ESC_SCRIPT = `
+on run argv
+  set theTty to item 1 of argv
+  if application id "com.googlecode.iterm2" is running then
+    tell application id "com.googlecode.iterm2"
+      repeat with w in windows
+        repeat with t in tabs of w
+          repeat with s in sessions of t
+            if tty of s is theTty then
+              tell s to write text (character id 27) newline no
+              return "iterm"
+            end if
+          end repeat
+        end repeat
+      end repeat
+    end tell
+  end if
+  return "none"
+end run
+`;
 
 // Run with the tty ("/dev/ttys003") and the text as its arguments: they are never part of the script itself.
 const SCRIPT = `
@@ -68,9 +92,9 @@ function oneLine(text) {
  * the unit tests.
  */
 function createTerminal({ platform = process.platform, run = execFile } = {}) {
-  function osascript(args) {
+  function osascript(script, args) {
     return new Promise((resolve, reject) => {
-      run('/usr/bin/osascript', ['-e', SCRIPT, ...args], { timeout: RUN_TIMEOUT_MS }, (err, stdout, stderr) => {
+      run('/usr/bin/osascript', ['-e', script, ...args], { timeout: RUN_TIMEOUT_MS }, (err, stdout, stderr) => {
         if (err) {
           err.stderr = String(stderr || '');
           reject(err);
@@ -89,7 +113,7 @@ function createTerminal({ platform = process.platform, run = execFile } = {}) {
     if (typeof tty !== 'string' || !/^ttys?\d{1,4}$/.test(tty)) throw new BuddyError('no_terminal', NO_TERMINAL);
     let app;
     try {
-      app = await osascript([`/dev/${tty}`, line]);
+      app = await osascript(SCRIPT, [`/dev/${tty}`, line]);
     } catch (err) {
       // -1743: the person (or macOS) did not allow Buddy to control the app.
       if (/-1743|not allowed/i.test(err.stderr)) throw new BuddyError('not_allowed', NOT_ALLOWED);
@@ -100,7 +124,23 @@ function createTerminal({ platform = process.platform, run = execFile } = {}) {
     return { app };
   }
 
-  return { type };
+
+  /** Esc to the session on `tty` (iTerm2 only): Claude Code stops what it is doing. Throws a BuddyError that says what to do. */
+  async function interrupt({ tty }) {
+    if (platform !== 'darwin' || typeof tty !== 'string' || !/^ttys?\d{1,4}$/.test(tty)) throw new BuddyError('no_terminal', PRESS_ESC);
+    let app;
+    try {
+      app = await osascript(ESC_SCRIPT, [`/dev/${tty}`]);
+    } catch (err) {
+      if (/-1743|not allowed/i.test(err.stderr)) throw new BuddyError('not_allowed', NOT_ALLOWED);
+      console.warn('[buddy] could not send Esc to the terminal:', err.code || err.name);
+      throw new BuddyError('no_terminal', PRESS_ESC);
+    }
+    if (app !== 'iterm') throw new BuddyError('no_terminal', PRESS_ESC);
+    return { app };
+  }
+
+  return { type, interrupt };
 }
 
-module.exports = { SCRIPT, TEXT_MAX, NO_TERMINAL, NOT_ALLOWED, ONLY_MAC, oneLine, createTerminal };
+module.exports = { SCRIPT, ESC_SCRIPT, TEXT_MAX, NO_TERMINAL, NOT_ALLOWED, ONLY_MAC, PRESS_ESC, oneLine, createTerminal };

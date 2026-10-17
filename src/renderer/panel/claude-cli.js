@@ -13,6 +13,7 @@
  *   { type: 'tool', id, name, arg, results, error }  ● Update(src/main.js) and its results under ⎿
  *   { type: 'summary', id, text, tools, error }     Ran 3 shell commands, read 2 files: the quiet tools, folded
  *   { type: 'event', id, text }                     ⎿ Interrupted
+ * It also words Claude mode's status line, its workers and its slash commands.
  * The panel loads this as a script; the unit tests require it. So it must stay free of the DOM.
  */
 const ClaudeCli = (() => {
@@ -227,7 +228,179 @@ const ClaudeCli = (() => {
     return out;
   }
 
-  return { toolCall, summaryText, rows, inline, blocks, tableLines, wrap, workingVerb, VERBS };
+  // ---- The status line, the workers and the slash commands ----
+
+  /** A token count as the terminal writes it: 980, 12.3k, 123k, 1.2M. */
+  function tokenCount(n) {
+    const v = Math.max(0, Math.round(Number(n) || 0));
+    if (v < 1000) return String(v);
+    if (v < 100_000) return `${(v / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+    if (v < 999_500) return `${Math.round(v / 1000)}k`;
+    return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  }
+
+  const MODEL_LABELS = { fable: 'Fable', opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku' }; // find.js's, for the page
+  const MODEL_PICKS = ['opus', 'sonnet', 'haiku']; // what /model offers
+  const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']; // Claude Code's own effort levels, in its order
+  const EFFORT_LABELS = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'XHigh', max: 'Max' };
+
+  /** A model's id as people say it: claude-opus-5-5 is Opus 5.5. Anything else as it is. */
+  function modelName(id) {
+    const text = String(id ?? '');
+    const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(?:\[[^\]]*\])?$/.exec(text);
+    if (!m) return text;
+    const name = MODEL_LABELS[m[1]] || m[1][0].toUpperCase() + m[1].slice(1);
+    return `${name} ${m[2]}${m[3] ? `.${m[3]}` : ''}`;
+  }
+
+  /** How long something took: 12s, 1m 12s, 1h 5m. */
+  function elapsed(ms) {
+    const s = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+    return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  }
+
+  /** The line under the session (live.js's stats): "Opus 5.5 · 1.2M in · 34k out"; '' before any reply. */
+  function statusLine(stats) {
+    if (!stats || (!stats.model && !stats.input && !stats.output)) return '';
+    return [stats.model ? modelName(stats.model) : '', `${tokenCount(stats.input)} in`, `${tokenCount(stats.output)} out`].filter(Boolean).join(' · ');
+  }
+
+  const WORKER_STATUS = ['running', 'done', 'failed', 'stopped'];
+  const RECENT_MS = 5 * 60_000; // a worker that ended shows this long after
+  const MANY = 3; // more workers than this fold into one line
+
+  /** One worker as a line: "Fix the login bug · running · 1m 12s · 12.3k tokens". */
+  function workerLine(w, now) {
+    const parts = [w.task, w.status];
+    if (Number.isFinite(w.startedAt)) parts.push(elapsed((w.endedAt ?? now) - w.startedAt));
+    if (w.tokens > 0) parts.push(`${tokenCount(w.tokens)} tokens`);
+    return parts.join(' · ');
+  }
+
+  /**
+   * The workers to show (live.js's workers): those running and those that ended in the last RECENT_MS, a line each;
+   * `compact` when there are more than MANY, with `summary` for the one line ("4 workers · 2 running · 1 done").
+   */
+  function workerList(workers, now) {
+    const shown = (Array.isArray(workers) ? workers : []).filter((w) => w && WORKER_STATUS.includes(w.status)
+      && (w.status === 'running' || (Number.isFinite(w.endedAt) && now - w.endedAt < RECENT_MS)));
+    const counts = WORKER_STATUS.map((s) => [s, shown.filter((w) => w.status === s).length]).filter(([, n]) => n > 0);
+    return {
+      lines: shown.map((w) => ({ id: w.id, status: w.status, text: workerLine(w, now) })),
+      compact: shown.length > MANY,
+      summary: [`${shown.length} worker${shown.length === 1 ? '' : 's'}`, ...counts.map(([s, n]) => `${n} ${s}`)].join(' · '),
+    };
+  }
+
+  // The slash commands the Claude box knows, in the order /help and the suggestions list them.
+  const COMMANDS = [
+    { name: 'model', hint: 'pick the model: default, fable, opus, sonnet or haiku' },
+    { name: 'effort', hint: 'how hard Claude thinks: low, medium, high, xhigh or max' },
+    { name: 'clear', hint: 'start a new conversation' },
+    { name: 'stop', hint: 'stop what Claude is doing' },
+    { name: 'cost', hint: 'tokens so far' },
+    { name: 'help', hint: 'these commands' },
+  ];
+
+  /** The box's words as a slash command: { name, arg, known }, or null ("/" alone and a path like /Users/… are none). */
+  function command(text) {
+    const m = /^\/([a-z][\w-]*)(?:\s+([\s\S]*))?$/i.exec(String(text ?? '').trim());
+    if (!m) return null;
+    const name = m[1].toLowerCase();
+    return { name, arg: (m[2] || '').trim().toLowerCase(), known: COMMANDS.some((c) => c.name === name) };
+  }
+
+  /** While the box holds "/" and part of a name: the commands it could be. */
+  function suggestions(text) {
+    const m = /^\/([a-z]*)$/i.exec(String(text ?? '').trimStart());
+    return m ? COMMANDS.filter((c) => c.name.startsWith(m[1].toLowerCase())) : [];
+  }
+
+  // The models /model lists, as Claude Code's picker words them. `default` is Claude Code's own choice.
+  const MODEL_ROWS = [
+    { alias: 'default', label: 'Default (recommended)', hint: 'Claude Code picks the model' },
+    { alias: 'opus', label: 'Opus', hint: 'Most capable, for complex work' },
+    { alias: 'sonnet', label: 'Sonnet', hint: 'Fast and smart, for everyday tasks' },
+    { alias: 'fable', label: 'Fable', hint: 'Newest model' },
+    { alias: 'haiku', label: 'Haiku', hint: 'Fastest, for quick answers' },
+  ];
+
+  /** The alias a model id belongs to: claude-opus-5-5 is "opus". null when it is none of the rows'. */
+  function aliasOf(id) {
+    const m = /^claude-([a-z]+)-\d/.exec(String(id ?? ''));
+    return m && MODEL_ROWS.some((r) => r.alias === m[1]) ? m[1] : null;
+  }
+
+  /** The words for an effort level that is none of the five. */
+  const noSuchEffort = (name) => `There is no effort level called ${name}. Try ${EFFORTS.slice(0, -1).join(', ')} or ${EFFORTS[EFFORTS.length - 1]}.`;
+
+  /**
+   * The /model picker: the models and the effort levels, one of each chosen. `stats` is the session's (live.js), whose
+   * model says which row is the current one; else `savedModel`, else Default. `savedEffort` is the current effort, or
+   * none (null) when Buddy has not set one. `focus` is the row the picker opens on: 'model' or 'effort'.
+   */
+  function pickerOpen({ stats, savedModel, savedEffort, focus = 'model' } = {}) {
+    const rows = MODEL_ROWS.map((r) => ({ ...r }));
+    const current = aliasOf(stats?.model) || (rows.some((r) => r.alias === savedModel) ? savedModel : 'default');
+    const at = rows.find((r) => r.alias === current);
+    if (stats?.model && aliasOf(stats.model) === current) at.name = modelName(stats.model); // "Opus 5.5", where known
+    const effort = EFFORTS.includes(savedEffort) ? savedEffort : null;
+    return { rows, current, effortNow: effort, index: rows.indexOf(at), effort, focus: focus === 'effort' ? 'effort' : 'model' };
+  }
+
+  /** ↑ (-1) and ↓ (1): the next model, round the list. */
+  function pickerMove(p, dir) {
+    const n = p.rows.length;
+    return { ...p, focus: 'model', index: (p.index + (dir < 0 ? -1 : 1) + n) % n };
+  }
+
+  /** ← (-1) and → (1): the next effort level, stopping at the ends. With none chosen, the first press lands on Medium. */
+  function pickerEffort(p, dir) {
+    const at = p.effort === null ? EFFORTS.indexOf('medium') : Math.min(EFFORTS.length - 1, Math.max(0, EFFORTS.indexOf(p.effort) + (dir < 0 ? -1 : 1)));
+    return { ...p, focus: 'effort', effort: EFFORTS[at] };
+  }
+
+  /** Take a model row (a click or a tap) or an effort level. */
+  const pickerPick = (p, { model, effort }) => ({
+    ...p,
+    index: model !== undefined && p.rows.some((r) => r.alias === model) ? p.rows.findIndex((r) => r.alias === model) : p.index,
+    effort: EFFORTS.includes(effort) ? effort : p.effort,
+  });
+
+  /**
+   * Enter: what to type. { commands: [{ name, arg }], note }: /model when the model changed, /effort when the effort
+   * did; none when nothing changed (the note then says so). The note reads "Model: Sonnet · Effort: High".
+   */
+  function pickerApply(p) {
+    const row = p.rows[p.index];
+    const commands = [];
+    if (row.alias !== p.current) commands.push({ name: 'model', arg: row.alias });
+    if (p.effort !== null && p.effort !== p.effortNow) commands.push({ name: 'effort', arg: p.effort });
+    const parts = [`Model: ${row.alias === 'default' ? 'Default' : row.label}`];
+    if (p.effort !== null) parts.push(`Effort: ${EFFORT_LABELS[p.effort]}`);
+    return { commands, note: commands.length ? parts.join(' · ') : `No change. ${parts.join(' · ')}` };
+  }
+
+  const helpLines = () => [...COMMANDS.map((c) => `/${c.name} · ${c.hint}`), 'Other / commands go to Claude Code.'];
+
+  /** /cost: the session's tokens, its model and its workers' tokens. Transcripts have no cost. */
+  function costLines(session) {
+    const stats = session?.stats || {};
+    const workers = Array.isArray(session?.workers) ? session.workers : [];
+    const out = [`Tokens so far: ${tokenCount(stats.input)} in · ${tokenCount(stats.output)} out`];
+    if (stats.model) out.push(`Model: ${modelName(stats.model)}`);
+    if (workers.length) out.push(`Workers: ${workers.length} · ${tokenCount(workers.reduce((sum, w) => sum + (w.tokens || 0), 0))} tokens`);
+    out.push("Cost isn't in the session file. Type /cost in the terminal for it.");
+    return out;
+  }
+
+  return {
+    toolCall, summaryText, rows, inline, blocks, tableLines, wrap, workingVerb, VERBS,
+    tokenCount, modelName, elapsed, statusLine, workerList, command, suggestions, helpLines, costLines, COMMANDS, MODEL_PICKS, MODEL_LABELS,
+    EFFORTS, EFFORT_LABELS, MODEL_ROWS, aliasOf, noSuchEffort, pickerOpen, pickerMove, pickerEffort, pickerPick, pickerApply,
+  };
 })();
 
 if (typeof module !== 'undefined') module.exports = ClaudeCli;

@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert';
-import { createClaude, readLook, byDevice, POLL_MS, GONE } from '../web/public/app/claude-core.js';
+import { createClaude, readLook, byDevice, screen, POLL_MS, GONE, PICK, MODEL_SET, NO_SUCH_MODEL, STOPPING, CLEARED } from '../web/public/app/claude-core.js';
 import { ApiError } from '../web/public/app/api.js';
 
 const S1 = { id: 'aaaa-1111', name: 'shop', title: null, status: 'working', canTalk: true, device: 'MacBook Air' };
@@ -17,6 +17,7 @@ const settle = () => new Promise((resolve) => setImmediate(resolve));
 function setup(looks) {
   const asked = [];
   const sent = [];
+  const interrupted = [];
   let stops = 0;
   const timers = new Map();
   let nextTimer = 1;
@@ -31,7 +32,10 @@ function setup(looks) {
     },
     send: async (session, text) => {
       sent.push({ session, text });
-      if (text === 'fail') throw new ApiError('mac_offline', 'None of your computers is sharing right now.');
+      if (text === 'fail' || text === '/model haiku') throw new ApiError('mac_offline', 'None of your computers is sharing right now.');
+    },
+    interrupt: async (session) => {
+      interrupted.push(session);
     },
     stop: async () => {
       stops += 1;
@@ -49,6 +53,7 @@ function setup(looks) {
     claude,
     asked,
     sent,
+    interrupted,
     stops: () => stops,
     pending: () => timers.size,
     async tick() {
@@ -177,7 +182,7 @@ test('a look is read the way the Android app reads it: odd parts left out, each 
   }), {
     online: true,
     sessions: [S1, { id: 'cccc', name: 'Claude Code', title: null, status: 'idle', canTalk: false, device: null }],
-    feed: { session: S1, items: [...ITEMS, { id: 3, kind: 'event', text: 'x', error: false }] },
+    feed: { session: S1, items: [...ITEMS, { id: 3, kind: 'event', text: 'x', error: false }], stats: null, workers: [] },
   });
   assert.deepStrictEqual(readLook(null), { online: false, sessions: [], feed: null });
 });
@@ -195,4 +200,73 @@ test('the title Claude Code gave a session is kept (trimmed), else null', () => 
 test('sessions are grouped by computer, in the order the computers come', () => {
   const S3 = { ...S1, id: 'cccc-3333', name: 'api' };
   assert.deepStrictEqual(byDevice([S1, S2, S3]), [{ device: 'MacBook Air', sessions: [S1, S3] }, { device: 'Office PC', sessions: [S2] }]);
+});
+
+const W = { id: 'toolu_01', task: 'Fix the login bug', status: 'running', startedAt: 1_000, endedAt: null, tokens: 12_300 };
+const STATS = { model: 'claude-opus-5-5', input: 1_200_000, output: 34_000 };
+
+test("a look reads the session's tokens and workers, leaving out what is odd", () => {
+  const r = readLook({ online: true, sessions: [S1], feed: { ...S1, items: [], stats: { ...STATS, extra: 1 }, workers: [W, { id: 7 }, { ...W, id: 'x', status: 'dancing' }, W] } });
+  assert.deepStrictEqual(r.feed.stats, STATS);
+  assert.deepStrictEqual(r.feed.workers, [W]);
+  assert.deepStrictEqual(readLook({ online: true, sessions: [S1], feed: { ...S1, items: [], stats: 'x', workers: 'y' } }).feed, { session: S1, items: [], stats: null, workers: [] });
+});
+
+/** Claude mode on S1, its feed `feed` (readLook's shape) come in. */
+async function opened(feed = { session: S1, items: ITEMS, stats: STATS, workers: [W] }) {
+  const s = setup([online([S1]), online([S1]), online([S1], feed), online([S1], feed), online([S1])]);
+  s.claude.enter();
+  await settle();
+  s.claude.open(S1.id);
+  await settle();
+  await s.tick();
+  return s;
+}
+
+test('/help, /cost and /model are answered on the phone; an unknown / command goes to Claude Code as typed', async () => {
+  const s = await opened();
+  assert.deepStrictEqual(s.claude.state.stats, STATS);
+  for (const words of ['/help', '/cost', '/model', '/model gpt']) assert.deepStrictEqual(await s.claude.send(words), { ok: true });
+  assert.deepStrictEqual(s.sent, []);
+  const notes = s.claude.state.notes;
+  assert.match(notes[0].text, /^\/model · pick the model/);
+  assert.match(notes[1].text, /^Tokens so far: 1\.2M in · 34k out\nModel: Opus 5\.5\nWorkers: 1 · 12\.3k tokens/);
+  assert.deepStrictEqual([notes[2].text, notes[2].picker], [PICK, true]);
+  assert.strictEqual(notes[3].text, NO_SUCH_MODEL('gpt'));
+  assert.deepStrictEqual(await s.claude.send('/compact'), { ok: true });
+  assert.deepStrictEqual(s.sent, [{ session: S1.id, text: '/compact' }]);
+  assert.strictEqual(s.claude.state.notes.length, 4, 'no answer of its own for it');
+});
+
+test('/model <name> goes as Claude Code\'s own command; /stop asks for Esc; /clear goes and the list shows, saying why', async () => {
+  const s = await opened();
+  assert.deepStrictEqual(await s.claude.send('/model Sonnet'), { ok: true });
+  assert.deepStrictEqual(s.sent, [{ session: S1.id, text: '/model sonnet' }]);
+  assert.strictEqual(s.claude.state.notes.at(-1).text, MODEL_SET('Sonnet'));
+  assert.deepStrictEqual(await s.claude.send('/stop'), { ok: true });
+  assert.deepStrictEqual(s.interrupted, [S1.id]);
+  assert.strictEqual(s.claude.state.notes.at(-1).text, STOPPING);
+  assert.deepStrictEqual(await s.claude.send('/clear'), { ok: true });
+  assert.deepStrictEqual(s.sent.at(-1), { session: S1.id, text: '/clear' });
+  await settle();
+  assert.deepStrictEqual([s.claude.state.session, s.claude.state.listError, s.claude.state.notes], [null, CLEARED, []]);
+});
+
+test('a command that cannot reach the computer gives the words back to the box', async () => {
+  const s = await opened();
+  assert.deepStrictEqual(await s.claude.send('/model haiku'), { ok: false, error: 'None of your computers is sharing right now.' });
+  assert.strictEqual(s.claude.state.boxError, 'None of your computers is sharing right now.');
+  assert.strictEqual(s.claude.state.notes.length, 0, 'no "Model set" when it did not go');
+});
+
+test('screen says what the session shows: rows, workers, the working verb, the status line, whether it ticks', async () => {
+  const s = await opened();
+  const view = screen(s.claude.state, 61_000);
+  assert.deepStrictEqual(view.rows.map((r) => r.type), ['you', 'claude']);
+  assert.strictEqual(view.workers.lines.length, 1);
+  assert.strictEqual(typeof view.working, 'string', 'S1 is working');
+  assert.strictEqual(view.waiting, false);
+  assert.match(view.line, /Opus 5\.5 · 1\.2M in · 34k out/);
+  assert.strictEqual(view.ticking, true);
+  assert.deepStrictEqual(screen({ session: null, items: null, workers: [], stats: null }, 0).rows, []);
 });

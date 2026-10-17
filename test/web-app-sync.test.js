@@ -32,6 +32,10 @@ test('the Node modules made into ES modules answer as they do in Node', async ()
   assert.deepStrictEqual([sleep.DROWSY_MS, sleep.ASLEEP_MS], [60_000, 120_000]);
   const { default: VoiceTiming } = await import(url('voice-timing.js'));
   assert.strictEqual(VoiceTiming.recordingMime('audio/mp4;codecs=mp4a.40.2'), 'audio/mp4');
+  const { default: ClaudeCli } = await import(url('claude-cli.js'));
+  const cli = require('../src/renderer/panel/claude-cli');
+  assert.strictEqual(ClaudeCli.tokenCount(12_300), cli.tokenCount(12_300));
+  assert.deepStrictEqual(ClaudeCli.rows([{ id: 1, kind: 'tool', text: '$ npm test' }]), cli.rows([{ id: 1, kind: 'tool', text: '$ npm test' }]));
   const { buddyLevel } = await import(url('feelings.js'));
   assert.strictEqual(buddyLevel(0.1), 0.5);
   const { aiSection } = await import(url('free-state.js'));

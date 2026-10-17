@@ -4,7 +4,7 @@
  * Buddy on iPhone (web/public/app/) is a web page, so it carries copies of what it reuses from the rest of Buddy:
  *
  *   shared/    shared/'s errors, memory rules, prompts and AI providers (shared/providers/), the Mac's sleep countdown,
- *              feelings and free-mode words (src/main/), and the panel's voice timing: Node modules and a page script,
+ *              feelings and free-mode words (src/main/), the panel's voice timing and Claude mode words (claude-cli.js): Node modules and a page script,
  *              each made into an ES module here; and the buddy page's own ES modules (src/renderer/buddy/), copied as
  *              they are
  *   buddies/   the buddies (assets/buddies/): buddies.json, and each one's .glb and preview
@@ -47,6 +47,7 @@ function plan(root = ROOT) {
     ['shared/free-state.js', { from: 'src/main/free-state.js', as: 'commonjs' }],
     ...PROVIDER_MODULES.map((file) => [`shared/providers/${file}`, { from: `shared/providers/${file}`, as: 'commonjs' }]),
     ['shared/voice-timing.js', { from: 'src/renderer/panel/voice-timing.js', as: 'script', name: 'VoiceTiming' }],
+    ['shared/claude-cli.js', { from: 'src/renderer/panel/claude-cli.js', as: 'script', name: 'ClaudeCli' }],
     ...BUDDY_MODULES.map((file) => [`shared/${file}`, { from: `src/renderer/buddy/${file}`, as: 'copy' }]),
     ['buddies/buddies.json', { from: 'assets/buddies/buddies.json', as: 'copy' }],
   ];

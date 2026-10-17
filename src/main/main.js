@@ -325,6 +325,8 @@ async function start(options = {}) {
     },
     clipboard: options.clipboard || clipboard,
     send: (session) => panel.send('panel:claude-state', session),
+    // A model picked with /model in Claude mode is Buddy's Claude Code model from then on (Settings → AI shows it).
+    saveModel: (alias) => store.set({ models: { ...(store.get('models') || {}), 'claude-code': alias } }),
   });
   const watch = createWatch({
     store, find, hooks, ui, chatBusy: () => actions.state().busy === true, active: () => power.isOn(), onEvent: (event) => live.hear(event),

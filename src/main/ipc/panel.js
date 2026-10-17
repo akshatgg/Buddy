@@ -79,6 +79,10 @@ function registerPanelIpc({
   handle('panel:claude-sessions', () => claudeMode.sessions());
   handle('panel:claude-open', (id) => claudeMode.open(id));
   handle('panel:claude-talk', (id, text) => claudeMode.talk(id, typeof text === 'string' ? text : ''));
+  // Claude mode's slash commands that act on the session: /model <alias> (only text), /stop and /clear.
+  handle('panel:claude-model', (id, alias) => claudeMode.model(id, typeof alias === 'string' ? alias : ''));
+  handle('panel:claude-stop', (id) => claudeMode.stop(id));
+  handle('panel:claude-clear', (id) => claudeMode.clear(id));
   ipcMain.on('panel:claude-close', (event) => {
     if (fromPanel(event.sender)) claudeMode.close();
   });

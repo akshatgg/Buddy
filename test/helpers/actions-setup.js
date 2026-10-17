@@ -88,6 +88,8 @@ function setup({
     panelHiddenAt: () => hiddenAt,
     panelWindowHandle: () => 4242,
     bubble: (text) => log.push(['bubble', text]),
+    speech: (text) => log.push(['speech', text]),
+    speechDone: () => log.push(['speechDone']),
     mood: (mood) => log.push(['mood', mood]),
     openSettings: (section) => log.push(['openSettings', section]),
     openFolder: (p) => log.push(['openFolder', p]),

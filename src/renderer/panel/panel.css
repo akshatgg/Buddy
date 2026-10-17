@@ -433,6 +433,18 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
 }
 .claude-items .cl-waiting { color: var(--cli-orange); }
 .panel.cli .claude-items .cl-note { align-self: flex-start; color: var(--cli-dim); }
+.claude-items .cl-worker { display: flex; gap: 8px; padding-left: 2ch; color: var(--cli-dim); }
+.claude-items .cl-worker.running .cl-dot { color: var(--cli-orange); }
+.claude-items .cl-worker.done .cl-dot { color: var(--cli-green); }
+.claude-items .cl-worker.failed .cl-dot, .claude-items .cl-worker.stopped .cl-dot { color: var(--cli-red); }
+.claude-items .cl-workers .cl-fold { padding-left: 0; }
+.cl-said { min-width: 0; }
+.cl-picks { display: flex; gap: 6px; margin-top: 6px; }
+.cl-line { flex: none; margin: 0; padding: 4px 12px; border-top: 1px solid var(--cli-line); color: var(--cli-dim); }
+.cl-suggest { margin: 0 0 6px; padding: 4px 0; border: 1px solid var(--cli-line); border-radius: 6px; background: #0d0d0d; list-style: none; }
+.cl-suggestion { display: block; width: 100%; padding: 2px 10px; border: 0; background: none; color: var(--cli-dim); font: inherit; text-align: left; cursor: pointer; }
+.cl-suggestion strong { color: var(--cli-fg); font-weight: 400; }
+.cl-suggestion:hover, .cl-suggestion:focus-visible { background: #1a1a1a; outline: none; }
 
 /* The box: ❯ between two lines, as the terminal's prompt. */
 .panel.cli .compose { border-top: 0; }

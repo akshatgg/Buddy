@@ -326,7 +326,15 @@ async function start(options = {}) {
     clipboard: options.clipboard || clipboard,
     send: (session) => panel.send('panel:claude-state', session),
     // A model picked with /model in Claude mode is Buddy's Claude Code model from then on (Settings → AI shows it).
-    saveModel: (alias) => store.set({ models: { ...(store.get('models') || {}), 'claude-code': alias } }),
+    // "default" is Claude Code's own choice: Buddy's own use of it falls back to its usual model.
+    saveModel: (alias) => {
+      const models = { ...(store.get('models') || {}) };
+      if (alias === 'default') delete models['claude-code'];
+      else models['claude-code'] = alias;
+      store.set({ models });
+    },
+    saveEffort: (level) => store.set({ models: { ...(store.get('models') || {}), 'claude-code-effort': level } }),
+    prefs: () => ({ model: store.get('models')?.['claude-code'] || 'default', effort: store.get('models')?.['claude-code-effort'] || null }),
   });
   const watch = createWatch({
     store, find, hooks, ui, chatBusy: () => actions.state().busy === true, active: () => power.isOn(), onEvent: (event) => live.hear(event),

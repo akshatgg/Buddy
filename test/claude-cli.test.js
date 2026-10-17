@@ -5,6 +5,7 @@ const assert = require('node:assert');
 const {
   toolCall, summaryText, rows, inline, workingVerb, VERBS,
   tokenCount, modelName, elapsed, statusLine, workerList, command, suggestions, helpLines, costLines, COMMANDS,
+  EFFORTS, aliasOf, noSuchEffort, pickerOpen, pickerMove, pickerEffort, pickerPick, pickerApply,
 } = require('../src/renderer/panel/claude-cli.js');
 
 test("a tool's line is written as the terminal writes it, and the quiet ones know their group", () => {
@@ -147,8 +148,10 @@ test('slash commands: a name and what follows it; a path is not one; "/" suggest
   assert.strictEqual(command('/Users/a/shop fix it'), null);
   assert.strictEqual(command('/'), null);
   assert.strictEqual(command('fix /model'), null);
-  assert.deepStrictEqual(suggestions('/').map((c) => c.name), ['model', 'clear', 'stop', 'cost', 'help']);
+  assert.deepStrictEqual(suggestions('/').map((c) => c.name), ['model', 'effort', 'clear', 'stop', 'cost', 'help']);
   assert.deepStrictEqual(suggestions('/c').map((c) => c.name), ['clear', 'cost']);
+  assert.deepStrictEqual(suggestions('/e').map((c) => c.name), ['effort']);
+  assert.deepStrictEqual(command('/effort XHigh'), { name: 'effort', arg: 'xhigh', known: true });
   assert.deepStrictEqual(suggestions('/model opus'), []);
   assert.deepStrictEqual(suggestions('hi'), []);
 });
@@ -160,4 +163,51 @@ test("the answers the page gives itself: help, an unknown command, and the sessi
     'Tokens so far: 1.2M in · 34k out', 'Model: Opus 5.5', 'Workers: 2 · 120k tokens', "Cost isn't in the session file. Type /cost in the terminal for it.",
   ]);
   assert.deepStrictEqual(costLines({}), ['Tokens so far: 0 in · 0 out', "Cost isn't in the session file. Type /cost in the terminal for it."]);
+});
+
+test('the /model picker opens on the current model (the session\'s, else the saved one, else Default) and effort', () => {
+  assert.strictEqual(aliasOf('claude-opus-5-5'), 'opus');
+  assert.strictEqual(aliasOf('claude-sonnet-4-5-20250929'), 'sonnet');
+  assert.strictEqual(aliasOf('gpt-4'), null);
+  const p = pickerOpen({ stats: { model: 'claude-opus-5-5' }, savedModel: 'haiku', savedEffort: 'high' });
+  assert.deepStrictEqual(p.rows.map((r) => r.alias), ['default', 'opus', 'sonnet', 'fable', 'haiku']);
+  assert.deepStrictEqual([p.current, p.index, p.effort, p.focus], ['opus', 1, 'high', 'model']);
+  assert.strictEqual(p.rows[1].name, 'Opus 5.5', 'the real name where it is known');
+  assert.strictEqual(p.rows[1].hint, 'Most capable, for complex work');
+  const saved = pickerOpen({ savedModel: 'haiku', savedEffort: 'bogus', focus: 'effort' });
+  assert.deepStrictEqual([saved.current, saved.index, saved.effort, saved.focus], ['haiku', 4, null, 'effort']);
+  assert.strictEqual(pickerOpen({}).current, 'default');
+  assert.strictEqual(pickerOpen({ savedModel: 'gpt' }).current, 'default');
+});
+
+test('the picker moves: up and down round the models, left and right along the efforts (ends stop)', () => {
+  let p = pickerOpen({ savedModel: 'default', savedEffort: 'xhigh' });
+  assert.strictEqual(pickerMove(p, -1).index, 4, 'up from the first goes round');
+  p = pickerMove(pickerMove(p, 1), 1);
+  assert.strictEqual(p.index, 2);
+  p = pickerEffort(p, 1);
+  assert.strictEqual(p.effort, 'max');
+  assert.strictEqual(pickerEffort(p, 1).effort, 'max', 'stops at Max');
+  assert.strictEqual(pickerEffort(pickerOpen({ savedEffort: 'low' }), -1).effort, 'low', 'stops at Low');
+  assert.strictEqual(pickerEffort(pickerOpen({}), 1).effort, 'medium', 'none chosen: lands on Medium');
+  assert.strictEqual(pickerPick(p, { model: 'haiku', effort: 'low' }).index, 4);
+  assert.strictEqual(pickerPick(p, { model: 'gpt', effort: 'huge' }).index, 2, 'only the listed ones');
+  assert.strictEqual(pickerPick(p, { effort: 'huge' }).effort, 'max');
+});
+
+test('Enter on the picker types /model for a changed model and /effort for a changed effort, and says so', () => {
+  const open = pickerOpen({ stats: { model: 'claude-opus-5-5' }, savedEffort: 'medium' });
+  assert.deepStrictEqual(pickerApply(pickerEffort(pickerMove(open, 1), 1)), {
+    commands: [{ name: 'model', arg: 'sonnet' }, { name: 'effort', arg: 'high' }], note: 'Model: Sonnet · Effort: High',
+  });
+  assert.deepStrictEqual(pickerApply(pickerEffort(open, 1)).commands, [{ name: 'effort', arg: 'high' }]);
+  assert.deepStrictEqual(pickerApply(pickerMove(open, -1)), { commands: [{ name: 'model', arg: 'default' }], note: 'Model: Default · Effort: Medium' });
+  assert.deepStrictEqual(pickerApply(open), { commands: [], note: 'No change. Model: Opus · Effort: Medium' });
+  assert.deepStrictEqual(pickerApply(pickerOpen({ savedModel: 'haiku' })), { commands: [], note: 'No change. Model: Haiku' });
+});
+
+test('/effort: the five levels, and words that list them for any other', () => {
+  assert.deepStrictEqual(EFFORTS, ['low', 'medium', 'high', 'xhigh', 'max']);
+  assert.strictEqual(noSuchEffort('huge'), 'There is no effort level called huge. Try low, medium, high, xhigh or max.');
+  assert.ok(helpLines().includes('/effort · how hard Claude thinks: low, medium, high, xhigh or max'));
 });

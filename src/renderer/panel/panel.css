@@ -439,7 +439,20 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
 .claude-items .cl-worker.failed .cl-dot, .claude-items .cl-worker.stopped .cl-dot { color: var(--cli-red); }
 .claude-items .cl-workers .cl-fold { padding-left: 0; }
 .cl-said { min-width: 0; }
-.cl-picks { display: flex; gap: 6px; margin-top: 6px; }
+/* The /model picker: the models with a ✔ on the current one, the highlighted row marked ❯, then the effort levels. */
+.claude-items .cl-picker { padding: 6px 0; border-top: 1px solid var(--cli-line); border-bottom: 1px solid var(--cli-line); }
+.cl-picker-title { margin: 0 0 4px; color: var(--cli-orange); font-weight: 700; }
+.cl-models { margin: 0; padding: 0; list-style: none; }
+.cl-model { display: grid; grid-template-columns: 2ch auto auto 1fr; gap: 0 8px; width: 100%; padding: 1px 0; border: 0; background: none; color: var(--cli-dim); font: inherit; text-align: left; cursor: pointer; }
+.cl-model.on, .cl-model:hover { color: var(--cli-blue); }
+.cl-tick { color: var(--cli-green); }
+.cl-desc { grid-column: 2 / -1; padding-left: 3ch; color: var(--cli-dim); }
+.cl-efforts { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; color: var(--cli-dim); }
+.cl-efforts.on .cl-effort-title { color: var(--cli-blue); }
+.cl-effort { padding: 0; border: 0; background: none; color: var(--cli-dim); font: inherit; cursor: pointer; }
+.cl-effort.on { color: var(--cli-blue); font-weight: 700; text-decoration: underline; }
+.cl-picker-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.cl-dim { color: var(--cli-dim); }
 .cl-line { flex: none; margin: 0; padding: 4px 12px; border-top: 1px solid var(--cli-line); color: var(--cli-dim); }
 .cl-suggest { margin: 0 0 6px; padding: 4px 0; border: 1px solid var(--cli-line); border-radius: 6px; background: #0d0d0d; list-style: none; }
 .cl-suggestion { display: block; width: 100%; padding: 2px 10px; border: 0; background: none; color: var(--cli-dim); font: inherit; text-align: left; cursor: pointer; }

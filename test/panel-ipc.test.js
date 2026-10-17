@@ -52,6 +52,8 @@ function setup(actions = {}, { platform = 'darwin', mic = 'granted', openFails =
       open: async (id) => { calls.push(['claudeOpen', id]); return { session: { id } }; },
       talk: async (id, text) => { calls.push(['claudeTalk', id, text]); return { typed: true }; },
       model: async (id, alias) => { calls.push(['claudeModel', id, alias]); return { typed: true, model: alias }; },
+      effort: async (id, level) => { calls.push(['claudeEffort', id, level]); return { typed: true, effort: level }; },
+      prefs: () => ({ model: 'opus', effort: null }),
       stop: async (id) => { calls.push(['claudeStop', id]); return { stopped: true }; },
       clear: async (id) => { calls.push(['claudeClear', id]); return { typed: true, session: null }; },
       close: () => calls.push('claudeClose'),
@@ -67,10 +69,10 @@ function setup(actions = {}, { platform = 'darwin', mic = 'granted', openFails =
   return { handlers, listeners, calls, fromPanel: { sender: PANEL_PAGE } };
 }
 
-test('the panel asks through eleven channels and tells main ten things; the old ones are gone', () => {
+test('the panel asks through thirteen channels and tells main ten things; the old ones are gone', () => {
   const s = setup();
   assert.deepStrictEqual(Object.keys(s.handlers).sort(), [
-    'panel:act', 'panel:claude-clear', 'panel:claude-model', 'panel:claude-open', 'panel:claude-sessions', 'panel:claude-stop', 'panel:claude-talk',
+    'panel:act', 'panel:claude-clear', 'panel:claude-effort', 'panel:claude-model', 'panel:claude-open', 'panel:claude-prefs', 'panel:claude-sessions', 'panel:claude-stop', 'panel:claude-talk',
     'panel:drop-selection', 'panel:mic-access', 'panel:send', 'panel:transcribe',
   ]);
   assert.deepStrictEqual(Object.keys(s.listeners).sort(), [
@@ -95,10 +97,14 @@ test('Claude mode commands: /model (a name only as text), /stop and /clear, from
   const s = setup();
   assert.deepStrictEqual(await s.handlers['panel:claude-model'](s.fromPanel, 'a', 'opus'), { ok: true, typed: true, model: 'opus' });
   await s.handlers['panel:claude-model'](s.fromPanel, 'a', 7);
+  assert.deepStrictEqual(await s.handlers['panel:claude-effort'](s.fromPanel, 'a', 'max'), { ok: true, typed: true, effort: 'max' });
+  await s.handlers['panel:claude-effort'](s.fromPanel, 'a', 7);
+  assert.deepStrictEqual(await s.handlers['panel:claude-prefs'](s.fromPanel), { ok: true, model: 'opus', effort: null });
+  assert.strictEqual((await s.handlers['panel:claude-effort'](SOMEONE_ELSE, 'a', 'max')).ok, false, 'only the panel page');
   assert.deepStrictEqual(await s.handlers['panel:claude-stop'](s.fromPanel, 'a'), { ok: true, stopped: true });
   assert.deepStrictEqual(await s.handlers['panel:claude-clear'](s.fromPanel, 'a'), { ok: true, typed: true, session: null });
   assert.strictEqual((await s.handlers['panel:claude-stop'](SOMEONE_ELSE, 'a')).ok, false, 'only the panel page');
-  assert.deepStrictEqual(s.calls, [['claudeModel', 'a', 'opus'], ['claudeModel', 'a', ''], ['claudeStop', 'a'], ['claudeClear', 'a']]);
+  assert.deepStrictEqual(s.calls, [['claudeModel', 'a', 'opus'], ['claudeModel', 'a', ''], ['claudeEffort', 'a', 'max'], ['claudeEffort', 'a', ''], ['claudeStop', 'a'], ['claudeClear', 'a']]);
 });
 
 test('a message goes to actions.send, and the answer is { ok: true } once it is in: the state events show the rest', async () => {

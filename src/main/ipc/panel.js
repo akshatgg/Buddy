@@ -81,6 +81,8 @@ function registerPanelIpc({
   handle('panel:claude-talk', (id, text) => claudeMode.talk(id, typeof text === 'string' ? text : ''));
   // Claude mode's slash commands that act on the session: /model <alias> (only text), /stop and /clear.
   handle('panel:claude-model', (id, alias) => claudeMode.model(id, typeof alias === 'string' ? alias : ''));
+  handle('panel:claude-effort', (id, level) => claudeMode.effort(id, typeof level === 'string' ? level : ''));
+  handle('panel:claude-prefs', () => claudeMode.prefs()); // the model and effort Buddy has kept, for the picker
   handle('panel:claude-stop', (id) => claudeMode.stop(id));
   handle('panel:claude-clear', (id) => claudeMode.clear(id));
   ipcMain.on('panel:claude-close', (event) => {

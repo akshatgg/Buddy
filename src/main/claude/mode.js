@@ -11,7 +11,7 @@
  * Buddy's server): such a session is looked at on the server every second and a half while it is open, and words for it
  * go to its computer, which types them there.
  *
- * Slash commands that act on the session (/model, /stop, /clear) come here too: the first and last are typed as Claude
+ * Slash commands that act on the session (/model, /effort, /stop, /clear) come here too: all but /stop are typed as Claude
  * Code's own, /stop is Esc.
  */
 
@@ -26,15 +26,18 @@ const CLEAR_TRIES = 6; // …this many times
 const CLEAR_TRIES_BUSY = 120; // …or this many when Claude was working: it takes /clear only when it is done (60 s)
 const NO_NEW_SESSION = "Claude Code didn't start a new session. Pick one.";
 const STOP_THERE = 'Stop it on that computer.';
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']; // Claude Code's own effort levels
+const NO_SUCH_EFFORT = (name) => `There is no effort level called ${name}. Try ${EFFORTS.slice(0, -1).join(', ')} or ${EFFORTS[EFFORTS.length - 1]}.`;
 const NO_SUCH_MODEL = (name) => `There is no model called ${name}. Try ${MODELS.slice(0, -1).join(', ')} or ${MODELS[MODELS.length - 1]}.`;
 
 /**
  * `send(state)` gives the page a session's view; `clipboard` is Electron's (writeText). `remote` is { available(),
  * look(sessionId), send(sessionId, text), stop() } over cloud.js's calls, or null. The timers are passed in by the unit
- * tests. `saveModel(alias)` keeps a model picked with /model as Buddy's Claude Code model; `wait` is passed in by the unit tests.
+ * tests. `saveModel(alias)` keeps a model picked with /model as Buddy's Claude Code model, `saveEffort(level)` an effort
+ * picked with /effort; `prefs()` gives them back ({ model, effort }, effort null when none). `wait` is passed in by the unit tests.
  */
 function createClaudeMode({
-  live, terminal, clipboard, send, remote = null, saveModel = () => {}, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  live, terminal, clipboard, send, remote = null, saveModel = () => {}, saveEffort = () => {}, prefs = () => ({ model: 'default', effort: null }), wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   every = setInterval, stopEvery = clearInterval,
 }) {
   let openId = null;
@@ -144,10 +147,18 @@ function createClaudeMode({
 
   /** `/model <alias>`: Claude Code's own /model typed into the session (from its next message), and kept as Buddy's. */
   async function model(id, alias) {
-    if (!MODELS.includes(alias)) throw new BuddyError('bad_request', NO_SUCH_MODEL(alias));
+    if (alias !== 'default' && !MODELS.includes(alias)) throw new BuddyError('bad_request', NO_SUCH_MODEL(alias));
     const r = await talk(id, `/model ${alias}`);
     saveModel(alias); // the person's choice, also when the words were only copied
     return { ...r, model: alias };
+  }
+
+  /** `/effort <level>`: Claude Code's own /effort typed into the session, and kept as Buddy's. */
+  async function effort(id, level) {
+    if (!EFFORTS.includes(level)) throw new BuddyError('bad_request', NO_SUCH_EFFORT(level));
+    const r = await talk(id, `/effort ${level}`);
+    saveEffort(level);
+    return { ...r, effort: level };
   }
 
   /** `/stop`: Esc in the session's terminal. A session on another computer is stopped there. */
@@ -202,7 +213,7 @@ function createClaudeMode({
     send({ id, gone: true, message: NO_NEW_SESSION });
   }
 
-  return { sessions, open, close, talk, model, stop, clear, isOpen: () => openId !== null, settled: () => searching };
+  return { sessions, open, close, talk, model, effort, prefs: () => prefs(), stop, clear, isOpen: () => openId !== null, settled: () => searching };
 }
 
-module.exports = { READ_EVERY_MS, LOOK_EVERY_MS, GONE, STOP_THERE, NO_NEW_SESSION, NO_SUCH_MODEL, createClaudeMode };
+module.exports = { READ_EVERY_MS, LOOK_EVERY_MS, GONE, STOP_THERE, NO_NEW_SESSION, NO_SUCH_MODEL, NO_SUCH_EFFORT, EFFORTS, createClaudeMode };

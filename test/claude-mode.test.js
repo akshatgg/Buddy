@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { BuddyError } = require('../shared/errors');
 const { createTerminal, oneLine, SCRIPT, ESC_SCRIPT, NO_TERMINAL, NOT_ALLOWED, ONLY_MAC, PRESS_ESC } = require('../src/main/claude/terminal');
-const { createClaudeMode, GONE, NO_SUCH_MODEL, NO_NEW_SESSION } = require('../src/main/claude/mode');
+const { createClaudeMode, GONE, NO_SUCH_MODEL, NO_SUCH_EFFORT, NO_NEW_SESSION } = require('../src/main/claude/mode');
 
 // ---- terminal.js: typing into the terminal ----
 
@@ -103,6 +103,7 @@ function setup({ typeFails = null, remote = null, onWait = null } = {}) {
     send: (view) => sent.push(view),
     remote,
     saveModel: (alias) => saved.push(alias),
+    saveEffort: (level) => saved.push(`effort:${level}`),
     wait: async () => {
       waits += 1;
       onWait?.(waits);
@@ -239,6 +240,17 @@ test("/model <name>: Claude Code's own /model is typed into the terminal, and ke
   await assert.rejects(s.mode.model('a', 'gpt'), { code: 'bad_request', message: NO_SUCH_MODEL('gpt') });
   assert.strictEqual(s.typed.length, 1, 'nothing is typed for a name that is no model');
   assert.deepStrictEqual(s.saved, ['opus']);
+});
+
+test('/model default and /effort <level>: typed as Claude Code\'s own, kept, and only the allow-listed words are typed', async () => {
+  const s = setup();
+  assert.deepStrictEqual(await s.mode.model('a', 'default'), { typed: true, model: 'default' });
+  assert.deepStrictEqual(await s.mode.effort('a', 'xhigh'), { typed: true, effort: 'xhigh' });
+  assert.deepStrictEqual(s.typed.map((t) => t.text), ['/model default', '/effort xhigh']);
+  assert.deepStrictEqual(s.saved, ['default', 'effort:xhigh']);
+  await assert.rejects(s.mode.effort('a', 'huge; rm'), { code: 'bad_request', message: NO_SUCH_EFFORT('huge; rm') });
+  assert.strictEqual(s.typed.length, 2);
+  assert.strictEqual(NO_SUCH_EFFORT('x'), 'There is no effort level called x. Try low, medium, high, xhigh or max.');
 });
 
 test("/stop sends Esc to the session's terminal", async () => {

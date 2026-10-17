@@ -21,7 +21,8 @@ const { canSend, itemParts, selectionPreview, speaker, spokenLine, thinkingLine 
 const { exampleLine, jobHeading } = ChatView; // a Claude Code job in the chat
 const {
   rows: cliRows, inline: cliInline, blocks: cliBlocks, tableLines, workingVerb,
-  statusLine, workerList, command, suggestions, helpLines, costLines, MODEL_PICKS, MODEL_LABELS,
+  statusLine, workerList, command, suggestions, helpLines, costLines, MODEL_LABELS, EFFORTS, EFFORT_LABELS,
+  noSuchEffort, pickerOpen, pickerMove, pickerEffort, pickerPick, pickerApply,
 } = ClaudeCli; // Claude mode, as the terminal draws it
 const { createVoiceTiming, levelOf, recordingMime, listensOnOpen } = VoiceTiming;
 
@@ -38,8 +39,9 @@ let voiceTurn = 0; // counts the listenings; what comes back for one that was st
 let mode = 'chat'; // what the panel shows: 'chat' (the buddy's chat), or 'claude' (Claude mode, the end of this file)
 // Claude mode: the session shown (null while the sessions are listed), the id the last open asked for, whether words
 // are on their way to its terminal, and the newest item drawn.
-// notes: the answers to slash commands, at the end of the session; tick: redraws while a worker runs.
-const claude = { session: null, asked: null, talking: false, newest: 0, open: new Set(), notes: [], nextNote: 1, tick: null };
+// notes: the answers to slash commands, at the end of the session; picker: the /model picker while it is open (or null);
+// tick: redraws while a worker runs.
+const claude = { session: null, asked: null, talking: false, newest: 0, open: new Set(), notes: [], picker: null, nextNote: 1, tick: null };
 
 function show(el, visible) {
   el.hidden = !visible;
@@ -257,6 +259,7 @@ box.addEventListener('input', () => {
   showSuggest();
 });
 box.addEventListener('keydown', (e) => {
+  if (pickerKey(e)) return;
   // Tab takes the first suggested command.
   if (e.key === 'Tab' && !e.shiftKey && !$('claude-suggest').hidden) {
     e.preventDefault();
@@ -620,7 +623,7 @@ const CLAUDE_WORDS = {
   noTalkThere: "Buddy can't type into this terminal on that computer, so what you send there may not arrive.",
   waiting: (device) => `Waiting for ${device || 'your other computer'}…`,
   typed: '✅ Sent to the terminal',
-  pick: 'Pick a model. It works from your next message.',
+  effortSet: (name) => `Effort set to ${name}. It works from your next message.`,
   modelSet: (name) => `Model set to ${name}. It works from your next message.`,
 };
 
@@ -687,6 +690,7 @@ async function claudeOpen(id) {
   claude.newest = 0;
   claude.open.clear();
   claude.notes = [];
+  claude.picker = null;
   drawClaude(r.session, { scroll: true });
   box.focus();
 }
@@ -870,9 +874,9 @@ function stopTicking() {
   claude.tick = null;
 }
 
-/** An answer to a slash command, at the end of the session (`picker`: with the models to pick from). */
-function note(text, { picker = false } = {}) {
-  claude.notes.push({ id: claude.nextNote++, text, picker });
+/** An answer to a slash command, at the end of the session. */
+function note(text) {
+  claude.notes.push({ id: claude.nextNote++, text });
   drawClaude(claude.session, { scroll: true });
 }
 
@@ -880,17 +884,53 @@ function cliNote(n) {
   const li = make('li', 'cl-event');
   const words = make('div', 'cl-said');
   words.append(make('p', '', n.text));
-  if (n.picker) {
-    const picks = make('div', 'cl-picks');
-    for (const alias of MODEL_PICKS) {
-      const b = make('button', 'btn small', MODEL_LABELS[alias]);
-      b.type = 'button';
-      b.addEventListener('click', () => runCommand({ name: 'model', arg: alias, known: true }));
-      picks.append(b);
-    }
-    words.append(picks);
-  }
   li.append(make('span', 'cl-elbow', '⎿'), words);
+  return li;
+}
+
+/** The /model picker, as Claude Code draws it: the models, ✔ on the current one, then the effort levels. */
+function cliPicker(p) {
+  const li = make('li', 'cl-picker');
+  li.append(make('p', 'cl-picker-title', 'Select model'));
+  const list = make('ul', 'cl-models');
+  p.rows.forEach((row, i) => {
+    const b = make('button', `cl-model${i === p.index ? ' on' : ''}`);
+    b.type = 'button';
+    b.append(
+      make('span', 'cl-cursor', i === p.index ? '❯' : ''),
+      make('span', 'cl-label', `${i + 1}. ${row.label}`),
+      make('span', 'cl-tick', row.alias === p.current ? '✔' : ''),
+      make('span', 'cl-desc', row.name ? `${row.name} · ${row.hint}` : row.hint),
+    );
+    b.addEventListener('click', () => {
+      claude.picker = pickerPick(p, { model: row.alias });
+      drawClaude(claude.session);
+      box.focus();
+    });
+    const item = make('li');
+    item.append(b);
+    list.append(item);
+  });
+  li.append(list);
+  const levels = make('div', `cl-efforts${p.focus === 'effort' ? ' on' : ''}`);
+  levels.append(make('span', 'cl-effort-title', 'Effort'));
+  for (const level of EFFORTS) {
+    const b = make('button', `cl-effort${level === p.effort ? ' on' : ''}`, EFFORT_LABELS[level]);
+    b.type = 'button';
+    b.addEventListener('click', () => {
+      claude.picker = pickerPick(p, { effort: level });
+      drawClaude(claude.session);
+      box.focus();
+    });
+    levels.append(b);
+  }
+  li.append(levels);
+  const foot = make('div', 'cl-picker-foot');
+  const apply = make('button', 'btn small', 'Apply');
+  apply.type = 'button';
+  apply.addEventListener('click', applyPicker);
+  foot.append(make('span', 'cl-dim', '↑↓ model · ←→ effort · Enter applies · Esc closes'), apply);
+  li.append(foot);
   return li;
 }
 
@@ -915,6 +955,7 @@ function drawClaude(session, { scroll = false } = {}) {
   if (session.waiting) rows.push(make('li', 'cl-note', CLAUDE_WORDS.waiting(session.device)));
   if (!session.canTalk) rows.push(make('li', 'cl-note', session.remote ? CLAUDE_WORDS.noTalkThere : CLAUDE_WORDS.noTalk));
   rows.push(...claude.notes.map(cliNote));
+  if (claude.picker) rows.push(cliPicker(claude.picker));
   list.replaceChildren(...rows);
   const newest = items.length ? items[items.length - 1].id : 0;
   if (scroll || (atBottom && newest !== claude.newest)) list.scrollTop = list.scrollHeight;
@@ -930,6 +971,7 @@ async function talkToClaude() {
   const text = $('box').value.trim();
   if (!claude.session || claude.talking || !text) return;
   showSendError('');
+  claude.picker = null; // sending something else puts the picker away
   const cmd = command(text);
   if (cmd?.known) { // Buddy's own commands; any other / command goes to Claude Code as typed
     $('box').value = '';
@@ -961,13 +1003,16 @@ async function runCommand(cmd) {
   if (!claude.session || claude.talking) return;
   if (cmd.name === 'help') return note(helpLines().join('\n'));
   if (cmd.name === 'cost') return note(costLines(claude.session).join('\n'));
-  if (cmd.name === 'model' && !cmd.arg) return note(CLAUDE_WORDS.pick, { picker: true });
+  if ((cmd.name === 'model' || cmd.name === 'effort') && !cmd.arg) return openPicker(cmd.name === 'effort' ? 'effort' : 'model');
+  if (cmd.name === 'effort' && !EFFORTS.includes(cmd.arg)) return note(noSuchEffort(cmd.arg));
+  claude.picker = null;
   const id = claude.session.id;
   claude.talking = true;
   updateSend();
   let r;
   try {
     if (cmd.name === 'model') r = await window.buddy.claudeModel(id, cmd.arg);
+    else if (cmd.name === 'effort') r = await window.buddy.claudeEffort(id, cmd.arg);
     else if (cmd.name === 'stop') r = await window.buddy.claudeStop(id);
     else r = await window.buddy.claudeClear(id);
   } finally {
@@ -975,11 +1020,61 @@ async function runCommand(cmd) {
     updateSend();
   }
   if (mode !== 'claude' || claude.session?.id !== id) return; // left meanwhile
-  if (!r.ok) return cmd.name === 'model' ? note(r.error.message) : showSendError(r.error.message); // a bad name is answered like /help
+  if (!r.ok) return cmd.name === 'model' || cmd.name === 'effort' ? note(r.error.message) : showSendError(r.error.message); // a bad name is answered like /help
   if (r.typed === false && r.message) showSendError(r.message); // copied, to paste in the terminal
-  if (cmd.name === 'model') note(CLAUDE_WORDS.modelSet(MODEL_LABELS[r.model] || r.model));
+  if (cmd.name === 'model') note(CLAUDE_WORDS.modelSet(r.model === 'default' ? 'Default' : MODEL_LABELS[r.model] || r.model));
+  if (cmd.name === 'effort') note(CLAUDE_WORDS.effortSet(EFFORT_LABELS[r.effort] || r.effort));
   // /clear: main looks for the new session in the background and sends it as a state (onClaudeState); the box stays free.
   if (cmd.name === 'clear' && r.typed && !r.searching) claudeList(); // a session on another computer: back to the list
+}
+
+/** /model and /effort alone: the picker opens at the end of the session, on the current model and effort. */
+async function openPicker(focus) {
+  const prefs = await window.buddy.claudePrefs();
+  if (mode !== 'claude' || !claude.session) return;
+  claude.picker = pickerOpen({
+    stats: claude.session.stats, savedModel: prefs.ok ? prefs.model : null, savedEffort: prefs.ok ? prefs.effort : null, focus,
+  });
+  drawClaude(claude.session, { scroll: true });
+}
+
+/** Enter on the picker: /model and /effort typed for what changed, and one note for both. */
+async function applyPicker() {
+  const p = claude.picker;
+  if (!p || !claude.session || claude.talking) return;
+  const id = claude.session.id;
+  const { commands, note: words } = pickerApply(p);
+  claude.picker = null;
+  claude.talking = true;
+  updateSend();
+  const failed = [];
+  try {
+    for (const c of commands) {
+      const r = c.name === 'model' ? await window.buddy.claudeModel(id, c.arg) : await window.buddy.claudeEffort(id, c.arg);
+      if (!r.ok) { failed.push(r.error.message); break; }
+      if (r.typed === false && r.message) showSendError(r.message); // copied, to paste in the terminal
+    }
+  } finally {
+    claude.talking = false;
+    updateSend();
+  }
+  if (mode !== 'claude' || claude.session?.id !== id) return;
+  note(failed[0] || words);
+}
+
+/** The picker's keys, while the box is empty: ↑↓ the model, ←→ the effort, Enter applies, Esc closes. True when used. */
+function pickerKey(e) {
+  if (!claude.picker || box.value || e.isComposing) return false;
+  const move = { ArrowUp: () => pickerMove(claude.picker, -1), ArrowDown: () => pickerMove(claude.picker, 1),
+    ArrowLeft: () => pickerEffort(claude.picker, -1), ArrowRight: () => pickerEffort(claude.picker, 1) }[e.key];
+  if (move) claude.picker = move();
+  else if (e.key === 'Escape') claude.picker = null;
+  else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); applyPicker(); return true; }
+  else return false;
+  e.preventDefault();
+  e.stopPropagation(); // Esc closes the picker, not the panel
+  drawClaude(claude.session);
+  return true;
 }
 
 /** While the box holds "/" and part of a command's name: the commands it could be, above the box. */
@@ -1037,6 +1132,7 @@ window.buddy.onClaudeState(async (session) => {
     claude.newest = 0;
     claude.open.clear();
     claude.notes = [];
+    claude.picker = null;
     return drawClaude(session, { scroll: true });
   }
   if (session.id !== claude.session.id) return;

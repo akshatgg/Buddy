@@ -46,7 +46,7 @@ Jarvis." Plus **Eyes**: "what is this on my screen / what does this mean", answe
 - No jobs that run in the background while the person is away or the screen is locked. The job runs while they can
   see it; a locked screen stops it.
 - No recording of jobs, no "macros" saved for later, no learning from past jobs.
-- No typing of passwords, ever (see §7.4 and question 4).
+- No typing of passwords, ever, even when spoken (§7.4, §15).
 - No control of other Buddy windows (panel, settings) by the agent, and no control of password managers.
 - No Android file management beyond opening and sharing (scoped storage makes it a project of its own).
 - No native "computer use" tool of one provider as the main path: it would only work with Claude keys.
@@ -388,7 +388,7 @@ of Buddy's is running).
 
 | class | examples | what happens |
 |---|---|---|
-| **safe** | open an app, URL, file or settings page; read; scroll; search; type into a normal field; new folder; copy; comfort settings (see question 3) | done, shown in the bubble |
+| **safe** | open an app, URL, file or settings page; read; scroll; search; type into a normal field; new folder; copy; comfort settings (volume, brightness, dark mode, Do Not Disturb, Wi-Fi / Bluetooth on/off; §15) | done, shown in the bubble |
 | **ask** | delete or trash; pay, buy, order, subscribe, donate, transfer; send, post, reply, share, invite, publish; install or uninstall; change system settings, security, privacy, accounts; any `run` not on the read-only list; move or rename that overwrites; a `write` over an existing file; a `click` that looks final ("Confirm", "Submit", "Place order") | spoken question, only a real yes runs it |
 | **never** | type into a password field; read a password field; act in a password manager; turn off Buddy's own permissions; `sudo`; disable the firewall / Gatekeeper / SIP / Windows Defender; format a disk; factory reset | refused; the AI is told "not allowed" and must go another way or stop |
 
@@ -411,7 +411,9 @@ step (`"risky": true` in its reply) — that can only raise the class to ask, ne
    purchase, order, checkout, subscribe, donate, transfer, confirm, delete, remove, erase, empty trash, uninstall,
    install, update now, restart, shut down, sign out, reset, format, allow (a system permission dialog), unlock,
    accept, agree; plus Hindi/Hinglish ones (bhejo, bhejein, bhugtan, bhugtaan, hatao, mitao, kharido). A match → ask.
-3. **By context:** any change in a settings app (System Settings, Control Panel / Settings, Android Settings),
+3. **By context:** any change in a settings app (System Settings, Control Panel / Settings, Android Settings) other
+   than the comfort settings of §15 (a toggle or slider whose words are volume, brightness, dark / light / appearance,
+   Do Not Disturb / Focus, Wi-Fi, Bluetooth),
    Keychain / Credential Manager, an installer, a store app's Buy/Get button, a banking or payment page (URL or title
    words: bank, pay, checkout, upi, wallet, card) → ask. **Enter / Cmd+Enter / Ctrl+Enter in a mail, chat or social app
    or page** (the `send-keys.js` app list, plus window-title words) → ask, as "Send this?".
@@ -472,7 +474,7 @@ At the limit: "I couldn't finish in 30 steps. I got as far as: …" (the last 3 
   tested code; slower (a process start per step, ≈2–4 s). **Later (v2):** one long `claude -p` with Buddy's own MCP
   server (`mcp__buddy__observe`, `mcp__buddy__act`, …; a small Node script started by Claude Code that talks to Buddy's
   main process over a local socket), where Buddy's MCP handler runs the same safety gate and step counter. See
-  question 1.
+  §15.
 - **Android:** `Router` gains `agentStep()` with the same three routes (Claude Code is Mac-only, as today).
 
 ## 9. Cost controls
@@ -491,8 +493,7 @@ At the limit: "I couldn't finish in 30 steps. I got as far as: …" (the last 3 
     fallback models) is added to `spend/{day}`; at the cap the server answers `free_limit` with "Buddy's free helper
     is used up for today. Add your own key in Settings to keep going." The apps already handle `free_limit` and
     `allowOwnKey`.
-  - Free mode allows `do` only when the admin's model is rank ok or better; otherwise jobs need the person's own key
-    (the admin can override). Eyes counts as a normal free request.
+  - Free mode allows `do` only when the admin's model is rank ok or better; otherwise jobs need the person's own key. Eyes counts as a normal free request.
 
 ## 10. Stop, pause and errors
 
@@ -500,7 +501,8 @@ At the limit: "I couldn't finish in 30 steps. I got as far as: …" (the last 3 
 is answered no; `talkBack.stop()`; the bubble says "Stopped."; the buddy goes idle. Nothing is undone.
 
 **"Hey Buddy, stop":** today a wake while the chat is busy gets the busy line and nothing is written down
-(`wake.js`). During a job, a wake instead listens briefly with a **local stop grammar** (stop, ruko, bas, cancel,
+(`wake.js`). During a job, any wake ("Hey Buddy", whatever follows) stops the job at once (Mac plan; simplest and
+fastest). A later refinement may instead listen briefly with a **local stop grammar** (stop, ruko, bas, cancel,
 band karo, ruk jao — the yes/no model, so no server round trip) and stops the job on a match; anything else gets "I'm
 busy with a job. Say 'Hey Buddy, stop' to stop it." Only-my-voice still applies.
 
@@ -535,8 +537,8 @@ swallows it.
 ## 12. Eyes ("what is this?")
 
 A one-step, look-only job: `buildPrompt('eyes', { question, appName, tree, image })` → a short answer (`say` + `text`
-as the chat's `answer`). No acts, so no safety gate. The chat gets a new kind `eyes` for questions about what is on
-screen right now, used from voice and the panel; on the Mac and Windows it uses `screenshotScreen` (Buddy left out)
+as the chat's `answer`). No acts, so no safety gate. On the Mac it reuses the chat's existing `screen` step (which already
+answers hands-free by voice) instead of a new kind; on the Mac and Windows it uses `screenshotScreen` (Buddy left out)
 plus the front window's tree text, which reads small print and code better than pixels alone; on Android it uses
 `takeScreenshot()` (no dialog on 11+) instead of MediaProjection. The panel's existing `screen` second step can move to
 the same capture later. Weak / blind models: Eyes uses the tree text only and says "I can only read the text on your
@@ -596,14 +598,16 @@ Each one its own implementation plan, branch and PR, in this order.
    askAloud for risky steps.
 4. "Open X" aliases; Eyes with `takeScreenshot`.
 
-## 15. Open questions for the owner
+## 15. Decided by the owner (2026-10-18)
 
-1. **Claude Code as the brain:** start with one `claude -p` per step (simple, reuses today's code, ≈2–4 s slower per
-   step), and move to Buddy's own MCP server later? *Recommendation: yes, per step first; MCP once the Mac job works.*
-2. **Free mode:** allow `do` on the server's key at all, with 5 jobs per person per day and a $3/day total spend cap
-   (both changeable in admin)? *Recommendation: yes, but only when the admin's free model is rank "ok" or better;
-   otherwise jobs need the person's own key.*
-3. **Comfort settings without asking:** volume, brightness, dark mode, Do Not Disturb, Wi-Fi and Bluetooth on/off —
-   easy to undo, so no question? *Recommendation: yes, no question for these; every other settings change asks.*
-4. **Passwords:** never type a password, even when the person says it out loud (Buddy hands over: "Please type it
-   yourself, then say 'go on'")? *Recommendation: never — a spoken password would go to the AI and the voice service.*
+The owner approved this design and chose all four recommendations:
+
+1. **Claude Code as the brain:** one `claude -p` per step first (through `run.js`, same text protocol); Buddy's own MCP
+   server later, once the Mac job works.
+2. **Free mode:** `do` is allowed on the server's key with **5 jobs per person per day** and a **$3/day total spend
+   cap**, both changeable in admin, and only when the admin's free model ranks **"ok" or better**; otherwise jobs need
+   the person's own key.
+3. **Comfort settings without asking:** volume, brightness, dark mode, Do Not Disturb, and Wi-Fi / Bluetooth on/off run
+   without a question (they are easy to undo). Every other settings change asks.
+4. **Passwords:** Buddy **never** types a password, even when the person says it out loud. It hands over: "Please type
+   it yourself, then say 'go on'."

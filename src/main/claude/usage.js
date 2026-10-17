@@ -45,6 +45,7 @@ function textOf(content) {
 /** A worker ends: how, when, and its tokens when the end says them. */
 function finish(worker, status, at, tokens) {
   worker.status = status;
+  delete worker.expired;
   worker.endedAt = at;
   if (tokens > 0) worker.tokens = tokens;
 }
@@ -90,7 +91,7 @@ function tally(t, entry) {
   } else if (entry.type === 'user') {
     for (const block of Array.isArray(message.content) ? message.content : []) {
       const worker = block?.type === 'tool_result' ? t.workers.get(block.tool_use_id) : null;
-      if (!worker || worker.status !== 'running') continue;
+      if (!worker || !(worker.status === 'running' || worker.expired)) continue; // a real end beats an expired guess
       const r = isObject(entry.toolUseResult) ? entry.toolUseResult : {};
       if (r.status === 'async_launched') continue; // started in the background: its end comes as a notification
       const stopped = block.is_error === true && /interrupted/i.test(textOf(block.content)); // Esc: "[Request interrupted by user]"
@@ -102,7 +103,7 @@ function tally(t, entry) {
     for (const [block] of text.matchAll(/<task-notification>[\s\S]*?<\/task-notification>/g)) {
       const worker = t.workers.get(tagIn(block, 'tool-use-id'));
       const status = ENDS[tagIn(block, 'status')];
-      if (worker && worker.status === 'running' && status) {
+      if (worker && (worker.status === 'running' || worker.expired) && status) {
         finish(worker, status, at, count(Number(tagIn(block, 'subagent_tokens') ?? tagIn(block, 'total_tokens'))));
         changed = true;
       }
@@ -129,6 +130,7 @@ function expire(t, ids, at) {
     const worker = t.workers.get(id);
     if (!worker || worker.status !== 'running') continue;
     finish(worker, 'stopped', at, 0);
+    worker.expired = true; // only a guess: a real end (a result or notification) still replaces it
     changed = true;
   }
   return changed;

@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { BuddyError } = require('../shared/errors');
 const { createTerminal, oneLine, SCRIPT, ESC_SCRIPT, NO_TERMINAL, NOT_ALLOWED, ONLY_MAC, PRESS_ESC } = require('../src/main/claude/terminal');
-const { createClaudeMode, GONE, NO_SUCH_MODEL } = require('../src/main/claude/mode');
+const { createClaudeMode, GONE, NO_SUCH_MODEL, NO_NEW_SESSION } = require('../src/main/claude/mode');
 
 // ---- terminal.js: typing into the terminal ----
 
@@ -248,54 +248,56 @@ test("/stop sends Esc to the session's terminal", async () => {
   await assert.rejects(s.mode.stop('zzz'), { code: 'bad_request', message: GONE });
 });
 
-test('/clear: typed into the terminal, then the new session Claude Code starts there is opened', async () => {
-  const s = setup({
-    onWait: (n) => {
-      if (n === 2) s.live.views.b = { id: 'b', name: 'shop', status: 'idle', canTalk: true, items: [] };
-    },
-  });
+const FOUND = (s, id = 'b') => { s.live.views[id] = { id, name: 'shop', status: 'idle', canTalk: true, items: [] }; };
+
+test('/clear: typed into the terminal, answered at once; the new session Claude Code starts there is then sent to the page', async () => {
+  const s = setup({ onWait: (n) => { if (n === 2) FOUND(s); } });
   await s.mode.open('a');
-  assert.deepStrictEqual(await s.mode.clear('a'), { typed: true, session: s.live.views.b });
+  assert.deepStrictEqual(await s.mode.clear('a'), { typed: true, session: null, searching: true });
   assert.deepStrictEqual(s.typed, [{ tty: 'ttys001', text: '/clear' }]);
+  assert.deepStrictEqual(s.sent, [], 'the answer did not wait for the search');
+  await s.mode.settled();
+  assert.deepStrictEqual(s.sent, [{ ...s.live.views.b, from: 'a' }]);
   assert.strictEqual(s.mode.isOpen(), true);
   assert.strictEqual(s.timers[0].on, false, "the old session's reading stopped");
 });
 
-test('/clear: when no new session shows up, the page goes back to the list', async () => {
+test('/clear: when no new session shows up, the page is told and goes back to the list', async () => {
   const s = setup();
   await s.mode.open('a');
-  assert.deepStrictEqual(await s.mode.clear('a'), { typed: true, session: null });
+  await s.mode.clear('a');
+  await s.mode.settled();
+  assert.deepStrictEqual(s.sent, [{ id: 'a', gone: true, message: NO_NEW_SESSION }]);
   assert.strictEqual(s.mode.isOpen(), false);
 });
 
-test('/clear while Claude works waits up to a minute for the new session, and only a session that was not there before counts', async () => {
+test('/clear while Claude works waits up to a minute for the new session in the background, and only a session not there before counts', async () => {
   let waited = 0;
-  const s = setup({
-    onWait: (n) => {
-      waited = n;
-      if (n === 40) s.live.views.b = { id: 'b', name: 'shop', status: 'idle', canTalk: true, items: [] };
-    },
-  });
+  const s = setup({ onWait: (n) => { waited = n; if (n === 40) FOUND(s); } });
   s.live.views.old = { id: 'old', name: 'shop', status: 'ended', canTalk: true, items: [] }; // an earlier session of that terminal
+  s.live.views.a.status = 'working';
   await s.mode.open('a');
-  assert.deepStrictEqual(await s.mode.clear('a'), { typed: true, session: s.live.views.b });
+  await s.mode.clear('a');
+  await s.mode.settled();
   assert.strictEqual(waited, 40);
+  assert.strictEqual(s.sent[0].id, 'b');
 });
 
 test('/clear: when the person opens another session meanwhile, it is not replaced', async () => {
   const s = setup({
     onWait: (n) => {
       if (n === 2) {
-        s.live.views.c = { id: 'c', name: 'other', status: 'idle', canTalk: true, items: [] };
+        FOUND(s, 'c');
         s.mode.open('c');
       }
-      if (n === 3) s.live.views.b = { id: 'b', name: 'shop', status: 'idle', canTalk: true, items: [] };
+      if (n === 3) FOUND(s);
     },
   });
   await s.mode.open('a');
-  const r = await s.mode.clear('a');
-  assert.deepStrictEqual(r, { typed: true, session: null });
+  await s.mode.clear('a');
+  await s.mode.settled();
   assert.strictEqual(s.mode.isOpen(), true, 'the other session stays open');
+  assert.deepStrictEqual(s.sent, []);
 });
 
 test('/model: a name that is no model is refused with words that list the real ones', async () => {

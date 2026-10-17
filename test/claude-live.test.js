@@ -292,7 +292,7 @@ test('a running worker whose file stays quiet for 10 minutes, or whose session e
     message: { id: `m-${id}`, model: 'claude-sonnet-5-5', role: 'assistant', content: [{ type: 'tool_use', id, name: 'Agent', input: { description: id } }] },
   });
   const home = claudeHome(t, [user('hi'), worker('toolu_1')]);
-  let clock = 1000;
+  let clock = Date.parse('2026-10-17T10:00:00.000Z') + 1000; // counted from when the worker started
   const live = createLive({ configDirs: () => [home.dir], now: () => clock, ttys: async () => ({}) });
   await live.discover();
   await live.refresh(home.id);
@@ -334,4 +334,16 @@ test("a worker's file that shrinks is read again from its start", async (t) => {
   fs.writeFileSync(file, `${JSON.stringify(msg('s3', usage))}\n`);
   await live.refresh(home.id);
   assert.strictEqual(live.view(home.id).workers[0].tokens, 15);
+});
+
+test('a worker that started long ago and never ended is stopped on the first look, not 10 minutes after it', async (t) => {
+  const old = {
+    type: 'assistant', timestamp: '2026-10-17T10:00:00.000Z',
+    message: { id: 'm1', model: 'claude-sonnet-5-5', role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_9', name: 'Agent', input: { description: 'Old' } }] },
+  };
+  const home = claudeHome(t, [user('hi'), old]);
+  const live = createLive({ configDirs: () => [home.dir], now: () => Date.parse('2026-10-17T12:00:00.000Z'), ttys: async () => ({}) });
+  await live.discover();
+  await live.refresh(home.id);
+  assert.strictEqual(live.view(home.id).workers[0].status, 'stopped');
 });

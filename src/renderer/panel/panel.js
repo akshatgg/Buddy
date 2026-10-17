@@ -978,16 +978,8 @@ async function runCommand(cmd) {
   if (!r.ok) return cmd.name === 'model' ? note(r.error.message) : showSendError(r.error.message); // a bad name is answered like /help
   if (r.typed === false && r.message) showSendError(r.message); // copied, to paste in the terminal
   if (cmd.name === 'model') note(CLAUDE_WORDS.modelSet(MODEL_LABELS[r.model] || r.model));
-  if (cmd.name !== 'clear') return;
-  if (r.session) {
-    claude.asked = r.session.id;
-    claude.newest = 0;
-    claude.open.clear();
-    claude.notes = [];
-    drawClaude(r.session, { scroll: true });
-  } else if (r.typed) {
-    claudeList();
-  }
+  // /clear: main looks for the new session in the background and sends it as a state (onClaudeState); the box stays free.
+  if (cmd.name === 'clear' && r.typed && !r.searching) claudeList(); // a session on another computer: back to the list
 }
 
 /** While the box holds "/" and part of a command's name: the commands it could be, above the box. */
@@ -1039,7 +1031,15 @@ window.buddy.onClaudeShow((id) => {
 $('claude-back').addEventListener('click', () => claudeList());
 $('claude-again').addEventListener('click', () => claudeList());
 window.buddy.onClaudeState(async (session) => {
-  if (mode !== 'claude' || !session || !claude.session || session.id !== claude.session.id) return;
+  if (mode !== 'claude' || !session || !claude.session) return;
+  if (session.from === claude.session.id) { // /clear: the new session of that terminal replaces the one shown
+    claude.asked = session.id;
+    claude.newest = 0;
+    claude.open.clear();
+    claude.notes = [];
+    return drawClaude(session, { scroll: true });
+  }
+  if (session.id !== claude.session.id) return;
   if (!session.gone) return drawClaude(session);
   // The session ended on its computer, or that computer stopped sharing: back to the list, which says why.
   await claudeList();

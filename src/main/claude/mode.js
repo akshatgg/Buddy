@@ -24,6 +24,7 @@ const GONE = 'That session is not running any more. Pick another one.';
 const CLEAR_EVERY_MS = 500; // after /clear, Claude Code's new session is looked for this far apart…
 const CLEAR_TRIES = 6; // …this many times
 const CLEAR_TRIES_BUSY = 120; // …or this many when Claude was working: it takes /clear only when it is done (60 s)
+const NO_NEW_SESSION = "Claude Code didn't start a new session. Pick one.";
 const STOP_THERE = 'Stop it on that computer.';
 const NO_SUCH_MODEL = (name) => `There is no model called ${name}. Try ${MODELS.slice(0, -1).join(', ')} or ${MODELS[MODELS.length - 1]}.`;
 
@@ -39,6 +40,7 @@ function createClaudeMode({
   let openId = null;
   let openRemote = null; // the other computer's session that is open: { id, name, status, canTalk, device }
   let timer = null;
+  let searching = Promise.resolve(); // the last /clear's search for the new session (the unit tests wait for it)
 
   live.onChange((id) => {
     if (id === openId && !openRemote) send(live.view(id));
@@ -173,18 +175,34 @@ function createClaudeMode({
     const before = new Set(live.list().map((s) => s.id)); // the new session is one not there yet
     const r = await talk(id, '/clear');
     if (!r.typed) return { ...r, session: null };
-    for (let i = 0; i < (busy ? CLEAR_TRIES_BUSY : CLEAR_TRIES); i += 1) {
-      await wait(CLEAR_EVERY_MS);
-      if (openId !== id) return { typed: true, session: null }; // the person opened another session or left: theirs stays
-      await live.discover();
-      const next = live.list().find((s) => !before.has(s.id) && live.target(s.id)?.tty === target.tty);
-      if (next) return { typed: true, ...(await open(next.id)) };
-    }
-    if (openId === id) close();
-    return { typed: true, session: null };
+    // The box is free at once (Claude may take a minute to get to /clear): the search goes on in the background.
+    searching = followClear(id, target.tty, before, busy).catch((err) => console.warn('[buddy] /clear follow-up failed:', err.code || err.name));
+    return { typed: true, session: null, searching: true };
   }
 
-  return { sessions, open, close, talk, model, stop, clear, isOpen: () => openId !== null };
+  /**
+   * After /clear: looks for the session Claude Code starts in the same terminal and sends it to the page, which was
+   * showing `id` ({ ...view, from: id }). If the person opened another session or left meanwhile, nothing is replaced.
+   */
+  async function followClear(id, tty, before, busy) {
+    for (let i = 0; i < (busy ? CLEAR_TRIES_BUSY : CLEAR_TRIES); i += 1) {
+      await wait(CLEAR_EVERY_MS);
+      if (openId !== id) return;
+      await live.discover();
+      if (openId !== id) return;
+      const next = live.list().find((s) => !before.has(s.id) && live.target(s.id)?.tty === tty);
+      if (next) {
+        const opened = await open(next.id);
+        send({ ...opened.session, from: id });
+        return;
+      }
+    }
+    if (openId !== id) return;
+    close();
+    send({ id, gone: true, message: NO_NEW_SESSION });
+  }
+
+  return { sessions, open, close, talk, model, stop, clear, isOpen: () => openId !== null, settled: () => searching };
 }
 
-module.exports = { READ_EVERY_MS, LOOK_EVERY_MS, GONE, STOP_THERE, NO_SUCH_MODEL, createClaudeMode };
+module.exports = { READ_EVERY_MS, LOOK_EVERY_MS, GONE, STOP_THERE, NO_NEW_SESSION, NO_SUCH_MODEL, createClaudeMode };

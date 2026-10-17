@@ -359,6 +359,7 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
         s.tally = newTally(); // the tokens and workers are counted again with the items
         s.agents = new Map(); // a worker's tool_use id → its own file: { file, offset, rest }
         s.metaSeen = new Set(); // the .meta.json files read
+        s.quiet = new Map();
       }
       if (size === s.offset) return false;
       const length = Math.min(size - s.offset, READ_MAX);
@@ -468,7 +469,7 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
     let changed = false;
     const stale = [];
     for (const id of ids) {
-      if (!s.quiet.has(id)) s.quiet.set(id, now());
+      if (!s.quiet.has(id)) s.quiet.set(id, s.tally.workers.get(id)?.startedAt ?? now()); // quiet since it started
       const f = s.agents.get(id);
       if (!f) {
         if (now() - s.quiet.get(id) > WORKER_QUIET_MS) stale.push(id);

@@ -129,3 +129,18 @@ test('expire stops the workers that will not end by themselves', () => {
   assert.strictEqual(expire(t, ['w1'], 6000), false);
   assert.deepStrictEqual(running(t), []);
 });
+
+test('a real end replaces an expired worker\'s guessed stop, but not a real one', () => {
+  const { expire } = require('../src/main/claude/usage');
+  const t = newTally();
+  tally(t, agent('w1', { description: 'One' }));
+  tally(t, agent('w2', { description: 'Two' }));
+  expire(t, ['w1', 'w2'], 5000);
+  tally(t, result('w1', { status: 'completed', totalTokens: 7 }));
+  assert.deepStrictEqual(viewOf(t).workers[0], {
+    id: 'w1', task: 'One', status: 'done', startedAt: Date.parse(AT), endedAt: Date.parse('2026-10-17T10:01:00.000Z'), tokens: 7,
+  });
+  tally(t, notification('w2', 'killed', 3));
+  tally(t, notification('w2', 'completed', 99));
+  assert.deepStrictEqual([viewOf(t).workers[1].status, viewOf(t).workers[1].tokens], ['stopped', 3], 'a real stop stays');
+});

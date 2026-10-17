@@ -32,7 +32,7 @@ function setup(looks) {
     },
     send: async (session, text) => {
       sent.push({ session, text });
-      if (text === 'fail' || text === '/model haiku') throw new ApiError('mac_offline', 'None of your computers is sharing right now.');
+      if (text === 'fail' || text === '/model haiku' || text === '/effort max') throw new ApiError('mac_offline', 'None of your computers is sharing right now.');
     },
     interrupt: async (session) => {
       interrupted.push(session);
@@ -278,11 +278,23 @@ test('/model and /effort alone open the picker; Enter types /model and /effort f
   await s.claude.send('/model');
   await s.claude.send('hello');
   assert.strictEqual(s.claude.state.picker, null);
-  assert.deepStrictEqual(await s.claude.send('/effort Max'), { ok: true });
-  assert.deepStrictEqual(s.sent.at(-1), { session: S1.id, text: '/effort max' });
-  assert.strictEqual(s.claude.state.notes.at(-1).text, EFFORT_SET('Max'));
+  assert.deepStrictEqual(await s.claude.send('/effort Low'), { ok: true });
+  assert.deepStrictEqual(s.sent.at(-1), { session: S1.id, text: '/effort low' });
+  assert.strictEqual(s.claude.state.notes.at(-1).text, EFFORT_SET('Low'));
   assert.deepStrictEqual(await s.claude.send('/model default'), { ok: true });
   assert.deepStrictEqual(s.sent.at(-1), { session: S1.id, text: '/model default' });
+});
+
+test('the effort picked is kept for the session; a picker that half worked says what was set', async () => {
+  const s = await opened();
+  await s.claude.send('/effort high');
+  assert.strictEqual(s.claude.state.effort, 'high');
+  await s.claude.send('/model');
+  assert.strictEqual(s.claude.state.picker.effort, 'high');
+  s.claude.pickerPick({ model: 'sonnet', effort: 'max' });
+  assert.strictEqual((await s.claude.pickerApply()).ok, false, '/effort max fails in this fake');
+  assert.strictEqual(s.claude.state.notes.at(-1).text, 'Model: Sonnet was set, but effort was not.');
+  assert.strictEqual(s.claude.state.effort, 'high', 'the failed one is not kept');
 });
 
 test('the picker stops when a send fails: the box hears why, and no note says it was set', async () => {

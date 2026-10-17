@@ -111,7 +111,7 @@ const fresh = () => ({
   workers: [], // the workers Claude started
   notes: [], // answers to slash commands, at the end of the session: [{ id, text }]
   picker: null, // the /model picker while it is open (ClaudeCli.pickerOpen), or null
-  effort: null, // the effort level picked here (the phone cannot read the computer's), or null
+  effort: null, // the effort picked for the session shown in this run (the phone cannot read the computer's), or null
   problem: null, // why the last look at it failed
   sending: false,
   boxError: null, // why the last words were not sent
@@ -129,6 +129,7 @@ export function createClaude({ look, send, interrupt = async () => {}, stop, lat
   let inView = true;
   let wanted = null; // a session to open once the list comes (a notification's link)
   let nextNote = 1;
+  const efforts = new Map(); // the effort picked for each session in this run: Claude Code's own cannot be read
 
   function set(patch) {
     state = { ...state, ...patch };
@@ -222,7 +223,7 @@ export function createClaude({ look, send, interrupt = async () => {}, stop, lat
     const session = state.sessions.find((s) => s.id === id);
     if (!session || !state.on || state.session) return;
     listing = null;
-    set({ session, items: null, stats: null, workers: [], notes: [], picker: null, problem: null, looking: false, listError: null });
+    set({ session, items: null, stats: null, workers: [], notes: [], picker: null, effort: efforts.get(id) ?? null, problem: null, looking: false, listError: null });
     poll();
   }
 
@@ -270,7 +271,10 @@ export function createClaude({ look, send, interrupt = async () => {}, stop, lat
       if (!cmd.arg) return openPicker('effort');
       if (!EFFORTS.includes(cmd.arg)) return note(noSuchEffort(cmd.arg));
       const r = await deliver(() => send(session.id, `/effort ${cmd.arg}`));
-      if (r.ok) set({ effort: cmd.arg });
+      if (r.ok) {
+        efforts.set(session.id, cmd.arg);
+        if (still()) set({ effort: cmd.arg });
+      }
       if (r.ok && still()) note(EFFORT_SET(EFFORT_LABELS[cmd.arg]));
       return r;
     }
@@ -350,10 +354,18 @@ export function createClaude({ look, send, interrupt = async () => {}, stop, lat
       if (!state.picker || !session || state.sending) return { ok: false, error: '' };
       const { commands, note: words } = pickerApply(state.picker);
       set({ picker: null });
+      const done = [];
       for (const c of commands) {
         const r = await deliver(() => send(session.id, `/${c.name} ${c.arg}`));
-        if (!r.ok) return r;
-        if (c.name === 'effort') set({ effort: c.arg });
+        if (!r.ok) {
+          if (done.length && state.session?.id === session.id) note(`${done.join(' · ')} was set, but ${c.name} was not.`); // the first went, the second did not
+          return r;
+        }
+        done.push(c.name === 'model' ? `Model: ${c.arg === 'default' ? 'Default' : MODEL_LABELS[c.arg]}` : `Effort: ${EFFORT_LABELS[c.arg]}`);
+        if (c.name === 'effort') {
+          efforts.set(session.id, c.arg);
+          if (state.session?.id === session.id) set({ effort: c.arg });
+        }
       }
       if (state.session?.id === session.id) note(words);
       return { ok: true };

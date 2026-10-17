@@ -297,7 +297,7 @@ const ClaudeCli = (() => {
 
   // The slash commands the Claude box knows, in the order /help and the suggestions list them.
   const COMMANDS = [
-    { name: 'model', hint: 'pick the model: fable, opus, sonnet or haiku' },
+    { name: 'model', hint: 'pick the model: default, fable, opus, sonnet or haiku' },
     { name: 'effort', hint: 'how hard Claude thinks: low, medium, high, xhigh or max' },
     { name: 'clear', hint: 'start a new conversation' },
     { name: 'stop', hint: 'stop what Claude is doing' },

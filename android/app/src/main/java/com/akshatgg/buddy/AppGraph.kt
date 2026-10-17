@@ -167,9 +167,10 @@ class AppGraph(
 
     /**
      * What follows "Hey <name>" (voice/HandsFree.kt): a chat of its own, not the panel's, that answers out loud. It has
-     * no screen and no permission questions: its hands never ask (a permission Buddy does not hold is a no).
+     * no screen picture and no permission questions: its hands never ask (a permission Buddy does not hold is a no).
+     * Off screen, what it says shows in the speech bubble (showSpoken); HandsFreeChatActivity puts it on screen.
      */
-    val handsFree: HandsFree by lazy {
+    val handsFreeChat: PanelModel by lazy {
         fun held(p: String) = ContextCompat.checkSelfPermission(appContext, p) == PackageManager.PERMISSION_GRANTED
         val hands = PanelHands(
             contacts = { held(Manifest.permission.READ_CONTACTS) },
@@ -196,10 +197,18 @@ class AppGraph(
             maxMessage = shared.limitInstruction,
             maxSelection = shared.limitText,
             readyLine = "Open me and ask again, and I'll write it.",
+            showSpoken = true,
         )
+        model
+    }
+
+    /** What follows "Hey <name>" (voice/HandsFree.kt), on handsFreeChat. */
+    val handsFree: HandsFree by lazy {
+        val model = handsFreeChat
         val chat = object : SpokenChat {
             override fun open() = model.open()
             override fun hidden() = model.hidden()
+            override val onScreen: Boolean get() = model.onScreen
             override fun sendSpoken(text: String) = model.sendSpoken(text)
             override val busy: Boolean get() = model.state.value.busy
         }

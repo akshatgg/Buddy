@@ -177,6 +177,7 @@ class PanelModel(
     private val talkBack: TalkBack = TalkBack.SILENT,
     private val lock: Lock = Lock.OPEN,
     private val readyLine: String = READY, // what the bubble says when an answer to put in an app waits
+    private val showSpoken: Boolean = false, // the hands-free chat: while off screen, what Buddy says shows in the speech bubble
 ) {
     private class Chat(val app: String, val greeting: String) {
         val items = mutableListOf<ChatItem>()
@@ -242,6 +243,9 @@ class PanelModel(
         this.replaceable = replaceable
         publish()
     }
+
+    /** The chat is on screen now (open, not hidden behind the app). */
+    val onScreen: Boolean get() = shown
 
     /** The panel is on screen again (it came back from behind the app). */
     fun shown() {
@@ -377,12 +381,26 @@ class PanelModel(
         return true
     }
 
+    /**
+     * Says `text`. In the hands-free chat off screen the speech bubble shows `words` meanwhile (null: what it shows
+     * already), and goes a few seconds after.
+     */
+    private suspend fun aloud(text: String, words: String? = text) {
+        val off = showSpoken && !shown
+        if (off) bubble(BubbleEvent.Speech(words?.let { VoiceWords.bubbleLine(it) }))
+        try {
+            talkBack.say(text)
+        } finally {
+            if (off) bubble(BubbleEvent.SpeechDone)
+        }
+    }
+
     /** A line said out loud after a card was pressed: hush ends it, like an answer. */
     private suspend fun sayAloud(c: Chat, text: String) {
         val epoch = c.voice
         c.speaking = true
         try {
-            talkBack.say(text)
+            aloud(text)
         } finally {
             if (c.voice == epoch) c.speaking = false
         }
@@ -474,8 +492,13 @@ class PanelModel(
             val added = c.items.dropWhile { it.id != youId }.drop(1)
             val card = added.lastOrNull { it.id in c.messages || it.id in c.calls }
             val lines = VoiceWords.spoken(added.filter { it.id != card?.id }.map(::spokenItem))
-            for (line in lines) {
-                talkBack.say(line)
+            val shownWords = VoiceWords.bubbleText(added.filter { it.id != card?.id }.map(::spokenItem))
+            if (lines.isEmpty() && shownWords.isNotEmpty() && showSpoken && !shown) { // a long text, only shown
+                bubble(BubbleEvent.Speech(shownWords))
+                bubble(BubbleEvent.SpeechDone)
+            }
+            for ((n, line) in lines.withIndex()) {
+                aloud(line, if (n == 0) shownWords.ifEmpty { line } else null) // the answer shows, held through its lines
                 if (c !== chat || c.voice != epoch) return
             }
             if (card != null) return askAloud(c, card.id, epoch)
@@ -511,10 +534,16 @@ class PanelModel(
         }
         val verb = if (call != null) "call" else "send"
         c.asking = id
-        talkBack.say(question)
+        aloud(question)
         if (c.asking != id || c !== chat || c.voice != epoch) return
-        mood(Mood.THINKING) // listening: Android's head has no listening face
-        val heard = talkBack.hear(verb)
+        mood(Mood.LISTENING) // the person answers
+        val off = showSpoken && !shown
+        if (off) bubble(BubbleEvent.Speech(null)) // the question stays up while the answer is heard
+        val heard = try {
+            talkBack.hear(verb)
+        } finally {
+            if (off) bubble(BubbleEvent.SpeechDone)
+        }
         if (c.asking != id || c !== chat || c.voice != epoch) return
         c.asking = null
         mood(Mood.IDLE)

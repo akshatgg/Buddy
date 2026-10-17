@@ -126,14 +126,17 @@ class WakeControl(
             canAsk = canAsk,
             ask = ask,
         )
+        var woken = false // woke, no request handed over yet: stopped now, the listening face must not stay
         try {
             kotlinx.coroutines.withContext(Dispatchers.IO) {
                 listener.run { event ->
                     when (event) {
-                        is WakeEvent.Woke -> if (clips) BubbleBus.clip(event.phrase) else if (testOnly) BubbleBus.woke() else BubbleBus.mood(Mood.THINKING)
+                        is WakeEvent.Woke -> if (clips) BubbleBus.clip(event.phrase) else if (testOnly) BubbleBus.woke() else { woken = true; BubbleBus.mood(Mood.LISTENING) }
                         WakeEvent.NotYou -> BubbleBus.notYou()
                         is WakeEvent.Request -> {
+                            woken = false
                             turnRunning = true
+                            BubbleBus.mood(Mood.THINKING) // written down, then answered
                             try {
                                 onRequest(event.wav)
                                 // the chat answers (and speaks) after the request is handed over: the microphone stays
@@ -154,6 +157,8 @@ class WakeControl(
             BubbleBus.say(VoiceWords.WakeLines.EARS_FAILED)
         } catch (e: Exception) {
             Log.w("Buddy", "wake: stopped (${e.javaClass.simpleName})")
+        } finally {
+            if (woken) BubbleBus.mood(Mood.IDLE)
         }
     }
 

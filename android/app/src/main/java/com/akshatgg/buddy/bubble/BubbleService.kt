@@ -39,6 +39,7 @@ import com.akshatgg.buddy.AppGraph
 import com.akshatgg.buddy.R
 import com.akshatgg.buddy.store.AppSettings
 import com.akshatgg.buddy.ui.MainActivity
+import com.akshatgg.buddy.ui.panel.HandsFreeChatActivity
 import com.akshatgg.buddy.ui.panel.PanelActivity
 import com.akshatgg.buddy.voice.MyVoiceRules
 import com.akshatgg.buddy.voice.VoiceWords
@@ -155,6 +156,8 @@ class BubbleService : LifecycleService() {
                     is BubbleEvent.HideFor -> hideFor(event.ms)
                     is BubbleEvent.LookAt -> lookAt(LookPoint(event.x, event.y))
                     BubbleEvent.LookAway -> lookAway()
+                    is BubbleEvent.Speech -> speak(event.text)
+                    BubbleEvent.SpeechDone -> speech?.release(VoiceWords.BUBBLE_HIDE_MS)
                 }
             }
         }
@@ -367,7 +370,7 @@ class BubbleService : LifecycleService() {
         val view = HeadView(this)
         view.characterId = settings.characterId
         drag = Drag(view).also { view.setOnTouchListener(it) }
-        view.setOnClickListener { openPanel() }
+        view.setOnClickListener { if (speech?.spoken == true) { speech?.hide(); openHandsFreeChat() } else openPanel() }
         // What TalkBack says for the head. Only the floating head is named: a head in the app is a picture beside words
         // that say what it is.
         view.contentDescription = "Buddy"
@@ -409,6 +412,11 @@ class BubbleService : LifecycleService() {
 
     private fun openPanel() {
         startActivity(Intent(this, PanelActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    /** The hands-free chat on screen: a tap on its speech bubble, or on the head while that bubble is up. */
+    private fun openHandsFreeChat() {
+        startActivity(Intent(this, HandsFreeChatActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     /**
@@ -550,6 +558,16 @@ class BubbleService : LifecycleService() {
         }
         if (!Settings.canDrawOverlays(this)) return // taken away a moment ago: the watcher is about to stop the service
         speech?.say(text, headBounds(), area(), onTap)
+    }
+
+    /** A hands-free answer in the speech bubble, held until SpeechDone; null holds what is up. A tap opens that chat. */
+    private fun speak(text: String?) {
+        val bubble = speech ?: return
+        if (text == null) return bubble.keep()
+        val view = head ?: return
+        // Out of a sheet's way, or no overlay any more: the chat has the words, and nobody would see them now.
+        if (view.visibility != View.VISIBLE || !Settings.canDrawOverlays(this)) return
+        bubble.say(text, headBounds(), area(), ::openHandsFreeChat, stay = true)
     }
 
     private fun hideFor(ms: Long) {

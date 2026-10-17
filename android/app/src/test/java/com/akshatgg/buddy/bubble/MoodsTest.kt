@@ -106,4 +106,15 @@ class SnapTest {
         assertEquals(1000, Snap.yFromFraction(f, 150, 2400, 8))
         assertEquals(2400 - 150 - 8, Snap.yFromFraction(2f, 150, 2400, 8))
     }
+
+    @Test fun listeningLeansInLooksUpAndHolds() {
+        val start = Moods.pose(Mood.LISTENING, 0.0)
+        val p = Moods.pose(Mood.LISTENING, 1.0)
+        assertEquals(0f, start.headTilt, 1e-6f)
+        assertEquals(0.14f, p.headTilt, 1e-6f)
+        assertEquals(0.25f, p.eyeL, 1e-6f)
+        assertEquals(0.25f, p.eyeR, 1e-6f)
+        assertFalse(p.eyesClosed)
+        assertFalse(Moods.pose(Mood.LISTENING, 60.0).done)
+    }
 }

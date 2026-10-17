@@ -513,7 +513,7 @@ class PanelModel(
         c.asking = id
         talkBack.say(question)
         if (c.asking != id || c !== chat || c.voice != epoch) return
-        mood(Mood.THINKING) // listening: Android's head has no listening face
+        mood(Mood.LISTENING) // the person answers
         val heard = talkBack.hear(verb)
         if (c.asking != id || c !== chat || c.voice != epoch) return
         c.asking = null

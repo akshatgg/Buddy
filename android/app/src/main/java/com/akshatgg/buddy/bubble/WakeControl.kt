@@ -130,10 +130,11 @@ class WakeControl(
             kotlinx.coroutines.withContext(Dispatchers.IO) {
                 listener.run { event ->
                     when (event) {
-                        is WakeEvent.Woke -> if (clips) BubbleBus.clip(event.phrase) else if (testOnly) BubbleBus.woke() else BubbleBus.mood(Mood.THINKING)
+                        is WakeEvent.Woke -> if (clips) BubbleBus.clip(event.phrase) else if (testOnly) BubbleBus.woke() else BubbleBus.mood(Mood.LISTENING)
                         WakeEvent.NotYou -> BubbleBus.notYou()
                         is WakeEvent.Request -> {
                             turnRunning = true
+                            BubbleBus.mood(Mood.THINKING) // written down, then answered
                             try {
                                 onRequest(event.wav)
                                 // the chat answers (and speaks) after the request is handed over: the microphone stays

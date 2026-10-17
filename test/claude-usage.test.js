@@ -97,3 +97,35 @@ test(`only the newest ${WORKERS_KEPT} workers are kept, never one still running`
   assert.strictEqual(ids.length, WORKERS_KEPT);
   assert.ok(ids.includes('w0') && ids.includes('w24') && !ids.includes('w5'));
 });
+
+test('every notification in one message ends its worker; Esc ends a worker as stopped, not failed', () => {
+  const t = newTally();
+  tally(t, agent('w1', { description: 'One' }));
+  tally(t, agent('w2', { description: 'Two' }));
+  tally(t, agent('w3', { description: 'Three' }));
+  const both = notification('w1', 'completed', 10);
+  both.message.content += notification('w2', 'failed', 20).message.content;
+  assert.strictEqual(tally(t, both), true);
+  assert.deepStrictEqual(viewOf(t).workers.map((w) => w.status), ['done', 'failed', 'running']);
+  const esc = result('w3', {}, true);
+  esc.message.content[0].content = '[Request interrupted by user for tool use]';
+  tally(t, esc);
+  assert.strictEqual(viewOf(t).workers[2].status, 'stopped');
+});
+
+test('usage lines with no message id are not merged into one reply', () => {
+  const t = newTally();
+  tally(t, reply(undefined, U(1, 0, 0, 1)));
+  tally(t, reply(undefined, U(1, 0, 0, 1)));
+  assert.deepStrictEqual(viewOf(t).stats, { model: 'claude-opus-5-5', input: 2, output: 2 });
+});
+
+test('expire stops the workers that will not end by themselves', () => {
+  const { expire } = require('../src/main/claude/usage');
+  const t = newTally();
+  tally(t, agent('w1', { description: 'One' }));
+  assert.strictEqual(expire(t, ['w1', 'nobody'], 5000), true);
+  assert.deepStrictEqual([viewOf(t).workers[0].status, viewOf(t).workers[0].endedAt], ['stopped', 5000]);
+  assert.strictEqual(expire(t, ['w1'], 6000), false);
+  assert.deepStrictEqual(running(t), []);
+});

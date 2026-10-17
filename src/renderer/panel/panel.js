@@ -21,7 +21,7 @@ const { canSend, itemParts, selectionPreview, speaker, spokenLine, thinkingLine 
 const { exampleLine, jobHeading } = ChatView; // a Claude Code job in the chat
 const {
   rows: cliRows, inline: cliInline, blocks: cliBlocks, tableLines, workingVerb,
-  statusLine, workerList, command, suggestions, helpLines, unknownLine, costLines, MODEL_PICKS, MODEL_LABELS,
+  statusLine, workerList, command, suggestions, helpLines, costLines, MODEL_PICKS, MODEL_LABELS,
 } = ClaudeCli; // Claude mode, as the terminal draws it
 const { createVoiceTiming, levelOf, recordingMime, listensOnOpen } = VoiceTiming;
 
@@ -602,6 +602,7 @@ $('mic').addEventListener('click', () => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) return;
   window.buddy.claudeClose(); // Claude mode stops reading while the panel is away, and opens its session again after
+  stopTicking();
   const opening = generation;
   setTimeout(() => {
     if (document.hidden && opening === generation) cancelListening();
@@ -645,6 +646,7 @@ async function claudeList() {
   claude.session = null;
   claude.asked = null;
   window.buddy.claudeClose();
+  stopTicking();
   applyMode();
   show($('claude-pick-error'), false);
   const r = await window.buddy.claudeSessions();
@@ -831,6 +833,7 @@ function cliWorkers(session) {
   const view = workerList(session.workers, Date.now());
   const line = (w) => {
     const li = make('li', `cl-worker ${w.status}`);
+    li.dataset.worker = w.id;
     li.append(make('span', 'cl-dot', w.status === 'running' ? '◌' : w.status === 'done' ? '●' : '✗'), make('p', '', w.text));
     return li;
   };
@@ -844,18 +847,27 @@ function cliWorkers(session) {
   return [li];
 }
 
-/** While a worker runs, the session is drawn again every second, so that its time moves. */
+/** While a worker runs, its time moves every second: only the worker rows' words change, so a selection survives. */
 function keepTicking(session) {
   const running = Array.isArray(session.workers) && session.workers.some((w) => w.status === 'running');
-  if (running && !claude.tick) {
+  if (running && !claude.tick && !document.hidden) {
     claude.tick = setInterval(() => {
-      if (mode === 'claude' && claude.session) drawClaude(claude.session);
-      else keepTicking({});
+      if (document.hidden || mode !== 'claude' || !claude.session) return stopTicking();
+      const now = Date.now();
+      for (const line of workerList(claude.session.workers, now).lines) {
+        const p = document.querySelector(`#claude-items [data-worker="${CSS.escape(line.id)}"] p`);
+        if (p && p.textContent !== line.text) p.textContent = line.text;
+      }
     }, 1000);
-  } else if (!running && claude.tick) {
-    clearInterval(claude.tick);
-    claude.tick = null;
+  } else if (!running) {
+    stopTicking();
   }
+}
+
+/** The clock for the workers stops (the panel is hidden, Claude mode is left, or no worker runs). */
+function stopTicking() {
+  if (claude.tick) clearInterval(claude.tick);
+  claude.tick = null;
 }
 
 /** An answer to a slash command, at the end of the session (`picker`: with the models to pick from). */
@@ -919,7 +931,7 @@ async function talkToClaude() {
   if (!claude.session || claude.talking || !text) return;
   showSendError('');
   const cmd = command(text);
-  if (cmd) {
+  if (cmd?.known) { // Buddy's own commands; any other / command goes to Claude Code as typed
     $('box').value = '';
     showSuggest();
     updateSend();
@@ -947,7 +959,6 @@ async function talkToClaude() {
 /** A slash command from the box (ClaudeCli.command): answered here, or done in the session's terminal by main. */
 async function runCommand(cmd) {
   if (!claude.session || claude.talking) return;
-  if (!cmd.known) return note(unknownLine(cmd.name));
   if (cmd.name === 'help') return note(helpLines().join('\n'));
   if (cmd.name === 'cost') return note(costLines(claude.session).join('\n'));
   if (cmd.name === 'model' && !cmd.arg) return note(CLAUDE_WORDS.pick, { picker: true });
@@ -964,7 +975,7 @@ async function runCommand(cmd) {
     updateSend();
   }
   if (mode !== 'claude' || claude.session?.id !== id) return; // left meanwhile
-  if (!r.ok) return showSendError(r.error.message);
+  if (!r.ok) return cmd.name === 'model' ? note(r.error.message) : showSendError(r.error.message); // a bad name is answered like /help
   if (r.typed === false && r.message) showSendError(r.message); // copied, to paste in the terminal
   if (cmd.name === 'model') note(CLAUDE_WORDS.modelSet(MODEL_LABELS[r.model] || r.model));
   if (cmd.name !== 'clear') return;
@@ -1007,6 +1018,7 @@ $('claude-mode').addEventListener('click', () => {
     mode = 'chat';
     claude.session = null;
     window.buddy.claudeClose();
+    stopTicking();
     applyMode();
     if (state) render({ scroll: true });
   } else {

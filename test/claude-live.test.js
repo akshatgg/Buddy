@@ -285,3 +285,53 @@ test("the session's tokens, model and workers come with its view; a running work
   await live.refresh(home.id);
   assert.deepStrictEqual(changed, [home.id], 'nothing new: nobody is told');
 });
+
+test('a running worker whose file stays quiet for 10 minutes, or whose session ended, shows as stopped', async (t) => {
+  const worker = (id) => ({
+    type: 'assistant', timestamp: '2026-10-17T10:00:00.000Z',
+    message: { id: `m-${id}`, model: 'claude-sonnet-5-5', role: 'assistant', content: [{ type: 'tool_use', id, name: 'Agent', input: { description: id } }] },
+  });
+  const home = claudeHome(t, [user('hi'), worker('toolu_1')]);
+  let clock = 1000;
+  const live = createLive({ configDirs: () => [home.dir], now: () => clock, ttys: async () => ({}) });
+  await live.discover();
+  await live.refresh(home.id);
+  assert.strictEqual(live.view(home.id).workers[0].status, 'running');
+  clock += 9 * 60_000;
+  await live.refresh(home.id);
+  assert.strictEqual(live.view(home.id).workers[0].status, 'running');
+  clock += 2 * 60_000;
+  const changed = [];
+  live.onChange((id) => changed.push(id));
+  await live.refresh(home.id);
+  assert.strictEqual(live.view(home.id).workers[0].status, 'stopped');
+  assert.deepStrictEqual(changed, [home.id]);
+
+  // The session ends: its running workers are stopped at once.
+  const home2 = claudeHome(t, [user('hi'), worker('toolu_2')]);
+  const live2 = createLive({ configDirs: () => [home2.dir], now: () => 1000, ttys: async () => ({}) });
+  await live2.discover();
+  await live2.refresh(home2.id);
+  live2.hear({ name: 'SessionEnd', sessionId: home2.id });
+  await live2.refresh(home2.id);
+  assert.strictEqual(live2.view(home2.id).workers[0].status, 'stopped');
+});
+
+test("a worker's file that shrinks is read again from its start", async (t) => {
+  const usage = { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 5 };
+  const msg = (id, u) => assistant([], { message: { id, model: 'claude-sonnet-5-5', role: 'assistant', content: [], usage: u } });
+  const call = assistant([{ type: 'tool_use', id: 'toolu_1', name: 'Agent', input: { description: 'x' } }], { timestamp: '2026-10-17T10:00:00.000Z' });
+  const home = claudeHome(t, [user('hi'), call]);
+  const live = createLive({ configDirs: () => [home.dir], now: () => 2000, ttys: async () => ({}) });
+  const sub = path.join(home.transcript.slice(0, -'.jsonl'.length), 'subagents');
+  fs.mkdirSync(sub, { recursive: true });
+  fs.writeFileSync(path.join(sub, 'agent-a.meta.json'), JSON.stringify({ toolUseId: 'toolu_1' }));
+  const file = path.join(sub, 'agent-a.jsonl');
+  fs.writeFileSync(file, `${JSON.stringify(msg('s1', { ...usage, output_tokens: 500 }))}\n${JSON.stringify(msg('s2', { ...usage, output_tokens: 600 }))}\n`);
+  await live.discover();
+  await live.refresh(home.id);
+  assert.strictEqual(live.view(home.id).workers[0].tokens, 610);
+  fs.writeFileSync(file, `${JSON.stringify(msg('s3', usage))}\n`);
+  await live.refresh(home.id);
+  assert.strictEqual(live.view(home.id).workers[0].tokens, 15);
+});

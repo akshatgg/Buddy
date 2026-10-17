@@ -14,9 +14,10 @@
 
 const path = require('node:path');
 const { needsYou } = require('./hooks');
-const { newTally, tally, workerTokens, running, viewOf } = require('./usage');
+const { newTally, tally, workerTokens, running, expire, viewOf } = require('./usage');
 
 const KEEP = 500; // the items kept for a session: the newest
+const WORKER_QUIET_MS = 10 * 60_000; // a running worker whose file has not grown this long is taken as stopped
 const QUEUED_MAX = 20; // messages sent while Claude worked that are waiting for it, kept to know them when they reach it
 const TITLE_READ = 512 * 1024; // a session's title is looked for in this much of the end of its file
 const TITLE_EVERY_MS = 30_000; // and looked for again this often, as Claude Code renames a session as the work goes on
@@ -416,6 +417,10 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
     try {
       handle = await fs.open(f.file, 'r');
       const { size } = await handle.stat();
+      if (size < f.offset) {
+        f.offset = 0; // the file was replaced: from its start
+        f.rest = '';
+      }
       if (size <= f.offset) return [];
       const length = Math.min(size - f.offset, READ_MAX);
       const buffer = Buffer.alloc(length);
@@ -438,14 +443,16 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
   async function readWorkers(s) {
     const ids = running(s.tally);
     if (!ids.length || !s.transcript) return false;
+    if (s.status === 'ended') return expire(s.tally, ids, now()); // the session is over: its workers are too
     s.agents ??= new Map();
     s.metaSeen ??= new Set();
+    s.quiet ??= new Map(); // a running worker's id → when it was last seen to do something
     const dir = path.join(s.transcript.slice(0, -'.jsonl'.length), 'subagents');
-    let names;
+    let names = [];
     try {
       names = await fs.readdir(dir);
     } catch {
-      return false; // no worker has written yet
+      // no worker has written yet
     }
     for (const name of names) {
       const m = /^agent-([\w-]{1,100})\.meta\.json$/.exec(name);
@@ -459,11 +466,19 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
       }
     }
     let changed = false;
+    const stale = [];
     for (const id of ids) {
+      if (!s.quiet.has(id)) s.quiet.set(id, now());
       const f = s.agents.get(id);
-      if (!f) continue;
+      if (!f) {
+        if (now() - s.quiet.get(id) > WORKER_QUIET_MS) stale.push(id);
+        continue;
+      }
       let usage = null;
-      for (const line of await newLines(f)) {
+      const fresh = await newLines(f);
+      if (fresh.length) s.quiet.set(id, now());
+      else if (now() - s.quiet.get(id) > WORKER_QUIET_MS) stale.push(id);
+      for (const line of fresh) {
         if (!line.includes('"usage"')) continue;
         try {
           const e = JSON.parse(line);
@@ -474,6 +489,7 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
       }
       if (usage && workerTokens(s.tally, id, usage)) changed = true;
     }
+    if (expire(s.tally, stale, now())) changed = true;
     return changed;
   }
 

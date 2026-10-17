@@ -267,3 +267,38 @@ test('/clear: when no new session shows up, the page goes back to the list', asy
   assert.deepStrictEqual(await s.mode.clear('a'), { typed: true, session: null });
   assert.strictEqual(s.mode.isOpen(), false);
 });
+
+test('/clear while Claude works waits up to a minute for the new session, and only a session that was not there before counts', async () => {
+  let waited = 0;
+  const s = setup({
+    onWait: (n) => {
+      waited = n;
+      if (n === 40) s.live.views.b = { id: 'b', name: 'shop', status: 'idle', canTalk: true, items: [] };
+    },
+  });
+  s.live.views.old = { id: 'old', name: 'shop', status: 'ended', canTalk: true, items: [] }; // an earlier session of that terminal
+  await s.mode.open('a');
+  assert.deepStrictEqual(await s.mode.clear('a'), { typed: true, session: s.live.views.b });
+  assert.strictEqual(waited, 40);
+});
+
+test('/clear: when the person opens another session meanwhile, it is not replaced', async () => {
+  const s = setup({
+    onWait: (n) => {
+      if (n === 2) {
+        s.live.views.c = { id: 'c', name: 'other', status: 'idle', canTalk: true, items: [] };
+        s.mode.open('c');
+      }
+      if (n === 3) s.live.views.b = { id: 'b', name: 'shop', status: 'idle', canTalk: true, items: [] };
+    },
+  });
+  await s.mode.open('a');
+  const r = await s.mode.clear('a');
+  assert.deepStrictEqual(r, { typed: true, session: null });
+  assert.strictEqual(s.mode.isOpen(), true, 'the other session stays open');
+});
+
+test('/model: a name that is no model is refused with words that list the real ones', async () => {
+  const s = setup();
+  await assert.rejects(s.mode.model('a', 'gpt'), { message: 'There is no model called gpt. Try fable, opus, sonnet or haiku.' });
+});

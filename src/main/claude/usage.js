@@ -70,7 +70,8 @@ function tally(t, entry) {
     }
     if (isObject(message.usage)) {
       const now = tokensOf(message.usage);
-      const before = t.last && t.last.id === message.id ? t.last : { in: 0, out: 0 };
+      // A line with no id cannot be matched to the reply before it: it counts on its own.
+      const before = typeof message.id === 'string' && t.last && t.last.id === message.id ? t.last : { in: 0, out: 0 };
       if (now.in !== before.in || now.out !== before.out) changed = true;
       t.input += now.in - before.in;
       t.output += now.out - before.out;
@@ -92,15 +93,17 @@ function tally(t, entry) {
       if (!worker || worker.status !== 'running') continue;
       const r = isObject(entry.toolUseResult) ? entry.toolUseResult : {};
       if (r.status === 'async_launched') continue; // started in the background: its end comes as a notification
-      finish(worker, block.is_error === true ? 'failed' : 'done', at, count(r.totalTokens));
+      const stopped = block.is_error === true && /interrupted/i.test(textOf(block.content)); // Esc: "[Request interrupted by user]"
+      finish(worker, block.is_error === true ? (stopped ? 'stopped' : 'failed') : 'done', at, count(r.totalTokens));
       changed = true;
     }
     const text = textOf(message.content);
-    if (text.includes('<task-notification>')) {
-      const worker = t.workers.get(tagIn(text, 'tool-use-id'));
-      const status = ENDS[tagIn(text, 'status')];
+    // One message can carry several notifications (workers that ended together): each is read.
+    for (const [block] of text.matchAll(/<task-notification>[\s\S]*?<\/task-notification>/g)) {
+      const worker = t.workers.get(tagIn(block, 'tool-use-id'));
+      const status = ENDS[tagIn(block, 'status')];
       if (worker && worker.status === 'running' && status) {
-        finish(worker, status, at, count(Number(tagIn(text, 'subagent_tokens') ?? tagIn(text, 'total_tokens'))));
+        finish(worker, status, at, count(Number(tagIn(block, 'subagent_tokens') ?? tagIn(block, 'total_tokens'))));
         changed = true;
       }
     }
@@ -119,6 +122,18 @@ function workerTokens(t, id, usage) {
   return true;
 }
 
+/** Workers that will not end by themselves (quiet too long, or their session ended) show as stopped. Answers whether any did. */
+function expire(t, ids, at) {
+  let changed = false;
+  for (const id of ids) {
+    const worker = t.workers.get(id);
+    if (!worker || worker.status !== 'running') continue;
+    finish(worker, 'stopped', at, 0);
+    changed = true;
+  }
+  return changed;
+}
+
 /** The tool_use ids of the workers still running. */
 const running = (t) => [...t.workers.values()].filter((w) => w.status === 'running').map((w) => w.id);
 
@@ -127,4 +142,4 @@ function viewOf(t) {
   return { stats: { model: t.model, input: t.input, output: t.output }, workers: [...t.workers.values()].map((w) => ({ ...w })) };
 }
 
-module.exports = { WORKERS_KEPT, tokensOf, newTally, tally, workerTokens, running, viewOf };
+module.exports = { WORKERS_KEPT, tokensOf, newTally, tally, workerTokens, running, expire, viewOf };

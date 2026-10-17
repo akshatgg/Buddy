@@ -294,7 +294,7 @@ const ClaudeCli = (() => {
 
   // The slash commands the Claude box knows, in the order /help and the suggestions list them.
   const COMMANDS = [
-    { name: 'model', hint: 'pick the model: opus, sonnet or haiku' },
+    { name: 'model', hint: 'pick the model: fable, opus, sonnet or haiku' },
     { name: 'clear', hint: 'start a new conversation' },
     { name: 'stop', hint: 'stop what Claude is doing' },
     { name: 'cost', hint: 'tokens so far' },
@@ -315,8 +315,7 @@ const ClaudeCli = (() => {
     return m ? COMMANDS.filter((c) => c.name.startsWith(m[1].toLowerCase())) : [];
   }
 
-  const helpLines = () => COMMANDS.map((c) => `/${c.name} · ${c.hint}`);
-  const unknownLine = (name) => `/${name} isn't a command here. Try /help.`;
+  const helpLines = () => [...COMMANDS.map((c) => `/${c.name} · ${c.hint}`), 'Other / commands go to Claude Code.'];
 
   /** /cost: the session's tokens, its model and its workers' tokens. Transcripts have no cost. */
   function costLines(session) {
@@ -331,7 +330,7 @@ const ClaudeCli = (() => {
 
   return {
     toolCall, summaryText, rows, inline, blocks, tableLines, wrap, workingVerb, VERBS,
-    tokenCount, modelName, elapsed, statusLine, workerList, command, suggestions, helpLines, unknownLine, costLines, COMMANDS, MODEL_PICKS, MODEL_LABELS,
+    tokenCount, modelName, elapsed, statusLine, workerList, command, suggestions, helpLines, costLines, COMMANDS, MODEL_PICKS, MODEL_LABELS,
   };
 })();
 

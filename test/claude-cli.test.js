@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   toolCall, summaryText, rows, inline, workingVerb, VERBS,
-  tokenCount, modelName, elapsed, statusLine, workerList, command, suggestions, helpLines, unknownLine, costLines, COMMANDS,
+  tokenCount, modelName, elapsed, statusLine, workerList, command, suggestions, helpLines, costLines, COMMANDS,
 } = require('../src/renderer/panel/claude-cli.js');
 
 test("a tool's line is written as the terminal writes it, and the quiet ones know their group", () => {
@@ -154,9 +154,8 @@ test('slash commands: a name and what follows it; a path is not one; "/" suggest
 });
 
 test("the answers the page gives itself: help, an unknown command, and the session's tokens", () => {
-  assert.deepStrictEqual(helpLines(), COMMANDS.map((c) => `/${c.name} · ${c.hint}`));
-  assert.strictEqual(helpLines()[0], '/model · pick the model: opus, sonnet or haiku');
-  assert.strictEqual(unknownLine('compact'), "/compact isn't a command here. Try /help.");
+  assert.deepStrictEqual(helpLines(), [...COMMANDS.map((c) => `/${c.name} · ${c.hint}`), 'Other / commands go to Claude Code.']);
+  assert.strictEqual(helpLines()[0], '/model · pick the model: fable, opus, sonnet or haiku');
   assert.deepStrictEqual(costLines({ stats: { model: 'claude-opus-5-5', input: 1_200_000, output: 34_000 }, workers: [{ tokens: 100_000 }, { tokens: 20_000 }] }), [
     'Tokens so far: 1.2M in · 34k out', 'Model: Opus 5.5', 'Workers: 2 · 120k tokens', "Cost isn't in the session file. Type /cost in the terminal for it.",
   ]);

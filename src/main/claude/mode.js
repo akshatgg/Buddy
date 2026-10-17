@@ -21,10 +21,11 @@ const { MODELS } = require('./find');
 const READ_EVERY_MS = 1000;
 const LOOK_EVERY_MS = 1500; // a session on another computer, through the server
 const GONE = 'That session is not running any more. Pick another one.';
-const CLEAR_TRIES = 6; // after /clear, Claude Code's new session is looked for this many times…
-const CLEAR_EVERY_MS = 500; // …this far apart
+const CLEAR_EVERY_MS = 500; // after /clear, Claude Code's new session is looked for this far apart…
+const CLEAR_TRIES = 6; // …this many times
+const CLEAR_TRIES_BUSY = 120; // …or this many when Claude was working: it takes /clear only when it is done (60 s)
 const STOP_THERE = 'Stop it on that computer.';
-const NO_SUCH_MODEL = (name) => `There is no model called ${name}. Try opus, sonnet or haiku.`;
+const NO_SUCH_MODEL = (name) => `There is no model called ${name}. Try ${MODELS.slice(0, -1).join(', ')} or ${MODELS[MODELS.length - 1]}.`;
 
 /**
  * `send(state)` gives the page a session's view; `clipboard` is Electron's (writeText). `remote` is { available(),
@@ -168,15 +169,18 @@ function createClaudeMode({
     }
     const target = typeof id === 'string' ? live.target(id) : null;
     if (!target) throw new BuddyError('bad_request', GONE);
+    const busy = live.view(id)?.status === 'working';
+    const before = new Set(live.list().map((s) => s.id)); // the new session is one not there yet
     const r = await talk(id, '/clear');
     if (!r.typed) return { ...r, session: null };
-    for (let i = 0; i < CLEAR_TRIES; i += 1) {
+    for (let i = 0; i < (busy ? CLEAR_TRIES_BUSY : CLEAR_TRIES); i += 1) {
       await wait(CLEAR_EVERY_MS);
+      if (openId !== id) return { typed: true, session: null }; // the person opened another session or left: theirs stays
       await live.discover();
-      const next = live.list().find((s) => s.id !== id && live.target(s.id)?.tty === target.tty);
+      const next = live.list().find((s) => !before.has(s.id) && live.target(s.id)?.tty === target.tty);
       if (next) return { typed: true, ...(await open(next.id)) };
     }
-    close();
+    if (openId === id) close();
     return { typed: true, session: null };
   }
 

@@ -50,6 +50,9 @@ object VoiceWords {
     const val UNLOCK_WAIT_MS = 60_000L
     const val MAX_FOLLOW_UPS = 2
     const val SPOKEN_MAX = 240
+    const val DIDNT_CATCH = "I didn't catch that." // the words after the wake came back empty: shown, not said
+    const val BUBBLE_MAX = 140 // a hands-free answer in the speech bubble: longer is cut at a word, with "…"
+    const val BUBBLE_HIDE_MS = 8_000L // the speech bubble goes this long after Buddy stops speaking
 
     /** The words said, lower case, punctuation gone, a word not made out ([unk], <unk>) kept as "unk", each as the lists write it. */
     private fun wordsOf(text: String): List<String> =
@@ -121,6 +124,30 @@ object VoiceWords {
             }
         }
         return out
+    }
+
+    /** A line as the speech bubble shows it: spaces tidied; past `max`, cut at a word (or where it is) with "…". */
+    fun bubbleLine(text: String, max: Int = BUBBLE_MAX): String {
+        val line = text.replace(Regex("\\s+"), " ").trim()
+        if (line.length <= max) return line
+        val cut = line.substring(0, max - 1)
+        val space = cut.lastIndexOf(' ')
+        return (if (space > max / 2) cut.substring(0, space) else cut).replace(Regex("[\\s,;:.!?-]+$"), "") + "…"
+    }
+
+    /** The answer as the speech bubble shows it (shared/voice-words.js bubbleText): a long text is shown cut, not dropped. */
+    fun bubbleText(items: List<SpokenItem>): String {
+        val parts = ArrayList<String>()
+        for (item in items) {
+            val say = item.say.trim()
+            val text = item.text.trim()
+            when {
+                item.type == "buddy" -> { parts += say; parts += text }
+                item.type == "error" -> parts += if (item.code in NO_INTERNET_CODES) NO_INTERNET else text
+                item.type == "event" && DONE.containsMatchIn(text) -> parts += text.replace(DONE, "")
+            }
+        }
+        return bubbleLine(parts.filter { it.isNotEmpty() }.joinToString(" "))
     }
 
     fun asksBack(line: String): Boolean {

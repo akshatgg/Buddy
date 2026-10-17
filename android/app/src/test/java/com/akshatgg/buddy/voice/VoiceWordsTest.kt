@@ -4,9 +4,11 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -136,4 +138,19 @@ class VoiceWordsTest {
     }
 
     @Test fun callingNamesWhoIsCalled() = assertEquals("Calling Priya.", VoiceWords.calling("Priya"))
+
+    @Test fun theSpeechBubbleShowsWhatTheJavaScriptShows() {
+        val b = root.getValue("bubble").jsonObject
+        assertEquals(b.getValue("max").jsonPrimitive.int, VoiceWords.BUBBLE_MAX)
+        assertEquals(b.getValue("hideMs").jsonPrimitive.long, VoiceWords.BUBBLE_HIDE_MS)
+        assertEquals(b.str("didntCatch"), VoiceWords.DIDNT_CATCH)
+        for (c in b.getValue("lines").jsonArray.map { it.jsonObject }) assertEquals(c.str("text"), c.str("shown"), VoiceWords.bubbleLine(c.str("text")))
+        for (c in b.getValue("texts").jsonArray.map { it.jsonObject }) {
+            val items = c.getValue("items").jsonArray.map { it.jsonObject }.map {
+                fun s(k: String) = it[k]?.jsonPrimitive?.content ?: ""
+                SpokenItem(s("type"), s("say"), s("text"), s("code"))
+            }
+            assertEquals(c.str("shown"), VoiceWords.bubbleText(items))
+        }
+    }
 }

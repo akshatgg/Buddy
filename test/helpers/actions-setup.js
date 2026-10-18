@@ -3,6 +3,7 @@
 // The fakes of test/actions.test.js, shared with test/voice-safety.test.js.
 const { BuddyError } = require('../../shared/errors');
 const { createActions } = require('../../src/main/actions');
+const { findApp } = require('../../src/main/apps');
 
 const APP = { pid: 7, bundleId: 'com.google.Chrome', name: 'Google Chrome' };
 const MAIL = { pid: 8, bundleId: 'com.apple.mail', name: 'Mail' };
@@ -181,7 +182,7 @@ function setup({
     jobs,
     talkBack: voice_,
     lock,
-    apps: windows ? null : { list: () => givenApps, open: async (p) => { log.push(['openApp', p]); return openFails; } },
+    apps: windows ? null : { list: () => givenApps, find: (asked) => findApp(givenApps, asked), open: async (p) => { log.push(['openApp', p]); return openFails; } },
     memory,
     sendKeyFor: (app, platform) => {
       log.push(['sendKeyFor', app, platform]);

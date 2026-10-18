@@ -1,17 +1,51 @@
 'use strict';
 
 /**
- * The apps on this Mac, for "open Safari": the .app folders in the Mac's app folders and one folder down
- * (Utilities, an app maker's folder, Chrome's web apps), by name without ".app". Opening one is the system's
+ * The apps on this Mac, for "open Safari": the .app folders in the Mac's app folders (Finder's CoreServices among
+ * them) and one folder down (Utilities, an app maker's folder, Chrome's web apps), plus the apps Spotlight knows,
+ * by name without ".app". Opening one is the system's
  * (shell.openPath), as a double-click in the Finder would.
  */
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { pickChat } = require('../../shared/message-pick');
+const { appLine } = require('../../shared/pick-lines');
+const { aliasFor } = require('../../shared/app-aliases');
 
-/** Where the Mac keeps apps: for everyone, the system's own, and the person's. */
+const SPOTLIGHT_MS = 10 * 60_000;
+
+/** Where the Mac keeps apps: for everyone, the system's own, the person's, and the system's core apps (Finder). */
 function appDirs(home) {
-  return ['/Applications', '/System/Applications', path.join(home, 'Applications')];
+  return ['/Applications', '/System/Applications', path.join(home, 'Applications'), '/System/Library/CoreServices'];
+}
+
+/** One app for what was asked: its alias, else the name picker (shared with WhatsApp's), else the line to say. */
+function findApp(list, asked) {
+  const names = list.map((a) => a.name);
+  const alias = aliasFor(asked);
+  const pick = alias && names.includes(alias) ? { kind: 'one', name: alias } : pickChat(asked, names);
+  if (pick.kind !== 'one') return { kind: pick.kind, line: appLine(asked, pick, 'Mac') };
+  return { kind: 'one', app: list.find((a) => a.name === pick.name) };
+}
+
+/** Every app Spotlight knows (other disks, odd folders), asked in the background and kept for 10 minutes. */
+function createSpotlight({ execFile, now = Date.now }) {
+  let paths = [];
+  let at = -Infinity;
+  let asking = false;
+  return () => {
+    const known = paths; // what was known before this call asks again
+    if (!asking && now() - at >= SPOTLIGHT_MS) {
+      asking = true;
+      at = now();
+      execFile('mdfind', ["kMDItemContentType == 'com.apple.application-bundle'"], { timeout: 10_000, maxBuffer: 4 * 1024 * 1024 }, (err, out) => {
+        asking = false;
+        if (!err) paths = String(out).split('\n').map((p) => p.trim()).filter((p) => p.endsWith('.app'));
+      });
+    }
+    return known;
+  };
 }
 
 /**
@@ -23,7 +57,7 @@ function ownBundle(exe) {
 }
 
 /** `own`: Buddy's own bundle's folder name (ownBundle), never one of the apps; null for none. */
-function createApps({ dirs, openPath, own = null, readdir = (dir) => fs.readdirSync(dir, { withFileTypes: true }) }) {
+function createApps({ dirs, openPath, own = null, readdir = (dir) => fs.readdirSync(dir, { withFileTypes: true }), spotlight = null }) {
   function inside(dir, depth) {
     let entries;
     try {
@@ -40,11 +74,25 @@ function createApps({ dirs, openPath, own = null, readdir = (dir) => fs.readdirS
     }
     return found;
   }
+  function list() {
+    const seen = new Set();
+    const all = [];
+    const fromSpotlight = (spotlight ? spotlight() : [])
+      .filter((p) => path.basename(p) !== own)
+      .map((p) => ({ name: path.basename(p, '.app'), path: p }));
+    for (const app of [...dirs.flatMap((dir) => inside(dir, 0)), ...fromSpotlight]) {
+      if (seen.has(app.path)) continue;
+      seen.add(app.path);
+      all.push(app);
+    }
+    return all;
+  }
   return {
-    list: () => dirs.flatMap((dir) => inside(dir, 0)),
+    list,
+    find: (asked) => findApp(list(), asked),
     /** '' when it opened, else the system's reason. */
     open: (appPath) => openPath(appPath),
   };
 }
 
-module.exports = { createApps, appDirs, ownBundle };
+module.exports = { createApps, appDirs, ownBundle, findApp, createSpotlight };

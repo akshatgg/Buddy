@@ -20,7 +20,6 @@
 const { BuddyError } = require('../../shared/errors');
 const { LIMITS, MESSAGE_ELSEWHERE, ELSEWHERE } = require('../../shared/prompts');
 const { pickChat, pickLine, sameName } = require('../../shared/message-pick');
-const { appLine } = require('../../shared/pick-lines');
 const { AI_TIMEOUT_MS } = require('./ai');
 const { TRANSCRIBE_TIMEOUT_MS } = require('./cloud');
 const platform = require('./platform');
@@ -872,14 +871,12 @@ function createActions({
   /** "Open Safari": opened at once, no question; the chat says it was, or which one, or why not. */
   async function startOpen(c, reply) {
     if (reply.say) add(c, { type: 'buddy', say: reply.say, text: '', notes: [], buttons: [] });
-    const found = apps.list();
-    const pick = pickChat(reply.app, found.map((app) => app.name));
-    const line = appLine(reply.app, pick, 'Mac');
-    if (line) {
-      add(c, { type: 'buddy', say: '', text: line, notes: [], buttons: [] });
+    const found = apps.find(reply.app);
+    if (found.kind !== 'one') {
+      add(c, { type: 'buddy', say: '', text: found.line, notes: [], buttons: [] });
       return true;
     }
-    const app = found.find((a) => a.name === pick.name);
+    const { app } = found;
     const problem = await apps.open(app.path);
     if (problem) add(c, { type: 'buddy', say: '', text: `I couldn't open ${app.name}.`, notes: [], buttons: [] });
     else add(c, { type: 'event', text: `✅ Opened ${app.name}`, buttons: [] });

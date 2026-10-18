@@ -67,3 +67,15 @@ test('the models, the voice line, the users', () => {
   assert.strictEqual(core.usersText(1), '1 user');
   assert.strictEqual(core.usersText(0), '0 users');
 });
+
+test('readForm: the agent limits are sent when given, as numbers', () => {
+  const form = core.readForm({ enabled: true, limitMode: 'unlimited', provider: 'anthropic', model: 'm', agentJobs: '7', agentCap: '2.5' });
+  assert.strictEqual(form.agentJobsPerDay, 7);
+  assert.strictEqual(form.agentSpendCap, 2.5);
+  assert.strictEqual('agentJobsPerDay' in core.readForm({ enabled: true, limitMode: 'unlimited', provider: 'a', model: 'm' }), false);
+});
+
+test('readForm: blank agent fields mean the defaults, not 0', () => {
+  const form = core.readForm({ enabled: true, limitMode: 'unlimited', provider: 'a', model: 'm', agentJobs: '', agentCap: '' });
+  assert.deepStrictEqual([form.agentJobsPerDay, form.agentSpendCap], [5, 3]);
+});

@@ -4,7 +4,8 @@
  * The admin's switches for free mode (Firestore config/free): what they are when nothing is saved yet, and
  * whether a change the admin asks for is valid. `hasKey(providerId)` says whether the server has a key for it.
  *
- *   { enabled, limitMode: 'unlimited' | 'daily', dailyRequests, allowOwnKey, provider, model, clawdLook }
+ *   { enabled, limitMode: 'unlimited' | 'daily', dailyRequests, allowOwnKey, provider, model, clawdLook,
+ *     agentJobsPerDay, agentSpendCap }
  *
  * clawdLook is not about free mode, but it is the admin's too and goes to every app with these: where Clawd walks with
  * the buddy while Claude Code works, 'head' (on top of its head) or 'face' (along its face screen, under the eyes).
@@ -17,6 +18,11 @@ const DEFAULT_LIMIT = 30;
 const CLAWD_LOOKS = ['head', 'face'];
 const MAX_LIMIT = 10_000;
 const MODEL_MAX = 200;
+const DEFAULT_AGENT_JOBS = 5;
+const MAX_AGENT_JOBS = 1000;
+const DEFAULT_AGENT_CAP = 3; // US dollars a day, for every free agent job together
+const isAgentJobs = (n) => Number.isInteger(n) && n >= 1 && n <= MAX_AGENT_JOBS;
+const isAgentCap = (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0.5 && n <= 1000;
 
 const isPlainObject = (value) => Object.prototype.toString.call(value) === '[object Object]';
 const isLimit = (n) => Number.isInteger(n) && n >= 1 && n <= MAX_LIMIT;
@@ -35,6 +41,8 @@ function withDefaults(stored, hasKey) {
     provider,
     model,
     clawdLook: CLAWD_LOOKS.includes(s.clawdLook) ? s.clawdLook : CLAWD_LOOKS[0],
+    agentJobsPerDay: isAgentJobs(s.agentJobsPerDay) ? s.agentJobsPerDay : DEFAULT_AGENT_JOBS,
+    agentSpendCap: isAgentCap(s.agentSpendCap) ? s.agentSpendCap : DEFAULT_AGENT_CAP,
   };
 }
 
@@ -79,6 +87,14 @@ function applyPatch(current, patch, hasKey) {
   if (has('clawdLook')) {
     if (!CLAWD_LOOKS.includes(patch.clawdLook)) throw bad('Pick where Clawd walks: on the head or on the face.');
     next.clawdLook = patch.clawdLook;
+  }
+  if (has('agentJobsPerDay')) {
+    if (!isAgentJobs(patch.agentJobsPerDay)) throw bad(`Free jobs per user per day must be a whole number from 1 to ${MAX_AGENT_JOBS}.`);
+    next.agentJobsPerDay = patch.agentJobsPerDay;
+  }
+  if (has('agentSpendCap')) {
+    if (!isAgentCap(patch.agentSpendCap)) throw bad('The daily spend limit must be from $0.5 to $1000.');
+    next.agentSpendCap = patch.agentSpendCap;
   }
   if (next.enabled && !hasKey(next.provider)) {
     throw bad(`There is no ${PROVIDERS[next.provider].label} key on the server, so free mode can't use it.`);

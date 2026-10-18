@@ -22,7 +22,7 @@ const UNREACHABLE = ['network', 'timeout', 'server']; // the server cannot be us
 // handle() also answers for a failure of its own). test/cloud.test.js checks that the two lists agree. An error
 // answer with any other code comes from something in front of the server, such as the hosting platform.
 const SERVER_CODES = [
-  'bad_request', 'free_no_vision', 'unauthenticated', 'blocked', 'free_off', 'not_admin', 'not_found',
+  'bad_request', 'free_no_vision', 'free_no_agent', 'unauthenticated', 'blocked', 'free_off', 'not_admin', 'not_found',
   'method_not_allowed', 'free_limit', 'upstream', 'server', 'voice_off', 'voice_busy', 'mac_offline', 'push_off',
 ];
 const REMOTE_TIMEOUT_MS = 10_000; // Claude mode on the phone: a report that takes longer is tried again later

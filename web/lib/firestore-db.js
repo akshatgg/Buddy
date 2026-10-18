@@ -28,6 +28,8 @@ function createFirestoreDb(firestore) {
   const remotes = firestore.collection('remote');
   const pushes = firestore.collection('push');
   const memories = firestore.collection('memory');
+  const agentDays = firestore.collection('agentDays');
+  const spends = firestore.collection('spend');
 
   const toDate = (value) => (value && typeof value.toDate === 'function' ? value.toDate() : null);
   const fresh = ({ email, name, now }) => ({ email, name, joined: now, lastActive: null, blocked: false, usedDay: '', usedCount: 0 });
@@ -148,6 +150,16 @@ function createFirestoreDb(firestore) {
     /** What Buddy knows about the person (memory/{uid}), changed in a transaction (update). */
     async updateMemory(uid, change) {
       return update(memories.doc(uid), change);
+    },
+
+    /** A person's agent jobs of one day (web/lib/agent-free.js jobStep), `key` = `${uid}_${day}`. */
+    async updateAgentDay(key, change) {
+      return update(agentDays.doc(key), change);
+    },
+
+    /** The day's spend of every free agent job together (agent-free.js addSpend). */
+    async updateSpend(day, change) {
+      return update(spends.doc(day), change);
     },
 
     /** Block or unblock a person; null when there is nobody with that uid, or no uid that Firestore could have. */

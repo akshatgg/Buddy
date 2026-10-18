@@ -23,6 +23,9 @@
 const { BuddyError } = require('../shared/errors');
 const { buildPrompt, parseCheck, parseChat, MAX_TOKENS, MESSAGE_ELSEWHERE, ELSEWHERE } = require('../shared/prompts');
 const { PROVIDERS, PROVIDER_IDS } = require('../shared/providers');
+const { agentPrompt, AGENT_MAX_TOKENS } = require('../shared/agent/prompt');
+const { rankOf, limitsFor, atLeastOk, costOf } = require('../shared/agent/limits');
+const agentFree = require('./agent-free');
 /**
  * Chat answer kinds that need the app to say it can (kind -> the request's flag, and the line an app that cannot gets
  * instead); add later kinds here.
@@ -33,6 +36,7 @@ const ANSWER_KIND_NEEDS = {
   open: { flag: 'canOpen', line: () => ELSEWHERE.open },
   calls: { flag: 'canSeeCalls', line: () => ELSEWHERE.calls },
   notifs: { flag: 'canReadNotifs', line: () => ELSEWHERE.notifs },
+  do: { flag: 'canDo', line: () => ELSEWHERE.do },
 };
 
 const { dayKey } = require('./day');
@@ -59,6 +63,7 @@ const STATUS = {
   unauthenticated: 401,
   blocked: 403,
   free_off: 403,
+  free_no_agent: 403,
   not_admin: 403,
   not_found: 404,
   method_not_allowed: 405,
@@ -146,6 +151,8 @@ async function config(req, deps) {
     blocked: user.blocked === true,
     isAdmin: isAdmin(who, deps),
     voiceOn: hasKey('groq'), // voice needs only the server's Groq key, whatever free mode is set to
+    agentVision: deps.providers?.getProvider(cfg.provider).isVisionModel(cfg.model) === true, // the desktop sends screenshots only if so
+    agentRank: rankOf(cfg.provider, cfg.model), // how well the free AI can use a computer (shared/agent/limits.js)
     clawdLook: cfg.clawdLook, // where Clawd walks with the buddy while Claude Code works (the admin's choice)
     ...(deps.push ? { pushKey: deps.push.publicKey } : {}), // notifications on the phone (POST /api/push)
   });
@@ -168,7 +175,8 @@ async function ask(req, deps) {
   allowMethods(req, 'POST');
   const who = await signedIn(req, deps);
   const body = isPlainObject(req.body) ? req.body : {};
-  const prompt = buildPrompt(body.action, body); // input that is not valid is refused before anything is read
+  const isAgent = body.action === 'agent';
+  const prompt = isAgent ? agentPrompt(body) : buildPrompt(body.action, body); // input that is not valid is refused before anything is read
   const hasKey = hasKeyIn(deps);
   const cfg = withDefaults(await deps.db.getConfig(), hasKey);
   if (!isFreeOn(cfg, hasKey)) throw new BuddyError('free_off', 'Free AI is off. Add your own key in Settings.');
@@ -177,19 +185,42 @@ async function ask(req, deps) {
     throw new BuddyError('free_no_vision', "The free AI can't read screenshots right now.");
   }
 
+  const rank = rankOf(cfg.provider, cfg.model);
+  if (isAgent && !atLeastOk(rank)) {
+    throw new BuddyError('free_no_agent', "The free AI can't use your computer. Add your own key in Settings.");
+  }
+
   const now = deps.now();
   const day = dayKey(now);
-  const counted = await deps.db.countRequest({
-    uid: who.uid,
-    email: who.email,
-    name: who.name || '',
-    day,
-    now,
-    limit: cfg.limitMode === 'daily' ? cfg.dailyRequests : null,
-  });
-  if (!counted.ok && counted.reason === 'blocked') throw new BuddyError('blocked', 'Your free access is paused.');
-  if (!counted.ok) {
-    throw new BuddyError('free_limit', `You've used today's ${cfg.dailyRequests} free requests. They come back at midnight.`);
+  // The cap is checked before a step and the step's cost added after it, so the day can end a little over the cap.
+  if (isAgent && agentFree.spentOf(await deps.db.updateSpend(day, (doc) => ({ next: undefined, result: doc }))) >= cfg.agentSpendCap) {
+    throw new BuddyError('free_limit', "Buddy's free helper is used up for today. Add your own key in Settings to keep going.");
+  }
+  if (!isAgent || body.step === 1) {
+    const counted = await deps.db.countRequest({
+      uid: who.uid, email: who.email, name: who.name || '', day, now, limit: cfg.limitMode === 'daily' ? cfg.dailyRequests : null,
+    });
+    if (!counted.ok && counted.reason === 'blocked') throw new BuddyError('blocked', 'Your free access is paused.');
+    if (!counted.ok) {
+      throw new BuddyError('free_limit', `You've used today's ${cfg.dailyRequests} free requests. They come back at midnight.`);
+    }
+  }
+  if (isAgent) {
+    const step = await deps.db.updateAgentDay(`${who.uid}_${day}`, (doc) => agentFree.jobStep(doc, {
+      jobId: body.jobId, step: body.step, jobsLimit: cfg.agentJobsPerDay, maxSteps: limitsFor(rank).maxSteps,
+    }));
+    // A first step refused here asked nothing of the AI: its free request is given back (only step 1 counted one).
+    if (!step.ok && body.step === 1) await giveBack(who.uid, day, deps);
+    if (!step.ok && step.reason === 'jobs') {
+      throw new BuddyError('free_limit', `You've used today's ${cfg.agentJobsPerDay} free jobs. They come back at midnight.`);
+    }
+    if (!step.ok && step.reason === 'steps') throw new BuddyError('free_limit', 'This job has used all its free steps.');
+    if (!step.ok && step.reason === 'no_job' && body.step > 1) {
+      // A job that began before midnight (India) has its record under the day before.
+      const before = await deps.db.updateAgentDay(`${who.uid}_${dayKey(new Date(now.getTime() - 24 * 3600 * 1000))}`, (doc) => ({ next: undefined, result: doc }));
+      if (before && Number.isInteger(before.jobs?.[body.jobId])) throw new BuddyError('bad_request', 'That job ran past midnight. Ask again.');
+    }
+    if (!step.ok) throw new BuddyError('bad_request', 'That job is not valid.');
   }
 
   let out;
@@ -198,15 +229,25 @@ async function ask(req, deps) {
       apiKey: deps.adminKeys[cfg.provider],
       model: cfg.model,
       ...prompt,
-      maxTokens: MAX_TOKENS,
+      maxTokens: isAgent ? AGENT_MAX_TOKENS : MAX_TOKENS,
       fetchImpl: deps.fetchImpl,
       signal: AbortSignal.timeout(ASK_TIMEOUT_MS),
     });
   } catch (err) {
     // Only the kind of failure is logged, never what the person sent.
     console.warn(`[ask] ${cfg.provider} failed: ${kindOf(err)}`);
-    await giveBack(who.uid, day, deps);
+    if (!isAgent || body.step === 1) await giveBack(who.uid, day, deps);
+    // The failed step is given back too: step 1 gives back its whole job, a later step only itself.
+    if (isAgent) {
+      await deps.db.updateAgentDay(`${who.uid}_${day}`, (doc) => agentFree.undoStep(doc, { jobId: body.jobId, step: body.step }))
+        .catch((e) => console.error(`[ask] could not give the job step back: ${kindOf(e)}`));
+    }
     throw new BuddyError('upstream', "Buddy couldn't answer. Try again.");
+  }
+  if (isAgent) {
+    await deps.db.updateSpend(day, (doc) => agentFree.addSpend(doc, costOf(out.model || cfg.model, out.usage)))
+      .catch((err) => console.warn(`[ask] could not add the spend: ${kindOf(err)}`));
+    return answer({ text: out.text, model: out.model });
   }
   let chat = body.action === 'chat' ? parseChat(out.text) : null;
   let { text } = out;

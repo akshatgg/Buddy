@@ -45,6 +45,20 @@
         </div>
         <input id="own" class="switch" type="checkbox" role="switch" aria-describedby="own-note">
       </div>
+      <div id="agent-jobs-row" class="group-row">
+        <div class="grow">
+          <label for="agent-jobs" class="row-title">Free jobs per user per day</label>
+          <p class="muted small">Jobs where Buddy uses their computer.</p>
+        </div>
+        <input id="agent-jobs" type="number" min="1" max="1000" step="1">
+      </div>
+      <div id="agent-cap-row" class="group-row">
+        <div class="grow">
+          <label for="agent-cap" class="row-title">Daily spend limit for jobs (US $)</label>
+          <p class="muted small">For all free jobs together.</p>
+        </div>
+        <input id="agent-cap" type="number" min="0.5" max="1000" step="0.5">
+      </div>
       <div class="group-row">
         <label for="provider" class="row-title">AI provider</label>
         <select id="provider"></select>

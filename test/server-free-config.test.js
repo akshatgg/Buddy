@@ -6,14 +6,14 @@ const { withDefaults, isFreeOn, applyPatch, DEFAULT_LIMIT, MAX_LIMIT } = require
 
 /** hasKey for a server that has keys for these providers only. */
 const keys = (...ids) => (id) => ids.includes(id);
-const SAVED = { enabled: true, limitMode: 'daily', dailyRequests: 5, allowOwnKey: true, provider: 'anthropic', model: 'claude-x', clawdLook: 'face' };
+const SAVED = { enabled: true, limitMode: 'daily', dailyRequests: 5, allowOwnKey: true, provider: 'anthropic', model: 'claude-x', clawdLook: 'face', agentJobsPerDay: 5, agentSpendCap: 3 };
 const refused = (message) => ({ code: 'bad_request', message });
 
 test('nothing saved: free mode off, 30 a day, own keys not allowed, the first provider with a key', () => {
   assert.strictEqual(DEFAULT_LIMIT, 30);
   assert.strictEqual(MAX_LIMIT, 10_000);
   assert.deepStrictEqual(withDefaults(null, keys('groq')), {
-    enabled: false, limitMode: 'daily', dailyRequests: 30, allowOwnKey: false, provider: 'groq', model: 'llama-3.3-70b-versatile', clawdLook: 'head',
+    enabled: false, limitMode: 'daily', dailyRequests: 30, allowOwnKey: false, provider: 'groq', model: 'llama-3.3-70b-versatile', clawdLook: 'head', agentJobsPerDay: 5, agentSpendCap: 3,
   });
   assert.strictEqual(withDefaults(undefined, keys()).provider, 'anthropic', 'with no key at all, the first provider');
   assert.strictEqual(withDefaults(undefined, keys()).model, 'claude-haiku-4-5-20251001');
@@ -27,7 +27,7 @@ test('saved switches read back as saved', () => {
 test('a value that is not valid falls back to its default, field by field', () => {
   const odd = { enabled: 'yes', limitMode: 'weekly', dailyRequests: 0, allowOwnKey: 1, provider: 'constructor', model: '  ', clawdLook: 'nose' };
   assert.deepStrictEqual(withDefaults(odd, keys('openai')), {
-    enabled: false, limitMode: 'daily', dailyRequests: 30, allowOwnKey: false, provider: 'openai', model: 'gpt-4.1-mini', clawdLook: 'head',
+    enabled: false, limitMode: 'daily', dailyRequests: 30, allowOwnKey: false, provider: 'openai', model: 'gpt-4.1-mini', clawdLook: 'head', agentJobsPerDay: 5, agentSpendCap: 3,
   });
   assert.strictEqual(withDefaults({ dailyRequests: 2.5 }, keys()).dailyRequests, 30);
   assert.strictEqual(withDefaults({ dailyRequests: 10_001 }, keys()).dailyRequests, 30);
@@ -95,4 +95,17 @@ test("where Clawd walks: the head unless the admin picks the face; anything else
   for (const clawdLook of ['eyes', '', null, 1, ['face']]) {
     assert.throws(() => applyPatch(SAVED, { clawdLook }, k), (err) => err.code === 'bad_request' && /head or on the face/.test(err.message), JSON.stringify(clawdLook));
   }
+});
+
+test('agent limits: 5 jobs a day and $3 by default; the admin can change both within bounds', () => {
+  const { withDefaults, applyPatch } = require('../web/lib/free-config');
+  const hasKey = () => true;
+  const d = withDefaults(null, hasKey);
+  assert.strictEqual(d.agentJobsPerDay, 5);
+  assert.strictEqual(d.agentSpendCap, 3);
+  assert.strictEqual(applyPatch(d, { agentJobsPerDay: 12 }, hasKey).agentJobsPerDay, 12);
+  assert.strictEqual(applyPatch(d, { agentSpendCap: 7.5 }, hasKey).agentSpendCap, 7.5);
+  assert.throws(() => applyPatch(d, { agentJobsPerDay: 0 }, hasKey), /jobs per user per day must be a whole number from 1 to 1000/);
+  assert.throws(() => applyPatch(d, { agentSpendCap: 0.1 }, hasKey), /spend limit must be from \$0\.5 to \$1000/);
+  assert.strictEqual(withDefaults({ agentJobsPerDay: -2, agentSpendCap: 'x' }, hasKey).agentSpendCap, 3);
 });

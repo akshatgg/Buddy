@@ -393,6 +393,6 @@ function parseChat(text) {
   return out;
 }
 
-module.exports = { ACTIONS, TONES, LIMITS, MAX_TOKENS, KINDS, MESSAGE_ONLY_WHATSAPP, MESSAGE_ELSEWHERE, ELSEWHERE, CALL_ONLY, CHAT_LIMITS, buildPrompt, parseCheck, parseChat };
+module.exports = { ACTIONS, TONES, LIMITS, MAX_TOKENS, KINDS, MESSAGE_ONLY_WHATSAPP, MESSAGE_ELSEWHERE, ELSEWHERE, CALL_ONLY, CHAT_LIMITS, buildPrompt, parseCheck, parseChat, readJson };
 })();
-export const { ACTIONS, TONES, LIMITS, MAX_TOKENS, KINDS, MESSAGE_ONLY_WHATSAPP, MESSAGE_ELSEWHERE, ELSEWHERE, CALL_ONLY, CHAT_LIMITS, buildPrompt, parseCheck, parseChat } = module.exports;
+export const { ACTIONS, TONES, LIMITS, MAX_TOKENS, KINDS, MESSAGE_ONLY_WHATSAPP, MESSAGE_ELSEWHERE, ELSEWHERE, CALL_ONLY, CHAT_LIMITS, buildPrompt, parseCheck, parseChat, readJson } = module.exports;

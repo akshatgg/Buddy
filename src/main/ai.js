@@ -120,6 +120,8 @@ function createAi({
   }
 
   async function ask(action, input, options = {}) {
+    // A job's step must not hang for ever on a stuck provider or server: the caller's signal, plus a timeout.
+    if (action === 'agent' && options.signal) options = { ...options, signal: AbortSignal.any([options.signal, AbortSignal.timeout(AI_TIMEOUT_MS)]) };
     if (!account.isSignedIn()) throw signedOut();
     const free = await cloud.settings();
     // Signed out while the settings were being fetched: signing out forgets them, so the fetch comes back with none,
@@ -147,7 +149,7 @@ function createAi({
     try {
       return await cloud.ask(action, input, options);
     } catch (err) {
-      if (!FREE_REFUSALS.includes(err.code)) throw err;
+      if (!FREE_REFUSALS.includes(err.code) && !(action === 'agent' && err.code === 'free_no_vision')) throw err;
       return afterRefusal(err, free, own, action, input, options);
     }
   }
@@ -157,18 +159,26 @@ function createAi({
    * reads screenshots: for the warning before a job and the job's limits (shared/agent/limits.js).
    */
   async function brainInfo() {
-    const free = account.isSignedIn() ? await cloud.settings() : null;
+    if (!account.isSignedIn()) return { route: null, reason: 'signed_out' };
+    const free = await cloud.settings();
+    if (!account.isSignedIn()) return { route: null, reason: 'signed_out' };
     const own = await hasOwn();
-    const ownAllowed = Boolean(free?.allowOwnKey && own);
-    const usedUp = free && free.limitMode === 'daily' && free.limit !== null && free.usedToday >= free.limit;
-    const rank = free?.agentRank || 'weak';
-    const viaFree = Boolean(free && free.freeOn && !free.blocked && !((usedUp || !atLeastOk(rank)) && ownAllowed));
-    if (viaFree) return { route: 'free', provider: 'free', model: '', label: "Buddy's free AI", rank, vision: true };
-    const providerId = store.get('provider');
-    const model = modelFor(providerId);
-    if (providerId === CLAUDE_ID) return { route: 'claude-code', provider: CLAUDE_ID, model, label: 'Claude Code', rank: rankOf(CLAUDE_ID, model), vision: true };
-    const provider = providers.getProvider(providerId);
-    return { route: 'own', provider: providerId, model, label: provider.label || providerId, rank: rankOf(providerId, model), vision: provider.isVisionModel(model) };
+    const ownInfo = () => {
+      const providerId = store.get('provider');
+      const model = modelFor(providerId);
+      if (providerId === CLAUDE_ID) return { route: 'claude-code', provider: CLAUDE_ID, model, label: 'Claude Code', rank: rankOf(CLAUDE_ID, model), vision: true };
+      const provider = providers.getProvider(providerId);
+      return { route: 'own', provider: providerId, model, label: provider.label || providerId, rank: rankOf(providerId, model), vision: provider.isVisionModel(model) };
+    };
+    // The same choices ask() makes; where ask() would throw, there is no route.
+    if (!free) return own ? ownInfo() : { route: null, reason: 'network' };
+    if (!free.freeOn) return own ? ownInfo() : { route: null, reason: 'no_key' };
+    const ownAllowed = Boolean(free.allowOwnKey && own);
+    if (free.blocked) return ownAllowed ? ownInfo() : { route: null, reason: 'blocked' };
+    const usedUp = free.limitMode === 'daily' && free.limit !== null && free.usedToday >= free.limit;
+    const rank = free.agentRank || 'weak';
+    if ((usedUp || !atLeastOk(rank)) && ownAllowed) return ownInfo();
+    return { route: 'free', provider: 'free', model: '', label: "Buddy's free AI", rank, vision: free.agentVision === true };
   }
 
   /** Models for a provider: the live list for the saved key, else the fallback list. Claude Code's are its own names. */

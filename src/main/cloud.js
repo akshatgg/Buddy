@@ -59,6 +59,7 @@ function readSettings(j) {
     isAdmin: j?.isAdmin === true,
     voiceOn: j?.voiceOn === true, // the server can write down what is said (it has a Groq key)
     clawdLook: j?.clawdLook === 'face' ? 'face' : 'head', // where Clawd walks with the buddy (the admin's choice)
+    agentVision: j?.agentVision === true, // the free AI reads screenshots for jobs
     agentRank: ['best', 'hard', 'ok', 'weak'].includes(j?.agentRank) ? j.agentRank : 'weak', // the free AI's rank for jobs
   };
 }

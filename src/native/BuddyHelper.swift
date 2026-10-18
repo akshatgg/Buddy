@@ -1297,11 +1297,27 @@ func handle(_ msg: [String: Any]) {
 let buddyEventMark: Int64 = 0x42554459 // "BUDY"
 let axTreeLock = NSLock()
 var axTreeGen = 0
+var axTreePid: pid_t = 0
 var axTreeRefs: [String: AXUIElement] = [:]
 let flattenRoles: Set<String> = ["AXGroup", "AXScrollArea", "AXSplitGroup", "AXLayoutArea", "AXUnknown"]
 
 func markOwn(_ event: CGEvent?) {
     event?.setIntegerValueField(.eventSourceUserData, value: buddyEventMark)
+}
+
+final class DictBox: @unchecked Sendable {
+    var value: Result<[String: Any], Error>?
+}
+
+/// The strict check for the agent's typing: true for a password field, and when the focused field cannot be told at
+/// all it refuses (focus_unknown), unlike focusedIsSecure above, which stays lenient for Fix and paste.
+func strictFocusSecure(_ pid: pid_t) throws -> Bool {
+    let app = AXUIElementCreateApplication(pid)
+    AXUIElementSetMessagingTimeout(app, 1.0)
+    guard let element = axElement(app, kAXFocusedUIElementAttribute) else {
+        throw HelperError(code: "focus_unknown", message: "I can't tell where the cursor is, so I didn't type.")
+    }
+    return axIsSecure(element)
 }
 
 func axFrame(_ e: AXUIElement) -> CGRect? {
@@ -1338,19 +1354,34 @@ func axTree(_ args: [String: Any]) throws -> [String: Any] {
     let maxDepth = min(max(args["maxDepth"] as? Int ?? 25, 1), 40)
     let app = AXUIElementCreateApplication(pid)
     guard let window = axElement(app, kAXFocusedWindowAttribute) ?? axElement(app, kAXMainWindowAttribute) else {
-        return ["gen": 0, "title": "", "nodes": [], "focused": NSNull(), "secureFocused": false]
+        axTreeLock.lock()
+        axTreeGen += 1
+        axTreeRefs = [:]
+        axTreeLock.unlock()
+        return ["gen": axTreeGen, "title": "", "nodes": [], "focused": NSNull(), "secureFocused": false, "truncated": false]
     }
     let focusedElement = axElement(app, kAXFocusedUIElementAttribute)
+    let deadline = Date().addingTimeInterval(5)
+    var truncated = false
+    let windowFrame = axFrame(window)
+    var displayIds = [CGDirectDisplayID](repeating: 0, count: 16)
+    var displayCount: UInt32 = 0
+    CGGetActiveDisplayList(16, &displayIds, &displayCount)
+    let displayRects = displayIds.prefix(Int(displayCount)).map { CGDisplayBounds($0) }
     var refs: [String: AXUIElement] = [:]
     var nodes: [[String: Any]] = []
     var focusedId: String?
     func walk(_ e: AXUIElement, _ depth: Int) {
-        if nodes.count >= maxNodes || depth > maxDepth { return }
+        if nodes.count >= maxNodes || depth > maxDepth || truncated { return }
+        if Date() > deadline { truncated = true; return }
         let role = axString(e, kAXRoleAttribute)
         let name = [axString(e, kAXTitleAttribute), axString(e, kAXDescriptionAttribute), axString(e, "AXPlaceholderValue"),
                     axString(e, kAXHelpAttribute)].first { !$0.isEmpty } ?? ""
         let frame = axFrame(e)
-        let visible = frame.map { $0.width > 0 && $0.height > 0 } ?? true
+        let visible = frame.map { f in
+            f.width > 0 && f.height > 0 && (windowFrame.map { f.intersects($0) } ?? true)
+                && (displayRects.isEmpty || displayRects.contains { f.intersects($0) })
+        } ?? true
         if !visible { return }
         var childDepth = depth
         if !role.isEmpty && !(name.isEmpty && flattenRoles.contains(role)) {
@@ -1374,18 +1405,20 @@ func axTree(_ args: [String: Any]) throws -> [String: Any] {
     axTreeGen += 1
     let gen = axTreeGen
     axTreeRefs = refs
+    axTreePid = pid
     axTreeLock.unlock()
     let secureFocused = focusedElement.map(axIsSecure) ?? false
     return ["gen": gen, "title": axString(window, kAXTitleAttribute), "nodes": nodes,
-            "focused": focusedId ?? NSNull(), "secureFocused": secureFocused]
+            "focused": focusedId ?? NSNull(), "secureFocused": secureFocused, "truncated": truncated]
 }
 
-func axRef(_ args: [String: Any]) throws -> AXUIElement {
+func axRef(_ args: [String: Any], pid: pid_t) throws -> AXUIElement {
     guard let gen = args["gen"] as? Int, let id = args["id"] as? String else {
         throw HelperError(code: "bad_request", message: "gen and id are required")
     }
     axTreeLock.lock()
     defer { axTreeLock.unlock() }
+    guard pid == axTreePid else { throw HelperError(code: "stale", message: "That is a different app now. Look again.") }
     guard gen == axTreeGen, let e = axTreeRefs[id] else {
         throw HelperError(code: "stale_id", message: "That is not on the screen any more. Look again.")
     }
@@ -1445,7 +1478,9 @@ func pick(_ e: AXUIElement, _ option: String) throws {
             postKey(0x35, []) // Esc closes the menu that was opened
             throw HelperError(code: "no_option", message: "There is no choice \"\(option)\" there.")
         }
-        AXUIElementPerformAction(item, kAXPressAction as CFString)
+        if AXUIElementPerformAction(item, kAXPressAction as CFString) != .success {
+            throw HelperError(code: "press_failed", message: "I couldn't choose \"\(option)\".")
+        }
         return
     }
     if AXUIElementSetAttributeValue(e, kAXSelectedAttribute as CFString, kCFBooleanTrue) != .success { try press(e) }
@@ -1454,7 +1489,7 @@ func pick(_ e: AXUIElement, _ option: String) throws {
 func axAct(_ args: [String: Any]) throws -> [String: Any] {
     let pid = try pidArg(args)
     try needAccessibility()
-    let e = try axRef(args)
+    let e = try axRef(args, pid: pid)
     guard ensureFront(pid) != nil else { throw HelperError(code: "not_frontmost", message: "Could not switch to that app.") }
     switch args["op"] as? String ?? "" {
     case "press":
@@ -1466,7 +1501,9 @@ func axAct(_ args: [String: Any]) throws -> [String: Any] {
             throw HelperError(code: "not_settable", message: "I couldn't type there.")
         }
     case "focus":
-        AXUIElementSetAttributeValue(e, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        if AXUIElementSetAttributeValue(e, kAXFocusedAttribute as CFString, kCFBooleanTrue) != .success {
+            return ["ok": false, "error": "focus_failed"]
+        }
     case "toggle":
         let want = args["value"] as? Bool ?? true
         let isOn = (axAttr(e, kAXValueAttribute) as? NSNumber)?.intValue == 1
@@ -1501,7 +1538,9 @@ func menu(_ args: [String: Any]) throws -> [String: Any] {
             if let enabled = axAttr(item, kAXEnabledAttribute) as? Bool, !enabled {
                 throw HelperError(code: "disabled", message: "\"\(title)\" can't be used right now.")
             }
-            AXUIElementPerformAction(item, kAXPressAction as CFString)
+            if AXUIElementPerformAction(item, kAXPressAction as CFString) != .success {
+                return ["ok": false, "error": "press_failed"]
+            }
         } else {
             current = item
         }
@@ -1519,6 +1558,11 @@ func pointArg(_ value: Any?) throws -> CGPoint {
 func click(_ args: [String: Any]) throws -> [String: Any] {
     try needAccessibility()
     let point = try pointArg(args)
+    var hit: AXUIElement?
+    if AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit) == .success,
+       let hit, axIsSecure(hit) {
+        throw HelperError(code: "secure_field", message: "I don't click into password fields.")
+    }
     postClick(point, right: args["right"] as? Bool == true, count: args["count"] as? Int ?? 1)
     return ["ok": true]
 }
@@ -1531,6 +1575,7 @@ func drag(_ args: [String: Any]) throws -> [String: Any] {
     let down = CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: from, mouseButton: .left)
     markOwn(down)
     down?.post(tap: .cghidEventTap)
+    usleep(60_000)
     for n in 1...10 {
         let t = CGFloat(n) / 10
         let p = CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t)
@@ -1612,7 +1657,7 @@ func keys(_ args: [String: Any]) throws -> [String: Any] {
     }
     guard let key = code else { throw HelperError(code: "bad_request", message: "No key in the combo.") }
     guard ensureFront(pid) != nil else { throw HelperError(code: "not_frontmost", message: "Could not switch to that app.") }
-    if focusedIsSecure(pid) && !(flags.isEmpty && [0x24, 0x30, 0x35].contains(key)) {
+    if try strictFocusSecure(pid) && !(flags.isEmpty && [0x24, 0x30, 0x35].contains(key)) {
         throw HelperError(code: "secure_field", message: "I don't type into password fields.")
     }
     postKey(key, flags)
@@ -1626,14 +1671,23 @@ func typeText(_ args: [String: Any]) throws -> [String: Any] {
         throw HelperError(code: "bad_request", message: "text is required")
     }
     guard ensureFront(pid) != nil else { throw HelperError(code: "not_frontmost", message: "Could not switch to that app.") }
-    if focusedIsSecure(pid) { throw HelperError(code: "secure_field", message: "I don't type into password fields.") }
     let source = CGEventSource(stateID: .combinedSessionState)
-    for (n, line) in text.components(separatedBy: "\n").enumerated() {
+    let clean = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        .replacingOccurrences(of: "\t", with: " ")
+    for (n, line) in clean.components(separatedBy: "\n").enumerated() {
+        if try strictFocusSecure(pid) { throw HelperError(code: "secure_field", message: "I don't type into password fields.") }
         if n > 0 { postKey(0x24, .maskShift) } // Shift+Return: a new line, which a chat app does not take as Send
-        var rest = Substring(line)
-        while !rest.isEmpty {
-            let chunk = Array(String(rest.prefix(20)).utf16)
-            rest = rest.dropFirst(20)
+        // Chunks of at most 20 UTF-16 units, never splitting a character.
+        var chunks: [[UInt16]] = []
+        var current: [UInt16] = []
+        for ch in line {
+            let units = Array(String(ch).utf16)
+            if current.count + units.count > 20 { chunks.append(current); current = [] }
+            current += units
+        }
+        if !current.isEmpty { chunks.append(current) }
+        for chunk in chunks {
+            if try strictFocusSecure(pid) { throw HelperError(code: "secure_field", message: "I don't type into password fields.") }
             let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true)
             let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
             chunk.withUnsafeBufferPointer { p in
@@ -1686,14 +1740,14 @@ func screenshotScreen(_ args: [String: Any]) throws -> [String: Any] {
     }
     let pid = (args["pid"] as? Int).map { pid_t($0) }
     let maxEdge = min(max(args["maxEdge"] as? Int ?? 1280, 320), 1568)
-    var result: Result<[String: Any], Error>?
+    let box = DictBox()
     let done = DispatchSemaphore(value: 0)
     Task {
-        do { result = .success(try await captureScreen(pid: pid, maxEdge: maxEdge)) } catch { result = .failure(error) }
+        do { box.value = .success(try await captureScreen(pid: pid, maxEdge: maxEdge)) } catch { box.value = .failure(error) }
         done.signal()
     }
     done.wait()
-    switch result {
+    switch box.value {
     case .success(let value): return value
     case .failure(let error as HelperError): throw error
     case .failure(let error):
@@ -1724,7 +1778,9 @@ func onStopEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refc
     }
     if event.getIntegerValueField(.eventSourceUserData) == buddyEventMark { return Unmanaged.passUnretained(event) }
     if type == .keyDown {
-        send(["event": event.getIntegerValueField(.keyboardEventKeycode) == 0x35 ? "esc" : "took_over"])
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        if event.getIntegerValueField(.keyboardEventKeycode) == 0x35 { send(["event": "esc"]) }
+        else if front != ownerPid && front != getpid() { send(["event": "took_over"]) }
     } else if (type == .leftMouseDown || type == .rightMouseDown) && !ownWindowAt(event.location) {
         send(["event": "took_over"])
     }

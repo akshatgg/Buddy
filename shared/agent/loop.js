@@ -25,6 +25,9 @@ const MAX_BAD = 2;
 const MAX_ASKS = 2;
 
 const goOnHeard = (text) => /\b(go on|continue|carry on|done|ho gaya|okay|ok|chalo|aage)\b/i.test(String(text || ''));
+// Only a "stop" and nothing else (said or typed): "stop the music" is not one.
+const stopHeard = (text) => /^(please |buddy |hey buddy )?(stop|cancel|ruko|rukiye|ruk jao|band karo|band kar do|bas|बंद करो|बंद कर दो|रुको|रुकिए|रुक जाओ)( it| please| now| karo| buddy| ji| kar do|\s)*$/i
+  .test(String(text || '').trim().replace(/[.!?,।]+/g, ' ').replace(/\s+/g, ' ').trim());
 const cut = (text, max) => String(text).slice(0, max);
 const sig = (o) => [o.app?.id, o.window?.title, ...(o.elements || []).map((e) => `${e.role}|${e.name}|${e.value ?? ''}|${e.state ?? ''}`)].join('\n');
 
@@ -68,7 +71,18 @@ function createAgentJob({
    * their risk context; the hands decide it again and want the exact question approved ("needs_approval" otherwise).
    * Approval is for this one step only. Answers { result: 'ok'|'failed'|'refused'|'declined'|'stopped', text, output? }.
    */
-  async function tryAct(action, observation, risky) {
+  async function tryAct(action, seen, risky) {
+    let observation = seen;
+    // A key or a click at a point does what is under it NOW: the screen may have changed since the AI looked, so
+    // read it again and judge the risk (and act) on what is really there.
+    if ((action.type === 'keys' || action.type === 'click_at') && hands.observe) {
+      const fresh = await hands.observe({ screenshot: false });
+      if (stopped) return { result: 'stopped' };
+      if (sig(fresh) !== sig(seen) || fresh.focused !== seen.focused) {
+        observation = { ...fresh, ...(seen.screen ? { screen: seen.screen } : {}) };
+        if (isPasswordApp(observation.app)) return { result: 'refused', text: `not allowed: ${LOOP_LINES.passwordApp}` };
+      }
+    }
     const elements = observation.elements || [];
     if (action.id && !elements.some((e) => e.id === action.id)) {
       return { result: 'failed', text: `failed: ${action.id} is not on the screen now; look again` };
@@ -212,4 +226,4 @@ function createAgentJob({
   return { run, stop, pause, get steps() { return steps.slice(); } };
 }
 
-module.exports = { createAgentJob, goOnHeard, LOOP_LINES };
+module.exports = { createAgentJob, goOnHeard, stopHeard, LOOP_LINES };

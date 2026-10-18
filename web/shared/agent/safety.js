@@ -75,6 +75,14 @@ const plain = (text) => ` ${fold(text).normalize('NFD').toLowerCase().replace(/[
 const hasWord = (text, words) => { const p = plain(text); return words.some((w) => p.includes(plain(w))); };
 const base = (path) => String(path).replace(/\/+$/, '').split('/').pop() || String(path);
 const short = (text, max = 80) => (String(text).length > max ? `${String(text).slice(0, max - 1)}…` : String(text));
+// The question is shown in the bubble (3 lines) and approves exactly what it says, so it must hold the whole thing.
+const QUESTION_MAX = 110;
+const fullAsk = (reason, text, make, what) => {
+  const t = String(text);
+  const q = make(t);
+  if (/[\r\n]/.test(t) || q.length > QUESTION_MAX) return never(`That ${what} is too long for me to ask about. Run it yourself.`);
+  return ask(reason, q);
+};
 const safe = () => ({ risk: 'safe', reason: '', question: '' });
 const ask = (reason, question) => ({ risk: 'ask', reason, question });
 const never = (reason) => ({ risk: 'never', reason, question: '' });
@@ -349,7 +357,7 @@ function urlRisk(url) {
   if (PASSWORD_PAGES.test(parsed.hostname)) return never("I don't open password manager pages");
   if (parsed.protocol === 'tel:' || parsed.protocol === 'facetime:' || parsed.protocol === 'facetime-audio:') return ask('it calls', `Call ${short(decodeURIComponent(parsed.pathname))}?`);
   if (parsed.protocol === 'sms:') return ask('it texts', `Text ${short(decodeURIComponent(parsed.pathname))}?`);
-  if (!SAFE_SCHEMES.includes(parsed.protocol)) return ask('it opens another app', `Open this link: ${short(url)}?`);
+  if (!SAFE_SCHEMES.includes(parsed.protocol)) return fullAsk('it opens another app', url, (t) => `Open this link: ${t}?`, 'link');
   if (/download/i.test(parsed.search) || DOWNLOAD_LINKS.test(parsed.pathname) || INSTALLER_FILES.test(parsed.pathname)) return ask('it downloads an installer', `Download ${short(base(parsed.pathname))}?`);
   return safe();
 }
@@ -363,7 +371,7 @@ function keysRisk(action, c) {
   const app = c.app?.name || 'this app';
   if (enter && messaging(c)) return ask('it sends', `Send this in ${app}?`);
   if (inTerminal(c)) {
-    if (enter) return ask('it runs a command', c.line ? `Run "${short(c.line)}" in ${app}?` : `Run this in ${app}?`);
+    if (enter) return c.line ? fullAsk('it runs a command', c.line, (t) => `Run "${t}" in ${app}?`, 'command') : ask('it runs a command', `Run this in ${app}?`);
     if (!TERMINAL_KEYS.includes(key)) return ask('keys in a terminal can run things', `Press ${short(action.combo)} in ${app}?`);
   }
   if ((key === 'backspace' || key === 'delete') && mods.includes('cmd')) return ask('it deletes', 'Move the selected items to the Trash?');
@@ -378,7 +386,7 @@ function typedRisk(action, c) {
   if (inTerminal(c)) {
     const r = commandRisk(action.text);
     if (r.risk === 'never') return never(r.reason);
-    return r.risk === 'ask' ? ask(r.reason, `Type this command: ${short(action.text)}?`) : safe();
+    return r.risk === 'ask' ? fullAsk(r.reason, action.text, (t) => `Type this command: ${t}?`, 'command') : safe();
   }
   if (messaging(c) && /[\r\n]/.test(action.text || '')) return ask('it sends', `Send this in ${c.app?.name || 'this app'}?`);
   return null;
@@ -418,7 +426,7 @@ function baseRisk(action, c) {
     case 'run': {
       const r = commandRisk(action.command);
       if (r.risk === 'never') return never(r.reason);
-      return r.risk === 'ask' ? ask(r.reason, `Run this command: ${short(action.command)}?`) : safe();
+      return r.risk === 'ask' ? fullAsk(r.reason, action.command, (t) => `Run this command: ${t}?`, 'command') : safe();
     }
     case 'files': return filesRisk(action, c);
     case 'open_url': return urlRisk(action.url);
@@ -450,4 +458,4 @@ function riskOf(action, ctx = {}) {
   return r;
 }
 
-module.exports = { KEY_NAMES, KEY_MODIFIERS, riskOf, commandRisk, isPasswordApp, RISK_WORDS, COMFORT_WORDS, COMFORT_NAMES, COMFORT_ROLES, READ_ONLY_COMMANDS };
+module.exports = { PASSWORD_APPS, KEY_NAMES, KEY_MODIFIERS, riskOf, commandRisk, isPasswordApp, RISK_WORDS, COMFORT_WORDS, COMFORT_NAMES, COMFORT_ROLES, READ_ONLY_COMMANDS };

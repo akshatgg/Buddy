@@ -20,6 +20,7 @@ function fakeHands({ screens, start, moves = {}, exists = [], fail = [] }) {
     actOptions,
     looks,
     at: () => at,
+    setScreen: (name) => { at = name; },
     async observe({ screenshot = false } = {}) {
       looks.push(screenshot);
       const s = screens[at];

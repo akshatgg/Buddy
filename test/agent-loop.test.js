@@ -298,3 +298,25 @@ test('the time limit is checked after a step, before the next', async () => {
   const r = await s.j.run();
   assert.strictEqual(r.end, 'limit');
 });
+
+test('a key or a click at a point is judged on the screen as it is NOW, not as the AI saw it', async () => {
+  const quiet = { elements: [el('e1', 'button', 'Cancel'), el('e2', 'row', 'a')], focused: 'e1' }; // a poor tree: a picture is taken first, then the key or click
+  const dialog = { elements: [el('e1', 'button', 'Place your order'), el('e2', 'row', 'a')], dialog: 'Place your order', focused: 'e1' };
+  for (const action of [{ type: 'keys', combo: 'enter' }, { type: 'click_at', x: 5, y: 5 }]) {
+    const hands = fakeHands({ screens: { quiet, dialog }, start: 'quiet' });
+    const real = hands.observe.bind(hands);
+    let reads = 0;
+    hands.observe = async (o) => { reads += 1; if (reads >= 3) hands.setScreen('dialog'); return real(o); };
+    const g = gate({ answers: ['no'] });
+    const j = createAgentJob({ goal: 'x', brain: brain([step('', action), step('', { type: 'done', summary: 'ok' })]), hands, gate: g, limits: LIMITS, sleep: async () => {} });
+    await j.run();
+    assert.strictEqual(g.asked.length, 1, `${action.type} asked because the screen changed`);
+    assert.strictEqual(hands.acts.length, 0, `${action.type} not done`);
+  }
+});
+
+test('stopHeard: only a lone stop word, in English, Hinglish or Hindi', () => {
+  const { stopHeard } = require('../shared/agent/loop');
+  for (const t of ['stop', 'Stop.', 'please stop', 'ruko', 'band karo', 'cancel', 'बंद करो', 'रुको', 'stop it']) assert.strictEqual(stopHeard(t), true, t);
+  for (const t of ['stop the music', 'go on', 'do not stop', '', 'yes']) assert.strictEqual(stopHeard(t), false, t);
+});

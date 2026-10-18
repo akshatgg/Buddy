@@ -1711,14 +1711,14 @@ func typeText(_ args: [String: Any]) throws -> [String: Any] {
     return ["ok": true]
 }
 
-func captureScreen(pid: pid_t?, maxEdge: Int) async throws -> [String: Any] {
+func captureScreen(pid: pid_t?, maxEdge: Int, excludeBundles: [String] = []) async throws -> [String: Any] {
     let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
     var display = content.displays.first
     if let pid, let windowId = frontWindowId(pid), let window = content.windows.first(where: { $0.windowID == windowId }) {
         display = content.displays.first(where: { $0.frame.intersects(window.frame) }) ?? display
     }
     guard let display else { throw HelperError(code: "no_window", message: "No screen to capture.") }
-    let own = content.applications.filter { $0.processID == ownerPid || $0.processID == getpid() }
+    let own = content.applications.filter { $0.processID == ownerPid || $0.processID == getpid() || excludeBundles.contains($0.bundleIdentifier) }
     let filter = SCContentFilter(display: display, excludingApplications: own, exceptingWindows: [])
     let scale = CGFloat(filter.pointPixelScale)
     var width = display.frame.width * scale
@@ -1747,10 +1747,11 @@ func screenshotScreen(_ args: [String: Any]) throws -> [String: Any] {
     }
     let pid = (args["pid"] as? Int).map { pid_t($0) }
     let maxEdge = min(max(args["maxEdge"] as? Int ?? 1280, 320), 1568)
+    let excludeBundles = (args["excludeBundles"] as? [String]) ?? []
     let box = DictBox()
     let done = DispatchSemaphore(value: 0)
     Task {
-        do { box.value = .success(try await captureScreen(pid: pid, maxEdge: maxEdge)) } catch { box.value = .failure(error) }
+        do { box.value = .success(try await captureScreen(pid: pid, maxEdge: maxEdge, excludeBundles: excludeBundles)) } catch { box.value = .failure(error) }
         done.signal()
     }
     done.wait()

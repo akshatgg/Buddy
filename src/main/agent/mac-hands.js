@@ -10,7 +10,7 @@ const path = require('node:path');
 const fsp = require('node:fs/promises');
 const { BuddyError } = require('../../../shared/errors');
 const { formatScreen } = require('../../../shared/agent/prompt');
-const { isPasswordApp, riskOf, KEY_NAMES, KEY_MODIFIERS } = require('../../../shared/agent/safety');
+const { PASSWORD_APPS, isPasswordApp, riskOf, KEY_NAMES, KEY_MODIFIERS } = require('../../../shared/agent/safety');
 
 const MAX_NODES = 600;
 const SHOT_EDGE = 1280;
@@ -148,8 +148,11 @@ function createMacHands({
 
   /** The context shared/agent/safety.js's riskOf reads, from the last look: app, window title, dialog, line, target. */
   async function riskContext(action, observation, { risky = false } = {}) {
+    // Enter or Space (and typing with no id) act on the focused element, so that is the target the risk is judged on.
+    const focusedId = (action.type === 'keys' || ((action.type === 'type' || action.type === 'set_value') && !action.id)) ? observation.focused : null;
     const el = action.id ? (observation.elements || []).find((e) => e.id === action.id)
-      : (action.type === 'click_at' ? await elementAt(action.x, action.y, observation) : null);
+      : (action.type === 'click_at' ? await elementAt(action.x, action.y, observation)
+        : (focusedId ? (observation.elements || []).find((e) => e.id === focusedId) : null));
     const target = el ? { role: el.role, subrole: el.subrole || '', name: el.name || '', description: el.description || '' } : null;
     let overwrites = false;
     if (action.type === 'files' && ['copy', 'move', 'rename', 'write'].includes(action.op)) {
@@ -193,7 +196,7 @@ function createMacHands({
       dialog: dialogAt >= 0 ? elements.slice(dialogAt, dialogAt + 12).map((e) => e.name).filter(Boolean).join(' ').slice(0, 300) : '',
     };
     if (screenshot && !observation.secureFocused) {
-      const shot = await helper.call('screenshotScreen', { pid: app.pid, maxEdge: SHOT_EDGE });
+      const shot = await helper.call('screenshotScreen', { pid: app.pid, maxEdge: SHOT_EDGE, excludeBundles: PASSWORD_APPS });
       observation.screen = { image: shot.image, width: shot.width, height: shot.height };
       map = { origin: shot.origin, pointsPerPixel: shot.pointsPerPixel };
     }
@@ -417,7 +420,7 @@ function createMacHands({
       // No permission to read the screen as text: the picture alone still helps.
       const app = await target();
       if (!app?.pid || isPasswordApp({ name: app.name || '', id: app.bundleId || '' })) throw new BuddyError('capture_failed', "I don't look at password apps.");
-      const shot = await helper.call('screenshotScreen', { pid: app.pid, maxEdge: SHOT_EDGE });
+      const shot = await helper.call('screenshotScreen', { pid: app.pid, maxEdge: SHOT_EDGE, excludeBundles: PASSWORD_APPS });
       return { image: shot.image, screenText: '' };
     }
     if (isPasswordApp(o.app)) throw new BuddyError('capture_failed', "I don't look at password apps.");

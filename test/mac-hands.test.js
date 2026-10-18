@@ -372,7 +372,7 @@ test('run: the whole process group is killed on stop, and the env is cut down', 
   const job = new AbortController();
   setTimeout(() => job.abort(), 300);
   const pidFile = path.join(dir, 'pid');
-  const r = await h.act({ type: 'run', command: `sleep 30 & echo $! > ${pidFile}; wait` }, o, { signal: job.signal, approved: Q });
+  const r = await h.act({ type: 'run', command: 'sleep 30 & echo $! > pid; wait' }, o, { signal: job.signal, approved: Q });
   assert.strictEqual(r.code, 'stopped');
   const pid = Number(fs.readFileSync(pidFile, 'utf8'));
   await new Promise((resolve) => { setTimeout(resolve, 200); });
@@ -476,4 +476,45 @@ test('look: without accessibility the picture still comes, with no text; passwor
   await assert.rejects(() => pw.h.look(), { message: "I don't look at password apps." });
   const pw2 = hands({ helper: fakeHelper({ last: { pid: 9, bundleId: 'com.1password.1password', name: '1Password' }, fail: { axTree: new BuddyError('no_accessibility', 'x') } }) });
   await assert.rejects(() => pw2.h.look(), { message: "I don't look at password apps." });
+});
+
+test('Enter or Space on a focused "Place your order" button asks (the focused element is the target), through the real riskContext and riskOf', async () => {
+  const { riskOf } = require('../shared/agent/safety');
+  const tree = { gen: 1, title: 'Checkout', focused: 'e9', secureFocused: false, nodes: [
+    { id: 'e1', role: 'AXWindow', subrole: '', name: 'Checkout', depth: 0 },
+    { id: 'e2', role: 'AXButton', subrole: '', name: 'Back', depth: 1 },
+    { id: 'e9', role: 'AXButton', subrole: '', name: 'Place your order', depth: 1 },
+  ] };
+  const { h } = hands({ helper: fakeHelper({ tree, last: { pid: 5, bundleId: 'com.apple.Safari', name: 'Safari' } }) });
+  const o = await h.observe({});
+  for (const combo of ['enter', 'space', 'return']) {
+    const action = { type: 'keys', combo };
+    const r = riskOf(await h.canonical(action), await h.riskContext(action, o));
+    assert.strictEqual(r.risk, 'ask', combo);
+    assert.match(r.question, /Place your order/);
+  }
+  // The same through act: it will not press without the exact question approved.
+  const pressed = await h.act({ type: 'keys', combo: 'enter' }, o, {});
+  assert.strictEqual(pressed.code, 'needs_approval');
+});
+
+test('a focused terminal element makes Enter a command run (terminal found by the focused subrole)', async () => {
+  const { riskOf } = require('../shared/agent/safety');
+  const tree = { gen: 1, title: 'x', focused: 'e2', secureFocused: false, nodes: [
+    { id: 'e1', role: 'AXWindow', subrole: '', name: 'x', depth: 0 },
+    { id: 'e2', role: 'AXTextArea', subrole: 'AXTerminalView', name: '', value: 'ls', depth: 1 },
+  ] };
+  const { h } = hands({ helper: fakeHelper({ tree, last: { pid: 5, bundleId: 'com.example.Unknown', name: 'Weird' } }) });
+  const o = await h.observe({});
+  const action = { type: 'keys', combo: 'enter' };
+  assert.strictEqual(riskOf(await h.canonical(action), await h.riskContext(action, o)).risk, 'ask');
+});
+
+test('screenshots leave out Buddy and the password apps (the list goes to the helper)', async () => {
+  const { PASSWORD_APPS } = require('../shared/agent/safety');
+  const { h, helper } = hands();
+  await h.observe({ screenshot: true });
+  const shot = helper.calls.find(([cmd]) => cmd === 'screenshotScreen');
+  assert.deepStrictEqual(shot[1].excludeBundles, PASSWORD_APPS);
+  assert.ok(shot[1].excludeBundles.includes('com.1password.1password'));
 });

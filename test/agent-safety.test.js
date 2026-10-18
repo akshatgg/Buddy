@@ -197,7 +197,7 @@ test('files: writes that run at login or change the system ask; paths are normal
 
 test('terminals: typed text and Enter go through the command check', () => {
   for (const app of [TERM, { name: 'iTerm2', id: 'com.googlecode.iterm2' }, { name: 'Warp', id: 'dev.warp.Warp-Stable' }, { name: 'Script Editor', id: 'com.apple.ScriptEditor2' }]) {
-    assert.strictEqual(risk({ type: 'type', text: 'rm -rf ~/Documents\n' }, { app }), 'ask', app.name);
+    assert.strictEqual(risk({ type: 'type', text: 'rm -rf ~/Documents' }, { app }), 'ask', app.name);
     assert.strictEqual(risk({ type: 'set_value', id: 'e1', text: 'brew install x' }, { app }), 'ask', app.name);
     assert.strictEqual(risk({ type: 'keys', combo: 'enter' }, { app }), 'ask', app.name);
     assert.strictEqual(risk({ type: 'keys', combo: 'return' }, { app }), 'ask', app.name);
@@ -358,4 +358,27 @@ test('key names: unknown names and modifiers ask; kp_enter, ctrl+j and ctrl+m ar
     assert.strictEqual(risk({ type: 'keys', combo }, { app: TERM }), 'ask', combo);
     assert.strictEqual(risk({ type: 'keys', combo }, { dialog: 'Hello' }), 'ask', combo);
   }
+});
+
+test('a command, typed command or link that does not fit in the question in full is refused, never cut', () => {
+  const long = `echo ${'a'.repeat(60)} > out.txt; touch ${'b'.repeat(60)}`;
+  for (const action of [{ type: 'run', command: long }, { type: 'type', text: long }]) {
+    const r = riskOf(action, ctx({ app: action.type === 'type' ? TERM : FINDER }));
+    assert.strictEqual(r.risk, 'never', action.type);
+    assert.strictEqual(r.reason, 'That command is too long for me to ask about. Run it yourself.');
+  }
+  const link = riskOf({ type: 'open_url', url: `myapp://open?x=${'z'.repeat(150)}` }, ctx());
+  assert.deepStrictEqual([link.risk, link.reason], ['never', 'That link is too long for me to ask about. Run it yourself.']);
+  const enter = riskOf({ type: 'keys', combo: 'enter' }, ctx({ app: TERM, line: `rm -rf ${'x'.repeat(120)}` }));
+  assert.strictEqual(enter.risk, 'never');
+});
+
+test('a multi-line command is refused; a short one is asked about with every part in the question', () => {
+  assert.strictEqual(risk({ type: 'run', command: 'ls\nrm -rf ~/x' }), 'never');
+  assert.strictEqual(risk({ type: 'type', text: 'ls\nrm -rf ~/x' }, { app: TERM }), 'never');
+  const r = riskOf({ type: 'run', command: 'mkdir a && touch a/b; rm -r a' }, ctx());
+  assert.strictEqual(r.risk, 'ask');
+  assert.strictEqual(r.question, 'Run this command: mkdir a && touch a/b; rm -r a?');
+  const link = riskOf({ type: 'open_url', url: 'myapp://open?x=1' }, ctx());
+  assert.strictEqual(link.question, 'Open this link: myapp://open?x=1?');
 });

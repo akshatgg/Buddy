@@ -409,7 +409,18 @@ function createMacHands({
 
   /** Eyes (spec §12): the whole screen without Buddy, and the front window's text. Never in a password app or box. */
   async function look() {
-    const o = await observe({ screenshot: true });
+    let o;
+    try {
+      o = await observe({ screenshot: true });
+    } catch (err) {
+      if (err.code !== 'no_accessibility') throw err;
+      // No permission to read the screen as text: the picture alone still helps.
+      const app = await target();
+      if (!app?.pid || isPasswordApp({ name: app.name || '', id: app.bundleId || '' })) throw new BuddyError('capture_failed', "I don't look at password apps.");
+      const shot = await helper.call('screenshotScreen', { pid: app.pid, maxEdge: SHOT_EDGE });
+      return { image: shot.image, screenText: '' };
+    }
+    if (isPasswordApp(o.app)) throw new BuddyError('capture_failed', "I don't look at password apps.");
     if (!o.screen) throw new BuddyError('capture_failed', "I can't look while a password box is in use.");
     return { image: o.screen.image, screenText: formatScreen(o, READ_MAX) };
   }

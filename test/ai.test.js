@@ -529,3 +529,20 @@ test('the caller\'s abort signal reaches the server and Claude Code calls of a s
   await o.ai.ask('agent', JOB, { signal: new AbortController().signal });
   assert.ok(o.calls[0].signal instanceof AbortSignal);
 });
+
+test('chat: free_no_vision sends the step again with the text only; chatVision follows the chat route', async () => {
+  let n = 0;
+  const t = setup({ free: FREE_ON, freeAsk: () => {
+    n += 1;
+    if (n === 1) throw new BuddyError('free_no_vision', "The free AI can't read screenshots right now.");
+    return { text: '{"kind":"answer","say":"","text":"ok","notes":[],"doIt":false,"send":false,"remember":[]}', model: 'm' };
+  } });
+  const out = await t.ai.ask('chat', { message: 'what is this?', image: 'IMG', screenText: 'App: Mail', step: 2 });
+  assert.strictEqual(out.imageDropped, true);
+  const asks = t.cloudCalls.filter((c) => c[0] === 'cloudAsk');
+  assert.strictEqual(asks[1][2].image, undefined);
+  assert.strictEqual(asks[1][2].screenText, 'App: Mail');
+  assert.strictEqual(await setup({ free: FREE_OFF, vision: false }).ai.chatVision(), false);
+  assert.strictEqual(await setup({ free: FREE_OFF, vision: true }).ai.chatVision(), true);
+  assert.strictEqual(await setup({ free: FREE_ON, vision: false }).ai.chatVision(), true);
+});

@@ -149,6 +149,10 @@ function createAi({
     try {
       return await cloud.ask(action, input, options);
     } catch (err) {
+      // A chat step whose picture the free AI cannot read goes again with the text only.
+      if (action === 'chat' && input.image && err.code === 'free_no_vision') {
+        return { ...(await ask(action, { ...input, image: undefined }, options)), imageDropped: true };
+      }
       if (!FREE_REFUSALS.includes(err.code) && !(action === 'agent' && err.code === 'free_no_vision')) throw err;
       return afterRefusal(err, free, own, action, input, options);
     }
@@ -181,6 +185,25 @@ function createAi({
     return { route: 'free', provider: 'free', model: '', label: "Buddy's free AI", rank, vision: free.agentVision === true };
   }
 
+  /**
+   * Whether the AI that would answer the chat reads screenshots (ask()'s route for a chat step). True when the free
+   * server may (a refusal then sends the step again with the text only); false when it surely cannot.
+   */
+  async function chatVision() {
+    if (!account.isSignedIn()) return true;
+    const free = await cloud.settings().catch(() => null);
+    const own = await hasOwn();
+    const ownVision = () => {
+      const providerId = store.get('provider');
+      return providerId === CLAUDE_ID ? true : providers.getProvider(providerId).isVisionModel(modelFor(providerId));
+    };
+    if (!free) return own ? ownVision() : true;
+    if (!free.freeOn) return ownVision();
+    const usedUp = free.limitMode === 'daily' && free.limit !== null && free.usedToday >= free.limit;
+    if (free.blocked || (usedUp && free.allowOwnKey)) return own && free.allowOwnKey ? ownVision() : true;
+    return true;
+  }
+
   /** Models for a provider: the live list for the saved key, else the fallback list. Claude Code's are its own names. */
   async function listModels(providerId, { signal } = {}) {
     if (providerId === CLAUDE_ID) return CLAUDE_MODELS;
@@ -191,7 +214,7 @@ function createAi({
     return live.length ? live : provider.fallbackModels;
   }
 
-  return { ask, listModels, modelFor, brainInfo };
+  return { ask, chatVision, listModels, modelFor, brainInfo };
 }
 
 module.exports = { createAi, MAX_TOKENS, AI_TIMEOUT_MS };

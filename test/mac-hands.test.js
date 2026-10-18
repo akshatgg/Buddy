@@ -468,3 +468,12 @@ test('look: no picture in a password app or with a password box focused', async 
   await assert.rejects(() => box.h.look(), { code: 'capture_failed' });
   assert.ok(!box.helper?.calls?.some?.(([c]) => c === 'screenshotScreen'));
 });
+
+test('look: without accessibility the picture still comes, with no text; password apps have their own line', async () => {
+  const h1 = hands({ helper: fakeHelper({ fail: { axTree: new BuddyError('no_accessibility', 'x') } }) });
+  assert.deepStrictEqual(await h1.h.look(), { image: 'IMG', screenText: '' });
+  const pw = hands({ helper: fakeHelper({ last: { pid: 9, bundleId: 'com.1password.1password', name: '1Password' } }) });
+  await assert.rejects(() => pw.h.look(), { message: "I don't look at password apps." });
+  const pw2 = hands({ helper: fakeHelper({ last: { pid: 9, bundleId: 'com.1password.1password', name: '1Password' }, fail: { axTree: new BuddyError('no_accessibility', 'x') } }) });
+  await assert.rejects(() => pw2.h.look(), { message: "I don't look at password apps." });
+});

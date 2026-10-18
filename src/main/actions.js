@@ -414,8 +414,9 @@ function createActions({
   }
 
   /** One `chat` request, given AI_TIMEOUT_MS. An answer that comes without its reading is shown as a written one. */
-  async function ask(input) {
+  async function ask(input, flags = null) {
     const out = await ai.ask('chat', input, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
+    if (flags && out.imageDropped) flags.dropped = true; // the free AI could not read the picture: text only
     return out.chat || { kind: 'write', say: '', text: out.text || '', notes: [], doIt: false, send: false, remember: [] };
   }
 
@@ -486,11 +487,15 @@ function createActions({
       }
       let image;
       let screenText = '';
+      const flags = { dropped: false };
       try {
         if (eyes) {
           ({ image, screenText } = await eyes.look());
           // A model that cannot read pictures gets the screen's text only.
-          if (image && ai.brainInfo && (await ai.brainInfo().catch(() => null))?.vision === false) image = '';
+          if (image && ai.chatVision && (await ai.chatVision().catch(() => true)) === false) {
+            image = '';
+            flags.dropped = true;
+          }
         } else ({ image } = await helper.call('screenshot', { pid: c.app.pid }));
       } catch (err) {
         failed(c, err, you);
@@ -499,7 +504,11 @@ function createActions({
       if (c !== chat) return false;
       add(c, { type: 'event', text: eyes ? '👀 Looked at your screen' : `👀 Looked at ${appName(c)}`, buttons: [] });
       push(c);
-      reply = await ask({ ...asked, ...selection, ...(image ? { image } : {}), ...(screenText ? { screenText } : {}), step: 2 });
+      reply = await ask({ ...asked, ...selection, ...(image ? { image } : {}), ...(screenText ? { screenText } : {}), step: 2 }, flags);
+      if (flags.dropped && c === chat) {
+        add(c, { type: 'event', text: 'I can only read the text on your screen with this AI.', buttons: [] });
+        push(c);
+      }
       if (c !== chat) return false;
       second = true;
     }

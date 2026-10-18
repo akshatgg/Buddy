@@ -3048,9 +3048,10 @@ test('screen with eyes: one look at the whole screen, its text goes with the pic
 test('screen with eyes: a model that cannot read pictures gets the screen text only', async () => {
   const eyes = { look: async () => ({ image: 'SCREEN', screenText: 'App: Mail' }) };
   const s = setup({ eyes, answers: [reply({ kind: 'screen' }), reply({ kind: 'answer', text: 'ok' })] });
-  s.ai.brainInfo = async () => ({ vision: false });
+  s.ai.chatVision = async () => false;
   await s.actions.open();
   await s.actions.send('what is this?');
   const second = s.log.filter((l) => l[0] === 'ask')[1][2];
   assert.deepStrictEqual([second.image, second.screenText], [undefined, 'App: Mail']);
+  assert.ok(chatOf(s).some((i) => i.text === 'I can only read the text on your screen with this AI.'));
 });

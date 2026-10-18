@@ -1,6 +1,6 @@
 'use strict';
 
-/** Whether the Mac's screen is locked, and a wait for it to be unlocked (a send waits for the person to unlock). */
+/** Whether the Mac's screen is locked, a wait for it to be unlocked (a send waits for the person to unlock), and a call each time it locks (a running job stops). */
 function createLock({ powerMonitor, setTimer = setTimeout, clearTimer = clearTimeout }) {
   function locked() {
     try {
@@ -26,7 +26,13 @@ function createLock({ powerMonitor, setTimer = setTimeout, clearTimer = clearTim
     });
   }
 
-  return { locked, unlocked };
+  /** Calls `fn` each time the screen locks (a computer-agent job stops at once); answers the function that stops that. */
+  function onLocked(fn) {
+    powerMonitor.on('lock-screen', fn);
+    return () => powerMonitor.removeListener('lock-screen', fn);
+  }
+
+  return { locked, unlocked, onLocked };
 }
 
 module.exports = { createLock };

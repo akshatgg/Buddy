@@ -160,3 +160,13 @@ test('a chosen voice that is gone still sends the best one as the fallback', asy
   await tb.say('x');
   assert.deepStrictEqual(log[0][1], { text: 'x', voiceName: 'Daniel', fallbackName: 'Rishi' });
 });
+
+test('hear with silence: true tells nothing heard or a failure (null) from a heard no', async () => {
+  const quiet = { silence: true };
+  assert.strictEqual(await setup({ answers: [{ text: '' }] }).tb.hear('send', quiet), null);
+  assert.strictEqual(await setup({ answers: [{ text: '[unk]' }] }).tb.hear('send', quiet), null);
+  assert.strictEqual(await setup({ answers: [{}] }).tb.hear('send', quiet), null);
+  assert.strictEqual(await setup({ answers: [new Error('x')] }).tb.hear('send', quiet), null);
+  assert.strictEqual(await setup({ answers: [{ text: 'no' }] }).tb.hear('send', quiet), 'no');
+  assert.strictEqual(await setup({ answers: [{ text: 'yes' }] }).tb.hear('send', quiet), 'yes');
+});

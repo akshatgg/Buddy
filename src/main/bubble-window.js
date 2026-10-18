@@ -95,13 +95,13 @@ function createBubbleWindow({ ipcMain = null, onClick = () => {}, onButton = () 
     ipcMain.on('bubble:click', (event) => {
       if (fromPage(event) && speech) onClick();
     });
-    ipcMain.on('bubble:button', (event, name) => {
-      if (fromPage(event) && speech && BUBBLE_BUTTONS.includes(name)) onButton(name);
+    ipcMain.on('bubble:button', (event, name, token) => {
+      if (fromPage(event) && speech && BUBBLE_BUTTONS.includes(name)) onButton(name, typeof token === 'string' ? token : undefined);
     });
   }
 
   /** Shows `text` at `bounds`; `asSpeech` for a hands-free answer's. Answers the window, or null when it went meanwhile. */
-  async function show(text, bounds, asSpeech, buttons = []) {
+  async function show(text, bounds, asSpeech, buttons = [], token = null) {
     if (!win) create();
     const w = win;
     await ready;
@@ -113,7 +113,7 @@ function createBubbleWindow({ ipcMain = null, onClick = () => {}, onButton = () 
     const under = Boolean(p) && p.x >= bounds.x && p.x < bounds.x + bounds.width && p.y >= bounds.y && p.y < bounds.y + bounds.height;
     w.setIgnoreMouseEvents(!under, asSpeech ? { forward: true } : {});
     w.setBounds(bounds);
-    w.webContents.send('bubble:text', text, asSpeech, ...(buttons.length ? [buttons] : []));
+    w.webContents.send('bubble:text', text, asSpeech, ...(buttons.length ? [buttons] : []), ...(buttons.length && token ? [token] : []));
     w.showInactive();
     return w;
   }
@@ -134,13 +134,13 @@ function createBubbleWindow({ ipcMain = null, onClick = () => {}, onButton = () 
      * A hands-free answer's words, held up until release(): beside the floating buddy, or under the notch (`at` is
      * home.panelAt()). Null keeps the words up. Never rejects.
      */
-    async speak(text, at, buttons = []) {
+    async speak(text, at, buttons = [], token = null) {
       if (text === null) {
         if (speech && !held) clearTimeout(timer);
         return;
       }
       const bounds = at.kind === 'below' ? speechUnderNotch(at.notch, at.area, buttons.length > 0) : speechBounds(at.buddy, at.area, buttons.length > 0);
-      showing = show(text, bounds, true, buttons)
+      showing = show(text, bounds, true, buttons, token)
         .then((w) => {
           held = Boolean(w) && buttons.length > 0;
           if (held) timer = setTimeout(() => { held = false; if (!w.isDestroyed()) w.hide(); }, BUTTONS_HOLD_MS);

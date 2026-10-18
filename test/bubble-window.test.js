@@ -37,7 +37,7 @@ function setup(t, { pointer = null } = {}) {
   const clicks = [];
   const buttons = [];
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const bubble = createBubbleWindow({ ipcMain, onClick: () => clicks.push('click'), onButton: (name) => buttons.push(name), cursor: () => pointer, BrowserWindow: FakeWindow });
+  const bubble = createBubbleWindow({ ipcMain, onClick: () => clicks.push('click'), onButton: (name, token) => buttons.push(token === undefined ? name : `${name}:${token}`), cursor: () => pointer, BrowserWindow: FakeWindow });
   const fromPage = () => ({ sender: made[0].webContents });
   return { bubble, made, handlers, clicks, buttons, fromPage, win: () => made[0] };
 }
@@ -160,4 +160,12 @@ test('hide ends the hold (the short bubble shows again); speak(null) keeps the h
   s.bubble.hide();
   await s.bubble.say('Copied', BUDDY, AREA);
   assert.deepStrictEqual(s.win().sent.at(-1), ['bubble:text', 'Copied', false]);
+});
+
+test('speak with a token sends it after the buttons; the button press comes back with it', async (t) => {
+  const s = setup(t);
+  await s.bubble.speak('Delete?', AT, ['yes', 'no'], 'tok-1');
+  assert.deepStrictEqual(s.win().sent.at(-1), ['bubble:text', 'Delete?', true, ['yes', 'no'], 'tok-1']);
+  s.handlers['bubble:button'](s.fromPage(), 'yes', 'tok-1');
+  assert.deepStrictEqual(s.buttons, ['yes:tok-1']);
 });

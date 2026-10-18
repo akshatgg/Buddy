@@ -8,14 +8,16 @@ const { el, fakeHands } = require('./helpers/agent-fakes');
 const SCREEN = { files: { elements: [el('e1', 'row', 'a.pdf'), el('e2', 'row', 'b'), el('e3', 'row', 'c'), el('e4', 'row', 'd'), el('e5', 'row', 'e')] } };
 const TRASH = { say: '', action: { type: 'files', op: 'trash', path: '/a/a.pdf' } };
 const DONE = { say: '', action: { type: 'done', summary: 'ok' } };
+const lastToken = (s) => s.log.filter((l) => l[0] === 'speech').pop()[3];
 const settle = async () => { for (let i = 0; i < 30; i += 1) await new Promise((r) => { setImmediate(r); }); };
 
 function setup({
   replies = [], info = { route: 'own', provider: 'anthropic', model: 'claude-sonnet-5-5', label: 'Claude', rank: 'best', vision: true },
   settings = { agentOn: true, agentAgreed: true }, perms = { accessibility: true, screenRecording: true }, heard = [], talk = true,
-  locked = false, lock = null, waits = null, onAsk = () => {},
+  locked = false, lock = null, waits = null, onAsk = () => {}, myVoice = null, hearSilent = 0, onPerms = () => {},
 } = {}) {
   const log = [];
+  let tokens = 0;
   const store = { get: (k) => settings[k], set: (patch) => { Object.assign(settings, patch); log.push(['store', patch]); } };
   const hands = fakeHands({ screens: SCREEN, start: 'files' });
   const queue = [...replies];
@@ -29,18 +31,22 @@ function setup({
       return { text: JSON.stringify(next), model: 'm' };
     },
   };
-  const helper = { call: async (cmd, args) => { log.push(['helper', cmd, args]); return cmd === 'permissions' ? perms : { ok: true }; } };
+  const helper = { call: async (cmd, args) => { log.push(['helper', cmd, args]); if (cmd === 'permissions') onPerms(); return cmd === 'permissions' ? perms : { ok: true }; } };
   const talkBack = talk ? {
     say: async (t) => { log.push(['say', t]); },
-    hear: async (verb) => { log.push(['hear', verb]); return heard.length ? heard.shift() : 'no'; },
+    hear: async (verb, opts = {}) => {
+      log.push(['hear', verb]);
+      if (opts.silence) { if (hearSilent > 0) { hearSilent -= 1; return null; } return heard.length ? heard.shift() : null; }
+      return heard.length ? heard.shift() : 'no';
+    },
     listen: async () => null,
     stop: () => log.push(['stopVoice']),
   } : null;
-  const ui = { speech: (t, b) => log.push(['speech', t, b]), mood: (m) => log.push(['mood', m]) };
+  const ui = { speech: (t, b, token) => log.push(['speech', t, b, token]), mood: (m) => log.push(['mood', m]) };
   const runner = createAgentRunner({
     ai, hands, helper, talkBack, ui, store,
     lock: lock || { locked: () => locked, onLocked: () => () => {} },
-    memory: { facts: () => [] }, userName: () => 'Akshat', randomId: () => 'job-12345678',
+    memory: { facts: () => [] }, userName: () => 'Akshat', randomId: () => 'job-12345678', newToken: () => { tokens += 1; return `tok-${tokens}`; }, myVoice,
     ...(waits ? { waits: { ...RUNNER_WAITS, ...waits } } : {}),
   });
   return { runner, log, hands, settings };
@@ -85,7 +91,7 @@ test('a risky step is asked in the bubble with Yes / No; a press of Yes acts', a
   const running = s.runner.start({ goal: 'delete a.pdf', spoken: false });
   await settle();
   assert.ok(s.log.some((l) => l[0] === 'speech' && l[1] === 'Move "a.pdf" to the Trash?' && l[2].join() === 'yes,no'));
-  s.runner.button('yes');
+  s.runner.button('yes', lastToken(s));
   const r = await running;
   assert.strictEqual(r.end, 'done');
   assert.deepStrictEqual(s.hands.acts, [{ type: 'files', op: 'trash', path: '/a/a.pdf' }]);
@@ -161,7 +167,7 @@ test('took over: ignored while Buddy asks something', async () => {
   const running = s.runner.start({ goal: 'x' });
   await settle();
   s.runner.tookOver(); // a question is open: the person is answering it
-  s.runner.button('no'); // the first question: no; the second one waits
+  s.runner.button('no', lastToken(s)); // the first question: no; the second one waits
   await settle();
   s.runner.stop('person');
   const r = await running;
@@ -225,4 +231,98 @@ test('reassert puts a pending question back after another line took the bubble',
   const n = s.log.length;
   s.runner.reassert();
   assert.strictEqual(s.log.length, n, 'nothing waits: nothing shown');
+});
+
+test('a press with an old or missing token is dropped; the current question\'s token is taken', async () => {
+  const s = setup({ replies: [TRASH, TRASH, DONE] });
+  const running = s.runner.start({ goal: 'x', spoken: false });
+  await settle();
+  const first = lastToken(s);
+  s.runner.button('yes'); // no token
+  s.runner.button('yes', 'tok-other');
+  await settle();
+  assert.strictEqual(s.hands.acts.length, 0, 'still waiting');
+  s.runner.button('no', first);
+  await settle();
+  const second = lastToken(s);
+  assert.notStrictEqual(second, first);
+  s.runner.button('yes', first); // the old bubble's press arrives late
+  await settle();
+  assert.strictEqual(s.hands.acts.length, 0, 'the old press did not answer the new question');
+  s.runner.button('yes', second);
+  await settle();
+  s.runner.stop('person');
+  await running;
+  assert.strictEqual(s.hands.acts.length, 1);
+});
+
+test('reassert shows the same token again', async () => {
+  const s = setup({ replies: [TRASH] });
+  const running = s.runner.start({ goal: 'x' });
+  await settle();
+  const token = lastToken(s);
+  s.runner.reassert();
+  assert.strictEqual(lastToken(s), token);
+  s.runner.stop('person');
+  await running;
+});
+
+test('a stop while the first-job question waits shows nothing more: no warning question, no job', async () => {
+  const s = setup({ settings: { agentOn: true, agentAgreed: false }, info: { route: 'own', provider: 'groq', model: 'llama', label: 'Groq', rank: 'weak', vision: true } });
+  const running = s.runner.start({ goal: 'x' });
+  await settle();
+  s.runner.button('stop');
+  const r = await running;
+  assert.strictEqual(r.end, 'stopped');
+  assert.strictEqual(s.log.filter((l) => l[0] === 'speech').length, 1, 'only the consent question was shown');
+  assert.ok(!s.log.some((l) => l[0] === 'ask'));
+});
+
+test('a screen that locks while permissions are checked: no question, no job', async () => {
+  let isLocked = false;
+  const s = setup({ lock: { locked: () => isLocked, onLocked: () => () => {} }, settings: { agentOn: true, agentAgreed: false }, onPerms: () => { isLocked = true; } });
+  const r = await s.runner.start({ goal: 'x' });
+  assert.deepStrictEqual([r.end, r.line], ['stopped', 'The screen locked, so I stopped.']);
+  assert.ok(!s.log.some((l) => l[0] === 'speech'));
+});
+
+test('a spoken job: silence is not a no, it keeps waiting; a later spoken yes acts', async () => {
+  const s = setup({ hearSilent: 2, heard: ['yes'], replies: [TRASH, DONE], waits: { ask: 60_000 } });
+  const r = await s.runner.start({ goal: 'delete', spoken: true });
+  assert.strictEqual(r.end, 'done');
+  assert.strictEqual(s.hands.acts.length, 1);
+  assert.ok(s.log.filter((l) => l[0] === 'hear').length >= 3);
+});
+
+test('a spoken job: a heard no ends the question early', async () => {
+  const s = setup({ heard: ['no'], replies: [TRASH, DONE] });
+  const r = await s.runner.start({ goal: 'delete', spoken: true });
+  assert.strictEqual(r.end, 'done');
+  assert.strictEqual(s.hands.acts.length, 0);
+});
+
+test('a spoken job with nothing heard: the window ends it as a no', async () => {
+  const s = setup({ hearSilent: 1000, replies: [TRASH, DONE], waits: { ask: 30 } });
+  const r = await s.runner.start({ goal: 'delete', spoken: true });
+  assert.strictEqual(r.end, 'done');
+  assert.strictEqual(s.hands.acts.length, 0);
+});
+
+test('Only my voice on: a spoken yes to a risky step is not taken; a press is; the line says so', async () => {
+  const s = setup({ myVoice: { on: () => true }, heard: ['yes'], replies: [TRASH, DONE] });
+  const running = s.runner.start({ goal: 'delete', spoken: true });
+  await settle();
+  assert.ok(s.log.some((l) => l[0] === 'say' && /Tap Yes to confirm\.$/.test(l[1])));
+  assert.ok(s.log.some((l) => l[0] === 'speech' && /Tap Yes to confirm\.$/.test(l[1])));
+  assert.ok(!s.log.some((l) => l[0] === 'hear'), 'the voice is not listened to');
+  s.runner.button('yes', lastToken(s));
+  const r = await running;
+  assert.strictEqual(r.end, 'done');
+  assert.strictEqual(s.hands.acts.length, 1);
+});
+
+test('Only my voice off or not asked about a risky step: voice yes as before', async () => {
+  const s = setup({ myVoice: { on: () => false }, heard: ['yes'], replies: [TRASH, DONE] });
+  await s.runner.start({ goal: 'delete', spoken: true });
+  assert.strictEqual(s.hands.acts.length, 1);
 });

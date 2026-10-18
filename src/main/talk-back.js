@@ -1,7 +1,7 @@
 'use strict';
 
 const { chooseVoice, bestVoice } = require('./voices');
-const { answerGrammar, heardAnswer, YES_WORDS, NO_WORDS } = require('../../shared/voice-words');
+const { answerGrammar, heardAnswer, heardWords, YES_WORDS, NO_WORDS } = require('../../shared/voice-words');
 
 /**
  * Buddy's voice on the Mac, as the rest of the app uses it: say a line, hear a yes or no, listen for one more
@@ -45,7 +45,9 @@ function createTalkBack({ ear, model, transcribe, voiceName = () => null, now = 
       const r = await ear.call('say', { text, voiceName: pick.name, fallbackName: pick.fallback });
       return r?.gone ? { gone: true } : undefined; // only that the page went is told
     },
-    async hear(verb) {
+    /** A yes or no. `silence: true`: nothing heard (or a failure) is null, not a no, so a caller can go on waiting. */
+    async hear(verb, { silence = false } = {}) {
+      const decide = (text) => (silence ? heardWords(text, verb) : heardAnswer(text, verb));
       try {
         if (!model.ready()) model.ensure().catch((err) => console.warn('[buddy] voice model:', err.code || err.message));
         const g = model.ready() ? answerGrammar(verb, knownWords(verb)) : null;
@@ -55,11 +57,11 @@ function createTalkBack({ ear, model, transcribe, voiceName = () => null, now = 
           needsServer: !g || g.missing.length > 0,
           decisive: { yes: [...YES_WORDS, verb], no: NO_WORDS },
         });
-        if (typeof r.text === 'string') return heardAnswer(r.text, verb);
-        if (!r.audio) return 'no';
-        return heardAnswer(await writtenDown(r.audio), verb);
+        if (typeof r.text === 'string') return decide(r.text);
+        if (!r.audio) return silence ? null : 'no';
+        return decide(await writtenDown(r.audio));
       } catch {
-        return 'no';
+        return silence ? null : 'no';
       }
     },
     async listen() {

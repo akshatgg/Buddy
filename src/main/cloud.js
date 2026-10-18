@@ -33,6 +33,9 @@ const ASK_INPUTS = [
   'projects', // the names of their Claude Code project folders, for the chat's "code" kind
   'canMessage', // the app can message on WhatsApp (the Mac's), for the chat's "message" kind
   'canCall', 'canOpen', 'canSeeCalls', 'canReadNotifs', // the app can call, open apps, see the phone's calls and notifications
+  'canDo', // the app can run jobs on this computer (the chat's "do" kind)
+  // An agent step (shared/agent/prompt.js agentPrompt): the job and where it is.
+  'goal', 'log', 'lastOutput', 'note', 'screen', 'imageSize', 'maxSteps', 'jobId', 'platform',
 ];
 
 const serverProblem = () => new BuddyError('server', "Buddy's server had a problem. Try again.");
@@ -56,6 +59,8 @@ function readSettings(j) {
     isAdmin: j?.isAdmin === true,
     voiceOn: j?.voiceOn === true, // the server can write down what is said (it has a Groq key)
     clawdLook: j?.clawdLook === 'face' ? 'face' : 'head', // where Clawd walks with the buddy (the admin's choice)
+    agentVision: j?.agentVision === true, // the free AI reads screenshots for jobs
+    agentRank: ['best', 'hard', 'ok', 'weak'].includes(j?.agentRank) ? j.agentRank : 'weak', // the free AI's rank for jobs
   };
 }
 

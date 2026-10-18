@@ -51,6 +51,8 @@ const WORKER_STATUSES = ['running', 'done', 'failed', 'stopped'];
 const WORKER_ID = /^[\w-]{1,100}$/;
 const MODEL_ID = /^[\w.\-[\]<>]{1,80}$/; // claude-opus-5-5, claude-sonnet-4-5[1m], and <synthetic> (Claude Code's own marker, hence <>); the phone sets text only, never HTML
 const TASK_CHARS = 120;
+const TYPE_RE = /^[\w:.-]{1,40}$/; // a worker's type: general-purpose, Explore, plugin:agent
+const ACTIVITY_CHARS = 80;
 const TOKENS_MAX = 1e13;
 
 /** The sessions as the Mac sent them, cleaned: at most SESSIONS_MAX, each with known fields only. */
@@ -88,18 +90,34 @@ const msOrNull = (value) => (Number.isFinite(value) && value > 0 ? Math.round(va
 function cleanStats(value) {
   if (!isObject(value)) return null;
   const model = typeof value.model === 'string' && MODEL_ID.test(value.model) ? value.model : null;
-  return { model, input: whole(value.input), output: whole(value.output) };
+  return { model, input: whole(value.input), output: whole(value.output), context: whole(value.context) };
 }
 
-/** The watched session's workers as the computer sent them (live.js workers), cleaned: the newest WORKERS_MAX, known fields only. */
+/**
+ * The watched session's workers as the computer sent them (live.js workers), cleaned: at most WORKERS_MAX, the running
+ * ones first and then the newest that ended (so ended ones never push a running one out), oldest first as sent; known
+ * fields only. A worker's `type` is a short name or null, its `activity` one line of text within ACTIVITY_CHARS or null.
+ */
 function cleanWorkers(value) {
   if (!Array.isArray(value)) return [];
-  return value.filter((w) => isObject(w) && typeof w.id === 'string' && WORKER_ID.test(w.id) && WORKER_STATUSES.includes(w.status))
-    .slice(-WORKERS_MAX)
-    .map((w) => {
-      const task = typeof w.task === 'string' ? w.task.replace(/\s+/g, ' ').trim() : '';
-      return { id: w.id, task: task ? cut(task, TASK_CHARS) : 'A worker', status: w.status, startedAt: msOrNull(w.startedAt), endedAt: msOrNull(w.endedAt), tokens: whole(w.tokens) };
-    });
+  const known = value.filter((w) => isObject(w) && typeof w.id === 'string' && WORKER_ID.test(w.id) && WORKER_STATUSES.includes(w.status));
+  const live = known.filter((w) => w.status === 'running').slice(-WORKERS_MAX);
+  const ended = known.filter((w) => w.status !== 'running').slice(-(WORKERS_MAX - live.length));
+  const kept = new Set([...live, ...ended]);
+  return known.filter((w) => kept.has(w)).map((w) => {
+    const task = typeof w.task === 'string' ? w.task.replace(/\s+/g, ' ').trim() : '';
+    const activity = typeof w.activity === 'string' ? w.activity.replace(/\s+/g, ' ').trim() : '';
+    return {
+      id: w.id,
+      type: typeof w.type === 'string' && TYPE_RE.test(w.type) ? w.type : null,
+      task: task ? cut(task, TASK_CHARS) : 'A worker',
+      activity: activity ? (activity.length > ACTIVITY_CHARS ? `${activity.slice(0, ACTIVITY_CHARS - 1).trimEnd()}…` : activity) : null,
+      status: w.status,
+      startedAt: msOrNull(w.startedAt),
+      endedAt: msOrNull(w.endedAt),
+      tokens: whole(w.tokens),
+    };
+  });
 }
 
 const watching = (doc, now, within = WATCH_MS) => (doc?.watch && now - doc.watch.at < within ? doc.watch.sessionId : null);
@@ -244,5 +262,5 @@ function checkSessionId(value, { required = false } = {}) {
 
 module.exports = {
   ONLINE_MS, WATCH_MS, NOTIFY_WATCH_MS, SEEN_EVERY_MS, INBOX_MAX, INBOX_KEEP_MS, ESC_KEEP_MS, ITEMS_MAX, ITEM_CHARS, FEED_CHARS, TEXT_MAX, OFFLINE, NO_SESSION,
-  cleanSessions, cleanItems, cleanStats, cleanWorkers, WORKERS_MAX, macReport, justFinished, phoneLook, phoneSend, phoneStop, checkText, checkSessionId, checkDeviceId,
+  cleanSessions, cleanItems, cleanStats, cleanWorkers, WORKERS_MAX, ACTIVITY_CHARS, macReport, justFinished, phoneLook, phoneSend, phoneStop, checkText, checkSessionId, checkDeviceId,
 };

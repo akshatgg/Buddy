@@ -153,6 +153,10 @@ button { cursor: pointer; }
 .cl-worker.running .cl-dot { color: var(--cli-orange); }
 .cl-worker.done .cl-dot { color: var(--cli-green); }
 .cl-worker.failed .cl-dot, .cl-worker.stopped .cl-dot { color: var(--cli-red); }
+.cl-worker .cl-wbody { min-width: 0; }
+.cl-worker p { margin: 0; }
+.cl-worker .cl-act { opacity: .65; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cl-worker.cl-more { padding-left: calc(2ch + 8px + 1ch); }
 .cl-said { flex: 1; min-width: 0; }
 .cl-picks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .cl-pick { min-height: 40px; padding: 4px 16px; border: 1px solid var(--cli-line); border-radius: 6px; background: var(--cli-panel); color: var(--cli-fg); font: inherit; }

@@ -262,36 +262,56 @@ const ClaudeCli = (() => {
     return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
   }
 
-  /** The line under the session (live.js's stats): "Opus 5.5 · 1.2M in · 34k out"; '' before any reply. */
+  /**
+   * The line under the session (live.js's stats): "Opus 5.5 · 301k context · 440k out" (the newest reply's context, and all
+   * that came out); '' before any reply. An old Mac does not send the context: then "1.2M in" (everything that went in).
+   */
   function statusLine(stats) {
     if (!stats || (!stats.model && !stats.input && !stats.output)) return '';
-    return [stats.model ? modelName(stats.model) : '', `${tokenCount(stats.input)} in`, `${tokenCount(stats.output)} out`].filter(Boolean).join(' · ');
+    const held = Number(stats.context) > 0 ? `${tokenCount(stats.context)} context` : `${tokenCount(stats.input)} in`;
+    return [stats.model ? modelName(stats.model) : '', held, `${tokenCount(stats.output)} out`].filter(Boolean).join(' · ');
   }
 
   const WORKER_STATUS = ['running', 'done', 'failed', 'stopped'];
   const RECENT_MS = 5 * 60_000; // a worker that ended shows this long after
-  const MANY = 3; // more workers than this fold into one line
+  const RUNNING_SHOWN = 8; // the running workers shown in full; the rest are counted
+  const UNFOLDED_MAX = 3; // workers that ended show in rows when none runs and there are no more than this
+  const ACTIVITY_CHARS = 80;
 
-  /** One worker as a line: "Fix the login bug · running · 1m 12s · 12.3k tokens". */
+  /**
+   * One worker as the CLI draws it: a head ("general-purpose  Fix the login bug"), under it what it does now (running
+   * ones), and a tail ("running · 1m 12s · 12.3k tokens"; "done" etc. for the others). `text` is the old one-line form
+   * ("Fix the login bug · running · 1m 12s"), for what does not draw rows yet.
+   */
   function workerLine(w, now) {
-    const parts = [w.task, w.status];
-    if (Number.isFinite(w.startedAt)) parts.push(elapsed((w.endedAt ?? now) - w.startedAt));
-    if (w.tokens > 0) parts.push(`${tokenCount(w.tokens)} tokens`);
-    return parts.join(' · ');
+    const type = typeof w.type === 'string' ? w.type.trim() : '';
+    const task = String(w.task ?? '');
+    const head = type && type !== task ? `${type}  ${task}` : task;
+    const activity = w.status === 'running' ? (typeof w.activity === 'string' && w.activity.trim() ? w.activity.trim().slice(0, ACTIVITY_CHARS) : 'Working…') : '';
+    const tail = [];
+    if (w.status !== 'running') tail.push(w.status);
+    if (Number.isFinite(w.startedAt)) tail.push(elapsed((w.endedAt ?? now) - w.startedAt));
+    if (w.tokens > 0) tail.push(`${tokenCount(w.tokens)} tokens`);
+    const old = [task, w.status, ...tail.filter((part) => part !== w.status)];
+    return { id: w.id, status: w.status, head, activity, tail: tail.join(' · '), text: old.join(' · ') };
   }
 
   /**
-   * The workers to show (live.js's workers): those running and those that ended in the last RECENT_MS, a line each;
-   * `compact` when there are more than MANY, with `summary` for the one line ("4 workers · 2 running · 1 done").
+   * The workers to show (live.js's workers): `running` in full, at most RUNNING_SHOWN, with `more` the rest; `ended` those
+   * that ended in the last RECENT_MS, folded into one line (`summary`: "2 running · 3 done") unless none runs and there
+   * are few (`unfolded`).
    */
   function workerList(workers, now) {
-    const shown = (Array.isArray(workers) ? workers : []).filter((w) => w && WORKER_STATUS.includes(w.status)
-      && (w.status === 'running' || (Number.isFinite(w.endedAt) && now - w.endedAt < RECENT_MS)));
-    const counts = WORKER_STATUS.map((s) => [s, shown.filter((w) => w.status === s).length]).filter(([, n]) => n > 0);
+    const all = (Array.isArray(workers) ? workers : []).filter((w) => w && WORKER_STATUS.includes(w.status));
+    const live = all.filter((w) => w.status === 'running');
+    const ended = all.filter((w) => w.status !== 'running' && Number.isFinite(w.endedAt) && now - w.endedAt < RECENT_MS);
+    const counts = WORKER_STATUS.map((s) => [s, [...live, ...ended].filter((w) => w.status === s).length]).filter(([, n]) => n > 0);
     return {
-      lines: shown.map((w) => ({ id: w.id, status: w.status, text: workerLine(w, now) })),
-      compact: shown.length > MANY,
-      summary: [`${shown.length} worker${shown.length === 1 ? '' : 's'}`, ...counts.map(([s, n]) => `${n} ${s}`)].join(' · '),
+      running: live.slice(0, RUNNING_SHOWN).map((w) => workerLine(w, now)),
+      more: Math.max(0, live.length - RUNNING_SHOWN),
+      ended: ended.map((w) => workerLine(w, now)),
+      unfolded: live.length === 0 && ended.length <= UNFOLDED_MAX,
+      summary: counts.map(([s, n]) => `${n} ${s}`).join(' · '),
     };
   }
 
@@ -386,11 +406,14 @@ const ClaudeCli = (() => {
 
   const helpLines = () => [...COMMANDS.map((c) => `/${c.name} · ${c.hint}`), 'Other / commands go to Claude Code.'];
 
-  /** /cost: the session's tokens, its model and its workers' tokens. Transcripts have no cost. */
+  /** /cost: the session's context and tokens, its model and its workers' tokens. Transcripts have no cost. */
   function costLines(session) {
     const stats = session?.stats || {};
     const workers = Array.isArray(session?.workers) ? session.workers : [];
-    const out = [`Tokens so far: ${tokenCount(stats.input)} in · ${tokenCount(stats.output)} out`];
+    // The context is what the newest reply held; an old Mac does not send it, and the sum of what went in shows instead.
+    const out = [Number(stats.context) > 0
+      ? `Context now: ${tokenCount(stats.context)} · Out so far: ${tokenCount(stats.output)}`
+      : `Tokens so far: ${tokenCount(stats.input)} in · ${tokenCount(stats.output)} out`];
     if (stats.model) out.push(`Model: ${modelName(stats.model)}`);
     if (workers.length) out.push(`Workers: ${workers.length} · ${tokenCount(workers.reduce((sum, w) => sum + (w.tokens || 0), 0))} tokens`);
     out.push("Cost isn't in the session file. Type /cost in the terminal for it.");

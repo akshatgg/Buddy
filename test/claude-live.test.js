@@ -269,7 +269,7 @@ test("the session's tokens, model and workers come with its view; a running work
   await live.discover();
   await live.refresh(home.id);
   const view = live.view(home.id);
-  assert.deepStrictEqual(view.stats, { model: 'claude-sonnet-5-5', input: 100, output: 5 });
+  assert.deepStrictEqual(view.stats, { model: 'claude-sonnet-5-5', input: 100, output: 5, context: 100 });
   assert.deepStrictEqual(view.workers.map((w) => [w.task, w.status, w.tokens]), [['Read the docs', 'running', 0]]);
 
   // The worker's own file, which its .meta.json names: its newest reply's tokens, with nothing new in the session's file.
@@ -346,4 +346,198 @@ test('a worker that started long ago and never ended is stopped on the first loo
   await live.discover();
   await live.refresh(home.id);
   assert.strictEqual(live.view(home.id).workers[0].status, 'stopped');
+});
+
+// ---- workers: old files, activity, tails, parked sessions ----
+
+const T0 = '2026-10-17T10:00:00.000Z';
+const launch = (id, description = id, extra = {}) => assistant(
+  [{ type: 'tool_use', id, name: 'Agent', input: { description, run_in_background: true } }], { timestamp: T0, message: { id: `m-${id}`, role: 'assistant', content: [{ type: 'tool_use', id, name: 'Agent', input: { description } }] }, ...extra },
+);
+const asyncResult = (id, agentId) => ({
+  type: 'user', timestamp: T0, toolUseResult: { isAsync: true, status: 'async_launched', agentId },
+  message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'Async agent launched' }] },
+});
+const stampOf = (ms) => new Date(ms).toISOString();
+const ownReply = (at, content, stop = null) => ({ type: 'assistant', timestamp: at, message: { id: `r-${at}`, role: 'assistant', stop_reason: stop, content } });
+
+/** A worker's two files next to the session's, with the file's modified time set. */
+function workerFiles(home, agentId, toolUseId, lines, mtime) {
+  const sub = path.join(home.transcript.slice(0, -'.jsonl'.length), 'subagents');
+  fs.mkdirSync(sub, { recursive: true });
+  fs.writeFileSync(path.join(sub, `agent-${agentId}.meta.json`), JSON.stringify({ agentType: 'Explore', toolUseId }));
+  const file = path.join(sub, `agent-${agentId}.jsonl`);
+  fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  if (mtime) fs.utimesSync(file, new Date(mtime), new Date(mtime));
+  return file;
+}
+
+test('workers left from an old session are not running at the first look: their own files say when they were last busy', async (t) => {
+  const now = Date.parse(T0) + 30 * 60_000 + 5000;
+  const old = stampOf(Date.parse(T0) + 60_000); // 29 minutes before now
+  const home = claudeHome(t, [user('hi'), launch('toolu_1'), launch('toolu_2'), launch('toolu_3'), asyncResult('toolu_1', 'a1'), asyncResult('toolu_2', 'a2'), asyncResult('toolu_3', 'a3')]);
+  workerFiles(home, 'a1', 'toolu_1', [ownReply(old, [{ type: 'text', text: 'Found it.' }], 'end_turn')], Date.parse(old));
+  workerFiles(home, 'a2', 'toolu_2', [ownReply(old, [{ type: 'tool_use', id: 'u', name: 'Read', input: { file_path: '/a/b.js' } }], 'tool_use')], Date.parse(old));
+  const sub = path.join(home.transcript.slice(0, -'.jsonl'.length), 'subagents');
+  fs.writeFileSync(path.join(sub, 'agent-a3.meta.json'), JSON.stringify({ toolUseId: 'toolu_3' }));
+  fs.writeFileSync(path.join(sub, 'agent-a3.jsonl'), '{"type":"queue-operation"}\n'); // no timestamp on any line: the file's own time
+  fs.utimesSync(path.join(sub, 'agent-a3.jsonl'), new Date(Date.parse(old)), new Date(Date.parse(old)));
+  const live = createLive({ configDirs: () => [home.dir], now: () => now, ttys: async () => ({}) });
+  await live.discover();
+  await live.refresh(home.id);
+  assert.deepStrictEqual(live.view(home.id).workers.map((w) => w.status), ['done', 'stopped', 'stopped']);
+});
+
+test('a worker with a fresh file shows as running at the first look, with what it does and its type', async (t) => {
+  const now = Date.parse(T0) + 60_000;
+  const home = claudeHome(t, [user('hi'), launch('toolu_1', 'Read the design')]);
+  workerFiles(home, 'a1', 'toolu_1', [ownReply(stampOf(now - 5000), [{ type: 'tool_use', id: 'u', name: 'Read', input: { file_path: '/a/b/specs/design.md' } }])], now - 5000);
+  const live = createLive({ configDirs: () => [home.dir], now: () => now, ttys: async () => ({}) });
+  await live.discover();
+  await live.refresh(home.id);
+  const [w] = live.view(home.id).workers;
+  assert.deepStrictEqual([w.status, w.type, w.activity], ['running', 'Explore', 'Read specs/design.md']);
+});
+
+test("a worker's activity follows its newest step: a tool's line, else the first line of its words", async (t) => {
+  const now = Date.parse(T0) + 60_000;
+  const home = claudeHome(t, [user('hi'), launch('toolu_1')]);
+  const file = workerFiles(home, 'a1', 'toolu_1', [
+    ownReply(stampOf(now - 5000), [{ type: 'tool_use', id: 'u', name: 'Read', input: { file_path: '/a/b/specs/design.md' } }]),
+    { type: 'user', timestamp: stampOf(now - 4000), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'u', content: 'x' }] } },
+  ]);
+  const live = createLive({ configDirs: () => [home.dir], now: () => now, ttys: async () => ({}) });
+  await live.discover();
+  await live.refresh(home.id);
+  assert.strictEqual(live.view(home.id).workers[0].activity, 'Read specs/design.md');
+  const changed = [];
+  live.onChange((id) => changed.push(id));
+  fs.appendFileSync(file, `${JSON.stringify(ownReply(stampOf(now - 3000), [{ type: 'text', text: `Now I check the safety rules.\nSecond line ${'z'.repeat(200)}` }]))}\n`);
+  await live.refresh(home.id);
+  assert.strictEqual(live.view(home.id).workers[0].activity, 'Now I check the safety rules.');
+  assert.deepStrictEqual(changed, [home.id]);
+  fs.appendFileSync(file, `${JSON.stringify(ownReply(stampOf(now - 2000), [{ type: 'text', text: 'q'.repeat(200) }]))}\n`);
+  await live.refresh(home.id);
+  assert.strictEqual(live.view(home.id).workers[0].activity.length, 80);
+});
+
+test("a worker's own end in its file marks it done, though no notification came", async (t) => {
+  const now = Date.parse(T0) + 60_000;
+  const home = claudeHome(t, [user('hi'), launch('toolu_1')]);
+  const file = workerFiles(home, 'a1', 'toolu_1', [ownReply(stampOf(now - 5000), [{ type: 'tool_use', id: 'hb', name: 'SubagentHandback', input: { message: 'done' } }])], now - 5000);
+  const live = createLive({ configDirs: () => [home.dir], now: () => now, ttys: async () => ({}) });
+  await live.discover();
+  await live.refresh(home.id);
+  assert.strictEqual(live.view(home.id).workers[0].status, 'running');
+  fs.appendFileSync(file, `${JSON.stringify({ type: 'user', timestamp: stampOf(now - 4000), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'hb', content: 'ok' }] } })}\n`);
+  await live.refresh(home.id);
+  assert.strictEqual(live.view(home.id).workers[0].status, 'done');
+});
+
+test('a big worker file is read from its tail the first time, and not read again while it stays as it is', async (t) => {
+  const now = Date.parse(T0) + 60_000;
+  const home = claudeHome(t, [user('hi'), launch('toolu_1')]);
+  const filler = ownReply(stampOf(now - 9000), [{ type: 'text', text: 'w'.repeat(2000) }]);
+  const lines = Array.from({ length: 300 }, () => filler); // about 650 KB
+  lines.push(ownReply(stampOf(now - 5000), [{ type: 'tool_use', id: 'u', name: 'Grep', input: { pattern: 'TODO' } }]));
+  workerFiles(home, 'a1', 'toolu_1', lines, now - 5000);
+  const reads = [];
+  const spy = {
+    ...fs.promises,
+    open: async (file, flags) => {
+      const handle = await fs.promises.open(file, flags);
+      return {
+        stat: (...a) => handle.stat(...a),
+        close: () => handle.close(),
+        read: async (buffer, offset, length, position) => {
+          if (file.includes('agent-a1.jsonl')) reads.push(length);
+          return handle.read(buffer, offset, length, position);
+        },
+      };
+    },
+  };
+  const live = createLive({ configDirs: () => [home.dir], now: () => now, ttys: async () => ({}), fs: spy });
+  await live.discover();
+  await live.refresh(home.id);
+  assert.strictEqual(reads.length, 1);
+  assert.ok(reads[0] <= 256 * 1024, `read ${reads[0]} bytes`);
+  assert.strictEqual(live.view(home.id).workers[0].activity, 'Grep TODO');
+  await live.refresh(home.id);
+  assert.strictEqual(reads.length, 1, 'unchanged: not read again');
+});
+
+test('a parked session shows the live session it continues in; so does a continued-in line', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-live-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const cwd = '/Users/a/projects/shop';
+  const folder = path.join(dir, 'projects', projectFolder(cwd));
+  fs.mkdirSync(path.join(dir, 'sessions'));
+  fs.mkdirSync(folder, { recursive: true });
+  const write = (name, lines) => fs.writeFileSync(path.join(folder, name), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  write('old.jsonl', [user('old question'), launch('toolu_1'), asyncResult('toolu_1', 'a1')]);
+  write('new.jsonl', [user('new question'), assistant([{ type: 'text', text: 'Live answer' }])]);
+  fs.writeFileSync(path.join(dir, 'sessions', '1.json'), JSON.stringify({ pid: process.pid, sessionId: 'old', cwd, kind: 'interactive', status: 'idle', parkedJobId: 'J' }));
+  fs.writeFileSync(path.join(dir, 'sessions', '2.json'), JSON.stringify({ pid: process.pid, sessionId: 'new', cwd, kind: 'bg', jobId: 'J', status: 'busy' }));
+  const live = createLive({ configDirs: () => [dir], now: () => Date.parse(T0) + 1000, ttys: async () => ({}) });
+  await live.discover();
+  assert.deepStrictEqual(live.list().map((s) => [s.id, s.status]), [['old', 'working']], 'only the interactive one is listed');
+  await live.refresh('old');
+  assert.deepStrictEqual(live.view('old').items.map((i) => i.text), ['new question', 'Live answer']);
+  assert.deepStrictEqual(live.view('old').workers, []);
+  await live.discover(); // again: nothing moves, nothing is read from the start
+  await live.refresh('old');
+  assert.strictEqual(live.view('old').items.length, 2);
+
+  // No parkedJobId: the old file ends with a continued-in line, and the session follows it.
+  fs.writeFileSync(path.join(dir, 'sessions', '1.json'), JSON.stringify({ pid: process.pid, sessionId: 'old2', cwd, kind: 'interactive', status: 'idle' }));
+  fs.rmSync(path.join(dir, 'sessions', '2.json'));
+  write('old2.jsonl', [user('before'), launch('toolu_1'), asyncResult('toolu_1', 'a1'), { type: 'continued-in', continuedInSessionId: 'new' }]);
+  const live2 = createLive({ configDirs: () => [dir], now: () => Date.parse(T0) + 1000, ttys: async () => ({}) });
+  await live2.discover();
+  await live2.refresh('old2');
+  assert.deepStrictEqual(live2.view('old2').items.map((i) => i.text), ['new question', 'Live answer']);
+  assert.deepStrictEqual(live2.view('old2').workers, [], 'the new file has its own workers');
+});
+
+test("a continued-in line to a file that is not there yet: the old file's running workers are over, and the move comes later", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-live-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const cwd = '/Users/a/projects/shop';
+  const folder = path.join(dir, 'projects', projectFolder(cwd));
+  fs.mkdirSync(path.join(dir, 'sessions'));
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'sessions', '1.json'), JSON.stringify({ pid: process.pid, sessionId: 'old', cwd, kind: 'interactive', status: 'idle' }));
+  fs.writeFileSync(path.join(folder, 'old.jsonl'), [launch('toolu_1'), asyncResult('toolu_1', 'a1'), { type: 'continued-in', continuedInSessionId: 'later' }].map((l) => JSON.stringify(l)).join('\n') + '\n');
+  const live = createLive({ configDirs: () => [dir], now: () => Date.parse(T0) + 1000, ttys: async () => ({}) });
+  await live.discover();
+  await live.refresh('old');
+  assert.strictEqual(live.view('old').workers[0].status, 'stopped');
+  fs.writeFileSync(path.join(folder, 'later.jsonl'), `${JSON.stringify(user('now here'))}\n`);
+  await live.refresh('old');
+  assert.deepStrictEqual(live.view('old').items.map((i) => i.text), ['now here']);
+});
+
+test('a follow that is not safe is refused: another folder\'s background job, a continued-in id that is a path', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-live-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const cwd = '/Users/a/projects/shop';
+  const folder = path.join(dir, 'projects', projectFolder(cwd));
+  fs.mkdirSync(path.join(dir, 'sessions'));
+  fs.mkdirSync(folder, { recursive: true });
+  const write = (name, lines) => fs.writeFileSync(path.join(folder, name), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  write('old.jsonl', [user('old question')]);
+  write('other.jsonl', [user('somebody else')]);
+  fs.writeFileSync(path.join(dir, 'sessions', '1.json'), JSON.stringify({ pid: process.pid, sessionId: 'old', cwd, kind: 'interactive', status: 'idle', parkedJobId: 'J' }));
+  fs.writeFileSync(path.join(dir, 'sessions', '2.json'), JSON.stringify({ pid: process.pid, sessionId: 'other', cwd: '/Users/a/projects/blog', kind: 'bg', jobId: 'J', status: 'busy' }));
+  const live = createLive({ configDirs: () => [dir], now: () => Date.parse(T0) + 1000, ttys: async () => ({}) });
+  await live.discover();
+  await live.refresh('old');
+  assert.deepStrictEqual(live.view('old').items.map((i) => i.text), ['old question'], 'a job of another project is not followed');
+
+  write('trick.jsonl', [user('before'), { type: 'continued-in', continuedInSessionId: '../x' }]);
+  fs.writeFileSync(path.join(dir, 'sessions', '1.json'), JSON.stringify({ pid: process.pid, sessionId: 'trick', cwd, kind: 'interactive', status: 'idle' }));
+  const live2 = createLive({ configDirs: () => [dir], now: () => Date.parse(T0) + 1000, ttys: async () => ({}) });
+  await live2.discover();
+  await live2.refresh('trick');
+  assert.deepStrictEqual(live2.view('trick').items.map((i) => i.text), ['before']);
 });

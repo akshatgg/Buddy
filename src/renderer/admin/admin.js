@@ -62,6 +62,8 @@ function render() {
   for (const radio of document.querySelectorAll('input[name="limitMode"]')) radio.checked = radio.value === config.limitMode;
   $('daily').value = String(config.dailyRequests);
   $('own').checked = config.allowOwnKey;
+  $('agent-jobs').value = String(config.agentJobsPerDay);
+  $('agent-cap').value = String(config.agentSpendCap);
   for (const radio of document.querySelectorAll('input[name="clawdLook"]')) radio.checked = radio.value === config.clawdLook;
   // Only providers with a key on the server can be picked, plus the saved one, so that the list shows what is saved.
   const choices = providers.filter((p) => p.hasKey || p.id === config.provider);
@@ -85,6 +87,8 @@ function readForm() {
     form.dailyRequests = Number($('daily').value);
     form.allowOwnKey = $('own').checked;
   }
+  form.agentJobsPerDay = Number($('agent-jobs').value);
+  form.agentSpendCap = Number($('agent-cap').value);
   return form;
 }
 

@@ -5,9 +5,9 @@
  * against the Firestore emulator (test/firestore/firestore-db.test.js) with the same expectations.
  * `state.calls` records which methods were called, in order.
  */
-function fakeDb({ config = null, users = {}, remotes = {}, pushes = {}, memories = {} } = {}) {
+function fakeDb({ config = null, users = {}, remotes = {}, pushes = {}, memories = {}, agentDays = {}, spends = {} } = {}) {
   const state = {
-    config: structuredClone(config), users: structuredClone(users), remotes: structuredClone(remotes), pushes: structuredClone(pushes), memories: structuredClone(memories), calls: [],
+    config: structuredClone(config), users: structuredClone(users), remotes: structuredClone(remotes), pushes: structuredClone(pushes), memories: structuredClone(memories), agentDays: structuredClone(agentDays), spends: structuredClone(spends), calls: [],
   };
   const copy = (uid) => ({ uid, ...structuredClone(state.users[uid]) });
   const fresh = ({ email, name, now }) => ({ email, name, joined: now, lastActive: null, blocked: false, usedDay: '', usedCount: 0 });
@@ -45,6 +45,20 @@ function fakeDb({ config = null, users = {}, remotes = {}, pushes = {}, memories
       if (given >= limit) return { ok: false, reason: 'limit', refundCount: given };
       Object.assign(user, { usedCount: user.usedCount - 1, refundDay: day, refundCount: given + 1 });
       return { ok: true, refundCount: given + 1 };
+    },
+    async updateAgentDay(key, change) {
+      state.calls.push('updateAgentDay');
+      const { next, result } = change(Object.hasOwn(state.agentDays, key) ? structuredClone(state.agentDays[key]) : null);
+      if (next === null) delete state.agentDays[key];
+      else if (next !== undefined) state.agentDays[key] = structuredClone(next);
+      return structuredClone(result);
+    },
+    async updateSpend(day, change) {
+      state.calls.push('updateSpend');
+      const { next, result } = change(Object.hasOwn(state.spends, day) ? structuredClone(state.spends[day]) : null);
+      if (next === null) delete state.spends[day];
+      else if (next !== undefined) state.spends[day] = structuredClone(next);
+      return structuredClone(result);
     },
     async listUsers({ limit }) {
       state.calls.push('listUsers');

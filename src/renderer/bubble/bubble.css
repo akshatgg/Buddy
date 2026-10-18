@@ -16,3 +16,4 @@ body.speech #text {
   background: var(--accent, #3b82f6); color: #fff; cursor: pointer;
 }
 #buttons button.quiet { background: var(--card); color: inherit; }
+body.speech.buttons #text { -webkit-line-clamp: 3; }

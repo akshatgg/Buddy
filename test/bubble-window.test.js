@@ -141,3 +141,23 @@ test('the job\'s end line, without buttons, ends the hold: it goes BUBBLE_HIDE_M
   t.mock.timers.tick(BUBBLE_HIDE_MS);
   assert.strictEqual(s.win().visible, false);
 });
+
+test('words with buttons get a taller box, so the buttons fit; without, the usual box', async (t) => {
+  const s = setup(t);
+  await s.bubble.speak('Delete 3 files? Say yes or no.', AT, ['yes', 'no']);
+  assert.deepStrictEqual(s.win().calls.filter((c) => c[0] === 'bounds').at(-1), ['bounds', { ...SPEECH_BOX, height: 160 }]);
+  await s.bubble.speak('Done.', AT);
+  assert.deepStrictEqual(s.win().calls.filter((c) => c[0] === 'bounds').at(-1), ['bounds', SPEECH_BOX]);
+});
+
+test('hide ends the hold (the short bubble shows again); speak(null) keeps the hold timer', async (t) => {
+  const s = setup(t);
+  await s.bubble.speak('Go on?', AT, ['go-on']);
+  await s.bubble.speak(null, AT);
+  t.mock.timers.tick(BUTTONS_HOLD_MS);
+  assert.strictEqual(s.win().visible, false, 'null left the hold timer running');
+  await s.bubble.speak('Go on?', AT, ['go-on']);
+  s.bubble.hide();
+  await s.bubble.say('Copied', BUDDY, AREA);
+  assert.deepStrictEqual(s.win().sent.at(-1), ['bubble:text', 'Copied', false]);
+});

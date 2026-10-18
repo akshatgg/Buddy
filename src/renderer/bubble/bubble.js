@@ -19,6 +19,7 @@ window.buddy.onText((text, speech, buttons) => {
     return b;
   }));
   row.hidden = buttons.length === 0;
+  document.body.classList.toggle('buttons', buttons.length > 0); // 3 lines of words, so that the row always fits
 });
 box.addEventListener('mouseenter', () => window.buddy.hover(true));
 box.addEventListener('mouseleave', () => window.buddy.hover(false));

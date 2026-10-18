@@ -139,7 +139,7 @@ function createBubbleWindow({ ipcMain = null, onClick = () => {}, onButton = () 
         if (speech && !held) clearTimeout(timer);
         return;
       }
-      const bounds = at.kind === 'below' ? speechUnderNotch(at.notch, at.area) : speechBounds(at.buddy, at.area);
+      const bounds = at.kind === 'below' ? speechUnderNotch(at.notch, at.area, buttons.length > 0) : speechBounds(at.buddy, at.area, buttons.length > 0);
       showing = show(text, bounds, true, buttons)
         .then((w) => {
           held = Boolean(w) && buttons.length > 0;

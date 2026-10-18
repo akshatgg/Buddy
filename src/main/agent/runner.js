@@ -11,7 +11,7 @@
 
 const crypto = require('node:crypto');
 const { BuddyError } = require('../../../shared/errors');
-const { createAgentJob, goOnHeard, LOOP_LINES } = require('../../../shared/agent/loop');
+const { createAgentJob, goOnHeard, stopHeard, LOOP_LINES } = require('../../../shared/agent/loop');
 const { formatScreen } = require('../../../shared/agent/prompt');
 const { limitsFor, warningFor } = require('../../../shared/agent/limits');
 const { MAC_ABILITIES } = require('../../../shared/agent/actions');
@@ -83,6 +83,7 @@ function createAgentRunner({
   /** Words typed in the chat during a job: the answer to what it waits on, if anything. True when they were taken. */
   function reply(text) {
     const words = String(text || '').trim();
+    if (job && words && stopHeard(words)) { stop('person'); return true; } // "stop" typed ends the job, whatever it waits on
     if (!waiting || !words) return false;
     if (waiting.kind === 'ask') waiting.done(heardAnswer(words, YES_VERB));
     else if (waiting.kind === 'askUser') waiting.done(words);
@@ -116,6 +117,8 @@ function createAgentRunner({
           clearTimeout(timer);
           signal?.removeEventListener('abort', onAbort);
           if (waiting === entry) waiting = null;
+          // The Yes / No (or Go on) row is spent: put a bubble with just Stop in its place until the next step shows.
+          if (buttons.length > 1 && job && !job.stopped) ui.speech(text, ['stop']);
           resolve(value);
         },
       };
@@ -154,7 +157,8 @@ function createAgentRunner({
       if (waiting !== entry || !voiceOk) return answered; // pressed, typed or stopped while it was said
       (async () => {
         while (waiting === entry && !signal?.aborted) {
-          const heard = await talkBack.hear(YES_VERB, { silence: true });
+          const heard = await talkBack.hear(YES_VERB, { silence: true, stopWords: true });
+          if (heard === 'stop') { stop('person'); return; }
           if (waiting !== entry) return;
           if (heard === 'yes' || heard === 'no') { entry.done(heard); return; }
           await rest(LISTEN_AGAIN_MS); // silence or a failure: not an answer, listen again
@@ -178,6 +182,7 @@ function createAgentRunner({
       (async () => {
         while (waiting === entry && !signal?.aborted) {
           const words = await talkBack.listen();
+          if (words && stopHeard(words)) { stop('person'); return; }
           if (waiting !== entry) return;
           if (goOnHeard(words)) { entry.done('go-on'); return; }
           if (!words) await rest(LISTEN_AGAIN_MS);
@@ -199,6 +204,7 @@ function createAgentRunner({
       if (waiting !== entry) return promise;
       (async () => {
         const words = await talkBack.listen();
+        if (words && stopHeard(words)) { stop('person'); return; }
         if (waiting === entry && words) entry.done(words);
       })();
       const answer = await promise;
@@ -223,6 +229,9 @@ function createAgentRunner({
     onChange();
     const unlisten = lock.onLocked ? lock.onLocked(() => stop('locked')) : () => {};
     let watching = false;
+    // A helper that restarted mid-job forgot to watch for Esc: tell it again, or stop the job if it will not.
+    const rearm = () => { if (watching) helper.call('watchStop', { on: true }).catch(() => stop('helper')); };
+    helper.on?.('started', rearm);
     try {
       if (store.get('agentOn') === false) return { end: 'off', line: RUNNER_LINES.off, steps: [] };
       if (lock.locked()) {
@@ -238,7 +247,7 @@ function createAgentRunner({
       if (!info?.route) throw new BuddyError(info?.reason || 'no_route', RUNNER_LINES.noRoute[info?.reason] || RUNNER_LINES.noRouteElse);
       if (info.route === 'free' && info.rank === 'weak') throw new BuddyError('free_no_agent', RUNNER_LINES.freeWeak);
       if (store.get('agentAgreed') !== true) {
-        const agreed = await askYesNo(RUNNER_LINES.consent, { spoken });
+        const agreed = await askYesNo(RUNNER_LINES.consent, { spoken, risky: true }); // a spoken yes cannot be checked as the owner's
         if (halted()) return stoppedEnd();
         if (agreed !== 'yes') return { end: 'declined', line: RUNNER_LINES.declined, steps: [] };
         store.set({ agentAgreed: true });
@@ -291,6 +300,7 @@ function createAgentRunner({
       return result;
     } finally {
       unlisten();
+      helper.off?.('started', rearm);
       if (watching) helper.call('watchStop', { on: false }).catch(() => {});
       job = null;
       waiting = null;

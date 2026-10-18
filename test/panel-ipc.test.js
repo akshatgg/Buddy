@@ -78,7 +78,7 @@ test('the panel asks through fourteen channels and tells main ten things; the ol
   ]);
   assert.deepStrictEqual(Object.keys(s.listeners).sort(), [
     'panel:claude-close', 'panel:close', 'panel:hush', 'panel:listening', 'panel:open-settings', 'panel:resize-end', 'panel:resize-move', 'panel:resize-start',
-    'panel:size-toggle', 'panel:voice-level',
+    'panel:size-toggle', 'panel:stop-job', 'panel:voice-level',
   ]);
 });
 
@@ -262,6 +262,15 @@ test('the panel page pressing 🎤 or typing hushes Buddy; nobody else can', () 
   assert.strictEqual(hushed, 0);
   s.listeners['panel:hush'](s.fromPanel);
   assert.strictEqual(hushed, 1);
+});
+
+test('the panel Stop button ends the running job; nobody else can', () => {
+  let stopped = 0;
+  const s = setup({ stopJob: () => { stopped += 1; } });
+  s.listeners['panel:stop-job'](SOMEONE_ELSE);
+  assert.strictEqual(stopped, 0);
+  s.listeners['panel:stop-job'](s.fromPanel);
+  assert.strictEqual(stopped, 1);
 });
 
 test('Open Settings for the microphone: Settings → Permissions on the Mac', () => {

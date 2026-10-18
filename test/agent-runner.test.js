@@ -14,7 +14,7 @@ const settle = async () => { for (let i = 0; i < 30; i += 1) await new Promise((
 function setup({
   replies = [], info = { route: 'own', provider: 'anthropic', model: 'claude-sonnet-5-5', label: 'Claude', rank: 'best', vision: true },
   settings = { agentOn: true, agentAgreed: true }, perms = { accessibility: true, screenRecording: true }, heard = [], talk = true,
-  locked = false, lock = null, waits = null, onAsk = () => {}, myVoice = null, hearSilent = 0, onPerms = () => {},
+  locked = false, lock = null, waits = null, onAsk = () => {}, myVoice = null, hearSilent = 0, onPerms = () => {}, listened = [], failWatchOn = 0,
 } = {}) {
   const log = [];
   let tokens = 0;
@@ -31,7 +31,8 @@ function setup({
       return { text: JSON.stringify(next), model: 'm' };
     },
   };
-  const helper = { call: async (cmd, args) => { log.push(['helper', cmd, args]); if (cmd === 'permissions') onPerms(); return cmd === 'permissions' ? perms : { ok: true }; } };
+  let watchOns = 0;
+  const helper = Object.assign(new (require('node:events').EventEmitter)(), { call: async (cmd, args) => { log.push(['helper', cmd, args]); if (cmd === 'permissions') onPerms(); if (cmd === 'watchStop' && args.on) { watchOns += 1; if (failWatchOn && watchOns >= failWatchOn) throw new Error('down'); } return cmd === 'permissions' ? perms : { ok: true }; } });
   const talkBack = talk ? {
     say: async (t) => { log.push(['say', t]); },
     hear: async (verb, opts = {}) => {
@@ -39,7 +40,7 @@ function setup({
       if (opts.silence) { if (hearSilent > 0) { hearSilent -= 1; return null; } return heard.length ? heard.shift() : null; }
       return heard.length ? heard.shift() : 'no';
     },
-    listen: async () => null,
+    listen: async () => (listened.length ? listened.shift() : null),
     stop: () => log.push(['stopVoice']),
   } : null;
   const ui = { speech: (t, b, token) => log.push(['speech', t, b, token]), mood: (m) => log.push(['mood', m]) };
@@ -49,7 +50,7 @@ function setup({
     memory: { facts: () => [] }, userName: () => 'Akshat', randomId: () => 'job-12345678', newToken: () => { tokens += 1; return `tok-${tokens}`; }, myVoice,
     ...(waits ? { waits: { ...RUNNER_WAITS, ...waits } } : {}),
   });
-  return { runner, log, hands, settings };
+  return { runner, log, hands, settings, helper };
 }
 
 test('a job runs: thinking face, Esc watch on and off, each step shown with Stop, the AI asked with the job id', async () => {
@@ -326,4 +327,73 @@ test('Only my voice off or not asked about a risky step: voice yes as before', a
   const s = setup({ myVoice: { on: () => false }, heard: ['yes'], replies: [TRASH, DONE] });
   await s.runner.start({ goal: 'delete', spoken: true });
   assert.strictEqual(s.hands.acts.length, 1);
+});
+
+test('"stop" typed in the chat ends the job, whatever it waits on; "stop the music" is not a stop', async () => {
+  const s = setup({ replies: [TRASH] });
+  const running = s.runner.start({ goal: 'x', spoken: false });
+  await settle();
+  assert.strictEqual(s.runner.reply('stop the music'), true, 'taken as the no it is');
+  await settle();
+  const again = setup({ replies: [TRASH] });
+  const second = again.runner.start({ goal: 'x', spoken: false });
+  await settle();
+  assert.strictEqual(again.runner.reply('Stop.'), true);
+  const r = await second;
+  assert.deepStrictEqual([r.end, r.line], ['stopped', 'Stopped.']);
+  assert.strictEqual(again.hands.acts.length, 0);
+  await running;
+  const hindi = setup({ replies: [{ say: '', action: { type: 'ask_user', question: 'Which?' } }] });
+  const third = hindi.runner.start({ goal: 'x', spoken: false });
+  await settle();
+  assert.strictEqual(hindi.runner.reply('ruko'), true);
+  assert.strictEqual((await third).end, 'stopped');
+});
+
+test('"stop" heard in a spoken yes/no, in the AI\'s question and in a hand-over ends the job', async () => {
+  const yn = setup({ heard: ['stop'], replies: [TRASH, DONE] });
+  assert.strictEqual((await yn.runner.start({ goal: 'x', spoken: true })).end, 'stopped');
+  assert.strictEqual(yn.hands.acts.length, 0);
+  const au = setup({ listened: ['band karo'], replies: [{ say: '', action: { type: 'ask_user', question: 'Which?' } }, DONE] });
+  assert.strictEqual((await au.runner.start({ goal: 'x', spoken: true })).end, 'stopped');
+  const ho = setup({ listened: ['रुको'], replies: [{ say: '', action: { type: 'handover', why: 'Log in please.' } }, DONE] });
+  assert.strictEqual((await ho.runner.start({ goal: 'x', spoken: true })).end, 'stopped');
+});
+
+test('the first-job question with Only my voice on: a spoken yes is not taken, only a press', async () => {
+  const s = setup({ settings: { agentOn: true }, myVoice: { on: () => true }, heard: ['yes'], replies: [DONE] });
+  const running = s.runner.start({ goal: 'x', spoken: true });
+  await settle();
+  assert.ok(!s.log.some((l) => l[0] === 'hear'), 'the voice is not listened to');
+  assert.ok(s.log.some((l) => l[0] === 'say' && /Tap Yes to confirm\.$/.test(l[1])));
+  s.runner.button('yes', lastToken(s));
+  assert.strictEqual((await running).end, 'done');
+});
+
+test('a helper that restarts mid-job is told to watch for Esc again; if it cannot be, the job stops', async () => {
+  const s = setup({ replies: [TRASH, DONE] });
+  const running = s.runner.start({ goal: 'x', spoken: false });
+  await settle();
+  s.helper.emit('started');
+  await settle();
+  assert.strictEqual(s.log.filter((l) => l[0] === 'helper' && l[1] === 'watchStop' && l[2].on).length, 2);
+  s.runner.button('stop');
+  await running;
+  assert.strictEqual(s.helper.listenerCount('started'), 0, 'the listener is gone after the job');
+  const bad = setup({ replies: [TRASH, DONE], failWatchOn: 2 });
+  const second = bad.runner.start({ goal: 'x', spoken: false });
+  await settle();
+  bad.helper.emit('started');
+  assert.strictEqual((await second).end, 'stopped');
+});
+
+test('after Yes or No the greyed row is replaced by a bubble with just Stop', async () => {
+  const s = setup({ replies: [TRASH, DONE] });
+  const running = s.runner.start({ goal: 'delete a.pdf', spoken: false });
+  await settle();
+  const asked = s.log.filter((l) => l[0] === 'speech').length;
+  s.runner.button('yes', lastToken(s));
+  await running;
+  const after = s.log.filter((l) => l[0] === 'speech').slice(asked);
+  assert.deepStrictEqual([after[0][1], after[0][2]], ['Move "a.pdf" to the Trash?', ['stop']]);
 });

@@ -1,6 +1,7 @@
 'use strict';
 
 const { chooseVoice, bestVoice } = require('./voices');
+const { stopHeard } = require('../../shared/agent/loop');
 const { answerGrammar, heardAnswer, heardWords, YES_WORDS, NO_WORDS } = require('../../shared/voice-words');
 
 /**
@@ -45,9 +46,12 @@ function createTalkBack({ ear, model, transcribe, voiceName = () => null, now = 
       const r = await ear.call('say', { text, voiceName: pick.name, fallbackName: pick.fallback });
       return r?.gone ? { gone: true } : undefined; // only that the page went is told
     },
-    /** A yes or no. `silence: true`: nothing heard (or a failure) is null, not a no, so a caller can go on waiting. */
-    async hear(verb, { silence = false } = {}) {
-      const decide = (text) => (silence ? heardWords(text, verb) : heardAnswer(text, verb));
+    /** A yes or no (`stopWords: true`: a lone "stop" is 'stop'). `silence: true`: nothing heard (or a failure) is null, not a no, so a caller can go on waiting. */
+    async hear(verb, { silence = false, stopWords = false } = {}) {
+      const decide = (text) => {
+        if (stopWords && stopHeard(text)) return 'stop'; // a job's "stop": the caller ends the job
+        return silence ? heardWords(text, verb) : heardAnswer(text, verb);
+      };
       try {
         if (!model.ready()) model.ensure().catch((err) => console.warn('[buddy] voice model:', err.code || err.message));
         const g = model.ready() ? answerGrammar(verb, knownWords(verb)) : null;

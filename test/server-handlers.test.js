@@ -783,3 +783,12 @@ test('config: agentVision says whether the free model can read screenshots', asy
   assert.strictEqual((await setup({ stored: FREE_SONNET }).run(config, 'GET')).body.agentVision, true);
   assert.strictEqual((await setup({ stored: FREE_SONNET, vision: false }).run(config, 'GET')).body.agentVision, false);
 });
+
+test('agent: a person blocked after their job began gets no more free steps', async () => {
+  const s = setup({ stored: FREE_SONNET, reply: '{"say":"","action":{"type":"look"}}' });
+  assert.strictEqual((await s.run(ask, 'POST', { body: AGENT })).status, 200);
+  await s.db.setBlocked(Object.keys(s.db.state.users)[0], true);
+  const r = await s.run(ask, 'POST', { body: { ...AGENT, step: 2 } });
+  assert.deepStrictEqual([r.status, r.body.error.code], [403, 'blocked']);
+  assert.strictEqual(s.completes.length, 1, 'the AI was not asked again');
+});

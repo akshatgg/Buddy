@@ -204,6 +204,10 @@ async function ask(req, deps) {
     if (!counted.ok) {
       throw new BuddyError('free_limit', `You've used today's ${cfg.dailyRequests} free requests. They come back at midnight.`);
     }
+  } else {
+    // Later steps of a job are not counted, but a person blocked after it began gets no more free steps.
+    const user = await deps.db.ensureUser({ uid: who.uid, email: who.email, name: who.name || '', now });
+    if (user.blocked === true) throw new BuddyError('blocked', 'Your free access is paused.');
   }
   if (isAgent) {
     const step = await deps.db.updateAgentDay(`${who.uid}_${day}`, (doc) => agentFree.jobStep(doc, {

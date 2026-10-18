@@ -237,6 +237,7 @@ function createActions({
       notice: c.notice,
       noticeFix: c.noticeFix,
       selection: c.selection,
+      job: agent?.running() === true, // a job is running: the page shows a Stop button (spec §10)
       busy: c.busy && !(agent?.running() && c === chat), // a running job waits for typed answers: the page must let them go (send)
       resumed: c.resumed,
       chat: c.items.map((item) => {
@@ -1392,7 +1393,7 @@ function createActions({
     hush(chat);
   }
 
-  return { open, mood: (name) => ui.mood(name), toggle, dismiss, send, voice: sayToBuddy, act, dropSelection, transcribe, hushVoice, state: () => stateOf(chat) };
+  return { open, mood: (name) => ui.mood(name), toggle, dismiss, send, voice: sayToBuddy, act, dropSelection, transcribe, hushVoice, stopJob: () => agent?.stop?.('person'), state: () => stateOf(chat) };
 }
 
 module.exports = { createActions, sectionFor, COPIED };

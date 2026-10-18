@@ -58,6 +58,8 @@ function make(tag, className, text) {
  * A line under the box for a message, a click or a recording that did not go through. With `settingsCode`, it has an
  * Open Settings button that opens Settings where the fix is (the microphone: 'no_microphone').
  */
+$('stop-job').addEventListener('click', () => window.buddy.stopJob());
+
 function showSendError(message, settingsCode = '') {
   fixIn = message ? settingsCode : '';
   $('send-error-text').textContent = message || '';
@@ -189,6 +191,7 @@ function render({ scroll = false } = {}) {
   const thinking = thinkingLine(s.buddyName);
   if ($('thinking').textContent !== thinking) $('thinking').textContent = thinking;
   show($('thinking'), Boolean(s.busy));
+  show($('stop-job'), s.job === true); // a job is running: Stop ends it
 
   $('notice-text').textContent = s.notice || '';
   show($('notice-fix'), Boolean(s.noticeFix));

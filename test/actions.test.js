@@ -35,6 +35,7 @@ test('opening reads the selection first, then shows the greeting, the selection 
     noticeFix: '',
     selection: 'me go home',
     busy: false,
+    job: false,
     resumed: false,
     chat: [],
     voice: { on: false, auto: false, mic: 'unknown', system: 'darwin' },
@@ -249,6 +250,7 @@ test('a message goes to the AI with the selection, what Buddy knows and who asks
     noticeFix: '',
     selection: '', // the selection went with this message
     busy: false,
+    job: false,
     resumed: false,
     chat: [
       { id: 1, type: 'you', text: 'fix this please' },

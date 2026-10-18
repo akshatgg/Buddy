@@ -40,7 +40,7 @@ test('a job that works: each step shown, acted, logged; done ends it with the su
 test('a risky step asks with the device\'s question; yes acts, no is logged and not acted', async () => {
   const yes = job({ start: 'files', answers: ['yes'], replies: [step('Deleting…', { type: 'files', op: 'trash', path: '/Users/a/a.pdf' }), step('', { type: 'done', summary: 'Gone.' })] });
   await yes.j.run();
-  assert.deepStrictEqual(yes.g.asked, [['ask', 'Move "a.pdf" to the Trash?']]);
+  assert.deepStrictEqual(yes.g.asked, [['ask', 'Move "a.pdf" in a to the Trash?']]);
   assert.strictEqual(yes.hands.acts.length, 1);
   const no = job({ start: 'files', answers: ['no'], replies: [step('Deleting…', { type: 'files', op: 'trash', path: '/Users/a/a.pdf' }), step('', { type: 'done', summary: 'Left it.' })] });
   await no.j.run();
@@ -234,7 +234,7 @@ test('approval does not carry over: the next step is asked again', async () => {
   const s = job({ start: 'files', answers: ['yes', 'yes'], replies: [trash('a'), trash('b'), step('', { type: 'done', summary: 'ok' })] });
   await s.j.run();
   assert.strictEqual(s.g.asked.length, 2);
-  assert.deepStrictEqual(s.hands.actOptions.map((o) => o.approved), ['Move "a.pdf" to the Trash?', 'Move "b.pdf" to the Trash?']);
+  assert.deepStrictEqual(s.hands.actOptions.map((o) => o.approved), ['Move "a.pdf" in a to the Trash?', 'Move "b.pdf" in a to the Trash?']);
 });
 
 test('needs_approval is asked at most twice; a no on the new question is declined', async () => {
@@ -288,7 +288,7 @@ test('the question asked is for the canonical action the hands resolved', async 
   const s = job({ start: 'files', answers: ['yes'], replies: [step('', { type: 'files', op: 'trash', path: '/Users/a/link.pdf' }), step('', { type: 'done', summary: 'ok' })] });
   s.hands.canonical = async (a) => ({ ...a, path: '/Users/a/real.pdf' });
   await s.j.run();
-  assert.deepStrictEqual(s.g.asked, [['ask', 'Move "real.pdf" to the Trash?']]);
+  assert.deepStrictEqual(s.g.asked, [['ask', 'Move "real.pdf" in a to the Trash?']]);
 });
 
 test('the time limit is checked after a step, before the next', async () => {

@@ -91,7 +91,7 @@ test('a risky step is asked in the bubble with Yes / No; a press of Yes acts', a
   const s = setup({ replies: [{ ...TRASH, say: 'Deleting…' }, { say: '', action: { type: 'done', summary: 'Gone.' } }] });
   const running = s.runner.start({ goal: 'delete a.pdf', spoken: false });
   await settle();
-  assert.ok(s.log.some((l) => l[0] === 'speech' && l[1] === 'Move "a.pdf" to the Trash?' && l[2].join() === 'yes,no'));
+  assert.ok(s.log.some((l) => l[0] === 'speech' && l[1] === 'Move "a.pdf" in a to the Trash?' && l[2].join() === 'yes,no'));
   s.runner.button('yes', lastToken(s));
   const r = await running;
   assert.strictEqual(r.end, 'done');
@@ -102,7 +102,7 @@ test('a spoken job asks out loud and hears the answer with the "do" words', asyn
   const s = setup({ heard: ['yes'], replies: [TRASH, { say: '', action: { type: 'done', summary: 'Gone.' } }] });
   const r = await s.runner.start({ goal: 'delete a.pdf', spoken: true });
   assert.strictEqual(r.end, 'done');
-  assert.ok(s.log.some((l) => l[0] === 'say' && l[1] === 'Move "a.pdf" to the Trash?'));
+  assert.ok(s.log.some((l) => l[0] === 'say' && l[1] === 'Move "a.pdf" in a to the Trash?'));
   assert.deepStrictEqual(s.log.filter((l) => l[0] === 'hear').map((l) => l[1]), ['do']);
   assert.strictEqual(s.hands.acts.length, 1);
 });
@@ -114,7 +114,7 @@ test('a typed job: the AI\'s question waits for the answer typed in the chat; a 
   assert.ok(s.log.some((l) => l[0] === 'speech' && l[1] === 'Which file? Click here to type your answer.' && l[2].join() === 'stop'));
   assert.strictEqual(s.runner.reply('the PDF'), true);
   await settle();
-  assert.ok(s.log.some((l) => l[0] === 'speech' && l[1] === 'Move "a.pdf" to the Trash?'));
+  assert.ok(s.log.some((l) => l[0] === 'speech' && l[1] === 'Move "a.pdf" in a to the Trash?'));
   assert.strictEqual(s.runner.reply('haan kar do'), true);
   const r = await running;
   assert.strictEqual(r.end, 'done');
@@ -226,7 +226,7 @@ test('reassert puts a pending question back after another line took the bubble',
   s.runner.reassert();
   const last = s.log.filter((l) => l[0] === 'speech').pop();
   assert.strictEqual(s.log.filter((l) => l[0] === 'speech').length, before + 1);
-  assert.deepStrictEqual([last[1], last[2].join()], ['Move "a.pdf" to the Trash?', 'yes,no']);
+  assert.deepStrictEqual([last[1], last[2].join()], ['Move "a.pdf" in a to the Trash?', 'yes,no']);
   s.runner.stop('person');
   await running;
   const n = s.log.length;
@@ -395,5 +395,5 @@ test('after Yes or No the greyed row is replaced by a bubble with just Stop', as
   s.runner.button('yes', lastToken(s));
   await running;
   const after = s.log.filter((l) => l[0] === 'speech').slice(asked);
-  assert.deepStrictEqual([after[0][1], after[0][2]], ['Move "a.pdf" to the Trash?', ['stop']]);
+  assert.deepStrictEqual([after[0][1], after[0][2]], ['Move "a.pdf" in a to the Trash?', ['stop']]);
 });

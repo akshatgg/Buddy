@@ -21,7 +21,7 @@ test('opening, reading, scrolling and looking are safe', () => {
 
 test('deleting, overwriting and risky words ask, with a question written by the device', () => {
   const trash = riskOf({ type: 'files', op: 'trash', path: '/Users/a/Downloads/x.pdf' }, ctx());
-  assert.deepStrictEqual([trash.risk, trash.question], ['ask', 'Move "x.pdf" to the Trash?']);
+  assert.deepStrictEqual([trash.risk, trash.question], ['ask', 'Move "x.pdf" in Downloads to the Trash?']);
   assert.strictEqual(risk({ type: 'files', op: 'move', path: '/a/x', to: '/b/x' }, { exists: true }), 'ask');
   assert.strictEqual(risk({ type: 'files', op: 'move', path: '/a/x', to: '/b/x' }, { exists: false }), 'ask', 'destination outside home');
   assert.strictEqual(risk({ type: 'files', op: 'move', path: '~/a/x', to: '~/b/x' }, { exists: false }), 'safe');
@@ -381,4 +381,25 @@ test('a multi-line command is refused; a short one is asked about with every par
   assert.strictEqual(r.question, 'Run this command: mkdir a && touch a/b; rm -r a?');
   const link = riskOf({ type: 'open_url', url: 'myapp://open?x=1' }, ctx());
   assert.strictEqual(link.question, 'Open this link: myapp://open?x=1?');
+});
+
+test('file questions show the file and its folder in full; a path that does not fit is refused', () => {
+  const q = (action) => riskOf(action, ctx()).question;
+  assert.strictEqual(q({ type: 'files', op: 'trash', path: '~/Documents/x' }), 'Move "x" in Documents to the Trash?');
+  assert.strictEqual(riskOf({ type: 'files', op: 'write', path: '~/Documents/x.txt', text: 'a' }, ctx({ exists: true })).question, 'Replace "x.txt" in Documents?');
+  assert.strictEqual(riskOf({ type: 'files', op: 'write', path: '/etc/hosts', text: 'a' }, ctx()).question, 'Change files in "hosts" in etc?');
+  const long = riskOf({ type: 'files', op: 'trash', path: `~/Documents/${'n'.repeat(120)}.pdf` }, ctx());
+  assert.deepStrictEqual([long.risk, long.reason], ['never', 'That path is too long for me to ask about.']);
+});
+
+test('call and text questions show the whole number, or are refused', () => {
+  assert.strictEqual(riskOf({ type: 'open_url', url: 'tel:+919876543210' }, ctx()).question, 'Call +919876543210?');
+  assert.strictEqual(riskOf({ type: 'open_url', url: 'sms:+919876543210' }, ctx()).question, 'Text +919876543210?');
+  assert.strictEqual(riskOf({ type: 'open_url', url: `tel:${'1'.repeat(130)}` }, ctx()).risk, 'never');
+});
+
+test('name-only password apps are password apps', () => {
+  const { PASSWORD_APPS } = require('../shared/agent/safety');
+  for (const id of ['com.dashlane.Dashlane', 'com.enpass.Enpass', 'com.nordpass.macos', 'com.protonpass.pass']) assert.ok(PASSWORD_APPS.includes(id), id);
+  for (const name of ['Dashlane', 'KeePassXC', 'Enpass', 'NordPass', 'Proton Pass', 'RoboForm']) assert.strictEqual(isPasswordApp({ name, id: 'x' }), true, name);
 });

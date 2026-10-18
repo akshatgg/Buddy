@@ -33,8 +33,8 @@ const MESSAGING_APPS = [
 const MESSAGING_NAMES = /^(wechat|line|viber|skype|zoom|zoom\.us|google chat)$/i;
 const MESSAGING_TITLES = ['gmail', 'outlook', 'whatsapp', 'slack', 'telegram', 'discord', 'messenger', 'linkedin', 'twitter', 'instagram', 'facebook', 'teams', 'mail', 'wechat', 'viber', 'skype', 'zoom', 'google chat'];
 const PAY_TITLES = ['bank', 'banking', 'checkout', 'payment', 'pay', 'upi', 'wallet', 'billing', 'card'];
-const PASSWORD_APPS = ['com.1password.1password', 'com.agilebits.onepassword7', 'com.bitwarden.desktop', 'com.apple.keychainaccess', 'com.apple.Passwords', 'com.lastpass.LastPass', 'org.keepassxc.keepassxc'];
-const PASSWORD_NAMES = /1password|bitwarden|keychain access|lastpass|dashlane|keepass|^passwords$/i;
+const PASSWORD_APPS = ['com.dashlane.dashlanephonefinal', 'com.dashlane.Dashlane', 'com.enpass.Enpass', 'io.enpass.Enpass', 'com.callpod.keepermac', 'com.nordpass.macos', 'com.protonpass.pass', 'ch.protonmail.pass', 'com.roboform.roboform', 'com.stickypassword.StickyPassword', 'com.1password.1password', 'com.agilebits.onepassword7', 'com.bitwarden.desktop', 'com.apple.keychainaccess', 'com.apple.Passwords', 'com.lastpass.LastPass', 'org.keepassxc.keepassxc'];
+const PASSWORD_NAMES = /1password|bitwarden|keychain access|lastpass|dashlane|keepass|enpass|nordpass|proton pass|roboform|sticky password|keeper password|^keeper$|^passwords$/i;
 const SECRET_PATHS = /(^|[/\s])(\.ssh|\.gnupg|\.aws|\.netrc|\.pgpass|\.git-credentials|\.npmrc|\.kube|\.buddy-release|\.claude|\.vercel|\.config\/gcloud|\.env(\.[\w-]+)?|id_rsa[\w.]*|id_ed25519[\w.]*|id_ecdsa[\w.]*|logins\.json|key4\.db)([/\s]|$)|\.docker\/config\.json|\.config\/gh\/hosts\.yml|keychains?|login data|web data|cookies/i;
 const INSTALLER_FILES = /\.(pkg|mpkg|dmg|app|command|sh|tool|scpt|terminal|workflow|mobileconfig|prefpane|fileloc|webloc|jar|kext|scptd|inetloc|saver|qlgenerator|plugin|bundle)$/i;
 const TERMINAL_APPS = [
@@ -81,6 +81,19 @@ const fullAsk = (reason, text, make, what) => {
   const t = String(text);
   const q = make(t);
   if (/[\r\n]/.test(t) || q.length > QUESTION_MAX) return never(`That ${what} is too long for me to ask about. Run it yourself.`);
+  return ask(reason, q);
+};
+/** A file as the person is asked about it: its whole name and the folder it is in ("x.pdf" in Documents). */
+function whereIs(path) {
+  const parts = String(path).replace(/\/+$/, '').split('/');
+  const name = parts.pop() || String(path);
+  const parent = parts.pop();
+  return parent ? `"${name}" in ${parent}` : `"${name}"`;
+}
+/** A file question that holds the whole file name: if it does not fit in the bubble, it is refused, never cut. */
+const pathAsk = (reason, path, make) => {
+  const q = make(whereIs(path));
+  if (/[\r\n]/.test(String(path)) || q.length > QUESTION_MAX) return never('That path is too long for me to ask about.');
   return ask(reason, q);
 };
 const safe = () => ({ risk: 'safe', reason: '', question: '' });
@@ -317,9 +330,9 @@ const SYSTEM_DIRS = /^\/(system|library|applications|usr|bin|sbin|etc|private|va
 /** Where a file would be written: dotfiles and ~/Library run code at login, system folders change the Mac, relative paths are unknown. */
 function writeTargetRisk(path) {
   const n = normPath(path);
-  if (n === null) return ask('it is not clear where this goes', `Change files in ${short(path)}?`);
-  if (SYSTEM_DIRS.test(n)) return ask('it changes system folders', `Change files in ${short(path)}?`);
-  if (underHome(n) && (/^~\/library(\/|$)/.test(n) || /^~\/\.[^/]/.test(n))) return ask('it can run code at login', `Change files in ${short(path)}?`);
+  if (n === null) return pathAsk('it is not clear where this goes', path, (w) => `Change files in ${w}?`);
+  if (SYSTEM_DIRS.test(n)) return pathAsk('it changes system folders', path, (w) => `Change files in ${w}?`);
+  if (underHome(n) && (/^~\/library(\/|$)/.test(n) || /^~\/\.[^/]/.test(n))) return pathAsk('it can run code at login', path, (w) => `Change files in ${w}?`);
   return null;
 }
 
@@ -330,10 +343,10 @@ function filesRisk(action, c) {
     if (p && isSecretPath(p)) return never('that file holds keys or passwords');
   }
   for (const p of [action.path, action.to]) {
-    if (p && relative(p)) return ask('it is not clear where this is', `Use "${short(p)}"?`);
-    if (p && hiddenPath(p)) return ask('it is a hidden or system folder', `Use "${short(p)}"?`);
+    if (p && relative(p)) return pathAsk('it is not clear where this is', p, (w) => `Use ${w}?`);
+    if (p && hiddenPath(p)) return pathAsk('it is a hidden or system folder', p, (w) => `Use ${w}?`);
   }
-  if (action.op === 'trash') return ask('it deletes', `Move "${base(action.path)}" to the Trash?`);
+  if (action.op === 'trash') return pathAsk('it deletes', action.path, (w) => `Move ${w} to the Trash?`);
   const writes = ['copy', 'move', 'rename', 'write', 'new_folder'].includes(action.op);
   if (writes) {
     for (const p of [action.path, action.to]) {
@@ -341,11 +354,11 @@ function filesRisk(action, c) {
       if (r) return r;
     }
   }
-  if (['copy', 'move', 'rename'].includes(action.op) && c.exists) return ask('it replaces a file', `Replace "${base(action.to || '')}"?`);
-  if (action.op === 'write' && c.exists) return ask('it replaces a file', `Replace "${base(action.path)}"?`);
+  if (['copy', 'move', 'rename'].includes(action.op) && c.exists) return pathAsk('it replaces a file', action.to || '', (w) => `Replace ${w}?`);
+  if (action.op === 'write' && c.exists) return pathAsk('it replaces a file', action.path, (w) => `Replace ${w}?`);
   if (['copy', 'move'].includes(action.op) && action.to) {
     const to = normPath(action.to);
-    if (to && !underHome(to)) return ask('it leaves your home folder', `Put "${base(action.path)}" outside your home folder?`);
+    if (to && !underHome(to)) return pathAsk('it leaves your home folder', action.path, (w) => `Put ${w} outside your home folder?`);
   }
   return safe();
 }
@@ -355,8 +368,8 @@ function urlRisk(url) {
   try { parsed = new URL(url); } catch { return never('that is not a link'); }
   if (parsed.protocol === 'javascript:' || parsed.protocol === 'data:' || parsed.protocol === 'file:') return never('that kind of link is not allowed');
   if (PASSWORD_PAGES.test(parsed.hostname)) return never("I don't open password manager pages");
-  if (parsed.protocol === 'tel:' || parsed.protocol === 'facetime:' || parsed.protocol === 'facetime-audio:') return ask('it calls', `Call ${short(decodeURIComponent(parsed.pathname))}?`);
-  if (parsed.protocol === 'sms:') return ask('it texts', `Text ${short(decodeURIComponent(parsed.pathname))}?`);
+  if (parsed.protocol === 'tel:' || parsed.protocol === 'facetime:' || parsed.protocol === 'facetime-audio:') return fullAsk('it calls', decodeURIComponent(parsed.pathname), (t) => `Call ${t}?`, 'number');
+  if (parsed.protocol === 'sms:') return fullAsk('it texts', decodeURIComponent(parsed.pathname), (t) => `Text ${t}?`, 'number');
   if (!SAFE_SCHEMES.includes(parsed.protocol)) return fullAsk('it opens another app', url, (t) => `Open this link: ${t}?`, 'link');
   if (/download/i.test(parsed.search) || DOWNLOAD_LINKS.test(parsed.pathname) || INSTALLER_FILES.test(parsed.pathname)) return ask('it downloads an installer', `Download ${short(base(parsed.pathname))}?`);
   return safe();

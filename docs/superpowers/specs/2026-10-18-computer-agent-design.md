@@ -397,12 +397,17 @@ of Buddy's is running).
 `safety.riskOf(action, observation)` runs on the device before every act, whatever the AI says. The AI may also flag a
 step (`"risky": true` in its reply) — that can only raise the class to ask, never lower it. The rules:
 
-1. **By action type:** `files trash` → ask. `files move/rename/write` onto an existing path → ask. `run` → safe only
-   when every command in it (split on `;`, `&&`, `|`, `$(…)`, backticks) is on the read-only list (`ls`, `pwd`, `cat`,
+1. **By action type:** `files trash` → ask. `files move/rename/write` onto an existing path → ask (a rename's relative
+   new name is in the file's own folder). `run` → safe only
+   when every command in it (split on `;`, `&&`, `||`, `|`, `|&`, `&`, line breaks; `$(…)`, backticks and `>` ask) is on the read-only list (`ls`, `pwd`, `cat`,
    `head`, `tail`, `wc`, `echo`, `date`, `which`, `whoami`, `df`, `du`, `uptime`, `open` with an http(s) URL or a
    folder, `mdfind`, `find` without `-delete`/`-exec`, `Get-ChildItem`, `Get-Content`, `Get-Date`, `Get-Process`,
    `Test-Path`); `never` for `sudo`, `rm -rf /`-like, `diskutil erase`, `csrutil`, `spctl --master-disable`,
    `Format-Volume`, `Set-MpPreference -Disable…`, `netsh advfirewall set … off`; everything else → ask.
+   A command that names a file with keys or passwords (the `files read` list: `.ssh`, `.env*`, `.aws`, `.netrc`,
+   `.gnupg`, `id_rsa*`, keychains, browser cookies and logins) → never, even `cat`. A recursive `grep` (`-r`, `-R`) or a
+   wildcard given to a command that prints file contents (`cat`, `head`, `tail`, `grep`, `sort`) → ask. `open` is safe
+   only with http(s) links or one folder; `open tel:…`, `open slack://…`, `open -a App`, `open file.pdf` → ask.
    `open_url` with `tel:`, `sms:`, or a link to a `.dmg`/`.pkg`/`.exe`/`.msi`/`.apk` → ask. `skill` → its own
    existing confirmation (WhatsApp send card, call card).
 2. **By the target's words:** for `click`, `toggle`, `pick`, `keys enter`, `click_at`, the words of the element (and,
@@ -412,8 +417,11 @@ step (`"risky": true` in its reply) — that can only raise the class to ask, ne
    install, update now, restart, shut down, sign out, reset, format, allow (a system permission dialog), unlock,
    accept, agree; plus Hindi/Hinglish ones (bhejo, bhejein, bhugtan, bhugtaan, hatao, mitao, kharido). A match → ask.
 3. **By context:** any change in a settings app (System Settings, Control Panel / Settings, Android Settings) other
-   than the comfort settings of §15 (a toggle or slider whose words are volume, brightness, dark / light / appearance,
-   Do Not Disturb / Focus, Wi-Fi, Bluetooth),
+   than the comfort settings of §15 → ask. A comfort setting is a switch, checkbox, slider or radio button (or a choice
+   picked in a pop-up) whose name has volume, brightness, dark mode, light mode, Do Not Disturb, Wi-Fi or Bluetooth in
+   it, or is exactly Dark, Light, Auto, Appearance or Focus — and never one whose name has a risk word ("Reset
+   Bluetooth…", "Remove Wi-Fi network" ask). In a settings app, typing, setting a value, Enter / Space and a `click_at`
+   on nothing known go through the same check (typing in its search field is safe). Also, in any app:
    Keychain / Credential Manager, an installer, a store app's Buy/Get button, a banking or payment page (URL or title
    words: bank, pay, checkout, upi, wallet, card) → ask. **Enter / Cmd+Enter / Ctrl+Enter in a mail, chat or social app
    or page** (the `send-keys.js` app list, plus window-title words) → ask, as "Send this?".
@@ -425,11 +433,15 @@ step (`"risky": true` in its reply) — that can only raise the class to ask, ne
 
 ### 7.3 Asking
 
-Reuses the ask-aloud: Mac `talkBack.say()` + `talkBack.hear('do')` (the yes/no grammar with "do it", "haan", "yes",
-"kar do" added to `voice-words.js` YES words for this verb), Android `PhoneTalkBack.hear()`. The question shows in the
-bubble with Yes / No buttons at the same time; pressing works too. No answer in 10 s, an unclear answer, an error, or a
-locked screen = **no**. A typed job (panel open, not spoken) asks with a card in the panel instead of out loud, as the
-WhatsApp card does today. One yes covers one step only; the same kind of risky step later asks again.
+Reuses the ask-aloud: Mac `talkBack.say()` + `talkBack.hear('do')` (with "do" as the verb, the existing yes/no
+grammar already takes "do it", "kar do", "haan", "yes"), Android `PhoneTalkBack.hear()`. The question shows in the
+bubble with Yes / No buttons at the same time; pressing works too, and so does a yes or no typed in the chat (read with
+the same words). A typed job (not spoken) asks only in the bubble, not out loud; the panel steps aside for the whole
+job, and a typed answer sends it aside again. The bubble with buttons stays up through the wait (it is held, whatever
+else asks for the bubble). An unclear answer, an error, a stop or a locked screen = **no**; so is silence: about 8 s
+for the voice, 60 s for the buttons and a typed answer. A question the AI asks the person (`ask_user`) waits up to
+2 minutes for their typed (or, in a spoken job, said) answer. One yes covers one step only; the same kind of risky step
+later asks again.
 
 ### 7.4 Passwords and secrets
 
@@ -611,3 +623,15 @@ The owner approved this design and chose all four recommendations:
    without a question (they are easy to undo). Every other settings change asks.
 4. **Passwords:** Buddy **never** types a password, even when the person says it out loud. It hands over: "Please type
    it yourself, then say 'go on'."
+
+## 16. Deferred in the first Mac plan (owner to agree)
+
+The Mac plan (`docs/superpowers/plans/2026-10-18-computer-agent-mac.md`) leaves two parts of this design for later:
+
+1. **The `skill` action** (§5.2: a WhatsApp message or a call through the agent): the chat's own `message` and `call`
+   kinds already do these with their cards, so a job does not need it yet.
+2. **An admin-editable price table** (§9): the prices of the daily spend cap are a shared table in
+   `shared/agent/limits.js` (an unknown model is priced high), changed by a release, not in Admin.
+
+The phone apps (iPhone web app, Android) show a `do` answer as "I can use apps for you on the Mac for now." until their
+own plans add jobs.

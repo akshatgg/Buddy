@@ -26,6 +26,7 @@ Vercel serverless (`web/`), Firestore.
 - Do not push. Never run `npm run deploy:server`.
 - Single test files may be run without the lock: `node --test test/<file>.test.js`. Lint a file: `npx eslint <file>`.
 - After any change under `shared/`: run `npm run sync:web` (copies `shared/` to `web/shared/`). After a change to `shared/prompts.js`: also `npm run sync:web-app` and `npm run sync:android`. Commit the copies with the change (`test/web-shared.test.js`, `test/web-app-*.test.mjs`, `test/android-shared.test.js` fail otherwise). These are local copies, not deploys.
+- Syncs and parallel tasks: only the task marked **(sync)** in the wave table runs a `sync:*` script, and only one task per wave has that mark. A task `git add`s only the synced files of its own change (each task's commit step names them); never `git add web/shared` or `web/public/app/shared` as a whole folder.
 - `shared/prompts.js` must not `require` anything under `shared/agent/` (the web-app converter in `tools/sync-web-app.js` only follows `./name` requires). `shared/agent/*` may require `../prompts`, `../errors`.
 - User-facing copy: plain short English, as written in this plan (owner reads Hinglish; keep lines short).
 - Owner decisions (spec §15): Claude Code brain = one `claude -p` per step; free mode allowed with 5 jobs/person/day and a $3/day total cap (admin-changeable) only when the admin's model ranks "ok" or better; comfort settings (volume, brightness, dark mode, Do Not Disturb, Wi-Fi/Bluetooth on/off) need no question; never type a password, even spoken.
@@ -34,14 +35,17 @@ Vercel serverless (`web/`), Firestore.
 
 ## Task order and parallel groups
 
-| Wave | Tasks (parallel inside a wave: disjoint files) |
+| Wave | Tasks (parallel inside a wave: disjoint files; at most one **(sync)** task) |
 |---|---|
-| 1 | T1 shared core · T6 Swift helper hands · T7 "open X" fix · T9 bubble buttons · T10 settings switch |
-| 2 (after T1) | T2 loop · T3 step prompt + chat kind `do` · T8 Mac hands adapter (also needs T6's command names, given below; T7's `apps.find`, faked in its tests) |
-| 3 (after T3) | T4 brain call in main · T5 server free-mode caps + admin |
-| 4 (after all above) | T11 job in the chat (runner, stop paths, asks, wiring) |
-| 5 (after T11) | T12 Eyes |
-| 6 | T13 full check on the Mac |
+| 1 | T1 shared core **(sync)** · T6 Swift helper hands · T9 bubble buttons · T10 settings switch |
+| 2 (after T1) | T3 step prompt + chat kind `do` **(sync)** · T8 Mac hands adapter (needs T6's command names, given below; T7's `apps.find`, faked in its tests) |
+| 3 (after T3) | T2 loop **(sync)** · T4 brain call in main · T5 server free-mode caps + admin (no sync: it changes nothing under `shared/`) |
+| 4 (after T2, T4, T8, T9, T10) | T7 "open X" fix **(sync)** · T11a the runner (one job, questions, stop, lock) |
+| 5 (after T7, T11a) | T11b the job in the chat (actions, wake, tray, main wiring) |
+| 6 (after T11b) | T12 Eyes **(sync)** |
+| 7 | T13 full check on the Mac |
+
+Files per task in a wave never overlap: wave 1 (T1 `shared/agent/*`, `shared/prompts.js`; T6 `src/native`, `src/main/helper.js`; T9 bubble files, `home.js`, `main.js`; T10 `store.js`, `ipc/settings.js`, settings page); wave 2 (T3 `shared/agent/prompt.js`, `shared/prompts.js`, `tools/sync-android-shared.js`, web-app `chat-core.js`, Android `ChatPrompt.kt` / `PanelModel.kt`; T8 `src/main/agent/mac-hands.js`); wave 3 (T2 `shared/agent/loop.js`, `test/helpers/agent-fakes.js`; T4 `src/main/ai.js`, `cloud.js`; T5 `web/lib/*`, admin pages, `test/helpers/fake-db.js`); wave 4 (T7 `apps.js`, `actions.js`, `actions-setup.js`, `shared/app-aliases.js`; T11a `src/main/agent/runner.js`, `src/main/lock.js`).
 
 ---
 
@@ -51,13 +55,13 @@ Vercel serverless (`web/`), Firestore.
 - Create: `shared/agent/actions.js`, `shared/agent/safety.js`, `shared/agent/limits.js`
 - Modify: `shared/prompts.js` (export `readJson`; one line in `module.exports`)
 - Test: `test/agent-actions.test.js`, `test/agent-safety.test.js`, `test/agent-limits.test.js`
-- Sync: `web/shared/**`, `web/public/app/shared/prompts.js`
+- Sync (this wave's sync task): `web/shared/agent/*`, `web/shared/prompts.js`, `web/public/app/shared/prompts.js`
 
 **Interfaces:**
 - Consumes: `readJson(raw)` from `shared/prompts.js` (exists, now exported).
 - Produces:
   - `actions.js`: `ACTION_TYPES` (object type → `{ fields, optional }`), `FILE_OPS`, `SCROLL_DIRS`, `STEP_LIMITS`, `MAC_ABILITIES` (array of type names), `parseStep(text, { abilities })` → `{ ok: true, say, thought, risky, action }` | `{ ok: false, error }`, `describe(action)` → string.
-  - `safety.js`: `riskOf(action, ctx)` → `{ risk: 'safe'|'ask'|'never', reason, question }` where `ctx = { app: { name, id }, title, target: { role, name } | null, dialog, exists, secure, risky }`; `commandRisk(command)` → `{ risk, reason }`; `isPasswordApp(app)` → bool; `RISK_WORDS`, `COMFORT_WORDS`.
+  - `safety.js`: `riskOf(action, ctx)` → `{ risk: 'safe'|'ask'|'never', reason, question }` where `ctx = { app: { name, id }, title, target: { role, name } | null, dialog, exists, secure, risky }`; `commandRisk(command)` → `{ risk, reason }`; `isPasswordApp(app)` → bool; `RISK_WORDS`, `COMFORT_WORDS`, `COMFORT_NAMES`, `COMFORT_ROLES`. Roles it knows: `searchfield` (typing there in Settings is safe), `password-field`, and the short roles of Task 8.
   - `limits.js`: `RANKS`, `rankOf(provider, model)` → `'best'|'hard'|'ok'|'weak'`, `limitsFor(rank)` → `{ maxSteps, maxMs, maxShots }`, `atLeastOk(rank)`, `warningFor({ label, rank, vision })` → string|null, `costOf(model, usage)` → US dollars.
 
 - [ ] **Step 1: Export `readJson` from `shared/prompts.js`**
@@ -352,6 +356,30 @@ test('settings: comfort settings need no question; other changes ask; moving aro
   assert.strictEqual(risk({ type: 'pick', id: 'e3', option: 'Dark' }, { app: SETTINGS, target: { role: 'popup', name: 'Appearance' } }), 'safe');
 });
 
+test('settings: the comfort exception is only for a switch, checkbox, slider, radio or pick, never with a risk word', () => {
+  for (const [role, name] of [
+    ['button', 'Reset Bluetooth…'], ['button', 'Remove Wi-Fi network'], ['switch', 'Focus status'],
+    ['switch', 'Allow Bluetooth devices to wake this Mac'], ['button', 'Wi-Fi'], ['radio', 'Highlight color'],
+  ]) {
+    assert.strictEqual(risk({ type: 'click', id: 'e2' }, { app: SETTINGS, target: { role, name } }), 'ask', name);
+  }
+  assert.strictEqual(risk({ type: 'toggle', id: 'e2', on: true }, { app: SETTINGS, target: { role: 'switch', name: 'Focus' } }), 'safe');
+  assert.strictEqual(risk({ type: 'click', id: 'e2' }, { app: SETTINGS, target: { role: 'radio', name: 'Light' } }), 'safe');
+  assert.strictEqual(risk({ type: 'toggle', id: 'e2', on: false }, { app: SETTINGS, target: { role: 'checkbox', name: 'Reset Wi-Fi' } }), 'ask');
+});
+
+test('settings: typing, setting a value, Enter and Space go through the settings check; searching is safe', () => {
+  assert.strictEqual(risk({ type: 'set_value', id: 'e4', text: 'My Mac' }, { app: SETTINGS, target: { role: 'textfield', name: 'Name' } }), 'ask');
+  assert.strictEqual(risk({ type: 'type', text: 'abc' }, { app: SETTINGS, target: { role: 'textfield', name: 'Name' } }), 'ask');
+  assert.strictEqual(risk({ type: 'type', text: 'abc' }, { app: SETTINGS }), 'ask', 'nothing known has the focus');
+  assert.strictEqual(risk({ type: 'type', text: 'wifi' }, { app: SETTINGS, target: { role: 'searchfield', name: 'Search' } }), 'safe');
+  assert.strictEqual(risk({ type: 'set_value', id: 'e5', text: '50' }, { app: SETTINGS, target: { role: 'slider', name: 'Output volume' } }), 'safe');
+  assert.strictEqual(risk({ type: 'keys', combo: 'enter' }, { app: SETTINGS, target: { role: 'button', name: 'Restart…' } }), 'ask');
+  assert.strictEqual(risk({ type: 'keys', combo: 'space' }, { app: SETTINGS }), 'ask');
+  assert.strictEqual(risk({ type: 'keys', combo: 'space' }, { app: SETTINGS, target: { role: 'switch', name: 'Bluetooth' } }), 'safe');
+  assert.strictEqual(risk({ type: 'click_at', x: 1, y: 2 }, { app: SETTINGS }), 'ask');
+});
+
 test('payment pages, installers and the App Store ask for a click on a button', () => {
   assert.strictEqual(risk({ type: 'click', id: 'e1' }, { app: CHROME, title: 'Checkout - Amazon', target: { role: 'button', name: 'Continue' } }), 'ask');
   assert.strictEqual(risk({ type: 'click', id: 'e1' }, { app: { name: 'App Store', id: 'com.apple.AppStore' }, target: { role: 'button', name: 'Get' } }), 'ask');
@@ -391,6 +419,25 @@ test('commands: read-only ones are safe, sudo and disk wiping never, everything 
   assert.strictEqual(q.question, 'Run this command: brew install wget?');
 });
 
+test('commands: every part is checked, after & and |& too; secret files are never read; open only a web link or a folder', () => {
+  for (const c of [
+    'ls & rm -rf ~/Documents', 'ls |& rm x', 'pwd; brew install x', 'open tel:+911234', 'open slack://open', 'open -a Safari',
+    'open ~/Downloads/report.pdf', 'open', 'grep -r password ~', 'grep -ri token ~/code', 'grep --recursive key ~', 'cat ~/notes/*',
+  ]) {
+    assert.strictEqual(commandRisk(c).risk, 'ask', c);
+  }
+  for (const c of [
+    'cat ~/.ssh/id_rsa', 'cat .env', 'head -5 ~/project/.env.local', 'grep token ~/.aws/credentials', "cat ~/'.ssh'/id_rsa",
+    'rm x; cat ~/.ssh/id_rsa', 'sort < ~/.netrc',
+  ]) {
+    assert.strictEqual(commandRisk(c).risk, 'never', c);
+  }
+  for (const c of ['open ~/Downloads', 'open .', 'open https://example.com https://example.org', 'grep -i invoice ~/notes.txt', 'ls & pwd']) {
+    assert.strictEqual(commandRisk(c).risk, 'safe', c);
+  }
+  assert.strictEqual(riskOf({ type: 'run', command: 'cat ~/.ssh/id_rsa' }, ctx()).reason, 'that file holds keys or passwords');
+});
+
 test('click_at with nothing found under it asks inside a dialog, else is safe', () => {
   assert.strictEqual(risk({ type: 'click_at', x: 1, y: 2 }, { dialog: 'Are you sure?' }), 'ask');
   assert.strictEqual(risk({ type: 'click_at', x: 1, y: 2 }), 'safe');
@@ -421,7 +468,11 @@ const RISK_WORDS = [
   'install', 'update now', 'restart', 'shut down', 'log out', 'sign out', 'reset', 'format', 'allow', 'unlock',
   'bhejo', 'bhejein', 'bhugtan', 'bhugtaan', 'hatao', 'mitao', 'kharido',
 ];
-const COMFORT_WORDS = ['volume', 'brightness', 'dark', 'light', 'appearance', 'do not disturb', 'focus', 'wi fi', 'wifi', 'bluetooth'];
+// Comfort settings (spec §15): no question. A name with one of these words anywhere, or exactly one of COMFORT_NAMES
+// ("Focus" is one, "Focus status" is not), on a switch, checkbox, slider or radio, or picked in a pop-up.
+const COMFORT_WORDS = ['volume', 'brightness', 'dark mode', 'light mode', 'do not disturb', 'wi fi', 'wifi', 'bluetooth'];
+const COMFORT_NAMES = ['dark', 'light', 'auto', 'appearance', 'focus'];
+const COMFORT_ROLES = ['switch', 'checkbox', 'slider', 'radio'];
 const CHANGE_ROLES = ['checkbox', 'switch', 'radio', 'slider', 'popup', 'combobox', 'menuitem', 'button', 'textfield', 'incrementor'];
 const BUTTON_ROLES = ['button', 'link', 'menuitem', 'menubutton'];
 const SETTINGS_APPS = ['com.apple.systempreferences', 'com.apple.Settings'];
@@ -434,19 +485,20 @@ const MESSAGING_TITLES = ['gmail', 'outlook', 'whatsapp', 'slack', 'telegram', '
 const PAY_TITLES = ['bank', 'banking', 'checkout', 'payment', 'pay', 'upi', 'wallet', 'billing', 'card'];
 const PASSWORD_APPS = ['com.1password.1password', 'com.agilebits.onepassword7', 'com.bitwarden.desktop', 'com.apple.keychainaccess', 'com.apple.Passwords', 'com.lastpass.LastPass', 'org.keepassxc.keepassxc'];
 const PASSWORD_NAMES = /1password|bitwarden|keychain access|lastpass|dashlane|keepass|^passwords$/i;
-const SECRET_PATHS = /(^|\/)(\.ssh|\.gnupg|\.aws|\.netrc|\.env(\.[\w-]+)?|id_rsa[\w.]*|id_ed25519[\w.]*)(\/|$)|keychain|login data|cookies/i;
+const SECRET_PATHS = /(^|[/\s])(\.ssh|\.gnupg|\.aws|\.netrc|\.env(\.[\w-]+)?|id_rsa[\w.]*|id_ed25519[\w.]*)([/\s]|$)|keychain|login data|cookies/i;
 const INSTALLER_FILES = /\.(pkg|mpkg|dmg|app|command|sh|terminal)$/i;
 const DOWNLOAD_LINKS = /\.(dmg|pkg|mpkg|exe|msi|apk|zip)(\?|#|$)/i;
 const SAFE_SCHEMES = ['http:', 'https:', 'mailto:', 'x-apple.systempreferences:'];
 
 const READ_ONLY_COMMANDS = ['ls', 'pwd', 'cat', 'head', 'tail', 'wc', 'echo', 'date', 'cal', 'which', 'whoami', 'df', 'du', 'uptime', 'mdfind', 'find', 'sw_vers', 'uname', 'file', 'stat', 'sort', 'grep', 'open'];
+const CONTENT_COMMANDS = ['cat', 'head', 'tail', 'grep', 'sort']; // they print what is inside files
 const NEVER_COMMANDS = [
   /\bsudo\b/, /\bdiskutil\s+(erase\w*|zero\w*|partition\w*|secureErase)\b/i, /\bcsrutil\b/, /\bspctl\s+--master-disable\b/,
   /\bmkfs\b/, /\bdd\s+[^|;]*\bof=\/dev\//, /\bnvram\b/, /\bfdesetup\s+disable\b/, /\bsecurity\s+(find|dump)-[\w-]*/,
   /\brm\s+(-\w+\s+)*(\/|~\/?|\$HOME\/?)(\s|$)/, /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/,
 ];
 
-const plain = (text) => ` ${String(text || '').toLowerCase().replace(/[^a-z0-9ऀ-ॿ]+/g, ' ').trim()} `;
+const plain = (text) => ` ${String(text || '').toLowerCase().replace(/[^\u0900-\u097Fa-z0-9]+/g, ' ').trim()} `; // Devanagari kept
 const hasWord = (text, words) => { const p = plain(text); return words.some((w) => p.includes(` ${w} `)); };
 const base = (path) => String(path).replace(/\/+$/, '').split('/').pop() || String(path);
 const short = (text, max = 80) => (String(text).length > max ? `${String(text).slice(0, max - 1)}…` : String(text));
@@ -458,18 +510,32 @@ function isPasswordApp(app) {
   return Boolean(app) && (PASSWORD_APPS.includes(app.id) || PASSWORD_NAMES.test(app.name || ''));
 }
 
-/** A shell command: safe only when every part of it is a read-only command. */
+const unquote = (text) => String(text).replace(/["'\\]/g, '');
+const webLink = (arg) => /^https?:\/\/\S+$/i.test(arg);
+// A folder: no flag, no scheme (tel:, slack://) and no file extension (.pdf, .pkg): "~/Downloads", ".".
+const folderLike = (arg) => !arg.startsWith('-') && !/^[a-z][a-z0-9+.-]*:/i.test(arg) && !/\.[A-Za-z0-9]{1,8}$/.test(arg.replace(/\/+$/, ''));
+
+/**
+ * A shell command (spec §7.2(1)): safe only when every part of it, split on ; && || | |& & and line breaks, is a
+ * read-only command. A command that names a file with keys or passwords is never run, even `cat`; a recursive grep or a
+ * wildcard read asks (it reads many files); `open` is safe only with web links or one folder.
+ */
 function commandRisk(command) {
   const c = String(command || '');
   if (NEVER_COMMANDS.some((re) => re.test(c))) return { risk: 'never', reason: 'that command could harm the computer or show passwords' };
+  if (SECRET_PATHS.test(unquote(c))) return { risk: 'never', reason: 'that file holds keys or passwords' };
   if (/`|\$\(|>|<\(/.test(c)) return { risk: 'ask', reason: 'the command writes files or runs another command' };
-  for (const part of c.split(/&&|\|\||;|\||\n/)) {
-    const words = part.trim().split(/\s+/).filter((w) => !/^\w+=/.test(w));
+  for (const part of c.split(/&&|\|\||\|&|[;|&\n]/)) {
+    const words = part.trim().split(/\s+/).filter((w) => w && !/^\w+=/.test(w)).map(unquote);
     if (!words.length) continue;
     const [cmd, ...args] = words;
     if (!READ_ONLY_COMMANDS.includes(cmd)) return { risk: 'ask', reason: 'the command can change things' };
     if (cmd === 'find' && args.some((a) => ['-delete', '-exec', '-execdir', '-ok'].includes(a))) return { risk: 'ask', reason: 'find can change files' };
-    if (cmd === 'open' && args.some((a) => INSTALLER_FILES.test(a.replace(/["']/g, '')))) return { risk: 'ask', reason: 'that opens an installer or a script' };
+    if (CONTENT_COMMANDS.includes(cmd) && args.some((a) => /[*?[]/.test(a))) return { risk: 'ask', reason: 'it reads many files at once' };
+    if (cmd === 'grep' && args.some((a) => a === '--recursive' || /^-[a-zA-Z]*[rR]/.test(a))) return { risk: 'ask', reason: 'it reads many files at once' };
+    if (cmd === 'open' && !(args.length && (args.every(webLink) || (args.length === 1 && folderLike(args[0]))))) {
+      return { risk: 'ask', reason: 'open can start apps, calls or installers' };
+    }
   }
   return { risk: 'safe', reason: '' };
 }
@@ -478,17 +544,31 @@ function messaging(c) {
   return MESSAGING_APPS.includes(c.app?.id) || hasWord(c.title, MESSAGING_TITLES);
 }
 
-/** The risk of one acting step on an element (a click, toggle, pick, set_value, Enter): words, then context. */
+const inSettings = (c) => SETTINGS_APPS.includes(c.app?.id);
+
+/** A comfort setting (spec §15): the right kind of control, a comfort name, and no risk word ("Reset Bluetooth…" asks). */
+function comfortSetting(action, name, role) {
+  if (!COMFORT_ROLES.includes(role) && action.type !== 'pick') return false;
+  if (hasWord(name, RISK_WORDS)) return false;
+  return hasWord(name, COMFORT_WORDS) || COMFORT_NAMES.includes(plain(name).trim());
+}
+
+/**
+ * The risk of one acting step on an element (a click, toggle, pick, set_value, type, Enter or Space): words, then
+ * context. In a settings app every change asks except a comfort setting and typing in its search field.
+ */
 function elementRisk(action, c, target) {
   const app = c.app?.name || 'this app';
   const name = target?.name || '';
   const role = target?.role || '';
-  if (name && hasWord(name, RISK_WORDS) && !(SETTINGS_APPS.includes(c.app?.id) && hasWord(name, COMFORT_WORDS))) {
-    return ask(`"${name}" can't be undone`, `Click "${short(name)}" in ${app}?`);
-  }
-  if (SETTINGS_APPS.includes(c.app?.id) && CHANGE_ROLES.includes(role) && action.type !== 'focus') {
-    if (hasWord(name, COMFORT_WORDS)) return safe();
-    return ask('a system setting changes', `Change "${short(name || 'this setting')}" in System Settings?`);
+  if (name && hasWord(name, RISK_WORDS)) return ask(`"${name}" can't be undone`, `Click "${short(name)}" in ${app}?`);
+  if (inSettings(c) && action.type !== 'focus') {
+    if (comfortSetting(action, name, role)) return safe();
+    const typing = action.type === 'type' || action.type === 'set_value';
+    if (typing && role === 'searchfield') return safe(); // searching in Settings changes nothing
+    if (!target || typing || CHANGE_ROLES.includes(role)) {
+      return ask('a system setting changes', `Change "${short(name || 'this setting')}" in System Settings?`);
+    }
   }
   if (INSTALL_APPS.includes(c.app?.id) && BUTTON_ROLES.includes(role)) {
     return ask('it installs or buys', `Click "${short(name || 'this')}" in ${app}?`);
@@ -527,7 +607,7 @@ function keysRisk(action, c) {
   const mods = parts.slice(0, -1);
   if ((key === 'enter' || key === 'return') && messaging(c)) return ask('it sends', `Send this in ${c.app?.name || 'this app'}?`);
   if ((key === 'backspace' || key === 'delete') && mods.includes('cmd')) return ask('it deletes', 'Move the selected items to the Trash?');
-  if ((key === 'enter' || key === 'return' || key === 'space') && c.target) return elementRisk(action, c, c.target);
+  if ((key === 'enter' || key === 'return' || key === 'space') && (c.target || inSettings(c))) return elementRisk(action, c, c.target);
   return safe();
 }
 
@@ -538,14 +618,15 @@ function baseRisk(action, c) {
     case 'type':
     case 'set_value':
       if (target?.role === 'password-field' || (!action.id && c.secure)) return never("I don't type into password fields");
-      return safe();
+      return inSettings(c) ? elementRisk(action, c, target) : safe(); // spec §7.2(3): a settings change asks
     case 'click':
     case 'toggle':
     case 'pick':
       return elementRisk(action, c, target);
     case 'click_at':
       if (target) return elementRisk(action, c, target);
-      return c.dialog ? ask('a dialog is open', 'Click there in the dialog?') : safe();
+      if (c.dialog) return ask('a dialog is open', 'Click there in the dialog?');
+      return inSettings(c) ? ask('a system setting may change', 'Click there in System Settings?') : safe();
     case 'drag':
       return hasWord(`${target?.name || ''} ${c.title}`, ['trash', 'bin']) ? ask('it deletes', 'Drag it to the Trash?') : safe();
     case 'keys': return keysRisk(action, c);
@@ -574,13 +655,13 @@ function riskOf(action, ctx = {}) {
   return r;
 }
 
-module.exports = { riskOf, commandRisk, isPasswordApp, RISK_WORDS, COMFORT_WORDS, READ_ONLY_COMMANDS };
+module.exports = { riskOf, commandRisk, isPasswordApp, RISK_WORDS, COMFORT_WORDS, COMFORT_NAMES, COMFORT_ROLES, READ_ONLY_COMMANDS };
 ```
 
 - [ ] **Step 9: Run the safety tests**
 
 Run: `node --test test/agent-safety.test.js`
-Expected: PASS (10 tests). If one fails, fix the rule, not the test (the tests are the owner's rules from spec §7 and §15).
+Expected: PASS (13 tests). If one fails, fix the rule, not the test (the tests are the owner's rules from spec §7 and §15).
 
 - [ ] **Step 10: Write the failing tests for limits**
 
@@ -729,7 +810,7 @@ Expected: PASS.
 - [ ] **Step 15: Commit**
 
 ```bash
-git add shared/agent shared/prompts.js web/shared web/public/app/shared test/agent-actions.test.js test/agent-safety.test.js test/agent-limits.test.js
+git add shared/agent shared/prompts.js web/shared/agent web/shared/prompts.js web/public/app/shared/prompts.js test/agent-actions.test.js test/agent-safety.test.js test/agent-limits.test.js
 git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Agent core: actions, safety rules, model ranks and limits"
 ```
 
@@ -740,18 +821,19 @@ git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Age
 **Files:**
 - Create: `shared/agent/loop.js`, `test/helpers/agent-fakes.js`
 - Test: `test/agent-loop.test.js`
-- Sync: `web/shared/agent/loop.js`
+- Sync (this wave's sync task): `web/shared/agent/loop.js`
 
 **Interfaces:**
-- Consumes: `parseStep`, `describe`, `MAC_ABILITIES` (Task 1 `actions.js`); `riskOf` (Task 1 `safety.js`).
+- Consumes: `parseStep`, `describe`, `MAC_ABILITIES` (Task 1 `actions.js`); `riskOf`, `isPasswordApp` (Task 1 `safety.js`).
 - Produces: `createAgentJob({ goal, brain, hands, gate, show, limits, vision, abilities, now, sleep })` → `{ run(): Promise<Result>, stop(reason), pause(), steps }` where
   - `brain.step({ goal, log, lastOutput, note, observation, step, maxSteps }, { signal })` → `Promise<string>` (the AI's raw reply)
   - `hands.observe({ screenshot })` → `Promise<Observation>`; `Observation = { app: { name, id }, window: { title }, focused, secureFocused, elements: [{ id, role, name, value?, state?, depth, frame? }], treeQuality: 'good'|'poor'|'none', dialog, screen?: { image, width, height } }`
-  - `hands.act(action, observation)` → `Promise<{ ok, note?, output?, code? }>`; `hands.exists(path)` → `Promise<boolean>`; optional `hands.elementAt(x, y, observation)` → element|null
-  - `gate.ask(question, { signal })` → `'yes'|'no'`; `gate.askUser(question, { signal })` → string|null; `gate.handover(text, { signal })` → boolean
+  - `hands.act(action, observation, { signal })` → `Promise<{ ok, note?, output?, code? }>` — `signal` is the job's: a stop aborts what the act runs (a `run` command is killed); `hands.exists(path, { from })` → `Promise<boolean>` (`from`: for a rename, the file whose folder a relative name is in); optional `hands.elementAt(x, y, observation)` → element|null
+  - `gate.ask(question, { signal })` → `'yes'|'no'`; `gate.askUser(question, { signal })` → string|null (it waits for the answer; null only when none came in time); `gate.handover(text, { signal, tookOver })` → boolean (`tookOver: true` when the person took over by themselves: the gate waits 30 s, not 2 minutes)
   - `show({ kind: 'step'|'ask', text })`
-  - `Result = { end: 'done'|'stuck'|'limit'|'stopped'|'error', line, steps: [{ say, line, result }], error? }`
+  - `Result = { end: 'done'|'stuck'|'limit'|'stopped'|'error', line, steps: [{ say, line, result }], error? }`; a step's `result` is `ok`, `failed`, `refused` (never allowed), or `declined` (the person said no).
   - `LOOP_LINES`, `goOnHeard(text)` → boolean.
+  - Failures: a failed act, a stale id, a step that needs a screenshot and a refused step each count toward "three in a row"; every step but `look`, `wait`, `ask_user` and `handover` counts toward "the same step on the same screen three times" (a declined one too). A job that reaches a password app ends at once with "I don't touch password apps." before the AI sees the screen.
 
 - [ ] **Step 1: Write the fakes**
 
@@ -818,11 +900,17 @@ function brain(replies) {
 
 function gate({ answers = [], userAnswers = [], handovers = [] } = {}) {
   const asked = [];
+  const handoverOptions = []; // what each handover was given besides its text ({ signal, tookOver })
   return {
     asked,
+    handoverOptions,
     async ask(question) { asked.push(['ask', question]); return answers.length ? answers.shift() : 'no'; },
     async askUser(question) { asked.push(['askUser', question]); return userAnswers.length ? userAnswers.shift() : null; },
-    async handover(text) { asked.push(['handover', text]); return handovers.length ? handovers.shift() : false; },
+    async handover(text, options = {}) {
+      asked.push(['handover', text]);
+      handoverOptions.push(options);
+      return handovers.length ? handovers.shift() : false;
+    },
   };
 }
 
@@ -947,17 +1035,15 @@ test('three failed acts in a row, or the same act on the same screen three times
 });
 
 test('stop during the AI call ends at once with "Stopped." and nothing more is acted', async () => {
-  let s;
-  s = job({ replies: [(input, signal) => new Promise((resolve, reject) => { signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))); setImmediate(() => s.j.stop('esc')); })] });
+  const s = job({ replies: [(input, signal) => new Promise((resolve, reject) => { signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))); setImmediate(() => s.j.stop('esc')); })] });
   const r = await s.j.run();
   assert.deepStrictEqual([r.end, r.line], ['stopped', 'Stopped.']);
   assert.strictEqual(s.hands.acts.length, 0);
 });
 
 test('stop while a question waits: the step is not acted', async () => {
-  let s;
   const g = { asked: [], async ask() { s.j.stop('voice'); return 'yes'; }, async askUser() { return null; }, async handover() { return false; } };
-  s = job({ start: 'files', replies: [step('', { type: 'files', op: 'trash', path: '/a/a.pdf' })] });
+  const s = job({ start: 'files', replies: [step('', { type: 'files', op: 'trash', path: '/a/a.pdf' })] });
   s.j = createAgentJob({ goal: 'x', brain: s.b, hands: s.hands, gate: g, show: () => {}, limits: LIMITS, sleep: async () => {} });
   const r = await s.j.run();
   assert.strictEqual(r.end, 'stopped');
@@ -965,8 +1051,7 @@ test('stop while a question waits: the step is not acted', async () => {
 });
 
 test('stop with reason locked says the screen locked', async () => {
-  let s;
-  s = job({ replies: [() => { s.j.stop('locked'); return step('', { type: 'look' }); }] });
+  const s = job({ replies: [() => { s.j.stop('locked'); return step('', { type: 'look' }); }] });
   assert.strictEqual((await s.j.run()).line, LOOP_LINES.locked);
 });
 
@@ -975,8 +1060,50 @@ test('pause (you took over) waits for go on: yes goes on, no stops', async () =>
   s = job({ handovers: [true], replies: [() => { s.j.pause(); return step('A…', { type: 'scroll', dir: 'down' }); }, step('', { type: 'done', summary: 'ok' })] });
   assert.strictEqual((await s.j.run()).end, 'done');
   assert.deepStrictEqual(s.g.asked, [['handover', LOOP_LINES.tookOver]]);
+  assert.strictEqual(s.g.handoverOptions[0].tookOver, true, 'the gate waits 30 s for a take-over, not 2 minutes');
   s = job({ handovers: [false], replies: [() => { s.j.pause(); return step('A…', { type: 'scroll', dir: 'down' }); }] });
   assert.strictEqual((await s.j.run()).end, 'stopped');
+});
+
+test('a job that reaches a password app ends at once, before the AI sees the screen', async () => {
+  const s = job({
+    screens: { pw: { app: { name: '1Password', id: 'com.1password.1password' }, elements: [el('e1', 'button', 'Unlock')] } },
+    start: 'pw',
+    replies: [step('', { type: 'click', id: 'e1' })],
+  });
+  const r = await s.j.run();
+  assert.deepStrictEqual([r.end, r.line], ['stuck', LOOP_LINES.passwordApp]);
+  assert.deepStrictEqual([s.b.inputs.length, s.hands.acts.length, s.hands.looks], [0, 0, [false]]);
+});
+
+test('refused steps count as failures; the same declined step three times is the same thing', async () => {
+  const login = { login: { secureFocused: true, elements: [el('e1', 'password-field', 'Password')] } };
+  const refused = job({ screens: login, start: 'login', replies: [1, 2, 3].map(() => step('', { type: 'type', text: 'hunter2' })) });
+  assert.match((await refused.j.run()).line, /Three steps in a row did not work/);
+  assert.strictEqual(refused.hands.acts.length, 0);
+  const trash = step('', { type: 'files', op: 'trash', path: '/a/a.pdf' });
+  const declined = job({ start: 'files', answers: ['no', 'no', 'no'], replies: [trash, trash, trash] });
+  assert.match((await declined.j.run()).line, /I keep trying the same thing/);
+  assert.strictEqual(declined.hands.acts.length, 0);
+});
+
+test('stop during an act aborts it through the job\'s signal (a running command is killed)', async () => {
+  const s = job({ replies: [step('', { type: 'run', command: 'ls' })] });
+  let aborted = false;
+  s.hands.act = (action, observation, { signal }) => new Promise((resolve) => {
+    signal.addEventListener('abort', () => { aborted = true; resolve({ ok: false, code: 'stopped', note: 'Stopped.' }); });
+    setImmediate(() => s.j.stop('esc'));
+  });
+  const r = await s.j.run();
+  assert.deepStrictEqual([r.end, r.line, aborted], ['stopped', 'Stopped.', true]);
+});
+
+test('a rename asks whether its new name exists in the file\'s own folder', async () => {
+  const s = job({ start: 'files', replies: [step('', { type: 'files', op: 'rename', path: '/Users/a/Trip/a.txt', to: 'b.txt' }), step('', { type: 'done', summary: 'ok' })] });
+  const seen = [];
+  s.hands.exists = async (p, options) => { seen.push([p, options]); return false; };
+  await s.j.run();
+  assert.deepStrictEqual(seen, [['b.txt', { from: '/Users/a/Trip/a.txt' }]]);
 });
 
 test('handover and ask_user go to the gate and their answers into the log', async () => {
@@ -1032,7 +1159,7 @@ Expected: FAIL, `Cannot find module '../shared/agent/loop'`.
  */
 
 const { parseStep, describe } = require('./actions');
-const { riskOf } = require('./safety');
+const { riskOf, isPasswordApp } = require('./safety');
 
 const LOOP_LINES = {
   stopped: 'Stopped.',
@@ -1041,6 +1168,7 @@ const LOOP_LINES = {
   sameThing: 'I keep trying the same thing.',
   failing: 'Three steps in a row did not work.',
   badReplies: "My AI's answers didn't make sense.",
+  passwordApp: "I don't touch password apps.",
 };
 const KEEP_LOG = 12;
 const MAX_FAILS = 3;
@@ -1086,6 +1214,42 @@ function createAgentJob({
     return { end: kind, line, steps: steps.map(({ say, line: l, result }) => ({ say, line: l, result })) };
   }
 
+  /**
+   * One acting step: checked against the screen and its risk, asked about when it must be, then done with the job's
+   * signal (a stop aborts it). Answers { result: 'ok'|'failed'|'refused'|'declined'|'stopped', text, output? }.
+   */
+  async function tryAct(action, observation, risky) {
+    const elements = observation.elements || [];
+    if (action.id && !elements.some((e) => e.id === action.id)) {
+      return { result: 'failed', text: `failed: ${action.id} is not on the screen now; look again` };
+    }
+    if ((action.type === 'click_at' || action.type === 'drag') && !observation.screen) {
+      return { result: 'failed', text: 'failed: needs a screenshot first; use look' };
+    }
+    let target = null;
+    if (action.id) target = elements.find((e) => e.id === action.id);
+    else if (action.type === 'type' || action.type === 'keys') target = elements.find((e) => e.id === observation.focused) || null;
+    else if (action.type === 'click_at' && hands.elementAt) target = await hands.elementAt(action.x, action.y, observation);
+    const exists = action.type === 'files' && FILE_TARGETS.includes(action.op)
+      ? await hands.exists(action.op === 'write' ? action.path : action.to || '', action.op === 'rename' ? { from: action.path } : {})
+      : false;
+    const risk = riskOf(action, {
+      app: observation.app, title: observation.window?.title || '', target, dialog: observation.dialog || '',
+      exists, secure: observation.secureFocused === true, risky,
+    });
+    if (risk.risk === 'never') return { result: 'refused', text: `not allowed: ${risk.reason}` };
+    if (risk.risk === 'ask') {
+      show({ kind: 'ask', text: risk.question });
+      const answer = await gate.ask(risk.question, { signal });
+      if (stopped) return { result: 'stopped' };
+      if (answer !== 'yes') return { result: 'declined', text: 'the person said no' };
+    }
+    if (stopped) return { result: 'stopped' };
+    const done = await hands.act(action, observation, { signal });
+    if (done.ok) return { result: 'ok', text: done.note ? `ok: ${cut(done.note, 200)}` : 'ok', output: done.output };
+    return { result: 'failed', text: `failed: ${cut(done.note || done.code || 'it did not work', 200)}` };
+  }
+
   async function run() {
     const started = now();
     let calls = 0;
@@ -1101,12 +1265,14 @@ function createAgentJob({
         if (stopped) return end('stopped');
         if (pauseAsked) {
           pauseAsked = false;
-          const go = await gate.handover(LOOP_LINES.tookOver, { signal });
+          const go = await gate.handover(LOOP_LINES.tookOver, { signal, tookOver: true });
           if (stopped) return end('stopped');
           if (!go) { stop('person'); return end('stopped'); }
         }
         if (calls >= limits.maxSteps || now() - started > limits.maxMs) return end('limit');
         let observation = await hands.observe({ screenshot: vision && wantShot && shots < limits.maxShots });
+        // A password app (spec §7.4): the job stops here, and the AI never sees what is in it.
+        if (isPasswordApp(observation.app)) return { ...end('stuck'), line: LOOP_LINES.passwordApp };
         if (!observation.screen && vision && shots < limits.maxShots && observation.treeQuality !== 'good' && !observation.secureFocused) {
           observation = await hands.observe({ screenshot: true });
         }
@@ -1146,49 +1312,18 @@ function createAgentJob({
           record('ok', 'the person did it');
           continue;
         }
-        const elements = observation.elements || [];
-        if (action.id && !elements.some((e) => e.id === action.id)) {
-          record('failed', `failed: ${action.id} is not on the screen now; look again`);
-          continue;
-        }
-        if ((action.type === 'click_at' || action.type === 'drag') && !observation.screen) {
-          record('failed', 'failed: needs a screenshot first; use look');
-          continue;
-        }
-        let target = null;
-        if (action.id) target = elements.find((e) => e.id === action.id);
-        else if (action.type === 'type' || action.type === 'keys') target = elements.find((e) => e.id === observation.focused) || null;
-        else if (action.type === 'click_at' && hands.elementAt) target = await hands.elementAt(action.x, action.y, observation);
-        const exists = action.type === 'files' && FILE_TARGETS.includes(action.op)
-          ? await hands.exists(action.op === 'write' ? action.path : action.to || '')
-          : false;
-        const risk = riskOf(action, {
-          app: observation.app, title: observation.window?.title || '', target, dialog: observation.dialog || '',
-          exists, secure: observation.secureFocused === true, risky: step.risky,
-        });
-        if (risk.risk === 'never') { record('refused', `not allowed: ${risk.reason}`); continue; }
-        if (risk.risk === 'ask') {
-          show({ kind: 'ask', text: risk.question });
-          const answer = await gate.ask(risk.question, { signal });
-          if (stopped) return end('stopped');
-          if (answer !== 'yes') { record('declined', 'the person said no'); continue; }
-        }
-        if (stopped) return end('stopped');
-        const result = await hands.act(action, observation);
-        if (stopped) return end('stopped');
-        if (result.ok) {
-          fails = 0;
-          record('ok', result.note ? `ok: ${cut(result.note, 200)}` : 'ok');
-          lastOutput = result.output ? cut(result.output, 2000) : '';
-        } else {
-          fails += 1;
-          record('failed', `failed: ${cut(result.note || result.code || 'it did not work', 200)}`);
-          if (fails >= MAX_FAILS) return end('stuck', LOOP_LINES.failing);
-        }
-        if (action.type === 'click_at' || action.type === 'drag' || !result.ok) wantShot = true;
+        const tried = await tryAct(action, observation, step.risky);
+        if (stopped || tried.result === 'stopped') return end('stopped');
+        record(tried.result, tried.text);
+        if (tried.result === 'ok') lastOutput = tried.output ? cut(tried.output, 2000) : '';
+        if (action.type === 'click_at' || action.type === 'drag' || tried.result === 'failed') wantShot = true;
+        // Three failures in a row (a refusal is one too), or the same step on the same screen three times (a "no" too).
+        if (tried.result === 'ok') fails = 0;
+        else if (tried.result !== 'declined') fails += 1;
         const key = `${sig(observation)}\n${JSON.stringify(action)}`;
         const seen = (repeats.get(key) || 0) + 1;
         repeats.set(key, seen);
+        if (fails >= MAX_FAILS) return end('stuck', LOOP_LINES.failing);
         if (seen >= MAX_REPEATS) return end('stuck', LOOP_LINES.sameThing);
       }
     } catch (err) {
@@ -1206,7 +1341,7 @@ module.exports = { createAgentJob, goOnHeard, LOOP_LINES };
 - [ ] **Step 5: Run the loop tests**
 
 Run: `node --test test/agent-loop.test.js`
-Expected: PASS (17 tests).
+Expected: PASS (22 tests).
 
 - [ ] **Step 6: Lint, sync, full test**
 
@@ -1216,7 +1351,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add shared/agent/loop.js web/shared test/agent-loop.test.js test/helpers/agent-fakes.js
+git add shared/agent/loop.js web/shared/agent/loop.js test/agent-loop.test.js test/helpers/agent-fakes.js
 git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Agent loop: look, think, check the risk, act, with limits and stop"
 ```
 
@@ -1226,14 +1361,14 @@ git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Age
 
 **Files:**
 - Create: `shared/agent/prompt.js`
-- Modify: `shared/prompts.js` (KINDS, ELSEWHERE, SYSTEM.chat, chatPrompt `canDo`, parseChat `do`)
-- Test: `test/agent-prompt.test.js`; add tests to `test/prompts.test.js`
-- Sync: `web/shared/**`, `web/public/app/shared/prompts.js`, `android/app/src/main/assets/shared.json` (+ `android/app/src/test/resources/*.json` if the sync rewrites them)
+- Modify: `shared/prompts.js` (KINDS, ELSEWHERE, SYSTEM.chat, chatPrompt `canDo`, parseChat `do`); `tools/sync-android-shared.js` (two `do` answers in the parseChat cases); `web/public/app/chat-core.js` (a `do` answer is the "on the Mac" line); `android/app/src/main/java/com/akshatgg/buddy/ai/ChatPrompt.kt` (readChat reads `do` as parseChat does) and `android/app/src/main/java/com/akshatgg/buddy/ui/panel/PanelModel.kt` (a `do` answer is the "on the Mac" line). The phone apps never send `canDo`, but with their own key nothing on a server filters the AI's answer, so they must not show a `do` as a written answer.
+- Test: `test/agent-prompt.test.js`; add tests to `test/prompts.test.js`, `test/web-app-chat.test.mjs`, `android/app/src/test/java/com/akshatgg/buddy/ui/panel/PanelModelTest.kt`
+- Sync (this wave's sync task): `web/shared/agent/prompt.js`, `web/shared/prompts.js`, `web/public/app/shared/prompts.js`, `android/app/src/main/assets/shared.json`, `android/app/src/test/resources/*.json`
 
 **Interfaces:**
 - Consumes: `ACTION_TYPES`, `FILE_OPS` (Task 1).
 - Produces:
-  - `prompt.js`: `AGENT_MAX_TOKENS = 600`, `AGENT_LIMITS`, `SYSTEM_AGENT()` → string, `formatScreen(observation, maxChars = 24000)` → string, `agentPrompt(input)` → `{ system, user, image }` (throws `BuddyError('bad_request')`). `input = { goal, log, lastOutput, note, screen, image, imageSize: { width, height }, step, maxSteps, jobId, platform, userName, facts }`.
+  - `prompt.js`: `AGENT_MAX_TOKENS = 600`, `AGENT_LIMITS`, `SYSTEM_AGENT()` → string, `formatScreen(observation, maxChars = 24000)` → string (spec §6.3.4: a list shows its first 30 rows and "… N more rows"; over the budget the deepest elements go first, then those farthest from the focused one, and the last line says "… N more hidden; scroll or look"), `agentPrompt(input)` → `{ system, user, image }` (throws `BuddyError('bad_request')`). `input = { goal, log, lastOutput, note, screen, image, imageSize: { width, height }, step, maxSteps, jobId, platform, userName, facts }`.
   - `prompts.js`: `KINDS` gains `'do'`; `ELSEWHERE.do = 'I can use apps for you on the Mac for now.'`; chat input flag `canDo: true` adds the line "Buddy can use this computer for them."; `parseChat` returns `{ kind: 'do', say, text, notes: [], doIt: false, send: false, remember, again: false }` (an empty `text` becomes an answer "What should I do?").
 
 - [ ] **Step 1: Write the failing prompt tests**
@@ -1274,6 +1409,34 @@ test('a screen over the budget is cut, saying how many elements are hidden', () 
   const text = formatScreen(many, 2000);
   assert.ok(text.length <= 2100);
   assert.match(text, /… \d+ more hidden; scroll or look$/);
+  assert.match(text, /\ne1 row "Row 1"\n/, 'with nothing focused, the top is kept');
+});
+
+test('over the budget the deepest go first, then the farthest from the focused element', () => {
+  const elements = [
+    { id: 'e1', role: 'window', name: 'W', depth: 0 },
+    ...Array.from({ length: 40 }, (_, i) => ({ id: `e${i + 2}`, role: 'button', name: `Top ${i}`, depth: 1 })),
+    ...Array.from({ length: 40 }, (_, i) => ({ id: `e${i + 42}`, role: 'text', name: `Deep ${i}`, depth: 4 })),
+  ];
+  const text = formatScreen({ app: { name: 'A' }, window: { title: 'W' }, focused: 'e41', elements }, 1600);
+  for (let i = 0; i < 40; i += 1) assert.match(text, new RegExp(`"Top ${i}"`), `Top ${i} is kept`);
+  assert.match(text, /"Deep 0"/, 'the deep one nearest the focus is kept');
+  assert.doesNotMatch(text, /"Deep 39"/, 'the deep one farthest from the focus goes first');
+  assert.match(text, /… \d+ more hidden; scroll or look$/);
+  assert.ok(text.length <= 1600);
+});
+
+test('a list shows its first 30 rows, with what is in them, then how many more', () => {
+  const elements = [{ id: 'e1', role: 'list', name: 'Files', depth: 0 }];
+  for (let i = 0; i < 45; i += 1) {
+    elements.push({ id: `e${i * 2 + 2}`, role: 'row', name: `File ${i}`, depth: 1 }, { id: `e${i * 2 + 3}`, role: 'text', name: `Size ${i}`, depth: 2 });
+  }
+  elements.push({ id: 'e999', role: 'button', name: 'Done', depth: 0 });
+  const text = formatScreen({ app: { name: 'Finder' }, elements });
+  assert.match(text, /"File 29"/);
+  assert.match(text, /"Size 29"/);
+  assert.doesNotMatch(text, /"File 30"|"Size 30"/);
+  assert.match(text, /\n {2}… 15 more rows\ne999 button "Done"$/);
 });
 
 test('the system prompt lists every action and the rules', () => {
@@ -1416,29 +1579,84 @@ const cutText = (s, max) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 const oneLine = (v, max) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max).trim() : '');
 const quoted = (text) => `"""\n${text}\n"""`;
 
-/** The screen as the AI reads it: a header, then one line per element, cut to `maxChars`. */
+const LIST_ROLES = ['list', 'table', 'outline'];
+const LIST_ROWS = 30;
+const indent = (depth) => '  '.repeat(Math.min(depth || 0, 8));
+
+/** One element's line: `  e14 textfield "Search" value="dark" focused`; a password field never shows a value. */
+function elementLine(e) {
+  const parts = [`${indent(e.depth)}${e.id} ${e.role}`];
+  if (e.name) parts.push(`"${cutText(oneLine(e.name, 200), 60)}"`);
+  if (e.role !== 'password-field' && e.value !== undefined && e.value !== null && e.value !== '') {
+    parts.push(`value="${cutText(oneLine(String(e.value), 200), 80)}"`);
+  }
+  if (e.state) parts.push(e.state);
+  return parts.join(' ');
+}
+
+/**
+ * The elements in order, with each list, table or outline cut to its first LIST_ROWS rows (and what is inside them);
+ * a hidden part becomes one line "… N more rows" where the list ends (spec §6.3.4).
+ */
+function capLists(elements) {
+  const out = []; // { e, depth, line } for an element, { depth, line } for a "more rows" line
+  const lists = []; // the lists open around the element now: { depth, rows, hidden }
+  let skipBelow = null; // the depth of the last hidden row: what is under it is hidden with it
+  const close = (depth) => {
+    while (lists.length && lists.at(-1).depth >= depth) {
+      const l = lists.pop();
+      if (l.hidden) out.push({ depth: l.depth + 1, line: `${indent(l.depth + 1)}… ${l.hidden} more rows` });
+    }
+  };
+  for (const e of elements) {
+    const depth = e.depth || 0;
+    if (skipBelow !== null) {
+      if (depth > skipBelow) continue;
+      skipBelow = null;
+    }
+    close(depth);
+    const list = lists.at(-1);
+    if (list && depth === list.depth + 1 && e.role === 'row') {
+      list.rows += 1;
+      if (list.rows > LIST_ROWS) {
+        list.hidden += 1;
+        skipBelow = depth;
+        continue;
+      }
+    }
+    out.push({ e, depth, line: elementLine(e) });
+    if (LIST_ROLES.includes(e.role)) lists.push({ depth, rows: 0, hidden: 0 });
+  }
+  close(-1);
+  return out;
+}
+
+/**
+ * The screen as the AI reads it: a header, then one line per element, within `maxChars`. Over that, the deepest
+ * elements go first, and among the same depth the farthest from the focused one (from the top when none has the
+ * focus); the last line says how many went.
+ */
 function formatScreen(observation, maxChars = AGENT_LIMITS.screen) {
   const o = observation || {};
   const head = [`App: ${o.app?.name || 'unknown'}`, `Window: ${o.window?.title || ''}`, `Focused: ${o.focused || 'none'}`];
   if (o.dialog) head.push(`Dialog: ${cutText(oneLine(o.dialog, 400), 300)}`);
-  const lines = [];
-  let used = head.join('\n').length;
-  const elements = o.elements || [];
-  for (let i = 0; i < elements.length; i += 1) {
-    const e = elements[i];
-    const secret = e.role === 'password-field';
-    const parts = [`${'  '.repeat(Math.min(e.depth || 0, 8))}${e.id} ${e.role}`];
-    if (e.name) parts.push(`"${cutText(oneLine(e.name, 200), 60)}"`);
-    if (!secret && e.value !== undefined && e.value !== null && e.value !== '') parts.push(`value="${cutText(oneLine(String(e.value), 200), 80)}"`);
-    if (e.state) parts.push(e.state);
-    const line = parts.join(' ');
-    if (used + line.length + 1 > maxChars - 60) {
-      lines.push(`… ${elements.length - i} more hidden; scroll or look`);
-      break;
+  const items = capLists(o.elements || []).map((item, i) => ({ ...item, i }));
+  const budget = maxChars - 60; // room for the "more hidden" line
+  let used = head.join('\n').length + items.reduce((n, item) => n + item.line.length + 1, 0);
+  let hidden = 0;
+  if (used > budget) {
+    const focusAt = Math.max(0, items.findIndex((item) => item.e && item.e.id === o.focused));
+    const away = (item) => Math.abs(item.i - focusAt);
+    const order = items.filter((item) => item.e).sort((a, b) => (b.depth - a.depth) || (away(b) - away(a)));
+    for (const item of order) {
+      if (used <= budget) break;
+      item.dropped = true;
+      used -= item.line.length + 1;
+      hidden += 1;
     }
-    lines.push(line);
-    used += line.length + 1;
   }
+  const lines = items.filter((item) => !item.dropped).map((item) => item.line);
+  if (hidden) lines.push(`… ${hidden} more hidden; scroll or look`);
   return [...head, ...lines].join('\n');
 }
 
@@ -1508,25 +1726,85 @@ const KINDS = ['write', 'fix', 'answer', 'box', 'screen', 'send', 'code', 'messa
 - [ ] **Step 5: Run the tests**
 
 Run: `node --test test/agent-prompt.test.js test/prompts.test.js`
-Expected: PASS.
+Expected: PASS (agent-prompt: 8 tests).
 
-- [ ] **Step 6: Sync and check the Android copy still matches**
+- [ ] **Step 6: The phone apps show a `do` answer as the "on the Mac" line (own key: no server filters it)**
 
-Run: `npm run sync:web && npm run sync:web-app && npm run sync:android && node --test test/android-shared.test.js test/web-shared.test.js`
-Expected: PASS. (`android-shared.test.js` checks `chat.kinds` equals `KINDS`; the Kotlin app never gets `do` because it never sends `canDo`.)
+Failing test first, in `test/web-app-chat.test.mjs`, next to the `notifs` line of the "elsewhere" test (it uses the file's `chat()` and `line()` helpers and its `ELSEWHERE` import):
 
-- [ ] **Step 7: Android unit tests with the gradle lock**
+```js
+  assert.deepStrictEqual(answerItem(chat({ kind: 'do', say: 'Theek hai!', text: 'Turn on dark mode.' }).chat), line(ELSEWHERE.do));
+```
+
+In `web/public/app/chat-core.js` `answerItem`, after the `notifs` line:
+
+```js
+  if (reply.kind === 'do') return item(ELSEWHERE.do); // a job on a computer (the Mac's agent): not on the phone
+```
+
+In `tools/sync-android-shared.js`, add two answers to the parseChat cases list (after the `calls` ones), so the Kotlin reading is checked against the JavaScript one:
+
+```js
+  JSON.stringify({ kind: 'do', say: 'Theek hai!', text: 'Turn on dark mode.', notes: ['x'], doIt: true, send: true, remember: [], again: true }),
+  JSON.stringify({ kind: 'do', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false }),
+```
+
+In `android/app/src/main/java/com/akshatgg/buddy/ai/ChatPrompt.kt` `readChat`, before the `// A job for Claude Code` line:
+
+```kotlin
+    // A job on a computer (the desktop's computer agent): never put in an app, sent, or with notes; no job asks what to do.
+    if (kind == "do") {
+        val plain = out.copy(notes = emptyList(), doIt = false, send = false, again = false)
+        return if (plain.text.isEmpty()) plain.copy(kind = "answer", say = "", text = "What should I do?") else plain
+    }
+```
+
+In `android/app/src/main/java/com/akshatgg/buddy/ui/panel/PanelModel.kt`: add the constant next to `NO_SEND`:
+
+```kotlin
+private const val ON_THE_MAC = "I can use apps for you on the Mac for now." // shared/prompts.js ELSEWHERE.do
+```
+
+and in `finish()`, before `if (reply.kind == "message")`:
+
+```kotlin
+        if (reply.kind == "do") { // a job on a computer: the phone does not run jobs (yet)
+            add(c) { BuddySaid(it, ON_THE_MAC, "", emptyList(), emptyList()) }
+            return Outcome.ANSWERED
+        }
+```
+
+In `android/app/src/test/java/com/akshatgg/buddy/ui/panel/PanelModelTest.kt`, next to `anAnswerOnlyCopiesAndASendIsThePersonsToDo`:
+
+```kotlin
+    @Test fun aJobForTheComputerIsOnlyALineOnThePhone() = runTest {
+        answers(written("Turn on dark mode.", kind = "do", say = "Theek hai!"))
+        val m = model()
+        m.say("dark mode on karo")
+        advanceUntilIdle()
+        assertEquals(BuddySaid(2, "I can use apps for you on the Mac for now.", "", emptyList(), emptyList()), m.last())
+    }
+```
+
+Run: `node --test test/web-app-chat.test.mjs` → FAIL before the `chat-core.js` change, PASS after (it reads `web/public/app/shared/prompts.js`, so run Step 7's `sync:web-app` first if `ELSEWHERE.do` is missing).
+
+- [ ] **Step 7: Sync and check the copies still match**
+
+Run: `npm run sync:web && npm run sync:web-app && npm run sync:android && node --test test/android-shared.test.js test/web-shared.test.js test/web-app-chat.test.mjs`
+Expected: PASS. (`android-shared.test.js` checks `chat.kinds` equals `KINDS` and that `chat-cases.json` is current.)
+
+- [ ] **Step 8: Android unit tests with the gradle lock**
 
 Run: `until mkdir /tmp/buddy-gradle.lock 2>/dev/null; do sleep 5; done; (cd android && ./gradlew -q :app:testDebugUnitTest); rmdir /tmp/buddy-gradle.lock`
-Expected: BUILD SUCCESSFUL. If a Kotlin test pins the kinds list or the chat system text, update its expected value to the synced one (the Kotlin side reads `shared.json`; do not add `do` handling to Android in this plan).
+Expected: BUILD SUCCESSFUL, with `ChatPromptTest.everyParseChatCaseIsReadAsTheJavaScriptReadsIt` covering the two `do` cases and the new PanelModel test passing. If a Kotlin test pins the kinds list or the chat system text, update its expected value to the synced one.
 
-- [ ] **Step 8: Full test with the lock, then commit**
+- [ ] **Step 9: Full test with the lock, then commit**
 
 Run: `until mkdir /tmp/buddy-npm-test.lock 2>/dev/null; do sleep 5; done; npm test; rmdir /tmp/buddy-npm-test.lock`
 Expected: PASS.
 
 ```bash
-git add shared/agent/prompt.js shared/prompts.js web/shared web/public/app/shared android/app/src/main/assets/shared.json android/app/src/test/resources test/agent-prompt.test.js test/prompts.test.js
+git add shared/agent/prompt.js shared/prompts.js web/shared/agent/prompt.js web/shared/prompts.js web/public/app/shared/prompts.js web/public/app/chat-core.js tools/sync-android-shared.js android/app/src/main/assets/shared.json android/app/src/test/resources android/app/src/main/java/com/akshatgg/buddy/ai/ChatPrompt.kt android/app/src/main/java/com/akshatgg/buddy/ui/panel/PanelModel.kt android/app/src/test/java/com/akshatgg/buddy/ui/panel/PanelModelTest.kt test/agent-prompt.test.js test/prompts.test.js test/web-app-chat.test.mjs
 git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Agent step prompt, and the chat kind do for jobs on the device"
 ```
 
@@ -1542,7 +1820,8 @@ git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Age
 - Consumes: `agentPrompt`, `AGENT_MAX_TOKENS` (Task 3); `rankOf` (Task 1).
 - Produces:
   - `ai.ask('agent', input, { signal })` → `{ text, model }` by the same three routes as a chat (own key with `maxTokens: 600`, free via `cloud.ask('agent', …)`, Claude Code via `run.runPrompt`).
-  - `ai.brainInfo()` → `Promise<{ route: 'free'|'own'|'claude-code', provider, model, label, rank, vision }>`.
+  - `ai.brainInfo()` → `Promise<{ route: 'free'|'own'|'claude-code', provider, model, label, rank, vision }>`. When free mode is on but its AI ranks weak for jobs, and the admin allows own keys and the person has one (or Claude Code), both `brainInfo()` and `ask('agent')` take the own route at once (no `free_no_agent` round trip, and no "cannot run jobs" error for someone who has their own AI).
+- Test fixtures: `test/ai.test.js`'s `setup()` already takes `model`, `vision`, `alias`, `picked`, `claude`, `free` and `freeAsk` (checked: lines 18–22 of the file); nothing new is needed there.
   - `cloud.readSettings(j).agentRank` ∈ `'best'|'hard'|'ok'|'weak'` (default `'weak'`); `ASK_INPUTS` gains `goal, log, lastOutput, note, screen, imageSize, maxSteps, jobId, platform, canDo`; `SERVER_CODES` gains `free_no_agent`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1581,9 +1860,23 @@ test('brainInfo says which AI a job would use, its rank and whether it sees', as
 });
 
 test('free_no_agent from the server falls back to the own key when the admin allows it', async () => {
-  const s = setup({ free: { ...FREE_ON, allowOwnKey: true }, freeAsk: () => { throw new BuddyError('free_no_agent', "The free AI can't use your computer. Add your own key in Settings."); } });
+  // The app thought the free AI was good enough (agentRank ok); the server says no: the own key answers.
+  const s = setup({ free: { ...FREE_ON, agentRank: 'ok', allowOwnKey: true }, freeAsk: () => { throw new BuddyError('free_no_agent', "The free AI can't use your computer. Add your own key in Settings."); } });
   const out = await s.ai.ask('agent', { goal: 'x', screen: 'App: A', step: 1, maxSteps: 3, jobId: 'job-12345678', platform: 'mac' });
   assert.strictEqual(out.text, 'Fixed text');
+  assert.strictEqual(s.cloudCalls.filter((c) => c[0] === 'cloudAsk').length, 1);
+});
+
+test('a weak free AI with own keys allowed: a job goes by the own key at once; not allowed: the free route, ranked weak', async () => {
+  const input = { goal: 'x', screen: 'App: A', step: 1, maxSteps: 3, jobId: 'job-12345678', platform: 'mac' };
+  const s = setup({ model: 'gpt-4.1', free: { ...FREE_ON, agentRank: 'weak', allowOwnKey: true } });
+  assert.deepStrictEqual(await s.ai.brainInfo(), { route: 'own', provider: 'openai', model: 'gpt-4.1', label: 'openai', rank: 'ok', vision: true });
+  assert.strictEqual((await s.ai.ask('agent', input)).text, 'Fixed text');
+  assert.deepStrictEqual(s.cloudCalls.filter((c) => c[0] === 'cloudAsk'), []);
+  const notAllowed = setup({ model: 'gpt-4.1', free: { ...FREE_ON, agentRank: 'weak', allowOwnKey: false } });
+  assert.deepStrictEqual(await notAllowed.ai.brainInfo(), { route: 'free', provider: 'free', model: '', label: "Buddy's free AI", rank: 'weak', vision: true });
+  const noKey = setup({ key: null, free: { ...FREE_ON, agentRank: 'weak', allowOwnKey: true } });
+  assert.strictEqual((await noKey.ai.brainInfo()).route, 'free');
 });
 ```
 
@@ -1609,7 +1902,7 @@ Add requires at the top:
 
 ```js
 const { agentPrompt, AGENT_MAX_TOKENS } = require('../../shared/agent/prompt');
-const { rankOf } = require('../../shared/agent/limits');
+const { rankOf, atLeastOk } = require('../../shared/agent/limits');
 ```
 
 Add `'free_no_agent'` to `FREE_REFUSALS`:
@@ -1628,7 +1921,13 @@ Inside `createAi`, add before `askClaude`:
 
 In `askClaude` replace `const prompt = prompts.buildPrompt(action, input);` with `const prompt = promptFor(action, input);`.
 In `askOwn` replace `const prompt = prompts.buildPrompt(action, input);` with `const prompt = promptFor(action, input);` and `maxTokens: MAX_TOKENS` with `maxTokens: maxTokensFor(action)`.
-In `ask` replace `prompts.buildPrompt(action, input); // input that is not valid …` with `promptFor(action, input); // input that is not valid is refused here, without a call to the server`.
+In `ask` replace `prompts.buildPrompt(action, input); // input that is not valid …` with `promptFor(action, input); // input that is not valid is refused here, without a call to the server`, and right after the `if (usedUp && free.allowOwnKey && own) return askOwn(action, input, options);` line add:
+
+```js
+    // Free mode's AI ranks too low to use a computer (the server would answer free_no_agent): the person's own AI does
+    // the job when the admin allows it, without the round trip.
+    if (action === 'agent' && !atLeastOk(free.agentRank || 'weak') && free.allowOwnKey && own) return askOwn(action, input, options);
+```
 
 Add before `listModels`:
 
@@ -1640,9 +1939,11 @@ Add before `listModels`:
   async function brainInfo() {
     const free = account.isSignedIn() ? await cloud.settings() : null;
     const own = await hasOwn();
+    const ownAllowed = Boolean(free?.allowOwnKey && own);
     const usedUp = free && free.limitMode === 'daily' && free.limit !== null && free.usedToday >= free.limit;
-    const viaFree = Boolean(free && free.freeOn && !free.blocked && !(usedUp && free.allowOwnKey && own));
-    if (viaFree) return { route: 'free', provider: 'free', model: '', label: "Buddy's free AI", rank: free.agentRank || 'weak', vision: true };
+    const rank = free?.agentRank || 'weak';
+    const viaFree = Boolean(free && free.freeOn && !free.blocked && !((usedUp || !atLeastOk(rank)) && ownAllowed));
+    if (viaFree) return { route: 'free', provider: 'free', model: '', label: "Buddy's free AI", rank, vision: true };
     const providerId = store.get('provider');
     const model = modelFor(providerId);
     if (providerId === CLAUDE_ID) return { route: 'claude-code', provider: CLAUDE_ID, model, label: 'Claude Code', rank: rankOf(CLAUDE_ID, model), vision: true };
@@ -1696,7 +1997,7 @@ git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Age
 - Produces:
   - Config fields `agentJobsPerDay` (1–1000, default 5) and `agentSpendCap` (0.5–1000 US $, default 3).
   - `/api/config` answer gains `agentRank`.
-  - `POST /api/ask` with `action: 'agent'`: counted once per job (step 1) against the daily requests and `agentJobsPerDay`; steps checked against the rank's `maxSteps`; refused with `free_limit` past the spend cap; `free_no_agent` (403) when the free model ranks weak. Chat answers of kind `do` go only to apps that send `canDo`.
+  - `POST /api/ask` with `action: 'agent'`: counted once per job (step 1) against the daily requests and `agentJobsPerDay`; steps checked against the rank's `maxSteps`; refused with `free_limit` past the spend cap; `free_no_agent` (403) when the free model ranks weak. A step 1 refused by the job record (`jobs`, `no_job`) gives its free request back. Chat answers of kind `do` go only to apps that send `canDo`.
   - db methods `updateAgentDay(key, change)` and `updateSpend(day, change)` (same `change(doc) → { next, result }` contract as `updateRemote`).
   - `agent-free.js`: `jobStep(doc, { jobId, step, jobsLimit, maxSteps })` → `{ next, result: { ok, reason? } }`, `addSpend(doc, usd)` → `{ next, result }`, `spentOf(doc)` → number.
 
@@ -1903,6 +2204,10 @@ test('agent: the 6th job of the day is refused; a step past the rank\'s limit is
   const r = await s.run(ask, 'POST', { body: { ...AGENT, jobId: 'job-87654321' } });
   assert.deepStrictEqual([r.status, r.body.error.code], [429, 'free_limit']);
   assert.match(r.body.error.message, /today's 1 free jobs/);
+  assert.strictEqual(Object.values(s.db.state.users)[0].usedCount, 1, 'the refused job gave its free request back');
+  const again = await s.run(ask, 'POST', { body: AGENT }); // the same job started twice: refused, and given back too
+  assert.deepStrictEqual([again.status, again.body.error.code], [400, 'bad_request']);
+  assert.strictEqual(Object.values(s.db.state.users)[0].usedCount, 1);
   const steps = setup({ stored: FREE_SONNET });
   await steps.run(ask, 'POST', { body: AGENT });
   steps.db.state.agentDays[Object.keys(steps.db.state.agentDays)[0]].jobs['job-12345678'] = 30;
@@ -1984,6 +2289,8 @@ Replace the request counting block so that an agent step after the first is not 
     const step = await deps.db.updateAgentDay(`${who.uid}_${day}`, (doc) => agentFree.jobStep(doc, {
       jobId: body.jobId, step: body.step, jobsLimit: cfg.agentJobsPerDay, maxSteps: limitsFor(rank).maxSteps,
     }));
+    // A first step refused here asked nothing of the AI: its free request is given back (only step 1 counted one).
+    if (!step.ok && body.step === 1) await giveBack(who.uid, day, deps);
     if (!step.ok && step.reason === 'jobs') {
       throw new BuddyError('free_limit', `You've used today's ${cfg.agentJobsPerDay} free jobs. They come back at midnight.`);
     }
@@ -2083,13 +2390,13 @@ and in `readForm()` before `return form;`:
   form.agentSpendCap = Number($('agent-cap').value);
 ```
 
-- [ ] **Step 10: Run, sync, full test, commit**
+- [ ] **Step 10: Run, full test, commit (no sync: this task changes nothing under `shared/`; T2 runs this wave's `sync:web`)**
 
-Run: `node --test test/web-app-admin.test.mjs test/admin-ipc.test.js && npm run sync:web && until mkdir /tmp/buddy-npm-test.lock 2>/dev/null; do sleep 5; done; npm test; rmdir /tmp/buddy-npm-test.lock`
-Expected: PASS. If the Firestore emulator is available, also run `npm run test:firestore` (optional; it needs Java).
+Run: `node --test test/web-app-admin.test.mjs test/admin-ipc.test.js && until mkdir /tmp/buddy-npm-test.lock 2>/dev/null; do sleep 5; done; npm test; rmdir /tmp/buddy-npm-test.lock`
+Expected: PASS. (`web/shared/agent/prompt.js` and `limits.js`, which `handlers.js` requires, were synced by T1 and T3.) If the Firestore emulator is available, also run `npm run test:firestore` (optional; it needs Java).
 
 ```bash
-git add web/lib web/public/app/index.html web/public/app/admin.js web/public/app/admin-core.js web/shared src/renderer/admin test/helpers/fake-db.js test/server-agent-free.test.js test/server-handlers.test.js test/server-free-config.test.js test/web-app-admin.test.mjs
+git add web/lib web/public/app/index.html web/public/app/admin.js web/public/app/admin-core.js src/renderer/admin test/helpers/fake-db.js test/server-agent-free.test.js test/server-handlers.test.js test/server-free-config.test.js test/web-app-admin.test.mjs
 git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Server: free agent jobs with daily job, step and spend limits, set by the admin"
 ```
 
@@ -2741,7 +3048,7 @@ git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Mac
 - Create: `shared/app-aliases.js`
 - Modify: `src/main/apps.js`, `src/main/actions.js` (`startOpen` only), `test/helpers/actions-setup.js` (the fake `apps`)
 - Test: add to `test/apps.test.js`
-- Sync: `web/shared/app-aliases.js`
+- Sync (this wave's sync task, wave 4): `web/shared/app-aliases.js`
 
 **Interfaces:**
 - Consumes: `pickChat` (`shared/message-pick.js`), `appLine` (`shared/pick-lines.js`).
@@ -2969,7 +3276,7 @@ Run: `node --test test/apps.test.js test/actions.test.js && npx eslint src/main/
 Expected: PASS (the existing open tests keep their lines).
 
 ```bash
-git add shared/app-aliases.js web/shared src/main/apps.js src/main/actions.js test/apps.test.js test/helpers/actions-setup.js
+git add shared/app-aliases.js web/shared/app-aliases.js src/main/apps.js src/main/actions.js test/apps.test.js test/helpers/actions-setup.js
 git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Open X: Finder and Spotlight's apps, and the names people say for apps"
 ```
 
@@ -2983,7 +3290,10 @@ git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Ope
 
 **Interfaces:**
 - Consumes: helper commands of Task 6 (exact names and shapes above); `apps.find(name)`/`apps.open(path)` of Task 7; `isPasswordApp` (Task 1).
-- Produces: `createMacHands({ helper, apps, shell, fsp, spawn, home, sleep, now })` → `{ observe({ screenshot }), act(action, observation), exists(path), elementAt(x, y, observation) }` matching Task 2's `hands` contract; `ROLE_NAMES`; `SETTINGS_PAGES`.
+- Produces: `createMacHands({ helper, apps, shell, fsp, spawn, home, sleep, now })` → `{ observe({ screenshot }), act(action, observation, { signal }), exists(path, { from }), elementAt(x, y, observation) }` matching Task 2's `hands` contract; `ROLE_NAMES`; `SETTINGS_PAGES`.
+  - `signal` (the job's): a stop kills a `run` command (and `files find`, which runs `mdfind`) through `spawn({ signal })`; the act answers `{ ok: false, code: 'stopped' }`.
+  - A rename's relative `to` ("b.txt", "old/b.txt") is in the file's own folder, not the home folder; `exists(to, { from: path })` resolves it the same way.
+  - A text field whose subrole is `AXSearchField` is role `searchfield` (typing there in Settings needs no question, Task 1).
   - `shell = { openExternal(url) → Promise, openPath(path) → Promise<string>, trashItem(path) → Promise }` (Electron's `shell`).
   - Element: `{ id, role, name, value?, state, depth, frame }`; `role` is a short name (`button`, `textfield`, `password-field`, `checkbox`, `switch`, …).
   - `act` returns `{ ok: true, note?, output? }` or `{ ok: false, code, note }`; it rethrows `no_accessibility` and `no_screen_recording` (the job must stop with the Settings button).
@@ -3173,6 +3483,37 @@ test('run: a shell command in the home folder, its output, its exit code', async
   assert.deepStrictEqual([bad.ok, bad.note], [false, 'exit code 3']);
 });
 
+test('run: stopping the job kills the command at once', async () => {
+  const { h } = hands();
+  const o = await h.observe({});
+  const job = new AbortController();
+  const started = Date.now();
+  setTimeout(() => job.abort(), 50);
+  const r = await h.act({ type: 'run', command: 'sleep 5' }, o, { signal: job.signal });
+  assert.deepStrictEqual([r.ok, r.code], [false, 'stopped']);
+  assert.ok(Date.now() - started < 3000, 'did not wait for sleep 5');
+});
+
+test('rename: a relative new name stays in the file\'s own folder, and exists() finds it there', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hands-'));
+  fs.mkdirSync(path.join(dir, 'Trip'));
+  fs.writeFileSync(path.join(dir, 'Trip', 'a.txt'), 'x');
+  const { h } = hands({ home: dir });
+  const o = await h.observe({});
+  assert.strictEqual(await h.exists('a.txt', { from: '~/Trip/b.txt' }), true);
+  assert.strictEqual((await h.act({ type: 'files', op: 'rename', path: '~/Trip/a.txt', to: 'b.txt' }, o)).ok, true);
+  assert.strictEqual(fs.existsSync(path.join(dir, 'Trip', 'b.txt')), true);
+  assert.strictEqual(fs.existsSync(path.join(dir, 'b.txt')), false, 'not moved to the home folder');
+  assert.strictEqual(await h.exists('b.txt', { from: '~/Trip/b.txt' }), true);
+  assert.strictEqual(await h.exists('b.txt'), false, 'without from, a relative path is in the home folder');
+});
+
+test('a search field is a searchfield', async () => {
+  const tree = { ...TREE, nodes: [...TREE.nodes, { id: 'e6', role: 'AXTextField', subrole: 'AXSearchField', name: 'Search', depth: 1 }] };
+  const { h } = hands({ helper: fakeHelper({ tree }) });
+  assert.strictEqual((await h.observe({})).elements.at(-1).role, 'searchfield');
+});
+
 test('a password app is never looked at or acted in', async () => {
   const pw = hands({ helper: fakeHelper({ last: { pid: 9, bundleId: 'com.1password.1password', name: '1Password' } }) });
   const o = await pw.h.observe({ screenshot: true });
@@ -3231,6 +3572,7 @@ const OPEN_SCHEMES = ['http:', 'https:', 'mailto:', 'tel:', 'sms:', 'facetime:',
 
 function roleName(node) {
   if (node.secure || node.subrole === 'AXSecureTextField') return 'password-field';
+  if (node.subrole === 'AXSearchField') return 'searchfield';
   if (node.role === 'AXCheckBox' && node.subrole === 'AXSwitch') return 'switch';
   if (node.subrole === 'AXDialog' || node.subrole === 'AXSystemDialog') return 'dialog';
   return ROLE_NAMES[node.role] || String(node.role || '').replace(/^AX/, '').toLowerCase();
@@ -3257,11 +3599,14 @@ function createMacHands({
 }) {
   let map = null; // the last screenshot's { origin, pointsPerPixel }
 
-  const resolvePath = (p) => {
+  const relative = (s) => !path.isAbsolute(s) && s !== '~' && !s.startsWith('~/');
+  /** A path as the AI wrote it: ~ is home; a relative one is in the home folder, or in `from`'s folder when given. */
+  const resolvePath = (p, from = null) => {
     const s = String(p || '').trim();
     if (s === '~') return home;
     if (s.startsWith('~/')) return path.join(home, s.slice(2));
-    return path.isAbsolute(s) ? s : path.join(home, s);
+    if (path.isAbsolute(s)) return s;
+    return from ? path.join(path.dirname(resolvePath(from)), s) : path.join(home, s);
   };
 
   async function target() {
@@ -3318,34 +3663,43 @@ function createMacHands({
     }
   }
 
-  function runCommand(command) {
+  /** A shell command in the home folder. The job's `signal` kills it (spawn's own abort), so Stop never waits for it. */
+  function runCommand(command, signal) {
     return new Promise((resolve) => {
       let out = '';
-      const child = spawn('/bin/zsh', ['-lc', command], { cwd: home, env: process.env, timeout: RUN_TIMEOUT_MS });
+      const stopped = () => failed('stopped', 'Stopped.');
+      if (signal?.aborted) { resolve(stopped()); return; }
+      const child = spawn('/bin/zsh', ['-lc', command], { cwd: home, env: process.env, timeout: RUN_TIMEOUT_MS, signal });
       const take = (d) => { if (out.length < RUN_BUFFER) out += d; };
       child.stdout.on('data', take);
       child.stderr.on('data', take);
-      child.on('error', (err) => resolve(failed('run_failed', err.message)));
-      child.on('close', (code) => resolve(code === 0
-        ? { ok: true, note: 'done', output: out.slice(-RUN_OUTPUT) }
-        : { ok: false, code: 'exit', note: `exit code ${code}`, output: out.slice(-RUN_OUTPUT) }));
+      child.on('error', (err) => resolve(err.name === 'AbortError' ? stopped() : failed('run_failed', err.message)));
+      child.on('close', (code) => {
+        if (signal?.aborted) { resolve(stopped()); return; }
+        resolve(code === 0
+          ? { ok: true, note: 'done', output: out.slice(-RUN_OUTPUT) }
+          : { ok: false, code: 'exit', note: `exit code ${code}`, output: out.slice(-RUN_OUTPUT) });
+      });
     });
   }
 
-  async function exists(p) {
-    try { await files.stat(resolvePath(p)); return true; } catch { return false; }
+  /** `from`: for a rename, the file it renames, whose folder a relative new name is in. */
+  async function exists(p, { from = null } = {}) {
+    const s = String(p || '').trim();
+    try { await files.stat(resolvePath(s, from && relative(s) ? from : null)); return true; } catch { return false; }
   }
 
-  async function filesAct(a) {
+  async function filesAct(a, signal) {
     const p = resolvePath(a.path);
-    const to = a.to ? resolvePath(a.to) : null;
+    // A rename's relative new name ("b.txt") is in the file's own folder; every other relative path is in the home folder.
+    const to = a.to ? resolvePath(a.to, a.op === 'rename' ? a.path : null) : null;
     switch (a.op) {
       case 'list': {
         const names = (await files.readdir(p)).filter((n) => !n.startsWith('.')).sort();
         return { ok: true, note: `${names.length} items`, output: names.slice(0, LIST_MAX).join('\n') };
       }
       case 'find': {
-        const r = await runCommand(`mdfind -onlyin ${JSON.stringify(p)} -name ${JSON.stringify(a.text || path.basename(p))} | head -30`);
+        const r = await runCommand(`mdfind -onlyin ${JSON.stringify(p)} -name ${JSON.stringify(a.text || path.basename(p))} | head -30`, signal);
         return r.ok ? { ok: true, note: 'found', output: r.output } : r;
       }
       case 'read': {
@@ -3365,7 +3719,7 @@ function createMacHands({
     }
   }
 
-  async function doAct(a, o) {
+  async function doAct(a, o, signal) {
     const pid = o.app?.pid;
     const find = (id) => (o.elements || []).find((e) => e.id === id);
     const ax = (id, op, value) => helper.call('axAct', value === undefined ? { pid, gen: o.gen, id, op } : { pid, gen: o.gen, id, op, value });
@@ -3404,8 +3758,8 @@ function createMacHands({
         if (a.id) await ax(a.id, 'focus');
         await helper.call('typeText', { pid, text: a.text });
         return { ok: true };
-      case 'run': return runCommand(a.command);
-      case 'files': return filesAct(a);
+      case 'run': return runCommand(a.command, signal);
+      case 'files': return filesAct(a, signal);
       case 'click': await ax(a.id, 'press'); return { ok: true };
       case 'set_value': await ax(a.id, 'setValue', a.text); return { ok: true };
       case 'toggle': await ax(a.id, 'toggle', a.on); return { ok: true };
@@ -3430,10 +3784,11 @@ function createMacHands({
     }
   }
 
-  async function act(action, observation) {
+  /** `signal`: the job's; a stop kills a command this act runs. */
+  async function act(action, observation, { signal } = {}) {
     if (isPasswordApp(observation.app)) return failed('password_app', "I don't touch password apps.");
     try {
-      const result = await doAct(action, observation);
+      const result = await doAct(action, observation, signal);
       if (result.ok && !['run', 'files', 'open_app', 'open_settings', 'open_url'].includes(action.type)) await sleep(SETTLE_MS);
       return result;
     } catch (err) {
@@ -3452,7 +3807,7 @@ module.exports = { createMacHands, ROLE_NAMES, SETTINGS_PAGES };
 - [ ] **Step 3: Run the tests**
 
 Run: `node --test test/mac-hands.test.js`
-Expected: PASS (12 tests). The `click_at` test: `pointsPerPixel` 1.125 → (100, 60) px = (112.5, 67.5) pt.
+Expected: PASS (14 tests). The `click_at` test: `pointsPerPixel` 1.125 → (100, 60) px = (112.5, 67.5) pt.
 
 - [ ] **Step 4: Lint, full test, commit**
 
@@ -3475,6 +3830,7 @@ git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Mac
 **Interfaces:**
 - Produces:
   - `createBubbleWindow({ …, onButton = () => {} })`; `bubble.speak(text, at, buttons = [])` sends `('bubble:text', text, true, buttons)` only when `buttons` is not empty (so existing callers and tests are unchanged); IPC `bubble:button` with a name in `BUBBLE_BUTTONS = ['stop', 'yes', 'no', 'go-on']` calls `onButton(name)` while a speech bubble shows.
+  - **Held while it has buttons:** a speech bubble with buttons (a job's step with Stop, a question with Yes / No, a hand-over with Go on) stays up through a job's longest wait: `release()` and the short `say()` bubble (2.6 s, `SHOW_MS`) leave it alone, and it goes by itself only after `BUTTONS_HOLD_MS = 130_000` (longer than the 120 s hand-over wait). The next `speak` without buttons (the job's end line) ends the hold; `hide()` (the panel opened) too.
   - `home.speak(text, buttons)`; `ui.speech(text, buttons)` in `main.js`.
 
 - [ ] **Step 1: Failing tests**
@@ -3490,11 +3846,39 @@ test('speak with buttons sends them; a known button pressed in a speech bubble r
   s.handlers['bubble:button'](s.fromPage(), 'launch');
   s.handlers['bubble:button']({ sender: {} }, 'no');
   assert.deepStrictEqual(s.buttons, ['yes']);
+  s.bubble.hide();
   await s.bubble.say('Copied', BUDDY, AREA);
   s.handlers['bubble:button'](s.fromPage(), 'stop');
   assert.deepStrictEqual(s.buttons, ['yes'], 'not while the short bubble shows');
 });
+
+test('a job\'s words with buttons stay up: release and the short bubble leave them; at most BUTTONS_HOLD_MS', async (t) => {
+  const s = setup(t);
+  await s.bubble.speak('Delete 3 files? Say yes or no.', AT, ['yes', 'no']);
+  s.bubble.release();
+  await Promise.resolve();
+  await Promise.resolve();
+  t.mock.timers.tick(BUBBLE_HIDE_MS + 60_000);
+  assert.strictEqual(s.win().visible, true, 'a minute later the question is still up');
+  await s.bubble.say('Copied', BUDDY, AREA);
+  assert.deepStrictEqual(s.win().sent.at(-1), ['bubble:text', 'Delete 3 files? Say yes or no.', true, ['yes', 'no']], 'the short bubble waits');
+  t.mock.timers.tick(BUTTONS_HOLD_MS);
+  assert.strictEqual(s.win().visible, false, 'never forever');
+});
+
+test('the job\'s end line, without buttons, ends the hold: it goes BUBBLE_HIDE_MS after release', async (t) => {
+  const s = setup(t);
+  await s.bubble.speak('Opening Settings…', AT, ['stop']);
+  await s.bubble.speak('Dark mode is on.', AT);
+  s.bubble.release();
+  await Promise.resolve();
+  await Promise.resolve();
+  t.mock.timers.tick(BUBBLE_HIDE_MS);
+  assert.strictEqual(s.win().visible, false);
+});
 ```
+
+(Import `BUTTONS_HOLD_MS` with `createBubbleWindow` at the top of the file: `const { createBubbleWindow, BUTTONS_HOLD_MS } = require('../src/main/bubble-window');`.)
 
 In `test/home.test.js`, change the fake bubble's `speak` (line ~65) to record buttons only when given, so the existing test stays as it is:
 
@@ -3514,11 +3898,19 @@ test('the speech bubble can carry buttons (a job\'s Stop, Yes / No)', () => {
 
 Run: `node --test test/bubble-window.test.js test/home.test.js` → FAIL.
 
+(Today a speech bubble already stays up until `release()`; `SHOW_MS = 2600` is only the short `say()` bubble. The hold above is what keeps a job's question up for its 60 s, and a hand-over's Go on for its 120 s, whatever else asks for the bubble meanwhile.)
+
 - [ ] **Step 2: Implement**
 
 `src/main/bubble-window.js`:
-- Add `const BUBBLE_BUTTONS = ['stop', 'yes', 'no', 'go-on'];` near `SHOW_MS`.
+- Near `SHOW_MS` add:
+```js
+const BUBBLE_BUTTONS = ['stop', 'yes', 'no', 'go-on'];
+// A job's speech bubble with buttons stays up this long at most: longer than its longest wait (a hand-over, 120 s).
+const BUTTONS_HOLD_MS = 130_000;
+```
 - Signature: `function createBubbleWindow({ ipcMain = null, onClick = () => {}, onButton = () => {}, cursor = () => null, BrowserWindow = ElectronWindow } = {})`.
+- With the other state: `let held = false; // a job's words with buttons are up: release() and say() leave them (speak without buttons ends it)`; in `forget(w)` add `held = false;`.
 - In the `if (ipcMain)` block add:
 ```js
     ipcMain.on('bubble:button', (event, name) => {
@@ -3529,8 +3921,27 @@ Run: `node --test test/bubble-window.test.js test/home.test.js` → FAIL.
 ```js
     w.webContents.send('bubble:text', text, asSpeech, ...(buttons.length ? [buttons] : []));
 ```
-- `speak(text, at, buttons = [])`: pass `buttons` to `show(text, bounds, true, buttons)`.
-- Export `BUBBLE_BUTTONS` too: `module.exports = { createBubbleWindow, BUBBLE_BUTTONS };`
+- `say(text, buddyBounds, area)`: first line of its `try`: `if (held) return; // a job's question or Stop button is up: it wins`.
+- `speak(text, at, buttons = [])`:
+```js
+    async speak(text, at, buttons = []) {
+      if (text === null) {
+        if (speech && !held) clearTimeout(timer);
+        return;
+      }
+      const bounds = at.kind === 'below' ? speechUnderNotch(at.notch, at.area) : speechBounds(at.buddy, at.area);
+      showing = show(text, bounds, true, buttons)
+        .then((w) => {
+          held = Boolean(w) && buttons.length > 0;
+          if (held) timer = setTimeout(() => { held = false; if (!w.isDestroyed()) w.hide(); }, BUTTONS_HOLD_MS);
+        })
+        .catch((err) => console.error('[buddy] could not show the speech bubble:', err));
+      await showing;
+    },
+```
+- `release()`: inside its `showing.then(() => { … })`, change the first line to `if (!speech || !win || held) return; // a job's words with buttons wait for the job`.
+- `hide()`: add `held = false;` before `clearTimeout(timer);`.
+- Export: `module.exports = { createBubbleWindow, BUBBLE_BUTTONS, BUTTONS_HOLD_MS };`
 
 `src/preload/bubble.js`:
 ```js
@@ -3697,22 +4108,61 @@ git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Set
 
 ---
 
-### Task 11: The job in the chat — runner, stop paths, questions, wiring
+### Task 11a: The runner — one job at a time, its questions, Stop and the lock
 
 **Files:**
 - Create: `src/main/agent/runner.js`
-- Modify: `src/main/actions.js`, `src/main/wake.js`, `src/main/tray.js`, `src/main/main.js`, `test/helpers/actions-setup.js`
-- Test: `test/agent-runner.test.js`; add to `test/actions.test.js`, `test/wake.test.js`, `test/tray.test.js`
+- Modify: `src/main/lock.js` (`onLocked`)
+- Test: `test/agent-runner.test.js`; add to `test/lock.test.js`
 
 **Interfaces:**
-- Consumes: `createAgentJob`, `goOnHeard` (T2); `formatScreen` (T3); `limitsFor`, `warningFor` (T1); `MAC_ABILITIES` (T1); `ai.ask('agent')`, `ai.brainInfo()` (T4); `createMacHands` (T8); `ui.speech(text, buttons)`, `bubble onButton` (T9); store `agentOn`, `agentAgreed` (T10); `apps.find` + `createSpotlight` (T7); helper events `esc`, `took_over` and command `watchStop` (T6).
+- Consumes: `createAgentJob`, `goOnHeard`, `LOOP_LINES` (T2); `formatScreen` (T3); `limitsFor`, `warningFor`, `MAC_ABILITIES` (T1); `ai.ask('agent')`, `ai.brainInfo()` (T4: it already answers the own route when the free AI is weak but the admin allows the person's own key and they have one, so the runner's `free_no_agent` check only fires when there is no other way); `heardAnswer` (`shared/voice-words.js`, exists); `talkBack.say/hear/listen/stop` (`src/main/talk-back.js`, exists); helper `permissions`, `watchStop` (exists / T6). The hands, store, bubble and lock are faked in the tests.
 - Produces:
-  - `createAgentRunner({ ai, hands, helper, talkBack, ui, lock, store, memory, userName, randomId, onChange })` → `{ start({ goal, spoken }) → Promise<Result>, stop(reason), button(name), tookOver(), running() }`. `Result` as in Task 2, plus `end: 'off'|'declined'`. Errors (`no_accessibility`, `free_no_agent`, AI errors) are thrown.
-  - `createActions({ …, agent = null })`: chat kind `do` runs `agent.start`; `canDo: true` goes with every chat request when `agent` is given; `send()` refuses while a job runs.
-  - `createWake({ …, agent = null })`: a wake while `agent.running()` stops the job.
-  - Tray: `buildMenuTemplate({ …, agentRunning })` adds "Stop the job" at the top.
+  - `createAgentRunner({ ai, hands, helper, talkBack, ui, lock, store, memory, userName, randomId, onChange, waits })` → `{ start({ goal, spoken }) → Promise<Result>, stop(reason), button(name), reply(text) → boolean, tookOver(), running() }`. `Result` as in Task 2, plus `end: 'off'|'declined'`. Errors (`no_accessibility`, `free_no_agent`, AI errors) are thrown.
+  - `ui.speech(text, buttons)` for every line (T9's held bubble keeps it up while a job waits), `ui.mood('thinking')` at the start.
+  - **Risky step** (`gate.ask`): the bubble shows the device's question with Yes / No. A spoken job also says it and hears the answer with `talkBack.hear('do')` ("do it", "kar do", "haan", "yes" are a yes; spec §7.3). A typed job (or anyone) can also type the answer in the chat: `reply(text)` reads it with `heardAnswer(text, 'do')`. No answer in `waits.ask` (60 s; the voice itself gives up after 8 s) = no.
+  - **The AI's question** (`gate.askUser`): the bubble shows "<question> Click here to type your answer." with Stop (a click on the words opens the chat); `reply(text)` answers it, or in a spoken job what was said. It waits up to `waits.askUser` (120 s); null only then.
+  - **Hand-over** (`gate.handover`): Go on / Stop, "go on" said or typed; `waits.handover` 120 s. **Took over** (`tookOver: true`): the same, but `waits.tookOver` = 30 s (spec §3.8).
+  - **Lock:** while a job runs the runner listens to `lock.onLocked` (powerMonitor `lock-screen`) and stops the job at once with `locked`; it also checks `lock.locked()` at the start and before each act.
+  - `RUNNER_WAITS = { ask: 60_000, askUser: 120_000, handover: 120_000, tookOver: 30_000 }`, `RUNNER_LINES`.
+  - `lock.onLocked(fn)` → a function that stops listening.
 
-- [ ] **Step 1: Failing runner tests**
+- [ ] **Step 1: `lock.onLocked` — failing test, then code**
+
+Add to `test/lock.test.js` (it uses the file's `monitor()` fake, an EventEmitter):
+
+```js
+test('onLocked: called each time the screen locks, until it is stopped', () => {
+  const m = monitor('active');
+  const lock = createLock({ powerMonitor: m });
+  let calls = 0;
+  const off = lock.onLocked(() => { calls += 1; });
+  m.emit('lock-screen');
+  m.emit('lock-screen');
+  off();
+  m.emit('lock-screen');
+  assert.strictEqual(calls, 2);
+  assert.strictEqual(m.listenerCount('lock-screen'), 0);
+});
+```
+
+Run: `node --test test/lock.test.js` → FAIL (`lock.onLocked is not a function`).
+
+In `src/main/lock.js`, change the header comment to "Whether the Mac's screen is locked, a wait for it to be unlocked (a send waits for the person to unlock), and a call each time it locks (a running job stops).", and before the `return`:
+
+```js
+  /** Calls `fn` each time the screen locks (a computer-agent job stops at once); answers the function that stops that. */
+  function onLocked(fn) {
+    powerMonitor.on('lock-screen', fn);
+    return () => powerMonitor.removeListener('lock-screen', fn);
+  }
+
+  return { locked, unlocked, onLocked };
+```
+
+Run: `node --test test/lock.test.js` → PASS.
+
+- [ ] **Step 2: Failing runner tests**
 
 `test/agent-runner.test.js`:
 
@@ -3721,13 +4171,19 @@ git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Set
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { createAgentRunner } = require('../src/main/agent/runner');
+const { createAgentRunner, RUNNER_WAITS } = require('../src/main/agent/runner');
 const { el, fakeHands } = require('./helpers/agent-fakes');
 
 const SCREEN = { files: { elements: [el('e1', 'row', 'a.pdf'), el('e2', 'row', 'b'), el('e3', 'row', 'c'), el('e4', 'row', 'd'), el('e5', 'row', 'e')] } };
+const TRASH = { say: '', action: { type: 'files', op: 'trash', path: '/a/a.pdf' } };
+const DONE = { say: '', action: { type: 'done', summary: 'ok' } };
 const settle = async () => { for (let i = 0; i < 30; i += 1) await new Promise((r) => { setImmediate(r); }); };
 
-function setup({ replies = [], info = { route: 'own', provider: 'anthropic', model: 'claude-sonnet-5-5', label: 'Claude', rank: 'best', vision: true }, settings = { agentOn: true, agentAgreed: true }, perms = { accessibility: true, screenRecording: true }, heard = [], talk = true, locked = false } = {}) {
+function setup({
+  replies = [], info = { route: 'own', provider: 'anthropic', model: 'claude-sonnet-5-5', label: 'Claude', rank: 'best', vision: true },
+  settings = { agentOn: true, agentAgreed: true }, perms = { accessibility: true, screenRecording: true }, heard = [], talk = true,
+  locked = false, lock = null, waits = null, onAsk = () => {},
+} = {}) {
   const log = [];
   const store = { get: (k) => settings[k], set: (patch) => { Object.assign(settings, patch); log.push(['store', patch]); } };
   const hands = fakeHands({ screens: SCREEN, start: 'files' });
@@ -3736,6 +4192,7 @@ function setup({ replies = [], info = { route: 'own', provider: 'anthropic', mod
     brainInfo: async () => info,
     ask: async (action, input) => {
       log.push(['ask', action, { step: input.step, jobId: input.jobId, platform: input.platform, screen: input.screen.split('\n')[0] }]);
+      onAsk(input);
       const next = queue.shift() || { say: '', action: { type: 'stuck', reason: 'none' } };
       return { text: JSON.stringify(next), model: 'm' };
     },
@@ -3749,7 +4206,10 @@ function setup({ replies = [], info = { route: 'own', provider: 'anthropic', mod
   } : null;
   const ui = { speech: (t, b) => log.push(['speech', t, b]), mood: (m) => log.push(['mood', m]) };
   const runner = createAgentRunner({
-    ai, hands, helper, talkBack, ui, store, lock: { locked: () => locked }, memory: { facts: () => [] }, userName: () => 'Akshat', randomId: () => 'job-12345678',
+    ai, hands, helper, talkBack, ui, store,
+    lock: lock || { locked: () => locked, onLocked: () => () => {} },
+    memory: { facts: () => [] }, userName: () => 'Akshat', randomId: () => 'job-12345678',
+    ...(waits ? { waits: { ...RUNNER_WAITS, ...waits } } : {}),
   });
   return { runner, log, hands, settings };
 }
@@ -3771,25 +4231,25 @@ test('switched off: no job; no Accessibility: an error with the Settings code', 
   await assert.rejects(setup({ perms: { accessibility: false, screenRecording: false } }).runner.start({ goal: 'x' }), { code: 'no_accessibility' });
 });
 
-test('the first job asks once; yes is remembered; no declines', async () => {
-  const yes = setup({ settings: { agentOn: true, agentAgreed: false }, heard: ['yes'], replies: [{ say: '', action: { type: 'done', summary: 'ok' } }] });
+test('the first job asks once, heard with the "do" words; yes is remembered; no declines', async () => {
+  const yes = setup({ settings: { agentOn: true, agentAgreed: false }, heard: ['yes'], replies: [DONE] });
   await yes.runner.start({ goal: 'x', spoken: true });
   assert.strictEqual(yes.settings.agentAgreed, true);
   assert.match(yes.log.find((l) => l[0] === 'say')[1], /I will click and type in your apps for you/);
+  assert.deepStrictEqual(yes.log.filter((l) => l[0] === 'hear').map((l) => l[1]), ['do']);
   const no = setup({ settings: { agentOn: true, agentAgreed: false }, heard: ['no'] });
   assert.strictEqual((await no.runner.start({ goal: 'x', spoken: true })).end, 'declined');
 });
 
-test('a weak AI is warned about first; a weak free AI cannot run jobs', async () => {
+test('a weak AI is warned about first; a weak free AI with no other way cannot run jobs', async () => {
   const weak = setup({ info: { route: 'own', provider: 'groq', model: 'llama', label: 'Groq', rank: 'weak', vision: true }, heard: ['no'] });
   assert.strictEqual((await weak.runner.start({ goal: 'x', spoken: true })).end, 'declined');
   assert.match(weak.log.find((l) => l[0] === 'say')[1], /^Your AI is Groq\./);
   await assert.rejects(setup({ info: { route: 'free', rank: 'weak', label: "Buddy's free AI", vision: true } }).runner.start({ goal: 'x' }), { code: 'free_no_agent' });
 });
 
-test('a risky step in a spoken job is asked out loud and in the bubble with Yes / No; a press of Yes acts', async () => {
-  const s = setup({ heard: [], replies: [{ say: 'Deleting…', action: { type: 'files', op: 'trash', path: '/a/a.pdf' } }, { say: '', action: { type: 'done', summary: 'Gone.' } }] });
-  s.log.length = 0;
+test('a risky step is asked in the bubble with Yes / No; a press of Yes acts', async () => {
+  const s = setup({ replies: [{ ...TRASH, say: 'Deleting…' }, { say: '', action: { type: 'done', summary: 'Gone.' } }] });
   const running = s.runner.start({ goal: 'delete a.pdf', spoken: false });
   await settle();
   assert.ok(s.log.some((l) => l[0] === 'speech' && l[1] === 'Move "a.pdf" to the Trash?' && l[2].join() === 'yes,no'));
@@ -3799,8 +4259,33 @@ test('a risky step in a spoken job is asked out loud and in the bubble with Yes 
   assert.deepStrictEqual(s.hands.acts, [{ type: 'files', op: 'trash', path: '/a/a.pdf' }]);
 });
 
+test('a spoken job asks out loud and hears the answer with the "do" words', async () => {
+  const s = setup({ heard: ['yes'], replies: [TRASH, { say: '', action: { type: 'done', summary: 'Gone.' } }] });
+  const r = await s.runner.start({ goal: 'delete a.pdf', spoken: true });
+  assert.strictEqual(r.end, 'done');
+  assert.ok(s.log.some((l) => l[0] === 'say' && l[1] === 'Move "a.pdf" to the Trash?'));
+  assert.deepStrictEqual(s.log.filter((l) => l[0] === 'hear').map((l) => l[1]), ['do']);
+  assert.strictEqual(s.hands.acts.length, 1);
+});
+
+test('a typed job: the AI\'s question waits for the answer typed in the chat; a typed yes answers a risky step', async () => {
+  const s = setup({ replies: [{ say: '', action: { type: 'ask_user', question: 'Which file?' } }, TRASH, DONE] });
+  const running = s.runner.start({ goal: 'delete the file', spoken: false });
+  await settle();
+  assert.ok(s.log.some((l) => l[0] === 'speech' && l[1] === 'Which file? Click here to type your answer.' && l[2].join() === 'stop'));
+  assert.strictEqual(s.runner.reply('the PDF'), true);
+  await settle();
+  assert.ok(s.log.some((l) => l[0] === 'speech' && l[1] === 'Move "a.pdf" to the Trash?'));
+  assert.strictEqual(s.runner.reply('haan kar do'), true);
+  const r = await running;
+  assert.strictEqual(r.end, 'done');
+  assert.deepStrictEqual(s.hands.acts, [{ type: 'files', op: 'trash', path: '/a/a.pdf' }]);
+  assert.strictEqual(s.runner.reply('hello'), false, 'nothing waits now');
+  assert.ok(!s.log.some((l) => l[0] === 'say'), 'a typed job says nothing out loud');
+});
+
 test('Stop (button, Esc or voice) ends the job; the question waiting is a no', async () => {
-  const s = setup({ replies: [{ say: '', action: { type: 'files', op: 'trash', path: '/a/a.pdf' } }] });
+  const s = setup({ replies: [TRASH] });
   const running = s.runner.start({ goal: 'x', spoken: false });
   await settle();
   assert.strictEqual(s.runner.running(), true);
@@ -3811,7 +4296,7 @@ test('Stop (button, Esc or voice) ends the job; the question waiting is a no', a
 });
 
 test('one job at a time', async () => {
-  const s = setup({ replies: [{ say: '', action: { type: 'files', op: 'trash', path: '/a/a.pdf' } }] });
+  const s = setup({ replies: [TRASH] });
   const first = s.runner.start({ goal: 'x' });
   await settle();
   await assert.rejects(s.runner.start({ goal: 'y' }), /I'm busy with a job/);
@@ -3819,16 +4304,28 @@ test('one job at a time', async () => {
   await first;
 });
 
-test('a locked screen stops the job before it acts', async () => {
+test('a locked screen at the start: the job stops before it acts', async () => {
   const s = setup({ locked: true, replies: [{ say: '', action: { type: 'scroll', dir: 'down' } }] });
   const r = await s.runner.start({ goal: 'x' });
   assert.deepStrictEqual([r.end, r.line], ['stopped', 'The screen locked, so I stopped.']);
   assert.strictEqual(s.hands.acts.length, 0);
 });
 
+test('the screen locking during a job stops it at once; the runner stops listening after', async () => {
+  let onLock = null;
+  const lock = { locked: () => false, onLocked: (fn) => { onLock = fn; return () => { onLock = null; }; } };
+  const s = setup({ lock, replies: [TRASH] });
+  const running = s.runner.start({ goal: 'x' });
+  await settle();
+  onLock(); // powerMonitor 'lock-screen' while the question waits
+  const r = await running;
+  assert.deepStrictEqual([r.end, r.line], ['stopped', 'The screen locked, so I stopped.']);
+  assert.strictEqual(s.hands.acts.length, 0);
+  assert.strictEqual(onLock, null);
+});
+
 test('took over: ignored while Buddy asks something', async () => {
-  const trash = { say: '', action: { type: 'files', op: 'trash', path: '/a/a.pdf' } };
-  const s = setup({ replies: [trash, trash] });
+  const s = setup({ replies: [TRASH, TRASH] });
   const running = s.runner.start({ goal: 'x' });
   await settle();
   s.runner.tookOver(); // a question is open: the person is answering it
@@ -3839,11 +4336,28 @@ test('took over: ignored while Buddy asks something', async () => {
   assert.strictEqual(r.end, 'stopped');
   assert.ok(!s.log.some((l) => l[0] === 'speech' && /You took over/.test(l[1])));
 });
+
+test('took over: the job waits RUNNER_WAITS.tookOver (30 s) for "go on", then stops', async () => {
+  assert.strictEqual(RUNNER_WAITS.tookOver, 30_000);
+  assert.strictEqual(RUNNER_WAITS.handover, 120_000);
+  const s = setup({
+    waits: { tookOver: 5 },
+    onAsk: (input) => { if (input.step === 1) s.runner.tookOver(); },
+    replies: [{ say: 'A…', action: { type: 'scroll', dir: 'down' } }, DONE],
+  });
+  const r = await s.runner.start({ goal: 'x', spoken: false });
+  assert.strictEqual(r.end, 'stopped');
+  assert.ok(s.log.some((l) => l[0] === 'speech' && /^You took over\./.test(l[1]) && l[2].join() === 'go-on,stop'));
+  assert.strictEqual(s.log.filter((l) => l[0] === 'ask').length, 1, 'no step ran after the wait ran out');
+});
 ```
 
-Run: `node --test test/agent-runner.test.js` → FAIL (`Cannot find module`).
+- [ ] **Step 3: Run them to see them fail**
 
-- [ ] **Step 2: Write `src/main/agent/runner.js`**
+Run: `node --test test/agent-runner.test.js`
+Expected: FAIL, `Cannot find module '../src/main/agent/runner'`.
+
+- [ ] **Step 4: Write `src/main/agent/runner.js`**
 
 ```js
 'use strict';
@@ -3851,21 +4365,26 @@ Run: `node --test test/agent-runner.test.js` → FAIL (`Cannot find module`).
 /**
  * One computer-agent job at a time on the Mac (spec §3, §7.3, §10): checks the switch, the permissions, the first-job
  * question and the AI's rank, then runs the shared loop (shared/agent/loop.js) with the Mac's hands, showing each step
- * in the speech bubble with a Stop button. Risky steps are asked in the bubble (Yes / No) and, in a spoken job, out
- * loud too; only a yes acts. Stop comes from the bubble, Esc (the helper's watchStop), "Hey Buddy" (wake.js) or the
- * tray. A locked screen stops the job. Nothing a job sees is logged.
+ * in the speech bubble with a Stop button. A risky step is asked in the bubble (Yes / No), out loud too in a spoken job,
+ * and a yes or no typed in the chat answers it as well (reply); only a yes acts. The AI's own question for the person
+ * (ask_user) waits for their typed or spoken answer. Stop comes from the bubble, Esc (the helper's watchStop), "Hey
+ * Buddy" (wake.js) or the tray; the screen locking stops the job at once (lock.onLocked). Nothing a job sees is logged.
  */
 
 const crypto = require('node:crypto');
 const { BuddyError } = require('../../../shared/errors');
-const { createAgentJob, goOnHeard } = require('../../../shared/agent/loop');
+const { createAgentJob, goOnHeard, LOOP_LINES } = require('../../../shared/agent/loop');
 const { formatScreen } = require('../../../shared/agent/prompt');
 const { limitsFor, warningFor } = require('../../../shared/agent/limits');
 const { MAC_ABILITIES } = require('../../../shared/agent/actions');
+const { heardAnswer } = require('../../../shared/voice-words');
 const { AI_TIMEOUT_MS } = require('../ai');
 
-const ASK_MS = 60_000;
-const HANDOVER_MS = 120_000;
+// How long Buddy waits for the person (spec §3, §7.3): a yes or no, an answer to the AI's question, a part they do
+// themselves, and "go on" after they took over by themselves.
+const RUNNER_WAITS = { ask: 60_000, askUser: 120_000, handover: 120_000, tookOver: 30_000 };
+const YES_VERB = 'do'; // talk-back.js hear() and voice-words.js heardAnswer(): "do it", "kar do", "haan" are a yes
+const LISTEN_AGAIN_MS = 1000; // a listen that heard nothing (or failed): a short rest before the next, never a tight loop
 const RUNNER_LINES = {
   off: 'Using your Mac is off. Turn it on in Settings → Permissions.',
   consent: 'I will click and type in your apps for you. I always ask before deleting, paying, sending or changing settings. Okay?',
@@ -3873,45 +4392,71 @@ const RUNNER_LINES = {
   freeWeak: "The free AI can't use your computer. Add your own key in Settings.",
   busy: "I'm busy with a job. Say stop first.",
   noAccess: 'Buddy needs Accessibility to use your Mac. Open Settings to allow it.',
+  typeAnswer: 'Click here to type your answer.',
 };
+const rest = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
 function createAgentRunner({
   ai, hands, helper, talkBack = null, ui, lock, store, memory, userName = () => '', randomId = () => crypto.randomUUID(),
-  onChange = () => {},
+  onChange = () => {}, waits = RUNNER_WAITS,
 }) {
-  let job = null; // { loop, gateOpen }
-  let waiter = null; // resolves the bubble button being waited for
+  let job = null; // { loop, gateOpen, stopped }
+  let waiting = null; // what the job waits on from the person: { kind: 'ask'|'askUser'|'handover', done(value) }
 
   const running = () => job !== null;
+  const cancelWait = () => waiting?.done(null);
+  const stoppedEnd = () => ({ end: 'stopped', line: job?.stopped === 'locked' ? LOOP_LINES.locked : LOOP_LINES.stopped, steps: [] });
 
   function stop(reason = 'person') {
     if (!job) return;
-    job.stopped = reason;
+    if (!job.stopped) job.stopped = reason;
     job.loop?.stop(reason);
-    if (waiter) waiter('no');
+    cancelWait(); // a question waiting is a no
     talkBack?.stop?.();
   }
 
+  /** A bubble button: Stop always; Yes / No for a risky step; Go on for a hand-over. */
   function button(name) {
-    if (name === 'stop') stop('person');
-    else if (waiter) waiter(name);
+    if (name === 'stop') {
+      stop('person');
+      return;
+    }
+    if (waiting?.kind === 'ask' && (name === 'yes' || name === 'no')) waiting.done(name);
+    else if (waiting?.kind === 'handover' && name === 'go-on') waiting.done('go-on');
   }
 
+  /** Words typed in the chat during a job: the answer to what it waits on, if anything. True when they were taken. */
+  function reply(text) {
+    const words = String(text || '').trim();
+    if (!waiting || !words) return false;
+    if (waiting.kind === 'ask') waiting.done(heardAnswer(words, YES_VERB));
+    else if (waiting.kind === 'askUser') waiting.done(words);
+    else if (goOnHeard(words)) waiting.done('go-on');
+    else return false;
+    return true;
+  }
+
+  /** The person typed or clicked themselves (the helper's took_over): the job pauses, unless Buddy is asking them. */
   function tookOver() {
     if (job && !job.gateOpen) job.loop?.pause();
   }
 
-  function waitButton(ms, signal) {
+  /** Waits for the person: a button, a typed reply, or nothing in `ms` (null). A stop answers null at once. */
+  function waitFor(kind, ms, signal) {
     return new Promise((resolve) => {
       let timer = null;
-      const done = (value) => {
-        clearTimeout(timer);
-        if (waiter === done) waiter = null;
-        resolve(value);
+      const entry = {
+        kind,
+        done(value) {
+          clearTimeout(timer);
+          if (waiting === entry) waiting = null;
+          resolve(value);
+        },
       };
-      timer = setTimeout(() => done(null), ms);
-      waiter = done;
-      signal?.addEventListener('abort', () => done(null), { once: true });
+      waiting = entry;
+      timer = setTimeout(() => entry.done(null), ms);
+      if (signal?.aborted) entry.done(null);
+      else signal?.addEventListener('abort', () => entry.done(null), { once: true });
     });
   }
 
@@ -3924,47 +4469,62 @@ function createAgentRunner({
     }
   }
 
-  /** A yes or no: the bubble's buttons, and in a spoken job the voice too. Anything else is no. */
+  /** A yes or no: the bubble's buttons or a typed answer, and in a spoken job the voice too. Anything else is no. */
   function askYesNo(question, { spoken, signal } = {}) {
     return gated(async () => {
       ui.speech(question, ['yes', 'no']);
-      const pressed = waitButton(ASK_MS, signal);
-      if (!spoken || !talkBack) return (await pressed) === 'yes' ? 'yes' : 'no';
+      const answered = waitFor('ask', waits.ask, signal);
+      if (!spoken || !talkBack) return (await answered) === 'yes' ? 'yes' : 'no';
       await talkBack.say(question);
-      const answer = await Promise.race([pressed, talkBack.hear('yes')]);
-      if (waiter) waiter(null); // the voice answered: stop waiting for a press
-      else talkBack.stop(); // a press answered: stop listening
-      return answer === 'yes' ? 'yes' : 'no';
+      if (!waiting) return (await answered) === 'yes' ? 'yes' : 'no'; // pressed, typed or stopped while it was said
+      const first = await Promise.race([answered.then((a) => ({ a })), talkBack.hear(YES_VERB).then((h) => ({ h }))]);
+      if ('h' in first) {
+        cancelWait(); // the voice answered: stop waiting for a press
+        return first.h === 'yes' ? 'yes' : 'no';
+      }
+      talkBack.stop(); // a press or a typed answer came first: stop listening
+      return first.a === 'yes' ? 'yes' : 'no';
     });
   }
 
-  /** The person does a part themselves, then says "go on" or presses Go on. False: stop. */
-  function handover(text, { spoken, signal } = {}) {
+  /** The person does a part themselves, then says or types "go on", or presses Go on. False: stop. */
+  function handover(text, { spoken, signal, tookOver: byThemselves = false } = {}) {
     return gated(async () => {
       const line = /go on/i.test(text) ? text : `${text} Then say "go on", or press Go on.`;
       ui.speech(line, ['go-on', 'stop']);
-      const pressed = waitButton(HANDOVER_MS, signal).then((name) => name === 'go-on');
+      const pressed = waitFor('handover', byThemselves ? waits.tookOver : waits.handover, signal).then((v) => v === 'go-on');
       if (!spoken || !talkBack) return pressed;
       await talkBack.say(line);
-      const until = Date.now() + HANDOVER_MS;
       const heard = (async () => {
-        while (Date.now() < until && !signal?.aborted && waiter) {
-          if (goOnHeard(await talkBack.listen())) return true;
+        while (waiting?.kind === 'handover' && !signal?.aborted) {
+          const words = await talkBack.listen();
+          if (goOnHeard(words)) return true;
+          if (!words) await rest(LISTEN_AGAIN_MS);
         }
         return false;
       })();
       const go = await Promise.race([pressed, heard]);
-      if (waiter) waiter(null);
+      cancelWait();
+      talkBack.stop();
       return go;
     });
   }
 
+  /** The AI's question for the person: typed in the chat, or said in a spoken job. Null: no answer in time. */
   function askUser(question, { spoken, signal } = {}) {
     return gated(async () => {
-      ui.speech(question, ['stop']);
-      if (!spoken || !talkBack || signal?.aborted) return null;
+      ui.speech(`${question} ${RUNNER_LINES.typeAnswer}`, ['stop']);
+      const typed = waitFor('askUser', waits.askUser, signal);
+      if (!spoken || !talkBack) return typed;
       await talkBack.say(question);
-      return talkBack.listen();
+      if (!waiting) return typed;
+      const first = await Promise.race([typed.then((t) => ({ t })), talkBack.listen().then((w) => ({ w }))]);
+      if ('w' in first && first.w) {
+        cancelWait();
+        return first.w;
+      }
+      if ('t' in first) talkBack.stop();
+      return typed; // nothing said: the typed answer, or null when the time runs out
     });
   }
 
@@ -3982,26 +4542,34 @@ function createAgentRunner({
     if (job) throw new BuddyError('bad_request', RUNNER_LINES.busy);
     job = { loop: null, gateOpen: false, stopped: null };
     onChange();
+    const unlisten = lock.onLocked ? lock.onLocked(() => stop('locked')) : () => {};
     let watching = false;
     try {
       if (store.get('agentOn') === false) return { end: 'off', line: RUNNER_LINES.off, steps: [] };
+      if (lock.locked()) {
+        job.stopped = 'locked';
+        return stoppedEnd();
+      }
       const perms = await helper.call('permissions');
       if (!perms.accessibility) throw new BuddyError('no_accessibility', RUNNER_LINES.noAccess);
       const info = await ai.brainInfo();
       if (info.route === 'free' && info.rank === 'weak') throw new BuddyError('free_no_agent', RUNNER_LINES.freeWeak);
       if (store.get('agentAgreed') !== true) {
-        if ((await askYesNo(RUNNER_LINES.consent, { spoken })) !== 'yes') return { end: job.stopped ? 'stopped' : 'declined', line: job.stopped ? 'Stopped.' : RUNNER_LINES.declined, steps: [] };
+        const agreed = await askYesNo(RUNNER_LINES.consent, { spoken });
+        if (job.stopped) return stoppedEnd();
+        if (agreed !== 'yes') return { end: 'declined', line: RUNNER_LINES.declined, steps: [] };
         store.set({ agentAgreed: true });
       }
       const vision = info.vision && perms.screenRecording === true;
       const warning = warningFor({ label: info.label, rank: info.rank, vision });
-      if (warning && (await askYesNo(warning, { spoken })) !== 'yes') {
-        return { end: job.stopped ? 'stopped' : 'declined', line: job.stopped ? 'Stopped.' : RUNNER_LINES.declined, steps: [] };
+      if (warning) {
+        const go = await askYesNo(warning, { spoken });
+        if (job.stopped) return stoppedEnd();
+        if (go !== 'yes') return { end: 'declined', line: RUNNER_LINES.declined, steps: [] };
       }
       const jobId = randomId();
       ui.mood('thinking');
       await helper.call('watchStop', { on: true }).then(() => { watching = true; }, () => {});
-      let loop = null;
       const brain = {
         step: async (input, { signal }) => {
           const both = AbortSignal.any([signal, AbortSignal.timeout(AI_TIMEOUT_MS)]);
@@ -4009,16 +4577,15 @@ function createAgentRunner({
         },
       };
       const guarded = {
-        ...hands,
         observe: (o) => hands.observe(o),
-        exists: (p) => hands.exists(p),
+        exists: (p, o) => hands.exists(p, o),
         elementAt: hands.elementAt ? (...a) => hands.elementAt(...a) : undefined,
-        act: async (action, observation) => {
+        act: async (action, observation, options) => {
           if (lock.locked()) {
-            loop.stop('locked');
+            stop('locked');
             return { ok: false, code: 'locked', note: 'The screen locked.' };
           }
-          return hands.act(action, observation);
+          return hands.act(action, observation, options); // options.signal: a stop kills a running command
         },
       };
       const gate = {
@@ -4026,7 +4593,7 @@ function createAgentRunner({
         askUser: (q, o) => askUser(q, { spoken, ...o }),
         handover: (t, o) => handover(t, { spoken, ...o }),
       };
-      loop = createAgentJob({
+      const loop = createAgentJob({
         goal, brain, hands: guarded, gate, show: (e) => { if (e.kind === 'step') ui.speech(e.text, ['stop']); },
         limits: limitsFor(info.rank), vision, abilities: MAC_ABILITIES,
       });
@@ -4036,22 +4603,49 @@ function createAgentRunner({
       if (result.end === 'error') throw result.error;
       return result;
     } finally {
+      unlisten();
       if (watching) helper.call('watchStop', { on: false }).catch(() => {});
       job = null;
-      waiter = null;
+      waiting = null;
       onChange();
     }
   }
 
-  return { start, stop, button, tookOver, running };
+  return { start, stop, button, reply, tookOver, running };
 }
 
-module.exports = { createAgentRunner, RUNNER_LINES };
+module.exports = { createAgentRunner, RUNNER_WAITS, RUNNER_LINES };
 ```
 
-Run: `node --test test/agent-runner.test.js` → PASS.
+- [ ] **Step 5: Run, lint, full test, commit**
 
-- [ ] **Step 3: The chat — failing tests**
+Run: `node --test test/agent-runner.test.js test/lock.test.js && npx eslint src/main/agent/runner.js src/main/lock.js test/agent-runner.test.js && until mkdir /tmp/buddy-npm-test.lock 2>/dev/null; do sleep 5; done; npm test; rmdir /tmp/buddy-npm-test.lock`
+Expected: PASS (agent-runner: 13 tests).
+
+```bash
+git add src/main/agent/runner.js src/main/lock.js test/agent-runner.test.js test/lock.test.js
+git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Agent runner: one job at a time, Yes/No and typed answers, Stop, and a stop when the screen locks"
+```
+
+---
+
+### Task 11b: The job in the chat — actions, wake, tray and the wiring in main
+
+**Files:**
+- Modify: `src/main/actions.js`, `src/main/wake.js`, `src/main/tray.js`, `src/main/main.js`, `test/helpers/actions-setup.js`, `test/e2e/smoke.js` (only if it passes options to `start()`)
+- Test: add to `test/actions.test.js`, `test/wake.test.js`, `test/tray.test.js`
+
+**Interfaces:**
+- Consumes: `createAgentRunner` and its `start / stop / button / reply / tookOver / running` (T11a); `lock.onLocked` (T11a); `createMacHands` (T8); `ui.speech(text, buttons)`, bubble `onButton` (T9); store `agentOn`, `agentAgreed` (T10); `apps.find` + `createSpotlight` (T7); helper events `esc`, `took_over` (T6).
+- Produces:
+  - `createActions({ …, agent = null })`: chat kind `do` runs `agent.start`; `canDo: true` goes with every chat request when `agent` is given.
+  - While a job runs, `send(text)` first offers the words to `agent.reply(text)`: a typed yes / no, an answer to the AI's question, or "go on". Taken: they show in the chat as the person's and the panel steps aside again (the job goes on in the app). Not taken: "I'm busy with a job. Say stop first."
+  - `startDo`: a spoken job says its `say` ("Theek hai!") before the job and its end line after it, and `speakAnswer` does not say them again (items marked `said`). A typed job shows its end line in the speech bubble, or brings the panel back when it was open; an error does the same before `talk()` shows it in the chat.
+  - Moods (spec §3.5–3.7, §10): happy when the job is done; sad when it could not finish (`stuck`, `limit`) and on an error (`talk()`); idle after a stop, a "no" or the switch off. `talk()` leaves a job's mood as `startDo` set it.
+  - `createWake({ …, agent = null })`: a wake while `agent.running()` stops the job.
+  - Tray: `buildMenuTemplate({ …, agentRunning })` adds "Stop the job" at the top.
+
+- [ ] **Step 1: The chat — failing tests**
 
 In `test/helpers/actions-setup.js`: add an `agent = null` option to `setup()` and pass `agent` to `createActions`. Add a fake maker:
 
@@ -4070,12 +4664,13 @@ function fakeAgent(log, results = []) {
         return next;
       } finally { busy = false; }
     },
+    reply: (text) => { log.push(['agentReply', text]); return false; },
     stop: (reason) => log.push(['agentStop', reason]),
   };
 }
 ```
 
-Export `fakeAgent`. Then add to `test/actions.test.js`:
+Export `fakeAgent`. Then add to `test/actions.test.js` (add `fakeAgent` to its `require('./helpers/actions-setup')` list, and `const { BuddyError } = require('../shared/errors');` at the top — the file does not import it yet; `setup`, `reply`, `chatOf`, `lastItem`, `entries`, `settle` and `s.log` are the helper's; `spokenOf` is defined earlier in this file):
 
 ```js
 test('do: the job goes to the agent; its end line and steps come back in the chat', async () => {
@@ -4105,6 +4700,7 @@ test('do: an error from the agent shows with Open Settings when the fix is there
   await s.actions.open();
   await s.actions.send('do x');
   assert.deepStrictEqual(lastItem(s).buttons, ['retry', 'settings']);
+  assert.strictEqual(entries(s.log, 'mood').at(-1)[1], 'sad');
 });
 
 test('open: an app not found becomes a job when there is an agent', async () => {
@@ -4115,21 +4711,80 @@ test('open: an app not found becomes a job when there is an agent', async () => 
   await s.actions.send('open figma');
   assert.deepStrictEqual(log.find((l) => l[0] === 'agentStart')[1], { goal: 'Open the app "Figma".', spoken: false });
 });
-```
 
-(`setup`, `reply`, `chatOf`, `lastItem` and `s.log` are the helpers `test/helpers/actions-setup.js` already exports and returns; import `fakeAgent` and `BuddyError` too.)
+test('while a job asks, words typed in the chat answer it and the panel steps aside again; anything else waits', async () => {
+  const replies = [];
+  const agent = { running: () => true, reply: (t) => { replies.push(t); return t === 'yes'; }, start: async () => ({ end: 'done', line: '', steps: [] }), stop: () => {} };
+  const s = setup({ agent });
+  await s.actions.open();
+  const hidden = entries(s.log, 'hidePanel').length;
+  await s.actions.send('yes');
+  assert.deepStrictEqual(replies, ['yes']);
+  assert.deepStrictEqual(lastItem(s), { id: lastItem(s).id, type: 'you', text: 'yes' });
+  assert.strictEqual(entries(s.log, 'hidePanel').length, hidden + 1);
+  await assert.rejects(s.actions.send('make tea'), /I'm busy with a job\. Say stop first\./);
+  assert.strictEqual(entries(s.log, 'ask').length, 0, 'nothing went to the AI');
+});
+
+test('do by voice: its "Theek hai!" is said before the job and its end line after it; nothing is said twice', async () => {
+  let saidAtStart = null;
+  const started = [];
+  const agent = {
+    running: () => false, reply: () => false, stop: () => {},
+    async start(job) {
+      started.push(job);
+      saidAtStart = spokenOf(s).slice();
+      return { end: 'done', line: 'Dark mode is on.', steps: [] };
+    },
+  };
+  const s = setup({ agent, talk: {}, answers: [reply({ kind: 'do', say: 'Theek hai!', text: 'Turn on dark mode.' })] });
+  await s.actions.open();
+  await s.actions.send('dark mode on karo', { spoken: true });
+  await settle();
+  assert.deepStrictEqual(started, [{ goal: 'Turn on dark mode.', spoken: true }]);
+  assert.deepStrictEqual(saidAtStart, ['Theek hai!']);
+  assert.deepStrictEqual(spokenOf(s), ['Theek hai!', 'Dark mode is on.']);
+});
+
+test('do: the buddy is happy when the job is done, sad when it could not finish, idle after a stop or a no', async () => {
+  for (const [end, mood] of [['done', 'happy'], ['stuck', 'sad'], ['limit', 'sad'], ['stopped', 'idle'], ['declined', 'idle']]) {
+    const agent = fakeAgent([], [{ end, line: 'x', steps: [] }]);
+    const s = setup({ agent, answers: [reply({ kind: 'do', text: 'Turn on dark mode.' })] });
+    await s.actions.open();
+    await s.actions.send('dark mode on');
+    assert.strictEqual(entries(s.log, 'mood').at(-1)[1], mood, end);
+  }
+});
+```
 
 Run: `node --test test/actions.test.js` → FAIL.
 
-- [ ] **Step 4: Change `src/main/actions.js`**
+- [ ] **Step 2: Change `src/main/actions.js`**
 
 1. `createActions({ …, agent = null, … })` — add the parameter (and a line to the doc comment: "`agent` is the computer agent's runner (agent/runner.js); none on Windows").
-2. Add `'free_no_agent'` to `AI_ERRORS` (push it next to the Claude ones): `AI_ERRORS.push('free_no_agent');`
-3. In `answer()`, after the `canCall` line: `if (agent) asked.canDo = true; // the Mac runs jobs on this computer (the "do" kind)`
-4. In `send()`, before `if (c.busy)`: `if (agent?.running()) throw new BuddyError('bad_request', "I'm busy with a job. Say stop first.");`
-5. In `answer()`'s "second step" guard, add `'do'` to the list: `['call', 'open', 'calls', 'notifs', 'do']`.
-6. In `finish()`, before the `open` line: `if (reply.kind === 'do') return startDo(c, reply);` — and make sure the `elsewhere()` condition does not catch `do`.
-7. In `startOpen`, replace the `found.kind !== 'one'` branch (Task 7) with:
+2. Add `'free_no_agent'` to `AI_ERRORS`, on the line after the Claude ones (before `SETTINGS_ERRORS` is built): `AI_ERRORS.push('free_no_agent'); // the free AI cannot run jobs: an own key in Settings → AI`
+3. `newChat()`: add `jobFelt: false,` (a job's end set the buddy's mood: talk() leaves it).
+4. In `answer()`, after the `canCall` line: `if (agent) asked.canDo = true; // the Mac runs jobs on this computer (the "do" kind)`
+5. At the top of `send()`, after `const c = chat;`:
+```js
+    // A job is running (the computer agent): words now answer what it waits on (a yes or no, the AI's question, "go
+    // on"), and the panel steps aside again so the job goes on in the app. Anything else waits for the job.
+    if (agent?.running()) {
+      const words = String(message ?? '').trim();
+      if (words && agent.reply(words)) {
+        add(c, { type: 'you', text: words });
+        push(c);
+        ui.hidePanel();
+        return {};
+      }
+      throw new BuddyError('bad_request', "I'm busy with a job. Say stop first.");
+    }
+```
+6. In `talk()`: as its first line `c.jobFelt = false;`, and change `if (c === chat && !celebrated) ui.mood(answered ? 'happy' : 'idle');` to `if (c === chat && !celebrated && !c.jobFelt) ui.mood(answered ? 'happy' : 'idle'); // a job's end set its own mood (startDo)`.
+7. In `speakAnswer()`, change `const added = c.items.slice(c.items.indexOf(you) + 1);` to `const added = c.items.slice(c.items.indexOf(you) + 1).filter((i) => !i.said); // a job's lines were said as it went (startDo)`.
+8. In `answer()`'s "second step" guard, add `'do'` to the list: `['call', 'open', 'calls', 'notifs', 'do']`.
+9. In `finish()`, before the `open` line: `if (reply.kind === 'do') return startDo(c, reply);` — and make sure the `elsewhere()` condition does not catch `do`.
+10. In `startOpen`, replace the `found.kind !== 'one'` branch (Task 7) with:
 ```js
     if (found.kind !== 'one') {
       if (found.kind === 'none' && agent) return startDo(c, { say: '', text: `Open the app "${reply.app}".` });
@@ -4137,38 +4792,55 @@ Run: `node --test test/actions.test.js` → FAIL.
       return true;
     }
 ```
-8. Add `startDo` after `startOpen`:
+11. Add `startDo` after `startOpen`:
 ```js
   /**
    * A job on this Mac (the computer agent, agent/runner.js): the panel steps aside, the job shows its steps in the speech
-   * bubble, and its end line comes back in the chat with the steps that worked. A typed job shows the end in the bubble
-   * too, or brings the panel back when it was open. Errors (a permission, the AI) are thrown to talk(), which shows them.
+   * bubble, and its end line comes back in the chat with the steps that worked. A spoken job says its first line before
+   * the job and its end after it (speakAnswer leaves both, marked `said`); a typed one shows the end in the bubble, or
+   * brings the panel back when it was open. The buddy is happy when it is done, sad when it could not finish, idle
+   * otherwise. Errors (a permission, the AI) are thrown to talk(), which shows them (and the buddy is sad).
    */
   async function startDo(c, reply) {
     if (!agent) {
       add(c, { type: 'buddy', say: '', text: ELSEWHERE.do, notes: [], buttons: [] });
       return true;
     }
-    if (reply.say) add(c, { type: 'buddy', say: reply.say, text: '', notes: [], buttons: [] });
+    if (reply.say) add(c, { type: 'buddy', say: reply.say, text: '', notes: [], buttons: [], said: c.spoken });
     push(c);
+    if (c.spoken && reply.say) await speak(c, reply.say); // "Theek hai!" now, not after the job
     const wasOpen = ui.isPanelVisible();
     if (wasOpen) ui.hidePanel();
-    const result = await agent.start({ goal: reply.text, spoken: c.spoken });
+    let result;
+    try {
+      result = await agent.start({ goal: reply.text, spoken: c.spoken });
+    } catch (err) {
+      if (c === chat && wasOpen) await comeBack(c);
+      else if (c === chat && !c.spoken) {
+        ui.speech?.(bubbleLine(err instanceof BuddyError ? err.message : 'Something went wrong. Try again.'));
+        ui.speechDone?.();
+      }
+      throw err;
+    }
     if (c !== chat) return false;
     const notes = result.steps.filter((s) => s.result === 'ok' && s.say).map((s) => s.say).slice(-10);
-    add(c, { type: 'buddy', say: '', text: result.line, notes, buttons: [] });
-    if (!c.spoken) {
-      if (wasOpen) await comeBack(c);
-      else { ui.speech?.(result.line); ui.speechDone?.(); }
+    add(c, { type: 'buddy', say: '', text: result.line, notes, buttons: [], said: c.spoken });
+    c.jobFelt = true;
+    ui.mood(result.end === 'done' ? 'happy' : result.end === 'stuck' || result.end === 'limit' ? 'sad' : 'idle');
+    if (c.spoken) await speak(c, result.line); // shown in the speech bubble too in a quiet chat (speak)
+    if (wasOpen) await comeBack(c);
+    else if (!c.spoken) {
+      ui.speech?.(bubbleLine(result.line)); // the line without buttons: the job's held bubble goes (bubble-window.js)
+      ui.speechDone?.();
     }
-    if (result.end === 'stuck' || result.end === 'limit') sadForAWhile();
     return result.end === 'done';
   }
 ```
+(`sadForAWhile()` is not used here: the mood is set once, above.)
 
 Run: `node --test test/actions.test.js` → PASS.
 
-- [ ] **Step 5: Wake stops a job — failing test, then code**
+- [ ] **Step 3: Wake stops a job — failing test, then code**
 
 In `test/wake.test.js`, add `agent = null` to `setup()`'s options and pass `agent` to `createWake({ … })`, then add:
 
@@ -4198,7 +4870,7 @@ In `src/main/wake.js`: add `agent = null` to `createWake`'s options and in `allo
 
 Run: `node --test test/wake.test.js` → PASS.
 
-- [ ] **Step 6: Tray "Stop the job" — failing test, then code**
+- [ ] **Step 4: Tray "Stop the job" — failing test, then code**
 
 `test/tray.test.js`:
 ```js
@@ -4217,7 +4889,9 @@ test('while a job runs the menu starts with Stop the job', () => {
     ...(agentRunning ? [{ label: 'Stop the job', click: () => handlers.stopJob() }, { type: 'separator' }] : []),
 ```
 
-- [ ] **Step 7: Wire it in `src/main/main.js`**
+Run: `node --test test/tray.test.js` → PASS.
+
+- [ ] **Step 5: Wire it in `src/main/main.js`**
 
 1. Requires:
 ```js
@@ -4236,7 +4910,8 @@ const { createAgentRunner } = require('./agent/runner');
     : null;
   agentRunner = process.platform === 'darwin' && !options.noAgent
     ? createAgentRunner({
-      ai, helper, talkBack, ui, lock, store, memory,
+      ai, helper, talkBack, ui, store, memory,
+      lock, // lock.js: locked() before each act, and onLocked (powerMonitor 'lock-screen') stops a running job at once
       hands: createMacHands({ helper, apps: macApps, shell, spawn, home: app.getPath('home') }),
       userName: () => (account.user()?.name || '').trim().split(/\s+/)[0],
       onChange: () => tray?.refresh(),
@@ -4249,14 +4924,14 @@ and pass `apps: macApps, agent: agentRunner,` to `createActions`.
 6. `trayState` gains `agentRunning: agentRunner?.running() === true,`; tray handlers gain `stopJob: () => agentRunner?.stop('person'),`.
 7. The end-to-end test (`test/e2e/smoke.js`) must not start a real agent: if it passes options to `start()`, add `noAgent: true` there.
 
-- [ ] **Step 8: Run, lint, full test, commit**
+- [ ] **Step 6: Run, lint, full test, commit**
 
-Run: `node --test test/agent-runner.test.js test/actions.test.js test/wake.test.js test/tray.test.js && npx eslint src/main && until mkdir /tmp/buddy-npm-test.lock 2>/dev/null; do sleep 5; done; npm test; rmdir /tmp/buddy-npm-test.lock`
+Run: `node --test test/actions.test.js test/wake.test.js test/tray.test.js && npx eslint src/main && until mkdir /tmp/buddy-npm-test.lock 2>/dev/null; do sleep 5; done; npm test; rmdir /tmp/buddy-npm-test.lock`
 Expected: PASS.
 
 ```bash
-git add src/main/agent/runner.js src/main/actions.js src/main/wake.js src/main/tray.js src/main/main.js test/agent-runner.test.js test/actions.test.js test/wake.test.js test/tray.test.js test/helpers/actions-setup.js test/e2e
-git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Buddy does jobs on the Mac: the do kind, steps in the bubble, Yes/No for risky steps, and Stop by Esc, voice, bubble or menu"
+git add src/main/actions.js src/main/wake.js src/main/tray.js src/main/main.js test/actions.test.js test/wake.test.js test/tray.test.js test/helpers/actions-setup.js test/e2e
+git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Buddy does jobs on the Mac: the do kind, steps in the bubble, typed or spoken answers, and Stop by Esc, voice, bubble or menu"
 ```
 
 ---
@@ -4266,10 +4941,10 @@ git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Bud
 **Files:**
 - Modify: `src/main/agent/mac-hands.js` (add `look()`), `src/main/actions.js` (the `screen` step), `src/main/main.js` (pass `eyes`), `shared/prompts.js` (`screenText` on step 2), `src/main/cloud.js` (`ASK_INPUTS` gains `screenText`)
 - Test: add to `test/mac-hands.test.js`, `test/actions.test.js`, `test/prompts.test.js`
-- Sync: `web/shared/prompts.js`, `web/public/app/shared/prompts.js`, `android/app/src/main/assets/shared.json`
+- Sync (this wave's sync task): `web/shared/prompts.js`, `web/public/app/shared/prompts.js`, `android/app/src/main/assets/shared.json`, `android/app/src/test/resources/*.json`
 
 **Interfaces:**
-- Consumes: `observe` + `formatScreen` (T8, T3).
+- Consumes: `observe` + `formatScreen` (T8, T3); `startDo`, `agent` and `macApps` wiring (T11b).
 - Produces: `hands.look()` → `{ image, screenText }` (screen picture without Buddy, and the front window's elements as text, ≤ 8000 chars); `createActions({ …, eyes = null })`; chat input `screenText` (step 2 only, ≤ `LIMITS.text`).
 
 - [ ] **Step 1: Failing tests**
@@ -4359,7 +5034,7 @@ Run: `node --test test/prompts.test.js test/mac-hands.test.js test/actions.test.
 Expected: PASS.
 
 ```bash
-git add shared/prompts.js web/shared web/public/app/shared android/app/src/main/assets/shared.json android/app/src/test/resources src/main/agent/mac-hands.js src/main/actions.js src/main/main.js src/main/cloud.js test/prompts.test.js test/mac-hands.test.js test/actions.test.js test/helpers/actions-setup.js
+git add shared/prompts.js web/shared/prompts.js web/public/app/shared/prompts.js android/app/src/main/assets/shared.json android/app/src/test/resources src/main/agent/mac-hands.js src/main/actions.js src/main/main.js src/main/cloud.js test/prompts.test.js test/mac-hands.test.js test/actions.test.js test/helpers/actions-setup.js
 git -c user.name="akshatgg" -c user.email="akshatg9536@gmail.com" commit -m "Eyes: what is this? looks at the whole screen and reads its text"
 ```
 
@@ -4390,10 +5065,16 @@ Expected: Buddy starts; Settings → Permissions shows "Use my Mac for me" on, A
 | "open vs code" / "open finder" | Opens straight away (alias / CoreServices) |
 | "open figma" (not installed) | Becomes a job; ends "I couldn't finish…" or finds it |
 | During any job: Esc; "Hey Buddy"; bubble Stop; tray "Stop the job" | Each stops at once with "Stopped." |
-| During a job: type a key yourself | "You took over…"; "go on" continues |
+| During a job: type a key yourself | "You took over…"; "go on" continues; nothing for 30 s stops it |
 | A login page with a password field | Buddy hands over; never types the password |
 | "what is this?" on an error dialog | Answer in the bubble and out loud, "👀 Looked at your screen" in the chat |
-| Lock the screen mid-job | "The screen locked, so I stopped." |
+| Lock the screen mid-job (while a question waits, and while it acts) | "The screen locked, so I stopped." at once |
+| Typed job (panel), a risky step: type "yes" in the chat | The panel steps aside again and the step runs; "no" leaves it |
+| A job whose AI asks something (ask_user): click the bubble, type the answer | The job goes on with the answer |
+| A job running `sleep 30` (ask Buddy to "wait 30 seconds in Terminal"), then Esc | Stops at once; no `sleep` left in Activity Monitor |
+| "turn on Bluetooth" / "reset Bluetooth" | The first runs without a question; the second asks |
+| During a question, wait a minute | The bubble with Yes / No is still up; after 60 s it is a no |
+| Spoken job ("Hey Buddy, turn on dark mode") | "Theek hai" before, the end line said after; the buddy is happy |
 | Pick Groq in Settings, ask a job | Warning first; "no" → "Okay, I won't." |
 
 - [ ] **Step 3: Free mode check (admin account, own key removed)**
@@ -4409,5 +5090,7 @@ Expected: PASS. Do not push.
 
 ## Self-review notes
 
-- Spec coverage: §5 protocol (T1, T3), §6.2–6.4 screenshots/trimming/settle (T2 loop + T3 formatScreen + T8 fixed settle of 400 ms — the hash-based settle in spec §6.4 is simplified to a fixed wait plus the loop's next look), §6.5 Mac hands (T6, T8), "open X" (T7), §7 safety incl. §15 comfort settings and passwords (T1, T6 refusals, T8 password apps), §7.3 asking (T11), §8 ranks/limits/warning/Claude Code per step (T1, T4, T11), §9 free caps + admin (T5), §10 stop/pause/errors (T2, T6 `watchStop`, T11), §11 privacy (no logging; Buddy left out of screenshots in T6), §12 Eyes (T12: done by upgrading the existing `screen` step rather than a new kind — the voice path already answers it hands-free), §13 testing (fakes and scripted brain in T2; helper smoke in T6; real tasks in T13).
-- Not in this plan (by design): the `skill` action (WhatsApp/call through the agent — the chat's own `message`/`call` kinds already do these with their cards), the MCP brain for Claude Code (owner: later), an admin-editable price table (prices are a shared table in `limits.js`, changed by a release), Windows and Android (their own plans).
+- Spec coverage: §5 protocol (T1, T3), §6.2–6.4 screenshots/trimming/settle (T2 loop + T3 formatScreen, which follows §6.3.4: lists cut to 30 rows with a count, then the deepest and farthest-from-the-focus elements cut first + T8 fixed settle of 400 ms — the hash-based settle in spec §6.4 is simplified to a fixed wait plus the loop's next look), §6.5 Mac hands (T6, T8), "open X" (T7), §7 safety incl. §15 comfort settings and passwords (T1: every part of a command chain, secret files never read, `open` only with web links or a folder, comfort only for a switch / checkbox / slider / radio / pick with no risk word, typing and Enter in Settings checked; T2: a password app ends the job, refusals count as failures; T6 refusals, T8 password apps), §7.3 asking (T11a: bubble Yes / No, voice heard with `hear('do')`, typed answers through `reply`; T9: the bubble is held while it has buttons), §8 ranks/limits/warning/Claude Code per step (T1, T4: a weak free AI falls to the own key when allowed, T11a), §9 free caps + admin (T5: a refused first step gives its request back), §10 stop/pause/errors (T2: the job's signal reaches every act; T8: a stop kills a running command; T6 `watchStop`; T11a: the lock stops a job at once, took-over waits 30 s; T11b: wake, tray, moods), §11 privacy (no logging; Buddy left out of screenshots in T6), §12 Eyes (T12: done by upgrading the existing `screen` step rather than a new kind — the voice path already answers it hands-free), §13 testing (fakes and scripted brain in T2; helper smoke in T6; real tasks in T13).
+- Phone apps: they never send `canDo`, and with their own key no server filters a `do` answer, so T3 makes the web app and Android show it as "I can use apps for you on the Mac for now." (and Kotlin `readChat` reads `do` as `parseChat` does, checked by the shared cases).
+- Deferred, for the owner to agree (spec §16): the `skill` action (WhatsApp/call through the agent — the chat's own `message`/`call` kinds already do these with their cards) and an admin-editable price table (prices are a shared table in `limits.js`, changed by a release). Also not in this plan: the MCP brain for Claude Code (owner: later), Windows and Android jobs (their own plans).
+- Parallel safety: the wave table gives each wave at most one task that runs a `sync:*` script, and every commit step names its own synced files only.

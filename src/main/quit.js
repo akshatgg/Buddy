@@ -63,4 +63,16 @@ function createQuitGuard({ app, limitMs = QUIT_LIMIT_MS, setTimer = setTimeout, 
   };
 }
 
-module.exports = { createQuitGuard, QUIT_LIMIT_MS };
+/**
+ * Once Buddy quits, the listed methods of `ui` do nothing (a stopped job's last lines must not make a bubble or bring the
+ * panel back: a window made now would hold the quit up). Changes `ui` in place.
+ */
+function silenceOnQuit(ui, quitting, names = ['showPanel', 'bubble', 'speech', 'speechDone']) {
+  for (const name of names) {
+    const real = ui[name];
+    ui[name] = (...args) => (quitting() ? undefined : real(...args));
+  }
+  return ui;
+}
+
+module.exports = { createQuitGuard, silenceOnQuit, QUIT_LIMIT_MS };

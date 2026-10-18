@@ -59,6 +59,7 @@ function setup({
   talk = null,
   lock = { locked: () => false, unlocked: async () => true },
   agent = null,
+  agentOn,
 } = {}) {
   const log = [];
   const helper = {
@@ -175,7 +176,7 @@ function setup({
     helper,
     clipboard,
     ui,
-    store: { get: (key) => ({ buddyName: 'Aarav' })[key] },
+    store: { get: (key) => ({ buddyName: 'Aarav', ...(agentOn === undefined ? {} : { agentOn }) })[key] },
     ai,
     cloud,
     signedIn: () => signedIn,

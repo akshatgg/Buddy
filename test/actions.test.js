@@ -3007,3 +3007,30 @@ test('do: a quiet spoken line while a job runs asks the runner to put its questi
   await settle();
   assert.ok(log.some((l) => l[0] === 'reassert'));
 });
+
+test('open: with the agent switch off, an app not found stays the normal not-found line', async () => {
+  const log = [];
+  const s = setup({ agent: fakeAgent(log), agentOn: false, answers: [reply({ kind: 'open', app: 'Figma' })] });
+  await s.actions.open();
+  await s.actions.send('open figma');
+  assert.ok(!log.some((l) => l[0] === 'agentStart'));
+});
+
+test('while a job runs, the panel state is not busy, so Send works, and the typed words answer the job', async () => {
+  let release;
+  const replies = [];
+  const agent = {
+    running: () => release !== undefined,
+    reply: (t) => { replies.push(t); release(); return true; },
+    async start() { await new Promise((r) => { release = r; }); const e = { end: 'done', line: 'Done.', steps: [] }; release = undefined; return e; },
+    stop: () => {},
+  };
+  const s = setup({ agent, answers: [reply({ kind: 'do', text: 'x' })] });
+  await s.actions.open();
+  const first = s.actions.send('do x');
+  await settle();
+  assert.strictEqual(s.actions.state().busy, false);
+  await s.actions.send('yes');
+  assert.deepStrictEqual(replies, ['yes']);
+  await first;
+});

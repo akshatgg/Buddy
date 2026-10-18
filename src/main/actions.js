@@ -236,7 +236,7 @@ function createActions({
       notice: c.notice,
       noticeFix: c.noticeFix,
       selection: c.selection,
-      busy: c.busy,
+      busy: c.busy && !(agent?.running() && c === chat), // a running job waits for typed answers: the page must let them go (send)
       resumed: c.resumed,
       chat: c.items.map((item) => {
         const shown = { id: item.id, type: item.type };
@@ -894,7 +894,7 @@ function createActions({
     if (reply.say) add(c, { type: 'buddy', say: reply.say, text: '', notes: [], buttons: [] });
     const found = apps.find(reply.app);
     if (found.kind !== 'one') {
-      if (found.kind === 'none' && agent) return startDo(c, { say: '', text: `Open the app "${reply.app}".` });
+      if (found.kind === 'none' && agent && store.get('agentOn') !== false) return startDo(c, { say: '', text: `Open the app "${reply.app}".` });
       add(c, { type: 'buddy', say: '', text: found.line, notes: [], buttons: [] });
       return true;
     }

@@ -34,7 +34,7 @@ const { createEarWindow } = require('./ear-window');
 const { createLock } = require('./lock');
 const { createTalkBack } = require('./talk-back');
 const { createWake } = require('./wake');
-const { createQuitGuard } = require('./quit');
+const { createQuitGuard, silenceOnQuit } = require('./quit');
 const { createVoiceModel } = require('./voice-model');
 const { createSpeakerModel } = require('./speaker-model');
 const { createVoiceCheck } = require('./voice-check');
@@ -298,7 +298,7 @@ async function start(options = {}) {
     // Open folder on a finished job: the folder in the Finder (the Explorer on Windows).
     openFolder: (folder) => shell.openPath(folder),
   };
-  const spotlight = process.platform === 'darwin' && !options.noAgent ? createSpotlight({ execFile }) : null;
+  const spotlight = process.platform === 'darwin' ? createSpotlight({ execFile: options.execFile || execFile }) : null;
   const macApps = process.platform === 'darwin'
     ? createApps({ dirs: appDirs(app.getPath('home')), openPath: (p) => shell.openPath(p), own: ownBundle(app.getPath('exe')), spotlight })
     : null;
@@ -314,6 +314,8 @@ async function start(options = {}) {
     : null;
   helper.on('esc', () => agentRunner?.stop('esc'));
   helper.on('took_over', () => agentRunner?.tookOver());
+  silenceOnQuit(ui, () => quit.quitting()); // a job stopped by the quit says nothing and opens no window
+  quit.onQuit(() => agentRunner?.stop('quit'));
   const actions = createActions({
     helper,
     ai,

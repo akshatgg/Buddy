@@ -118,27 +118,49 @@ test('tokens, the model and the time as the terminal writes them', () => {
   assert.deepStrictEqual([0, 12_400, 72_000, 3_900_000].map(elapsed), ['0s', '12s', '1m 12s', '1h 5m']);
 });
 
-test('the status line: the model, then tokens in and out; nothing before any reply', () => {
-  assert.strictEqual(statusLine({ model: 'claude-opus-5-5', input: 1_234_567, output: 34_000 }), 'Opus 5.5 · 1.2M in · 34k out');
+test('the status line: the model, the newest reply\'s context and what came out; nothing before any reply', () => {
+  assert.strictEqual(statusLine({ model: 'claude-opus-5-5', input: 232_668_833, output: 440_044, context: 301_124 }), 'Opus 5.5 · 301k context · 440k out');
+  assert.strictEqual(statusLine({ model: 'claude-opus-5-5', input: 1_234_567, output: 34_000 }), 'Opus 5.5 · 1.2M in · 34k out', 'an old Mac sends no context');
+  assert.strictEqual(statusLine({ model: 'claude-opus-5-5', input: 1_234_567, output: 34_000, context: 0 }), 'Opus 5.5 · 1.2M in · 34k out');
   assert.strictEqual(statusLine({ model: null, input: 0, output: 0 }), '');
   assert.strictEqual(statusLine(undefined), '');
 });
 
-test('workers: running ones and those that ended in the last 5 minutes, folded into one line above three', () => {
-  const now = Date.parse('2026-10-17T10:10:00Z');
-  const at = (s) => Date.parse(`2026-10-17T10:${s}Z`);
-  const w = (id, status, startedAt, endedAt, tokens) => ({ id, task: `job ${id}`, status, startedAt, endedAt, tokens });
-  const two = workerList([w('a', 'running', at('08:48'), null, 12_300), w('b', 'done', at('00:00'), at('01:00'), 0), w('c', 'failed', at('06:00'), at('07:00'), 900)], now);
-  assert.deepStrictEqual(two.lines, [
-    { id: 'a', status: 'running', text: 'job a · running · 1m 12s · 12.3k tokens' },
-    { id: 'c', status: 'failed', text: 'job c · failed · 1m 0s · 900 tokens' },
-  ]);
-  assert.strictEqual(two.compact, false);
-  const many = workerList([w('a', 'running', at('09:00'), null, 0), w('b', 'running', at('09:00'), null, 0), w('c', 'done', at('09:00'), at('09:30'), 0),
-    w('d', 'stopped', at('09:00'), at('09:30'), 0)], now);
-  assert.strictEqual(many.compact, true);
-  assert.strictEqual(many.summary, '4 workers · 2 running · 1 done · 1 stopped');
-  assert.deepStrictEqual(workerList(undefined, now), { lines: [], compact: false, summary: '0 workers' });
+const NOW = Date.parse('2026-10-17T10:10:00Z');
+const at = (s) => Date.parse(`2026-10-17T10:${s}Z`);
+const W = (id, status, startedAt, endedAt, tokens, extra = {}) => ({ id, type: 'general-purpose', task: `job ${id}`, status, startedAt, endedAt, tokens, ...extra });
+
+test('a worker row: its type and task, what it does now, and its time and tokens', () => {
+  const [row] = workerList([W('a', 'running', at('08:48'), null, 12_300, { activity: 'Read specs/design.md' })], NOW).running;
+  assert.deepStrictEqual(row, {
+    id: 'a', status: 'running', head: 'general-purpose  job a', activity: 'Read specs/design.md', tail: '1m 12s · 12.3k tokens', text: 'job a · running · 1m 12s · 12.3k tokens',
+  });
+  assert.strictEqual(workerList([W('a', 'running', at('09:00'), null, 0)], NOW).running[0].activity, 'Working…', 'nothing seen yet');
+  assert.strictEqual(workerList([W('a', 'running', at('09:00'), null, 0, { activity: 'x'.repeat(200) })], NOW).running[0].activity.length, 80);
+  // No description: the type is the task, and shows once. An old Mac sends no type: the task alone.
+  assert.strictEqual(workerList([W('a', 'running', at('09:00'), null, 0, { type: 'Explore', task: 'Explore' })], NOW).running[0].head, 'Explore');
+  assert.strictEqual(workerList([W('a', 'running', at('09:00'), null, 0, { type: undefined })], NOW).running[0].head, 'job a');
+  const done = workerList([W('b', 'done', at('00:00'), at('09:30'), 900, { activity: 'stale' })], NOW).ended[0];
+  assert.deepStrictEqual([done.activity, done.tail], ['', 'done · 9m 30s · 900 tokens']);
+});
+
+test('workers: running ones in full (8 at most), those that ended in the last 5 minutes folded into one line', () => {
+  const some = workerList([
+    W('a', 'running', at('08:48'), null, 12_300), W('b', 'running', at('09:00'), null, 0),
+    W('c', 'done', at('09:00'), at('09:30'), 0), W('d', 'done', at('09:00'), at('09:31'), 0), W('e', 'failed', at('09:00'), at('09:40'), 0), W('f', 'stopped', at('09:00'), at('09:50'), 0),
+    W('old', 'done', at('00:00'), at('01:00'), 0),
+  ], NOW);
+  assert.deepStrictEqual(some.running.map((r) => r.id), ['a', 'b']);
+  assert.deepStrictEqual(some.ended.map((r) => r.id), ['c', 'd', 'e', 'f'], 'the one that ended long ago is not shown');
+  assert.strictEqual(some.summary, '2 running · 2 done · 1 failed · 1 stopped');
+  assert.strictEqual(some.unfolded, false);
+  assert.strictEqual(workerList([W('a', 'running', at('08:48'), null, 0), W('b', 'done', at('09:00'), at('09:30'), 0)], NOW).unfolded, false, 'one still runs');
+  assert.strictEqual(workerList([W('b', 'done', at('09:00'), at('09:30'), 0)], NOW).unfolded, true, 'none runs and there are few');
+  assert.strictEqual(workerList(Array.from({ length: 4 }, (_, i) => W(`e${i}`, 'done', at('09:00'), at('09:30'), 0)), NOW).unfolded, false);
+
+  const ten = workerList(Array.from({ length: 10 }, (_, i) => W(`r${i}`, 'running', at('09:00'), null, 0)), NOW);
+  assert.deepStrictEqual([ten.running.length, ten.more, ten.summary], [8, 2, '10 running']);
+  assert.deepStrictEqual(workerList(undefined, NOW), { running: [], more: 0, ended: [], unfolded: true, summary: '' });
 });
 
 test('slash commands: a name and what follows it; a path is not one; "/" suggests them all', () => {
@@ -162,6 +184,8 @@ test("the answers the page gives itself: help, an unknown command, and the sessi
   assert.deepStrictEqual(costLines({ stats: { model: 'claude-opus-5-5', input: 1_200_000, output: 34_000 }, workers: [{ tokens: 100_000 }, { tokens: 20_000 }] }), [
     'Tokens so far: 1.2M in · 34k out', 'Model: Opus 5.5', 'Workers: 2 · 120k tokens', "Cost isn't in the session file. Type /cost in the terminal for it.",
   ]);
+  assert.deepStrictEqual(costLines({ stats: { model: 'claude-opus-5-5', input: 232_668_833, output: 440_044, context: 301_124 }, workers: [] }).slice(0, 2),
+    ['Context now: 301k · Out so far: 440k', 'Model: Opus 5.5']);
   assert.deepStrictEqual(costLines({}), ['Tokens so far: 0 in · 0 out', "Cost isn't in the session file. Type /cost in the terminal for it."]);
 });
 

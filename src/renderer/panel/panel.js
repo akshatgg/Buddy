@@ -839,23 +839,33 @@ function cliWorking(items) {
   return li;
 }
 
-/** The workers Claude started (ClaudeCli.workerList): a line each, or one line that unfolds when there are many. */
+/**
+ * The workers Claude started (ClaudeCli.workerList), as the CLI draws them: a row each for the running ones (what it is,
+ * and under it what it does now), and the ones that ended folded into one line.
+ */
 function cliWorkers(session) {
   const view = workerList(session.workers, Date.now());
   const line = (w) => {
     const li = make('li', `cl-worker ${w.status}`);
     li.dataset.worker = w.id;
-    li.append(make('span', 'cl-dot', w.status === 'running' ? '◌' : w.status === 'done' ? '●' : '✗'), make('p', '', w.text));
+    const body = make('div', 'cl-wbody');
+    body.append(make('p', 'cl-head', w.head));
+    if (w.activity) body.append(make('p', 'cl-act', w.activity));
+    body.append(make('p', 'cl-tail', w.tail));
+    li.append(make('span', 'cl-dot', w.status === 'running' ? '◯' : w.status === 'done' ? '●' : '✗'), body);
     return li;
   };
-  if (!view.compact) return view.lines.map(line);
+  const rows = view.running.map(line);
+  if (view.more) rows.push(make('li', 'cl-worker cl-more', `+${view.more} more running`));
+  if (!view.ended.length) return rows;
+  if (view.unfolded) return [...rows, ...view.ended.map(line)];
   const li = make('li', 'cl-workers');
   foldable(li, { type: 'workers', id: 0 }, [make('span', 'cl-mark', '⏺'), document.createTextNode(view.summary)], () => {
     const inner = make('ol', 'cl-inner');
-    inner.append(...view.lines.map(line));
+    inner.append(...view.ended.map(line));
     return inner;
   });
-  return [li];
+  return [...rows, li];
 }
 
 /** While a worker runs, its time moves every second: only the worker rows' words change, so a selection survives. */
@@ -864,10 +874,13 @@ function keepTicking(session) {
   if (running && !claude.tick && !document.hidden) {
     claude.tick = setInterval(() => {
       if (document.hidden || mode !== 'claude' || !claude.session) return stopTicking();
-      const now = Date.now();
-      for (const line of workerList(claude.session.workers, now).lines) {
-        const p = document.querySelector(`#claude-items [data-worker="${CSS.escape(line.id)}"] p`);
-        if (p && p.textContent !== line.text) p.textContent = line.text;
+      const view = workerList(claude.session.workers, Date.now());
+      for (const w of [...view.running, ...view.ended]) {
+        const row = document.querySelector(`#claude-items [data-worker="${CSS.escape(w.id)}"]`);
+        for (const [selector, text] of [['.cl-act', w.activity], ['.cl-tail', w.tail]]) {
+          const p = row?.querySelector(selector);
+          if (p && p.textContent !== text) p.textContent = text;
+        }
       }
     }, 1000);
   } else if (!running) {

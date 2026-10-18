@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { BuddyError } = require('../shared/errors');
-const { createShare, thisDevice, IDLE_MS, WATCHED_MS, FAILED_MS, ON_LINE, OFF_LINE, SIGN_IN } = require('../src/main/claude/share');
+const { createShare, thisDevice, IDLE_MS, WATCHED_MS, FAILED_MS, ACTIVITY_MS, ON_LINE, OFF_LINE, SIGN_IN } = require('../src/main/claude/share');
 
 const DEVICE = { id: 'mac-11111111', name: "Akshat's MacBook Air" };
 
@@ -12,6 +12,7 @@ const S1 = { id: 's1', name: 'shop', status: 'working', canTalk: true };
 /** createShare with a fake store, server, sessions, terminal and timers; `answers` are the server's, in order. */
 function setup({ on = true, signed = true, answers = [] } = {}) {
   const saved = { shareClaudeToPhone: on };
+  const clock = { at: 1_000_000 };
   const reports = [];
   const typed = [];
   const timers = [];
@@ -42,6 +43,7 @@ function setup({ on = true, signed = true, answers = [] } = {}) {
       async interrupt(args) { typed.push({ esc: true, ...args }); },
     },
     signedIn: () => signed,
+    now: () => clock.at,
     later: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; },
     cancel: (t) => { const i = timers.indexOf(t); if (i >= 0) timers.splice(i, 1); },
   });
@@ -51,7 +53,7 @@ function setup({ on = true, signed = true, answers = [] } = {}) {
     await t.fn();
     return timers[0]?.ms;
   };
-  return { share, saved, reports, typed, timers, live, step, signIn: (v) => { signed = v; } };
+  return { share, saved, reports, typed, timers, live, clock, step, signIn: (v) => { signed = v; } };
 }
 
 test('off, or signed out: nothing is shared', () => {
@@ -164,5 +166,28 @@ test("the watched session's tokens and workers go with it, and again when only t
   assert.strictEqual(s.reports[2].feed, undefined, 'nothing new');
   workers[0].tokens = 900;
   await s.step();
-  assert.strictEqual(s.reports[3].feed.workers[0].tokens, 900, 'only the tokens changed: sent again');
+  assert.strictEqual(s.reports[3].feed, undefined, 'only the tokens changed, just after the last: held back');
+  s.clock.at += ACTIVITY_MS;
+  await s.step();
+  assert.strictEqual(s.reports[4].feed.workers[0].tokens, 900, 'only the tokens changed: sent again');
+});
+
+test('what a worker does now goes at most every few seconds, but a worker that ends goes at once', async () => {
+  const s = setup({ answers: Array.from({ length: 6 }, () => ({ watch: 's1', inbox: [] })) });
+  const worker = { id: 'toolu_01', type: 'Explore', task: 'Fix it', activity: 'Read a/b.js', status: 'running', startedAt: 1, endedAt: null, tokens: 5 };
+  s.live.view = (id) => (id === 's1' ? { ...S1, items: [...s.live.items], workers: [{ ...worker }] } : null);
+  s.share.start();
+  await s.step();
+  await s.step();
+  assert.strictEqual(s.reports[1].feed.workers[0].activity, 'Read a/b.js');
+  worker.activity = '$ npm test';
+  await s.step();
+  assert.strictEqual(s.reports[2].feed, undefined, 'a new step right after: held back');
+  worker.status = 'done';
+  await s.step();
+  assert.strictEqual(s.reports[3].feed.workers[0].status, 'done', 'an end is not held back');
+  worker.activity = 'later';
+  s.clock.at += ACTIVITY_MS;
+  await s.step();
+  assert.strictEqual(s.reports[4].feed.workers[0].activity, 'later');
 });

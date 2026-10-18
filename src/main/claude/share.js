@@ -18,6 +18,7 @@ const { BuddyError } = require('../../../shared/errors');
 const IDLE_MS = 8000; // nobody watches: the sessions are reported this often, so the phone's list stays fresh
 const WATCHED_MS = 1500; // the phone watches: its session's new items go this often
 const FAILED_MS = 15_000; // the server could not be reached: the next try waits this long
+const ACTIVITY_MS = 3000; // a change of only what the workers are doing goes at most this often
 const ITEMS_SENT = 200;
 const ON_LINE = "Your phone and your other computers (signed in with the same Google account) can watch a session here and send it messages. While one watches, that session goes through Buddy's server.";
 const OFF_LINE = 'Watch your Claude Code sessions here from your phone or another computer, and send them messages.';
@@ -56,12 +57,12 @@ function thisDevice({ store, platform = process.platform, run = require('node:ch
  * says whether someone is signed in, `active()` whether Buddy is on. The timers are passed in by the unit tests.
  */
 function createShare({
-  store, cloud, live, terminal, device, signedIn, active = () => true, later = defaultLater, cancel = clearTimeout,
+  store, cloud, live, terminal, device, signedIn, active = () => true, later = defaultLater, cancel = clearTimeout, now = Date.now,
 }) {
   let timer = null;
   let running = false;
   let watch = null; // the session the phone watches, as the server last said
-  let sentKey = null; // what was last sent of it: no need to send the same again
+  let sent = null; // what was last sent of it: { key, activity, at }; no need to send the same again
   const done = []; // ids of words from the phone that were typed (or could not be), to tell the server
   const handled = new Set(); // and all of them this run, so that words are never typed twice
   let turn = 0; // one more with each start or stop: a report from before is dropped
@@ -75,14 +76,19 @@ function createShare({
     if (!view) return null;
     // Claude's thinking is for the panel here only: the phone draws a kind it does not know as a plain line.
     const items = view.items.filter((item) => item.kind !== 'thinking').slice(-ITEMS_SENT);
-    // The status line and the workers (usage.js): small, so they go whole, and their change counts as a change.
+    // The status line and the workers (usage.js): small, so they go whole, and their change counts as a change. What a
+    // worker is doing now and its tokens change often: alone, they count as one only every ACTIVITY_MS, so the phone is not flooded.
+    const workers = Array.isArray(view.workers) ? view.workers : null;
     const extra = {
       ...(view.stats ? { stats: view.stats } : {}),
-      ...(Array.isArray(view.workers) ? { workers: view.workers } : {}),
+      ...(workers ? { workers } : {}),
     };
-    const key = `${id}:${view.status}:${view.canTalk}:${items.length}:${items.length ? items[items.length - 1].id : 0}:${JSON.stringify(extra)}`;
-    if (key === sentKey) return null;
-    sentKey = key;
+    const steady = { ...extra, ...(workers ? { workers: workers.map((w) => ({ ...w, activity: null, tokens: 0 })) } : {}) };
+    const key = `${id}:${view.status}:${view.canTalk}:${items.length}:${items.length ? items[items.length - 1].id : 0}:${JSON.stringify(steady)}`;
+    const activity = JSON.stringify(workers ? workers.map((w) => [w.activity ?? null, w.tokens]) : []);
+    const at = now();
+    if (sent && key === sent.key && (activity === sent.activity || at - sent.at < ACTIVITY_MS)) return null;
+    sent = { key, activity, at };
     return { id: view.id, name: view.name, title: view.title ?? null, status: view.status, canTalk: view.canTalk, items, ...extra };
   }
 
@@ -116,7 +122,7 @@ function createShare({
     try {
       r = await cloud.remoteMac(body);
     } catch (err) {
-      if (body.feed) sentKey = null; // it did not get there: send it again next time
+      if (body.feed) sent = null; // it did not get there: send it again next time
       throw err;
     }
     if (mine !== turn) return false;
@@ -125,7 +131,7 @@ function createShare({
     const newWatch = next !== watch && next !== null;
     if (next !== watch) {
       watch = next;
-      sentKey = null; // a new watch (or the same one again): its items go in full
+      sent = null; // a new watch (or the same one again): its items go in full
     }
     const known = (m) => m && typeof m.id === 'string' && (typeof m.text === 'string' || m.key === 'esc');
     if (Array.isArray(r?.inbox)) await typeAll(r.inbox.filter(known));
@@ -161,7 +167,7 @@ function createShare({
     running = true;
     turn += 1;
     watch = null;
-    sentKey = null;
+    sent = null;
     schedule(0);
   }
 
@@ -194,4 +200,4 @@ function createShare({
   return { start, stop, setOn, status, isRunning: () => running };
 }
 
-module.exports = { IDLE_MS, WATCHED_MS, FAILED_MS, ON_LINE, OFF_LINE, SIGN_IN, thisDevice, createShare };
+module.exports = { IDLE_MS, WATCHED_MS, FAILED_MS, ACTIVITY_MS, ON_LINE, OFF_LINE, SIGN_IN, thisDevice, createShare };

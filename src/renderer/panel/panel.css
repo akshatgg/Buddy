@@ -438,6 +438,11 @@ header .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-s
 .claude-items .cl-worker.done .cl-dot { color: var(--cli-green); }
 .claude-items .cl-worker.failed .cl-dot, .claude-items .cl-worker.stopped .cl-dot { color: var(--cli-red); }
 .claude-items .cl-workers .cl-fold { padding-left: 0; }
+.claude-items .cl-worker .cl-wbody { min-width: 0; }
+.claude-items .cl-worker p { margin: 0; }
+.claude-items .cl-worker .cl-act { opacity: .65; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.claude-items .cl-worker .cl-tail:empty { display: none; }
+.claude-items .cl-worker.cl-more { padding-left: calc(2ch + 8px + 1ch); }
 .cl-said { min-width: 0; }
 /* The /model picker: the models with a ✔ on the current one, the highlighted row marked ❯, then the effort levels. */
 .claude-items .cl-picker { padding: 6px 0; border-top: 1px solid var(--cli-line); border-bottom: 1px solid var(--cli-line); }

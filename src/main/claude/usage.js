@@ -8,11 +8,23 @@
  * Claude Code writes a line for each block of a reply, each with the whole reply's usage, one after the other: a reply
  * is counted once, by its id. A worker starts with an Agent (older: Task) tool_use. It ends with its tool_result, or,
  * when it runs in the background (the result then says async_launched), with a <task-notification> later. While it
- * runs, its tokens come from its own file (live.js reads it and calls workerTokens).
+ * runs, its tokens and what it is doing come from its own file (live.js reads it and calls workerTokens, workerActivity
+ * and ownEnd).
+ *
+ * The end of a worker comes in several carriers (a user message, a queue-operation "enqueue" line, an attachment of a
+ * queued command), all with a <task-notification>. It is matched by the Agent tool_use id, or by the <task-id>, which is
+ * the worker's agent id (said by the launch result, or by the worker's own meta file). A SendMessage that resumes a
+ * worker sets it running again.
  */
 
-const WORKERS_KEPT = 20; // the newest workers kept for a session
+const WORKERS_KEPT = 20; // the newest ended workers kept for a session
+const RUNNING_KEPT = 20; // and the newest running ones: the older ones are taken as stopped (a real end still replaces that)
 const TASK_CHARS = 120;
+const TYPE_CHARS = 40;
+const ACTIVITY_CHARS = 80;
+const MESSAGES_KEPT = 200; // SendMessage tool_use ids remembered, to read their results
+const NOTED_KEPT = 500; // notifications applied, remembered so that a replay after a resume ends nothing
+const AGENT_ID = /^[\w-]{1,100}$/;
 const AGENT_TOOLS = new Set(['Agent', 'Task']);
 const ENDS = { completed: 'done', failed: 'failed', killed: 'stopped', stopped: 'stopped' }; // a notification's <status>
 
@@ -22,6 +34,7 @@ const timeOf = (stamp) => {
   const ms = Date.parse(stamp);
   return Number.isFinite(ms) ? ms : null;
 };
+const cutTo = (text, max) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
 const tagIn = (text, tag) => new RegExp(`<${tag}>([^<]*)</${tag}>`).exec(text)?.[1]?.trim() ?? null;
 
 /** A reply's tokens: in (input, cache written and cache read) and out. */
@@ -32,7 +45,8 @@ function tokensOf(usage) {
 
 /** A session's tally, before any line. */
 function newTally() {
-  return { model: null, input: 0, output: 0, last: null, workers: new Map() };
+  // byAgent: a worker's agent id → its tool_use id. context: the newest reply's in (all of it). messages, noted: see above.
+  return { model: null, input: 0, output: 0, context: 0, last: null, workers: new Map(), byAgent: new Map(), messages: new Set(), noted: new Set() };
 }
 
 /** The words of a message: its text, or its text blocks joined. */
@@ -50,12 +64,72 @@ function finish(worker, status, at, tokens) {
   if (tokens > 0) worker.tokens = tokens;
 }
 
-/** Only the newest WORKERS_KEPT, the oldest that ended going first. */
-function trim(t) {
-  for (const [id, w] of t.workers) {
-    if (t.workers.size <= WORKERS_KEPT) return;
-    if (w.status !== 'running') t.workers.delete(id);
+/** The worker a tool_use id or an agent id names, if any. */
+function workerFor(t, toolUseId, agentId) {
+  const known = t.workers.get(toolUseId) ?? t.workers.get(t.byAgent.get(agentId));
+  if (known || typeof agentId !== 'string') return known;
+  return [...t.workers.values()].find((w) => w.agentId === agentId); // an id that came from the worker's meta file
+}
+
+/** The worker's agent id (and type) once known. */
+function noteAgent(t, toolUseId, agentId, type) {
+  const worker = t.workers.get(toolUseId);
+  if (!worker || typeof agentId !== 'string' || !AGENT_ID.test(agentId)) return false;
+  worker.agentId = agentId;
+  t.byAgent.set(agentId, toolUseId);
+  if (typeof type === 'string' && type.trim() && type.length < TYPE_CHARS) worker.type = type.trim();
+  return true;
+}
+
+/**
+ * Only the newest WORKERS_KEPT ended workers and the newest RUNNING_KEPT running ones are kept. The older running ones
+ * are taken as stopped, as a guess (a real end still replaces it).
+ */
+function trim(t, at) {
+  const all = [...t.workers.values()];
+  const live = all.filter((w) => w.status === 'running');
+  for (const w of live.slice(0, Math.max(0, live.length - RUNNING_KEPT))) finishGuess(w, at);
+  const ended = all.filter((w) => w.status !== 'running');
+  for (const w of ended.slice(0, Math.max(0, ended.length - WORKERS_KEPT))) {
+    t.workers.delete(w.id);
+    if (w.agentId && t.byAgent.get(w.agentId) === w.id) t.byAgent.delete(w.agentId);
   }
+}
+
+/** A worker that will not end by itself, as far as can be told: stopped, with `expired` saying it is only a guess. */
+function finishGuess(worker, at) {
+  finish(worker, 'stopped', at, 0);
+  worker.expired = true;
+}
+
+/** A worker is running again (a SendMessage resumed it). */
+function resume(worker, at) {
+  worker.status = 'running';
+  delete worker.expired;
+  worker.endedAt = null;
+  worker.startedAt = at; // the CLI times a resumed run on its own
+  worker.activity = null;
+}
+
+/** The <task-notification>s in `text`: each ends its worker. Answers whether any did. */
+function notesIn(t, text, at) {
+  if (typeof text !== 'string' || !text.includes('<task-notification>')) return false;
+  let changed = false;
+  // One message can carry several notifications (workers that ended together): each is read.
+  for (const [block] of text.matchAll(/<task-notification>[\s\S]*?<\/task-notification>/g)) {
+    const toolUseId = tagIn(block, 'tool-use-id');
+    const taskId = tagIn(block, 'task-id');
+    const worker = workerFor(t, toolUseId, taskId);
+    const status = ENDS[tagIn(block, 'status')];
+    if (!worker || !status || !(worker.status === 'running' || worker.expired)) continue; // a real end beats an expired guess
+    const key = `${toolUseId}|${taskId}|${status}`;
+    if (t.noted.has(key)) continue; // a copy of one already applied, seen again after a resume
+    t.noted.add(key);
+    if (t.noted.size > NOTED_KEPT) t.noted.delete(t.noted.values().next().value);
+    finish(worker, status, at, count(Number(tagIn(block, 'subagent_tokens') ?? tagIn(block, 'total_tokens'))));
+    changed = true;
+  }
+  return changed;
 }
 
 /** Add one transcript line to the tally. Answers whether anything shown changed. */
@@ -76,40 +150,59 @@ function tally(t, entry) {
       if (now.in !== before.in || now.out !== before.out) changed = true;
       t.input += now.in - before.in;
       t.output += now.out - before.out;
+      t.context = now.in; // what the newest reply held in its context: the CLI shows this, not the sum
       t.last = { id: message.id, ...now };
     }
     for (const block of Array.isArray(message.content) ? message.content : []) {
-      if (block?.type !== 'tool_use' || !AGENT_TOOLS.has(block.name) || typeof block.id !== 'string' || t.workers.has(block.id)) continue;
+      if (block?.type !== 'tool_use' || typeof block.id !== 'string') continue;
+      if (block.name === 'SendMessage') {
+        t.messages.add(block.id); // its result may resume a worker
+        if (t.messages.size > MESSAGES_KEPT) t.messages.delete(t.messages.values().next().value);
+        continue;
+      }
+      if (!AGENT_TOOLS.has(block.name) || t.workers.has(block.id)) continue;
       const input = isObject(block.input) ? block.input : {};
-      const task = [input.description, input.subagent_type].find((s) => typeof s === 'string' && s.trim());
-      const words = task ? task.replace(/\s+/g, ' ').trim() : 'A worker';
+      const words = (value) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '');
+      const type = words(input.subagent_type);
+      const kind = type && type.length < TYPE_CHARS ? type : 'general-purpose';
+      const task = words(input.description) || kind;
       t.workers.set(block.id, {
-        id: block.id, task: words.length > TASK_CHARS ? `${words.slice(0, TASK_CHARS - 1)}…` : words, status: 'running', startedAt: at, endedAt: null, tokens: 0,
+        id: block.id, type: kind, task: cutTo(task, TASK_CHARS), agentId: null, activity: null, status: 'running', startedAt: at, endedAt: null, tokens: 0,
       });
       changed = true;
     }
   } else if (entry.type === 'user') {
+    const r = isObject(entry.toolUseResult) ? entry.toolUseResult : {};
     for (const block of Array.isArray(message.content) ? message.content : []) {
-      const worker = block?.type === 'tool_result' ? t.workers.get(block.tool_use_id) : null;
-      if (!worker || !(worker.status === 'running' || worker.expired)) continue; // a real end beats an expired guess
-      const r = isObject(entry.toolUseResult) ? entry.toolUseResult : {};
+      if (block?.type !== 'tool_result') continue;
+      if (t.messages.has(block.tool_use_id)) {
+        // A SendMessage that resumed a worker ("Resuming agent …"): it runs again. One that only queued its words, or could not resume, changes nothing.
+        const worker = typeof r.resumedAgentId === 'string' && r.success !== false ? workerFor(t, null, r.resumedAgentId) : null;
+        if (worker && worker.status !== 'running') {
+          resume(worker, at);
+          changed = true;
+        }
+        continue;
+      }
+      const worker = t.workers.get(block.tool_use_id);
+      if (!worker) continue;
+      noteAgent(t, worker.id, r.agentId);
+      if (!(worker.status === 'running' || worker.expired)) continue; // a real end beats an expired guess
       if (r.status === 'async_launched') continue; // started in the background: its end comes as a notification
       const stopped = block.is_error === true && /interrupted/i.test(textOf(block.content)); // Esc: "[Request interrupted by user]"
       finish(worker, block.is_error === true ? (stopped ? 'stopped' : 'failed') : 'done', at, count(r.totalTokens));
       changed = true;
     }
-    const text = textOf(message.content);
-    // One message can carry several notifications (workers that ended together): each is read.
-    for (const [block] of text.matchAll(/<task-notification>[\s\S]*?<\/task-notification>/g)) {
-      const worker = t.workers.get(tagIn(block, 'tool-use-id'));
-      const status = ENDS[tagIn(block, 'status')];
-      if (worker && (worker.status === 'running' || worker.expired) && status) {
-        finish(worker, status, at, count(Number(tagIn(block, 'subagent_tokens') ?? tagIn(block, 'total_tokens'))));
-        changed = true;
-      }
-    }
+    if (notesIn(t, textOf(message.content), at)) changed = true;
+  } else if (entry.type === 'attachment') {
+    // A notification sent into a turn under way: no user message is ever written for it.
+    const a = isObject(entry.attachment) ? entry.attachment : {};
+    if (a.type === 'queued_command' && notesIn(t, a.prompt, at)) changed = true;
+  } else if (entry.type === 'queue-operation') {
+    // The earliest moment the end is known; the later copies find the worker ended already.
+    if (entry.operation === 'enqueue' && notesIn(t, entry.content, at)) changed = true;
   }
-  trim(t);
+  trim(t, at);
   return changed;
 }
 
@@ -123,14 +216,45 @@ function workerTokens(t, id, usage) {
   return true;
 }
 
-/** Workers that will not end by themselves (quiet too long, or their session ended) show as stopped. Answers whether any did. */
+/** A running worker's newest step, one line (a tool's line, else its words). Answers whether it changed. */
+function workerActivity(t, id, text) {
+  const worker = t.workers.get(id);
+  const line = typeof text === 'string' ? cutTo(text.replace(/\s+/g, ' ').trim(), ACTIVITY_CHARS) : '';
+  if (!worker || worker.status !== 'running' || !line || line === worker.activity) return false;
+  worker.activity = line;
+  return true;
+}
+
+/**
+ * One line of a worker's own file: the worker ends ('done') when it answers for good (a reply that ends its turn with
+ * no tool to run) or when its SubagentHandback is answered. `handbacks` is the caller's Set of the tool_use ids of
+ * handbacks seen in that file. A line from before a resume says nothing. Answers 'done' or null.
+ */
+function ownEnd(t, id, entry, handbacks) {
+  const worker = t.workers.get(id);
+  if (!worker || !isObject(entry) || !(worker.status === 'running' || worker.expired)) return null;
+  const at = timeOf(entry.timestamp);
+  if (at !== null && worker.startedAt !== null && at < worker.startedAt) return null;
+  const content = Array.isArray(entry.message?.content) ? entry.message.content : [];
+  let over = false;
+  if (entry.type === 'assistant') {
+    for (const b of content) if (b?.type === 'tool_use' && b.name === 'SubagentHandback' && typeof b.id === 'string') handbacks.add(b.id);
+    over = entry.message?.stop_reason === 'end_turn' && !content.some((b) => b?.type === 'tool_use');
+  } else if (entry.type === 'user') {
+    over = content.some((b) => b?.type === 'tool_result' && handbacks.has(b.tool_use_id));
+  }
+  if (!over) return null;
+  finish(worker, 'done', at ?? worker.endedAt, 0);
+  return 'done';
+}
+
+/** Workers that will not end by itself (quiet too long, or their session ended) show as stopped. Answers whether any did. */
 function expire(t, ids, at) {
   let changed = false;
   for (const id of ids) {
     const worker = t.workers.get(id);
     if (!worker || worker.status !== 'running') continue;
-    finish(worker, 'stopped', at, 0);
-    worker.expired = true; // only a guess: a real end (a result or notification) still replaces it
+    finishGuess(worker, at); // only a guess: a real end (a result or notification) still replaces it
     changed = true;
   }
   return changed;
@@ -141,7 +265,17 @@ const running = (t) => [...t.workers.values()].filter((w) => w.status === 'runni
 
 /** What the panel shows: the status line's numbers and the workers, oldest first. */
 function viewOf(t) {
-  return { stats: { model: t.model, input: t.input, output: t.output }, workers: [...t.workers.values()].map((w) => ({ ...w })) };
+  return {
+    stats: { model: t.model, input: t.input, output: t.output, context: t.context },
+    workers: [...t.workers.values()].map((w) => {
+      const shown = { ...w };
+      delete shown.agentId; // for matching only
+      delete shown.expired;
+      return shown;
+    }),
+  };
 }
 
-module.exports = { WORKERS_KEPT, tokensOf, newTally, tally, workerTokens, running, expire, viewOf };
+module.exports = {
+  WORKERS_KEPT, RUNNING_KEPT, ACTIVITY_CHARS, tokensOf, newTally, tally, noteAgent, workerTokens, workerActivity, ownEnd, running, expire, viewOf,
+};

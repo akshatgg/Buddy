@@ -53,6 +53,7 @@ async function formOf(call) {
     fields: [...form.keys()],
     model: form.get('model'),
     responseFormat: form.get('response_format'),
+    language: form.get('language'),
     temperature: form.get('temperature'),
     prompt: form.get('prompt'),
     file: { name: file.name, type: file.type, bytes: Buffer.from(await file.arrayBuffer()) },
@@ -102,15 +103,45 @@ test("Groq gets the recording as a multipart form: the file, Whisper turbo, JSON
   assert.deepStrictEqual(await formOf(call), {
     fields: ['file', 'model', 'response_format', 'temperature', 'prompt'],
     model: 'whisper-large-v3-turbo',
-    responseFormat: 'json',
+    responseFormat: 'verbose_json',
+    language: null,
     temperature: '0',
     prompt: PROMPT,
     file: { name: 'speech.webm', type: 'audio/webm', bytes: SOUND },
   });
 });
 
-test('the prompt is a short line in Hinglish and English, so that Hinglish comes back in English letters', () => {
-  assert.strictEqual(PROMPT, 'Namaste. Kal mujhe chutti chahiye. Please write a mail to my boss.');
+test('the prompt is a short line in English and Hinglish, so that Hinglish comes back in English letters', () => {
+  assert.strictEqual(PROMPT, 'Please write a mail to my boss. Namaste, kal mujhe chutti chahiye.');
+});
+
+test('English and Hindi as detected are kept: one call, and no language is forced', async () => {
+  for (const language of ['english', 'hindi', 'English']) {
+    const fetchImpl = fakeGroq({ body: { text: ' Hello. ', language } });
+    assert.strictEqual(await transcribeWithGroq({ apiKey: 'gsk-key', audio: SOUND, mime: 'audio/webm', fetchImpl }), 'Hello.', language);
+    assert.strictEqual(fetchImpl.calls.length, 1, language);
+    assert.strictEqual((await formOf(fetchImpl.calls[0])).language, null, language);
+  }
+});
+
+test('any other detected language is written down once more as English, and that is used', async () => {
+  const answers = [{ text: 'Yeh kya hai', language: 'urdu' }, { text: ' Write a mail. ', language: 'english' }];
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify(answers[calls.length - 1]), { status: 200 });
+  };
+  assert.strictEqual(await transcribeWithGroq({ apiKey: 'gsk-key', audio: SOUND, mime: 'audio/webm', fetchImpl }), 'Write a mail.');
+  assert.strictEqual(calls.length, 2, 'once more, not again and again');
+  assert.strictEqual((await formOf(calls[0])).language, null);
+  assert.strictEqual((await formOf(calls[1])).language, 'en');
+});
+
+test('the second go is not retried, and its failure is the failure', async () => {
+  let n = 0;
+  const fetchImpl = async () => new Response(n++ ? 'x' : JSON.stringify({ text: 'a', language: 'nepali' }), { status: n > 1 ? 500 : 200 });
+  await assert.rejects(transcribeWithGroq({ apiKey: 'k', audio: SOUND, mime: 'audio/webm', fetchImpl }), { code: 'http_500' });
+  assert.strictEqual(n, 2);
 });
 
 test("Node's own FormData and Blob make the multipart body Groq reads, as they will on Vercel's Node", async () => {
@@ -123,7 +154,7 @@ test("Node's own FormData and Blob make the multipart body Groq reads, as they w
   const text = body.toString('latin1');
   assert.match(text, /Content-Disposition: form-data; name="file"; filename="speech\.webm"\r\nContent-Type: audio\/webm\r\n\r\n/);
   assert.ok(body.includes(SOUND), 'the bytes of the recording, untouched');
-  for (const [name, value] of [['model', 'whisper-large-v3-turbo'], ['response_format', 'json'], ['temperature', '0'], ['prompt', PROMPT]]) {
+  for (const [name, value] of [['model', 'whisper-large-v3-turbo'], ['response_format', 'verbose_json'], ['temperature', '0'], ['prompt', PROMPT]]) {
     assert.ok(text.includes(`Content-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`), name);
   }
 });

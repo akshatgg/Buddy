@@ -227,7 +227,12 @@ test('chat: the system prompt asks for the JSON and gives every rule', () => {
   assert.match(system, /"again": true or false/, 'the JSON shape has it');
   assert.match(system, /- "again": true when "text" is a new version of the last text you wrote or fixed in this chat/);
   assert.match(system, /Hinglish/);
-  assert.match(system, /language and script/);
+  assert.match(system, /"say": what you say to them, friendly, at most two short sentences, in English\. Use English\./);
+  assert.match(system, /Use Hindi only when their latest message is mostly Hindi/);
+  assert.match(system, /same script as that message/);
+  assert.match(system, /a few Hindi words, names or places gets English/);
+  assert.match(system, /Earlier messages, what you remember about them and their name never decide the language/);
+  assert.doesNotMatch(system, /language and script of their message/);
   assert.match(system, /\[Name\]/);
   assert.match(system, /\[Date\]/);
   assert.match(system, /second step/);

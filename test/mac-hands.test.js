@@ -452,3 +452,19 @@ test('files find: a query starting with a dash is refused', async () => {
   const o = await h.observe({});
   assert.strictEqual((await h.act({ type: 'files', op: 'find', path: '~', text: '-onlyin' }, o)).code, 'bad_query');
 });
+
+test('look: a screenshot and the screen as text', async () => {
+  const { h } = hands();
+  const seen = await h.look();
+  assert.strictEqual(seen.image, 'IMG');
+  assert.match(seen.screenText, /^App: TextEdit\nWindow: Untitled/);
+  assert.ok(seen.screenText.length <= 8000);
+});
+
+test('look: no picture in a password app or with a password box focused', async () => {
+  const pw = hands({ helper: fakeHelper({ last: { pid: 9, bundleId: 'com.1password.1password', name: '1Password' } }) });
+  await assert.rejects(() => pw.h.look(), { code: 'capture_failed' });
+  const box = hands({ helper: fakeHelper({ tree: { ...TREE, secureFocused: true } }) });
+  await assert.rejects(() => box.h.look(), { code: 'capture_failed' });
+  assert.ok(!box.helper?.calls?.some?.(([c]) => c === 'screenshotScreen'));
+});

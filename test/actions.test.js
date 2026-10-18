@@ -3034,3 +3034,23 @@ test('while a job runs, the panel state is not busy, so Send works, and the type
   assert.deepStrictEqual(replies, ['yes']);
   await first;
 });
+
+test('screen with eyes: one look at the whole screen, its text goes with the picture', async () => {
+  const eyes = { look: async () => ({ image: 'SCREEN', screenText: 'App: Mail' }) };
+  const s = setup({ eyes, answers: [reply({ kind: 'screen' }), reply({ kind: 'answer', text: 'It says access denied.' })] });
+  await s.actions.open();
+  await s.actions.send('what is this?');
+  const second = s.log.filter((l) => l[0] === 'ask')[1][2];
+  assert.deepStrictEqual([second.image, second.screenText, second.step], ['SCREEN', 'App: Mail', 2]);
+  assert.ok(chatOf(s).some((i) => i.text === '👀 Looked at your screen'));
+});
+
+test('screen with eyes: a model that cannot read pictures gets the screen text only', async () => {
+  const eyes = { look: async () => ({ image: 'SCREEN', screenText: 'App: Mail' }) };
+  const s = setup({ eyes, answers: [reply({ kind: 'screen' }), reply({ kind: 'answer', text: 'ok' })] });
+  s.ai.brainInfo = async () => ({ vision: false });
+  await s.actions.open();
+  await s.actions.send('what is this?');
+  const second = s.log.filter((l) => l[0] === 'ask')[1][2];
+  assert.deepStrictEqual([second.image, second.screenText], [undefined, 'App: Mail']);
+});

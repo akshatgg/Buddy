@@ -115,7 +115,7 @@ const SYSTEM = {
     '- "fix": their own text made right: the selected text, or their text box. Grammar, spelling, word choice, tone, shorter or longer, or their Hindi or Hinglish turned into English.',
     '- "answer": anything else they ask or tell you: a question on any topic, advice, a plan, an idea, a calculation, an explanation, a meaning, a translation, how to say something, or small talk. Nothing goes into their app.',
     '- "box": the request is about the text they are writing in their app ("fix my English", "make my mail more polite"), no selected text and no text box were given, and it is not about a text you wrote in this chat. Buddy then reads their whole text box and asks you again.',
-    '- "screen": the request needs something on their screen that you were not given ("what does this mean?", "reply to this mail", "check my mail"), and there is no selected text, text box or screenshot for it. Buddy then takes a screenshot of the app and asks you again.',
+    '- "screen": the request needs something on their screen that you were not given ("what does this mean?", "reply to this mail", "check my mail"), and there is no selected text, text box or screenshot for it. Buddy then takes a screenshot of the app and asks you again (with the text on their screen when it can be read).',
     '- "send": they only ask to send what you already put in their app ("send it", "bhej do").',
     '- "code": a job in one of their own software projects on this computer (fix a bug, add a feature, run the tests, explain the code), and the request lists their projects. "text" is the job as one or two clear English sentences for a programmer, with everything they said that matters. Never "code" when no projects are listed.',
     '- "message": they ask you to message, text or tell someone something on WhatsApp ("message Priya I\'m late", "Rahul ko WhatsApp karo ki main aa raha hoon"). "app" is the app they named, lower case ("whatsapp" when they named none). "to" is the person as they said it ("Priya", "Priya Sharma", "mummy"). "text" is the message itself, as they want it sent: in their words and language, fixed only when they ask ("in good English"); never "Hi Priya," added, never their name signed. When they answer "Which Priya?" with a fuller name, answer "message" again with that name and the same text. Only when the request says Buddy can message people on WhatsApp; otherwise answer that you can\'t send messages from here. Never on the second step.',
@@ -168,11 +168,12 @@ function chatPrompt(input) {
   const message = requireText(input.message, LIMITS.instruction, 'Tell me what to do first.');
   const selection = optionalText(input.selection, LIMITS.text);
   const box = optionalText(input.box, LIMITS.text);
+  const screenText = optionalText(input.screenText, LIMITS.text);
   const image = typeof input.image === 'string' ? input.image : '';
   if (image.length > LIMITS.imageChars) throw new BuddyError('bad_request', 'That screenshot is too big.');
   // The app reads the box or the screen only for a second step. A first step may be given back on Buddy's server, so
   // it is text only: what was given back cannot have carried a screenshot or a whole box.
-  if ((box || image) && input.step !== 2) throw new BuddyError('bad_request', 'That can only come with the second step.');
+  if ((box || image || screenText) && input.step !== 2) throw new BuddyError('bad_request', 'That can only come with the second step.');
   const appName = oneLine(input.appName, CHAT_LIMITS.nameChars);
   const userName = oneLine(input.userName, CHAT_LIMITS.nameChars);
   const history = (Array.isArray(input.history) ? input.history : [])
@@ -208,6 +209,7 @@ function chatPrompt(input) {
   if (selection) parts.push(`Selected text:\n${quoted(selection)}`);
   if (box) parts.push(`Their text box:\n${quoted(box)}`);
   if (image) parts.push('A screenshot of the app they are in comes with this message.');
+  if (screenText) parts.push(`The text on their screen, read from the app:\n${quoted(screenText)}`);
   if (input.step === 2) {
     parts.push('This is the second step: you already have what you asked for, so do not answer "box" or "screen".');
   }

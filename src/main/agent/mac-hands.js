@@ -9,6 +9,7 @@
 const path = require('node:path');
 const fsp = require('node:fs/promises');
 const { BuddyError } = require('../../../shared/errors');
+const { formatScreen } = require('../../../shared/agent/prompt');
 const { isPasswordApp, riskOf, KEY_NAMES, KEY_MODIFIERS } = require('../../../shared/agent/safety');
 
 const MAX_NODES = 600;
@@ -406,7 +407,14 @@ function createMacHands({
     }
   }
 
-  return { observe, act, exists, elementAt, canonical, riskContext };
+  /** Eyes (spec §12): the whole screen without Buddy, and the front window's text. Never in a password app or box. */
+  async function look() {
+    const o = await observe({ screenshot: true });
+    if (!o.screen) throw new BuddyError('capture_failed', "I can't look while a password box is in use.");
+    return { image: o.screen.image, screenText: formatScreen(o, READ_MAX) };
+  }
+
+  return { look, observe, act, exists, elementAt, canonical, riskContext };
 }
 
 module.exports = { createMacHands, ROLE_NAMES, SETTINGS_PAGES };

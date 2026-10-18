@@ -303,11 +303,14 @@ async function start(options = {}) {
     ? createApps({ dirs: appDirs(app.getPath('home')), openPath: (p) => shell.openPath(p), own: ownBundle(app.getPath('exe')), spotlight })
     : null;
   if (spotlight) spotlight(); // warm the app list in the background (it answers at once with what it knows)
+  const macHands = process.platform === 'darwin' && !options.noAgent
+    ? createMacHands({ helper, apps: macApps, shell, spawn, home: app.getPath('home') })
+    : null;
   agentRunner = process.platform === 'darwin' && !options.noAgent
     ? createAgentRunner({
       ai, helper, talkBack, ui, store, memory, myVoice,
       lock, // lock.js: locked() before each act, and onLocked (powerMonitor 'lock-screen') stops a running job at once
-      hands: createMacHands({ helper, apps: macApps, shell, spawn, home: app.getPath('home') }),
+      hands: macHands,
       userName: () => (account.user()?.name || '').trim().split(/\s+/)[0],
       onChange: () => tray?.refresh(),
     })
@@ -344,6 +347,7 @@ async function start(options = {}) {
     // "Open Safari": the Mac's apps, opened as the Finder would. Windows has none (yet).
     apps: macApps,
     agent: agentRunner,
+    eyes: macHands, // "what is this?" sees the whole screen and reads its text (null on Windows)
   });
   // The chat's own moods win over Claude Code's: chatBusy says a chat answer is in flight. While Buddy is off the
   // switch is only saved (active), and power's onChange starts the watcher when Buddy is turned on.

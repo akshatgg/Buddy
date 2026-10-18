@@ -128,6 +128,7 @@ function createActions({
   apps = null,
   talkBack = null,
   agent = null,
+  eyes = null, // the Mac's hands: look() gives the whole screen and its text (agent/mac-hands.js)
   lock = { locked: () => false, unlocked: async () => true },
   userName = () => '',
   now = Date.now,
@@ -484,16 +485,21 @@ function createActions({
         return false;
       }
       let image;
+      let screenText = '';
       try {
-        ({ image } = await helper.call('screenshot', { pid: c.app.pid }));
+        if (eyes) {
+          ({ image, screenText } = await eyes.look());
+          // A model that cannot read pictures gets the screen's text only.
+          if (image && ai.brainInfo && (await ai.brainInfo().catch(() => null))?.vision === false) image = '';
+        } else ({ image } = await helper.call('screenshot', { pid: c.app.pid }));
       } catch (err) {
         failed(c, err, you);
         return false;
       }
       if (c !== chat) return false;
-      add(c, { type: 'event', text: `👀 Looked at ${appName(c)}`, buttons: [] });
+      add(c, { type: 'event', text: eyes ? '👀 Looked at your screen' : `👀 Looked at ${appName(c)}`, buttons: [] });
       push(c);
-      reply = await ask({ ...asked, ...selection, image, step: 2 });
+      reply = await ask({ ...asked, ...selection, ...(image ? { image } : {}), ...(screenText ? { screenText } : {}), step: 2 });
       if (c !== chat) return false;
       second = true;
     }

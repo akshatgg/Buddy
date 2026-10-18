@@ -33,6 +33,7 @@ const ASK_INPUTS = [
   'projects', // the names of their Claude Code project folders, for the chat's "code" kind
   'canMessage', // the app can message on WhatsApp (the Mac's), for the chat's "message" kind
   'canCall', 'canOpen', 'canSeeCalls', 'canReadNotifs', // the app can call, open apps, see the phone's calls and notifications
+  'screenText', // the text on their screen, read with the screenshot (the Mac's Eyes)
   'canDo', // the app can run jobs on this computer (the chat's "do" kind)
   // An agent step (shared/agent/prompt.js agentPrompt): the job and where it is.
   'goal', 'log', 'lastOutput', 'note', 'screen', 'imageSize', 'maxSteps', 'jobId', 'platform',

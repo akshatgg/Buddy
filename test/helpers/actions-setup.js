@@ -60,6 +60,7 @@ function setup({
   lock = { locked: () => false, unlocked: async () => true },
   agent = null,
   agentOn,
+  eyes = null,
 } = {}) {
   const log = [];
   const helper = {
@@ -184,6 +185,7 @@ function setup({
     jobs,
     talkBack: voice_,
     agent,
+    eyes,
     lock,
     apps: windows ? null : { list: () => givenApps, find: (asked) => findApp(givenApps, asked), open: async (p) => { log.push(['openApp', p]); return openFails; } },
     memory,
@@ -200,6 +202,7 @@ function setup({
   });
   return {
     actions,
+    ai,
     helper,
     log,
     cloud,

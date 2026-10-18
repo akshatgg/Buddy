@@ -37,6 +37,8 @@ const DEFAULTS = Object.freeze({
   myVoiceOn: false, // Settings → General's "Only my voice": on once the voice is learned (src/main/my-voice.js). Only the on/off is here; the voice itself is a file of its own and never in this store
   voiceName: null, // Settings → General's "Buddy's voice": a voice's name, or null for Automatic, the best English one (src/main/voices.js)
   tagOn: true, // Settings → General's "Fix where I type": "@buddy" after text, anywhere (src/main/tag.js)
+  agentOn: true, // Settings → Permissions' "Use my Mac for me": Buddy may click and type in apps when asked (src/main/agent/runner.js)
+  agentAgreed: false, // the person said yes to the first job's question (runner.js); never set from Settings
   home: 'notch', // Settings → Buddy's "Where Buddy lives": 'notch' (on a Mac with one) or 'floating' (src/main/home.js)
   notchLook: 'face', // Settings → Buddy's "In the notch": Buddy's 'face' or two 'eyes' (src/main/notch-window.js)
   projects: [], // the folders Claude Code may work in, as [{ path, name }] (src/main/claude/projects.js)

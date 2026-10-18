@@ -233,7 +233,7 @@ const CHAT_INPUTS = [
 /** Model answers, and what parseChat reads in them. */
 const fields = (f) => JSON.stringify({ kind: 'write', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false, ...f });
 const CHAT_REPLIES = [
-  ...['write', 'fix', 'answer', 'box', 'screen', 'send', 'code', 'message', 'call', 'open', 'calls', 'notifs'].map((kind) => fields({ kind, say: 'Here you go.', text: 'Some text' })),
+  ...['write', 'fix', 'answer', 'box', 'screen', 'send', 'code', 'message', 'call', 'open', 'calls', 'notifs', 'do'].map((kind) => fields({ kind, say: 'Here you go.', text: 'Some text' })),
   JSON.stringify({ kind: 'fix', say: 'Theek kar diya!', text: 'I am going.', notes: ['"go" should be "going".'], doIt: true, send: true, remember: ['You work in an office.'], again: true }),
   `\`\`\`json\n${fields({ kind: 'fix', text: 'x', doIt: true })}\n\`\`\``,
   `\`\`\`\n${fields({ kind: 'answer', text: 'y' })}\n\`\`\``,
@@ -266,6 +266,8 @@ const CHAT_REPLIES = [
   JSON.stringify({ kind: 'calls', what: 'today', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false }),
   JSON.stringify({ kind: 'notifs', app: ' Instagram ', say: 'Let me see.', text: 'x', notes: [], doIt: false, send: false, remember: [], again: false }),
   JSON.stringify({ kind: 'notifs', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false }),
+  JSON.stringify({ kind: 'do', say: 'Theek hai!', text: 'Turn on dark mode.', notes: ['x'], doIt: true, send: true, remember: [], again: true }),
+  JSON.stringify({ kind: 'do', say: '', text: '', notes: [], doIt: false, send: false, remember: [], again: false }),
   fields({ kind: 'write', say: `${SPACES}hey${SPACES}`, text: `\u00a0x\u2003` }),
 ];
 

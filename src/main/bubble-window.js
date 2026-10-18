@@ -13,15 +13,19 @@ const { speechUnderNotch } = require('./notch-geometry');
 const { floatingType } = require('./platform');
 
 const SHOW_MS = 2600;
+const BUBBLE_BUTTONS = ['stop', 'yes', 'no', 'go-on'];
+// A job's speech bubble with buttons stays up this long at most: longer than its longest wait (a hand-over, 120 s).
+const BUTTONS_HOLD_MS = 130_000;
 
 // The error code of a load that was cancelled rather than one that failed.
 const ERR_ABORTED = -3;
 
-function createBubbleWindow({ ipcMain = null, onClick = () => {}, cursor = () => null, BrowserWindow = ElectronWindow } = {}) {
+function createBubbleWindow({ ipcMain = null, onClick = () => {}, onButton = () => {}, cursor = () => null, BrowserWindow = ElectronWindow } = {}) {
   let win = null;
   let ready = null;
   let timer = null;
   let speech = false; // the words up are a hands-free answer's (speak): they take the pointer, and a click opens the chat
+  let held = false; // a job's words with buttons are up: release() and say() leave them (speak without buttons ends it)
   let showing = Promise.resolve(); // the last speak's show, which release() waits for
 
   /** Forget a window that is gone, so that the next say() builds a new one. */
@@ -31,6 +35,7 @@ function createBubbleWindow({ ipcMain = null, onClick = () => {}, cursor = () =>
     win = null;
     ready = null;
     speech = false;
+    held = false;
   }
 
   /** Throw a window away because its page crashed or did not load, so that the next say() builds a new one. */
@@ -90,10 +95,13 @@ function createBubbleWindow({ ipcMain = null, onClick = () => {}, cursor = () =>
     ipcMain.on('bubble:click', (event) => {
       if (fromPage(event) && speech) onClick();
     });
+    ipcMain.on('bubble:button', (event, name, token) => {
+      if (fromPage(event) && speech && BUBBLE_BUTTONS.includes(name)) onButton(name, typeof token === 'string' ? token : undefined);
+    });
   }
 
   /** Shows `text` at `bounds`; `asSpeech` for a hands-free answer's. Answers the window, or null when it went meanwhile. */
-  async function show(text, bounds, asSpeech) {
+  async function show(text, bounds, asSpeech, buttons = [], token = null) {
     if (!win) create();
     const w = win;
     await ready;
@@ -105,7 +113,7 @@ function createBubbleWindow({ ipcMain = null, onClick = () => {}, cursor = () =>
     const under = Boolean(p) && p.x >= bounds.x && p.x < bounds.x + bounds.width && p.y >= bounds.y && p.y < bounds.y + bounds.height;
     w.setIgnoreMouseEvents(!under, asSpeech ? { forward: true } : {});
     w.setBounds(bounds);
-    w.webContents.send('bubble:text', text, asSpeech);
+    w.webContents.send('bubble:text', text, asSpeech, ...(buttons.length ? [buttons] : []), ...(buttons.length && token ? [token] : []));
     w.showInactive();
     return w;
   }
@@ -115,6 +123,7 @@ function createBubbleWindow({ ipcMain = null, onClick = () => {}, cursor = () =>
     /** Never rejects: whoever asks for a bubble cannot do anything about one that fails, so it is logged. */
     async say(text, buddyBounds, area) {
       try {
+        if (held) return; // a job's question or Stop button is up: it wins
         const w = await show(text, bubbleBounds(buddyBounds, area), false);
         if (w) timer = setTimeout(() => w.hide(), SHOW_MS);
       } catch (err) {
@@ -125,19 +134,24 @@ function createBubbleWindow({ ipcMain = null, onClick = () => {}, cursor = () =>
      * A hands-free answer's words, held up until release(): beside the floating buddy, or under the notch (`at` is
      * home.panelAt()). Null keeps the words up. Never rejects.
      */
-    async speak(text, at) {
+    async speak(text, at, buttons = [], token = null) {
       if (text === null) {
-        if (speech) clearTimeout(timer);
+        if (speech && !held) clearTimeout(timer);
         return;
       }
-      const bounds = at.kind === 'below' ? speechUnderNotch(at.notch, at.area) : speechBounds(at.buddy, at.area);
-      showing = show(text, bounds, true).catch((err) => console.error('[buddy] could not show the speech bubble:', err));
+      const bounds = at.kind === 'below' ? speechUnderNotch(at.notch, at.area, buttons.length > 0) : speechBounds(at.buddy, at.area, buttons.length > 0);
+      showing = show(text, bounds, true, buttons, token)
+        .then((w) => {
+          held = Boolean(w) && buttons.length > 0;
+          if (held) timer = setTimeout(() => { held = false; if (!w.isDestroyed()) w.hide(); }, BUTTONS_HOLD_MS);
+        })
+        .catch((err) => console.error('[buddy] could not show the speech bubble:', err));
       await showing;
     },
     /** Buddy stopped speaking: the speech bubble goes BUBBLE_HIDE_MS later (a new speak keeps it). */
     release() {
       showing.then(() => {
-        if (!speech || !win) return;
+        if (!speech || !win || held) return; // a job's words with buttons wait for the job
         const w = win;
         clearTimeout(timer);
         timer = setTimeout(() => w.hide(), BUBBLE_HIDE_MS);
@@ -145,10 +159,11 @@ function createBubbleWindow({ ipcMain = null, onClick = () => {}, cursor = () =>
     },
     /** The chat is on screen: its words are there now. */
     hide() {
+      held = false;
       clearTimeout(timer);
       if (win && !win.isDestroyed()) win.hide();
     },
   };
 }
 
-module.exports = { createBubbleWindow };
+module.exports = { createBubbleWindow, BUBBLE_BUTTONS, BUTTONS_HOLD_MS };

@@ -48,3 +48,16 @@ test('a power monitor that throws is not locked', async () => {
   assert.strictEqual(lock.locked(), false);
   assert.strictEqual(await lock.unlocked(10), true);
 });
+
+test('onLocked: called each time the screen locks, until it is stopped', () => {
+  const m = monitor('active');
+  const lock = createLock({ powerMonitor: m });
+  let calls = 0;
+  const off = lock.onLocked(() => { calls += 1; });
+  m.emit('lock-screen');
+  m.emit('lock-screen');
+  off();
+  m.emit('lock-screen');
+  assert.strictEqual(calls, 2);
+  assert.strictEqual(m.listenerCount('lock-screen'), 0);
+});

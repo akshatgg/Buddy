@@ -174,6 +174,11 @@ internal fun readChat(shared: Shared, text: String?): ChatReply {
             else -> return plain.copy(what = if (j.string("what").lowercase() == "missed") "missed" else "now")
         }
     }
+    // A job on a computer (the desktop's computer agent): never put in an app, sent, or with notes; no job asks what to do.
+    if (kind == "do") {
+        val plain = out.copy(notes = emptyList(), doIt = false, send = false, again = false)
+        return if (plain.text.isEmpty()) plain.copy(kind = "answer", say = "", text = "What should I do?") else plain
+    }
     // A job for Claude Code (the desktop's): never put in an app, sent, or with notes.
     if (kind == "code") return out.copy(notes = emptyList(), doIt = false, send = false, again = false)
     // An answer given only as `say` is shown as the answer.

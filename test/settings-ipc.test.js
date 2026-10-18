@@ -1714,3 +1714,15 @@ test('settings round trip: models read from a store that held the old effort key
   assert.strictEqual(s.store.get('claudeEffort'), 'low');
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('agentOn: "Use my Mac for me" is on or off, and nothing else; agentAgreed cannot be set from the page', async () => {
+  const s = setup();
+  assert.strictEqual((await s.call('settings:get')).settings.agentOn, true);
+  assert.strictEqual((await s.call('settings:set', { agentOn: false })).settings.agentOn, false);
+  assert.strictEqual(s.store.get('agentOn'), false);
+  for (const agentOn of ['true', 1, null, {}]) {
+    assert.deepStrictEqual(await s.call('settings:set', { agentOn }), refused('bad_request', 'Use my Mac for me must be on or off.'), JSON.stringify(agentOn));
+  }
+  await s.call('settings:set', { agentAgreed: true });
+  assert.strictEqual(s.store.get('agentAgreed'), false);
+});

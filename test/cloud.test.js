@@ -7,7 +7,7 @@ const { STATUS } = require('../web/lib/handlers');
 
 const CONFIG = { serverUrl: 'https://buddy.example', firebaseApiKey: 'k', googleClientId: 'c', googleClientSecret: 's' };
 const SETTINGS = {
-  freeOn: true, limitMode: 'daily', limit: 30, usedToday: 2, allowOwnKey: false, blocked: false, isAdmin: false, voiceOn: true, clawdLook: 'head',
+  freeOn: true, limitMode: 'daily', limit: 30, usedToday: 2, allowOwnKey: false, blocked: false, isAdmin: false, voiceOn: true, clawdLook: 'head', agentRank: 'weak', agentVision: false,
 };
 const ok = (body) => ({ status: 200, body });
 const SERVER_PROBLEM = { code: 'server', message: "Buddy's server had a problem. Try again." };
@@ -65,12 +65,21 @@ test('settings: fetched with the ID token, kept in the store in a tidy shape, an
 });
 
 test('readSettings: anything missing or odd reads as off', () => {
-  const off = { freeOn: false, limitMode: 'daily', limit: null, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false, voiceOn: false, clawdLook: 'head' };
+  const off = { freeOn: false, limitMode: 'daily', limit: null, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false, voiceOn: false, clawdLook: 'head', agentRank: 'weak', agentVision: false };
   assert.deepStrictEqual(readSettings(null), off);
   assert.deepStrictEqual(readSettings({ freeOn: 'yes', limitMode: 'unlimited', isAdmin: 1, voiceOn: 'true' }), { ...off, limitMode: 'unlimited' });
   assert.strictEqual(readSettings({ voiceOn: true }).voiceOn, true);
   assert.strictEqual(readSettings({ clawdLook: 'face' }).clawdLook, 'face', "where Clawd walks: the admin's choice");
   assert.strictEqual(readSettings({ clawdLook: 'eyes' }).clawdLook, 'head', 'anything else: on the head');
+});
+
+test('readSettings: the free AI\'s rank for jobs, weak unless the server says one of the ranks', () => {
+  assert.strictEqual(readSettings({ agentRank: 'best' }).agentRank, 'best');
+  assert.strictEqual(readSettings({ agentRank: 'ok' }).agentRank, 'ok');
+  assert.strictEqual(readSettings({ agentRank: 'super' }).agentRank, 'weak');
+  assert.strictEqual(readSettings({ agentVision: true }).agentVision, true);
+  assert.strictEqual(readSettings({}).agentVision, false);
+  assert.ok(SERVER_CODES.includes('free_no_agent'));
 });
 
 test('settings: fetched at most once a minute, unless forced', async () => {

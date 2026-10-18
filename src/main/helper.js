@@ -29,6 +29,13 @@ const DEFAULT_TIMEOUTS = {
   waFind: 15_000,
   waSend: 20_000,
   waCall: 20_000, // as waSend: its chat opened and its call started first
+  // The computer agent (src/main/agent/mac-hands.js): a big window's tree, an app that is slow to answer, long text.
+  axTree: 8_000,
+  axAct: 6_000,
+  menu: 6_000,
+  keys: 6_000,
+  typeText: 30_000,
+  screenshotScreen: 10_000,
   default: 5_000,
 };
 const MAX_RESTART_MS = 30_000;

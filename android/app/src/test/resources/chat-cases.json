@@ -586,6 +586,19 @@
       }
     },
     {
+      "raw": "{\"kind\":\"do\",\"say\":\"Here you go.\",\"text\":\"Some text\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "do",
+        "say": "Here you go.",
+        "text": "Some text",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false
+      }
+    },
+    {
       "raw": "{\"kind\":\"fix\",\"say\":\"Theek kar diya!\",\"text\":\"I am going.\",\"notes\":[\"\\\"go\\\" should be \\\"going\\\".\"],\"doIt\":true,\"send\":true,\"remember\":[\"You work in an office.\"],\"again\":true}",
       "reply": {
         "kind": "fix",
@@ -1250,6 +1263,32 @@
         "remember": [],
         "again": false,
         "app": ""
+      }
+    },
+    {
+      "raw": "{\"kind\":\"do\",\"say\":\"Theek hai!\",\"text\":\"Turn on dark mode.\",\"notes\":[\"x\"],\"doIt\":true,\"send\":true,\"remember\":[],\"again\":true}",
+      "reply": {
+        "kind": "do",
+        "say": "Theek hai!",
+        "text": "Turn on dark mode.",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false
+      }
+    },
+    {
+      "raw": "{\"kind\":\"do\",\"say\":\"\",\"text\":\"\",\"notes\":[],\"doIt\":false,\"send\":false,\"remember\":[],\"again\":false}",
+      "reply": {
+        "kind": "answer",
+        "say": "",
+        "text": "What should I do?",
+        "notes": [],
+        "doIt": false,
+        "send": false,
+        "remember": [],
+        "again": false
       }
     },
     {

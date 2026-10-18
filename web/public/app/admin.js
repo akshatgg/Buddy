@@ -74,6 +74,8 @@ export function startAdmin({ api, isAdmin, onSaved = () => {} }) {
     for (const r of radios('admin-limit')) r.checked = r.value === config.limitMode;
     $('admin-daily').value = String(config.dailyRequests);
     $('admin-own').checked = config.allowOwnKey;
+    $('admin-agent-jobs').value = String(config.agentJobsPerDay);
+    $('admin-agent-cap').value = String(config.agentSpendCap);
     for (const r of radios('admin-clawd')) r.checked = r.value === config.clawdLook;
     fillSelect('admin-provider', form.providers);
     syncForm();
@@ -167,6 +169,8 @@ export function startAdmin({ api, isAdmin, onSaved = () => {} }) {
       limitMode: checkedValue('admin-limit'),
       daily: $('admin-daily').value,
       own: $('admin-own').checked,
+      agentJobs: $('admin-agent-jobs').value,
+      agentCap: $('admin-agent-cap').value,
       provider: $('admin-provider').value,
       model: $('admin-model').value,
     });

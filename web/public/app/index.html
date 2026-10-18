@@ -137,6 +137,8 @@
           </div>
           <label class="switch" id="admin-daily-row"><span>Requests per user per day</span><input class="field num" id="admin-daily" type="number" min="1" max="10000" step="1" inputmode="numeric"></label>
           <label class="switch" id="admin-own-row"><span>Also let users add their own key<small>Used after their free requests run out.</small></span><input type="checkbox" id="admin-own"></label>
+          <label class="switch" id="admin-agent-jobs-row"><span>Free jobs per user per day<small>Jobs where Buddy uses their computer.</small></span><input class="field num" id="admin-agent-jobs" type="number" min="1" max="1000" step="1" inputmode="numeric"></label>
+          <label class="switch" id="admin-agent-cap-row"><span>Daily spend limit for jobs (US $)<small>For all free jobs together.</small></span><input class="field num" id="admin-agent-cap" type="number" min="0.5" max="1000" step="0.5" inputmode="decimal"></label>
           <label class="label" for="admin-provider">AI provider</label>
           <select class="field" id="admin-provider"></select>
           <label class="label" for="admin-model">Model</label>

@@ -49,13 +49,15 @@ export function modelsNote({ live, warning }) {
  * The switches as the form has them, for PUT /api/admin/settings. The daily box and "own key" are only read for a
  * daily limit (they are hidden for Unlimited), so what is left in them then cannot stop Unlimited from saving.
  */
-export function readForm({ enabled, limitMode, daily, own, provider, model }) {
+export function readForm({ enabled, limitMode, daily, own, provider, model, agentJobs, agentCap }) {
   const mode = limitMode || 'daily';
   const form = { enabled, limitMode: mode, provider, model };
   if (mode === 'daily') {
     form.dailyRequests = Number(daily);
     form.allowOwnKey = own;
   }
+  if (agentJobs !== undefined) form.agentJobsPerDay = Number(agentJobs === '' ? 5 : agentJobs); // blank means the default, not 0
+  if (agentCap !== undefined) form.agentSpendCap = Number(agentCap === '' ? 3 : agentCap);
   return form;
 }
 

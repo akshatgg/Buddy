@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { createBubbleWindow } = require('../src/main/bubble-window');
+const { createBubbleWindow, BUTTONS_HOLD_MS } = require('../src/main/bubble-window');
 const { BUBBLE_HIDE_MS } = require('../shared/voice-words');
 
 const BUDDY = { x: 1336, y: 400, width: 96, height: 112 };
@@ -35,10 +35,11 @@ function setup(t, { pointer = null } = {}) {
   const handlers = {};
   const ipcMain = { on: (channel, fn) => { handlers[channel] = fn; } };
   const clicks = [];
+  const buttons = [];
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const bubble = createBubbleWindow({ ipcMain, onClick: () => clicks.push('click'), cursor: () => pointer, BrowserWindow: FakeWindow });
+  const bubble = createBubbleWindow({ ipcMain, onClick: () => clicks.push('click'), onButton: (name, token) => buttons.push(token === undefined ? name : `${name}:${token}`), cursor: () => pointer, BrowserWindow: FakeWindow });
   const fromPage = () => ({ sender: made[0].webContents });
-  return { bubble, made, handlers, clicks, fromPage, win: () => made[0] };
+  return { bubble, made, handlers, clicks, buttons, fromPage, win: () => made[0] };
 }
 
 test('speak shows the words in the speech box, taking clicks only over the words', async (t) => {
@@ -100,4 +101,71 @@ test('a pointer resting where the words appear: the window takes it from the sta
   const s = setup(t, { pointer: { x: SPEECH_BOX.x + 10, y: SPEECH_BOX.y + 10 } });
   await s.bubble.speak('Paris.', AT);
   assert.deepStrictEqual(s.win().calls.filter((c) => c[0] === 'ignore').at(-1), ['ignore', false, { forward: true }]);
+});
+
+test('speak with buttons sends them; a known button pressed in a speech bubble reaches onButton', async (t) => {
+  const s = setup(t);
+  await s.bubble.speak('Delete 3 files? Say yes or no.', AT, ['yes', 'no']);
+  assert.deepStrictEqual(s.win().sent.at(-1), ['bubble:text', 'Delete 3 files? Say yes or no.', true, ['yes', 'no']]);
+  s.handlers['bubble:button'](s.fromPage(), 'yes');
+  s.handlers['bubble:button'](s.fromPage(), 'launch');
+  s.handlers['bubble:button']({ sender: {} }, 'no');
+  assert.deepStrictEqual(s.buttons, ['yes']);
+  s.bubble.hide();
+  await s.bubble.say('Copied', BUDDY, AREA);
+  s.handlers['bubble:button'](s.fromPage(), 'stop');
+  assert.deepStrictEqual(s.buttons, ['yes'], 'not while the short bubble shows');
+});
+
+test('a job\'s words with buttons stay up: release and the short bubble leave them; at most BUTTONS_HOLD_MS', async (t) => {
+  const s = setup(t);
+  await s.bubble.speak('Delete 3 files? Say yes or no.', AT, ['yes', 'no']);
+  s.bubble.release();
+  await Promise.resolve();
+  await Promise.resolve();
+  t.mock.timers.tick(BUBBLE_HIDE_MS + 60_000);
+  assert.strictEqual(s.win().visible, true, 'a minute later the question is still up');
+  await s.bubble.say('Copied', BUDDY, AREA);
+  assert.deepStrictEqual(s.win().sent.at(-1), ['bubble:text', 'Delete 3 files? Say yes or no.', true, ['yes', 'no']], 'the short bubble waits');
+  t.mock.timers.tick(BUTTONS_HOLD_MS);
+  assert.strictEqual(s.win().visible, false, 'never forever');
+});
+
+test('the job\'s end line, without buttons, ends the hold: it goes BUBBLE_HIDE_MS after release', async (t) => {
+  const s = setup(t);
+  await s.bubble.speak('Opening Settings…', AT, ['stop']);
+  await s.bubble.speak('Dark mode is on.', AT);
+  s.bubble.release();
+  await Promise.resolve();
+  await Promise.resolve();
+  t.mock.timers.tick(BUBBLE_HIDE_MS);
+  assert.strictEqual(s.win().visible, false);
+});
+
+test('words with buttons get a taller box, so the buttons fit; without, the usual box', async (t) => {
+  const s = setup(t);
+  await s.bubble.speak('Delete 3 files? Say yes or no.', AT, ['yes', 'no']);
+  assert.deepStrictEqual(s.win().calls.filter((c) => c[0] === 'bounds').at(-1), ['bounds', { ...SPEECH_BOX, height: 160 }]);
+  await s.bubble.speak('Done.', AT);
+  assert.deepStrictEqual(s.win().calls.filter((c) => c[0] === 'bounds').at(-1), ['bounds', SPEECH_BOX]);
+});
+
+test('hide ends the hold (the short bubble shows again); speak(null) keeps the hold timer', async (t) => {
+  const s = setup(t);
+  await s.bubble.speak('Go on?', AT, ['go-on']);
+  await s.bubble.speak(null, AT);
+  t.mock.timers.tick(BUTTONS_HOLD_MS);
+  assert.strictEqual(s.win().visible, false, 'null left the hold timer running');
+  await s.bubble.speak('Go on?', AT, ['go-on']);
+  s.bubble.hide();
+  await s.bubble.say('Copied', BUDDY, AREA);
+  assert.deepStrictEqual(s.win().sent.at(-1), ['bubble:text', 'Copied', false]);
+});
+
+test('speak with a token sends it after the buttons; the button press comes back with it', async (t) => {
+  const s = setup(t);
+  await s.bubble.speak('Delete?', AT, ['yes', 'no'], 'tok-1');
+  assert.deepStrictEqual(s.win().sent.at(-1), ['bubble:text', 'Delete?', true, ['yes', 'no'], 'tok-1']);
+  s.handlers['bubble:button'](s.fromPage(), 'yes', 'tok-1');
+  assert.deepStrictEqual(s.buttons, ['yes:tok-1']);
 });

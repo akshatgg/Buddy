@@ -16,7 +16,7 @@ const { shownName, SPELLING_HINT } = require('../wake');
 const { rankVoices, bestVoice, voiceLabel, shortName } = require('../voices');
 const { PROVIDER_ID: CLAUDE_ID, MODELS: CLAUDE_MODELS, MODEL_LABELS, GET_URL } = require('../claude/find');
 
-const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models', 'listenOnOpen', 'tagOn', 'wakeOn', 'home', 'notchLook', 'voiceName'];
+const SETTABLE = ['buddyId', 'buddyName', 'size', 'shortcut', 'provider', 'models', 'listenOnOpen', 'tagOn', 'agentOn', 'wakeOn', 'home', 'notchLook', 'voiceName'];
 const HOMES = ['notch', 'floating']; // where Buddy lives (src/main/home.js)
 const { LOOKS } = require('../notch-window'); // how Buddy shows in the notch
 const NAME_MAX = 24;
@@ -227,6 +227,9 @@ function registerSettingsIpc({
     }
     if (Object.hasOwn(changes, 'tagOn') && typeof changes.tagOn !== 'boolean') {
       throw new BuddyError('bad_request', 'Fix where I type must be on or off.');
+    }
+    if (Object.hasOwn(changes, 'agentOn') && typeof changes.agentOn !== 'boolean') {
+      throw new BuddyError('bad_request', 'Use my Mac for me must be on or off.');
     }
     if (Object.hasOwn(changes, 'voiceName') && changes.voiceName !== null && (typeof changes.voiceName !== 'string' || !changes.voiceName || changes.voiceName.length > 100)) {
       throw new BuddyError('bad_request', 'That voice is not valid.');

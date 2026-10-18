@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { EventEmitter } = require('node:events');
-const { createQuitGuard, QUIT_LIMIT_MS } = require('../src/main/quit');
+const { createQuitGuard, silenceOnQuit, QUIT_LIMIT_MS } = require('../src/main/quit');
 const { createEarWindow } = require('../src/main/ear-window');
 const { createWake } = require('../src/main/wake');
 
@@ -181,4 +181,22 @@ test('onQuit runs once, as the quit starts, even when a quit is asked for again;
   }
   assert.deepStrictEqual(ran, ['ear']);
   assert.strictEqual(guard.quitting(), true);
+});
+
+test('a quit stops a running job, and after it the job says nothing and opens no panel', () => {
+  const { app } = fakeElectron();
+  const guard = createQuitGuard({ app });
+  const shown = [];
+  const ui = { showPanel: () => shown.push('panel'), bubble: () => shown.push('bubble'), speech: () => shown.push('speech'), speechDone: () => shown.push('done') };
+  silenceOnQuit(ui, () => guard.quitting());
+  const stops = [];
+  guard.onQuit(() => stops.push('quit'));
+  ui.speech('a step');
+  app.emit('before-quit', {});
+  ui.speech('Stopped.');
+  ui.showPanel();
+  ui.bubble('x');
+  ui.speechDone();
+  assert.deepStrictEqual(stops, ['quit']);
+  assert.deepStrictEqual(shown, ['speech']);
 });

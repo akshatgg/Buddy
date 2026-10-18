@@ -370,6 +370,8 @@ function render({ fields = true } = {}) {
   $('version').textContent = snap.version ? `Buddy ${snap.version}` : '';
   $('update-auto').checked = snap.settings.checkForUpdates !== false;
   $('listen-on-open').checked = snap.settings.listenOnOpen !== false;
+  $('agent-on').checked = snap.settings.agentOn !== false;
+  $('agent-row').hidden = onWindows(); // Windows gets it in its own plan
   $('tag-on').checked = snap.settings.tagOn !== false;
   renderWake();
   renderMyVoice();
@@ -801,6 +803,7 @@ $('perm-microphone-btn').addEventListener('click', async () => {
   await renderPermissions(); // how it stands now that macOS has asked (which empties the line under the rows)
   if (!r.ok) showStatus('perm-status', r.error.message, 'error');
 });
+$('agent-on').addEventListener('change', () => save({ agentOn: $('agent-on').checked }, 'perm-status'));
 $('listen-on-open').addEventListener('change', () => save({ listenOnOpen: $('listen-on-open').checked }, 'listen-status'));
 $('voice').addEventListener('change', () => save({ voiceName: $('voice').value || null }, 'voice-status'));
 $('voice-play').addEventListener('click', async () => {

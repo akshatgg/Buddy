@@ -101,3 +101,9 @@ test('an effort an earlier build kept in models moves to claudeEffort, so Settin
   fs.writeFileSync(file, JSON.stringify({ claudeEffort: 'huge' }));
   assert.strictEqual(createStore({ file }).get('claudeEffort'), null, 'only the five levels');
 });
+
+test('the computer agent: on by default, and not yet agreed to', (t) => {
+  const store = createStore({ file: tmpFile(t) });
+  assert.strictEqual(store.get('agentOn'), true);
+  assert.strictEqual(store.get('agentAgreed'), false);
+});

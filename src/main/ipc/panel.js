@@ -109,6 +109,10 @@ function registerPanelIpc({
   ipcMain.on('panel:hush', (event) => {
     if (fromPanel(event.sender)) actions.hushVoice();
   });
+  // The panel's Stop button while a job runs.
+  ipcMain.on('panel:stop-job', (event) => {
+    if (fromPanel(event.sender)) actions.stopJob();
+  });
   ipcMain.on('panel:voice-level', (event, level) => {
     if (!fromPanel(event.sender) || typeof level !== 'number' || Number.isNaN(level)) return;
     ui.voiceLevel(Math.min(1, Math.max(0, level)));

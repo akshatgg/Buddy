@@ -34,7 +34,7 @@ const { createEarWindow } = require('./ear-window');
 const { createLock } = require('./lock');
 const { createTalkBack } = require('./talk-back');
 const { createWake } = require('./wake');
-const { createQuitGuard } = require('./quit');
+const { createQuitGuard, silenceOnQuit } = require('./quit');
 const { createVoiceModel } = require('./voice-model');
 const { createSpeakerModel } = require('./speaker-model');
 const { createVoiceCheck } = require('./voice-check');
@@ -42,7 +42,9 @@ const { createMyVoice } = require('./my-voice');
 const { createSettingsWindows } = require('./settings-windows');
 const { installAppMenu } = require('./app-menu');
 const { createActions } = require('./actions');
-const { createApps, appDirs, ownBundle } = require('./apps');
+const { createApps, appDirs, ownBundle, createSpotlight } = require('./apps');
+const { createMacHands } = require('./agent/mac-hands');
+const { createAgentRunner } = require('./agent/runner');
 const { sendKeyFor, undoKey } = require('./send-keys');
 const { createTray, updateMenuState } = require('./tray');
 const { createPower, loginItemsFor } = require('./power');
@@ -143,6 +145,7 @@ async function start(options = {}) {
   // A click on a speech bubble's words opens the chat it is about (onBubbleClick, below): it only opens, never closes.
   const bubble = createBubbleWindow({
     ipcMain, cursor: () => screen.getCursorScreenPoint(), onClick: () => { bubble.hide(); onBubbleClick(); },
+    onButton: (name, token) => agentRunner?.button(name, token), // a job's Stop / Yes / No / Go on; the token says which question
   });
   // Buddy as the rest of main sees it: in the notch (on a Mac with one) or the floating buddy, whichever is in use.
   const notch = createNotchWindow({ screen, look: () => store.get('notchLook') }); // the face or the eyes (Settings)
@@ -188,9 +191,11 @@ async function start(options = {}) {
       onChange: () => settingsIpc?.myVoiceChanged(), // the download's percent shows live
     })
     : null;
+  let agentRunner = null; // the computer agent (agent/runner.js), made once ui exists; Mac only
   const wake = wakeWanted
     ? createWake({
       store, ear, model: voiceModel, lock, microphone, power: { isOn: () => power.isOn() }, account, cloud, powerMonitor, myVoice,
+      agent: { running: () => agentRunner?.running() === true, stop: (reason) => agentRunner?.stop(reason) },
       actions: { transcribe: (...a) => actions.transcribe(...a), voice: (words) => actions.voice(words) }, talkBack: rawTalkBack,
       // Buddy's face for a wake (feelings.js) and its own lines in the speech bubble (bubble-window.js speak).
       feel: {
@@ -275,7 +280,7 @@ async function start(options = {}) {
     bubble: (text) => buddy.say(text),
     // A hands-free answer while the panel is hidden (actions.js quiet chat): its words in the speech bubble, held while
     // Buddy speaks (null keeps what is up), and gone a few seconds after.
-    speech: (text) => buddy.speak(text),
+    speech: (text, buttons, token) => buddy.speak(text, buttons, token),
     speechDone: () => buddy.speakDone(),
     status(value) { // Claude Code's status beside Buddy in the notch (claude/watch.js), and the session a click opens
       claudeSession = value?.session ?? null;
@@ -293,6 +298,27 @@ async function start(options = {}) {
     // Open folder on a finished job: the folder in the Finder (the Explorer on Windows).
     openFolder: (folder) => shell.openPath(folder),
   };
+  const spotlight = process.platform === 'darwin' ? createSpotlight({ execFile: options.execFile || execFile }) : null;
+  const macApps = process.platform === 'darwin'
+    ? createApps({ dirs: appDirs(app.getPath('home')), openPath: (p) => shell.openPath(p), own: ownBundle(app.getPath('exe')), spotlight })
+    : null;
+  if (spotlight) spotlight(); // warm the app list in the background (it answers at once with what it knows)
+  const macHands = process.platform === 'darwin' && !options.noAgent
+    ? createMacHands({ helper, apps: macApps, shell, spawn, home: app.getPath('home') })
+    : null;
+  agentRunner = process.platform === 'darwin' && !options.noAgent
+    ? createAgentRunner({
+      ai, helper, talkBack, ui, store, memory, myVoice,
+      lock, // lock.js: locked() before each act, and onLocked (powerMonitor 'lock-screen') stops a running job at once
+      hands: macHands,
+      userName: () => (account.user()?.name || '').trim().split(/\s+/)[0],
+      onChange: () => tray?.refresh(),
+    })
+    : null;
+  helper.on('esc', () => agentRunner?.stop('esc'));
+  helper.on('took_over', () => agentRunner?.tookOver());
+  silenceOnQuit(ui, () => quit.quitting()); // a job stopped by the quit says nothing and opens no window
+  quit.onQuit(() => agentRunner?.stop('quit'));
   const actions = createActions({
     helper,
     ai,
@@ -319,7 +345,9 @@ async function start(options = {}) {
     lock, // whether the Mac is locked, for a send or call that waits for the unlock
     jobs, // Claude Code jobs in the person's projects
     // "Open Safari": the Mac's apps, opened as the Finder would. Windows has none (yet).
-    apps: process.platform === 'darwin' ? createApps({ dirs: appDirs(app.getPath('home')), openPath: (p) => shell.openPath(p), own: ownBundle(app.getPath('exe')) }) : null,
+    apps: macApps,
+    agent: agentRunner,
+    eyes: macHands, // "what is this?" sees the whole screen and reads its text (null on Windows)
   });
   // The chat's own moods win over Claude Code's: chatBusy says a chat answer is in flight. While Buddy is off the
   // switch is only saved (active), and power's onChange starts the watcher when Buddy is turned on.
@@ -419,6 +447,7 @@ async function start(options = {}) {
     visible: buddy.isVisible(),
     isAdmin: account.isSignedIn() && cloud.last()?.isAdmin === true,
     update: updateMenuState(updater.state()),
+    agentRunning: agentRunner?.running() === true,
   });
   tray = createTray({
     getState: trayState,
@@ -432,6 +461,7 @@ async function start(options = {}) {
       openAdmin: () => windows.open('admin'),
       setBuddyOn: (on) => power.setOn(on),
       updateNow: () => updatesIpc.updateNow(),
+      stopJob: () => agentRunner?.stop('person'),
       quit: () => app.quit(),
     },
   });

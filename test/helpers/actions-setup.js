@@ -3,6 +3,7 @@
 // The fakes of test/actions.test.js, shared with test/voice-safety.test.js.
 const { BuddyError } = require('../../shared/errors');
 const { createActions } = require('../../src/main/actions');
+const { findApp } = require('../../src/main/apps');
 
 const APP = { pid: 7, bundleId: 'com.google.Chrome', name: 'Google Chrome' };
 const MAIL = { pid: 8, bundleId: 'com.apple.mail', name: 'Mail' };
@@ -57,6 +58,9 @@ function setup({
   openFails = '',
   talk = null,
   lock = { locked: () => false, unlocked: async () => true },
+  agent = null,
+  agentOn,
+  eyes = null,
 } = {}) {
   const log = [];
   const helper = {
@@ -173,15 +177,17 @@ function setup({
     helper,
     clipboard,
     ui,
-    store: { get: (key) => ({ buddyName: 'Aarav' })[key] },
+    store: { get: (key) => ({ buddyName: 'Aarav', ...(agentOn === undefined ? {} : { agentOn }) })[key] },
     ai,
     cloud,
     signedIn: () => signedIn,
     ...(voice ? { voice } : {}),
     jobs,
     talkBack: voice_,
+    agent,
+    eyes,
     lock,
-    apps: windows ? null : { list: () => givenApps, open: async (p) => { log.push(['openApp', p]); return openFails; } },
+    apps: windows ? null : { list: () => givenApps, find: (asked) => findApp(givenApps, asked), open: async (p) => { log.push(['openApp', p]); return openFails; } },
     memory,
     sendKeyFor: (app, platform) => {
       log.push(['sendKeyFor', app, platform]);
@@ -196,6 +202,7 @@ function setup({
   });
   return {
     actions,
+    ai,
     helper,
     log,
     cloud,
@@ -210,9 +217,29 @@ function setup({
   };
 }
 
+/** The agent runner (src/main/agent/runner.js) as actions.js uses it: each start answers the next result. */
+function fakeAgent(log, results = []) {
+  let busy = false;
+  return {
+    running: () => busy,
+    async start(job) {
+      log.push(['agentStart', job]);
+      busy = true;
+      try {
+        const next = results.length ? results.shift() : { end: 'done', line: 'Done.', steps: [] };
+        if (next instanceof Error) throw next;
+        return next;
+      } finally { busy = false; }
+    },
+    reply: (text) => { log.push(['agentReply', text]); return false; },
+    reassert: () => log.push(['reassert']),
+    stop: (reason) => log.push(['agentStop', reason]),
+  };
+}
+
 const failure = (code, message = code) => new BuddyError(code, message);
 const entries = (log, kind) => log.filter((e) => e[0] === kind);
 const chatOf = (s) => s.actions.state().chat;
 const lastItem = (s) => chatOf(s).at(-1);
 
-module.exports = { APP, MAIL, reply, fakeTalkBack, settle, setup, failure, entries, chatOf, lastItem };
+module.exports = { fakeAgent, APP, MAIL, reply, fakeTalkBack, settle, setup, failure, entries, chatOf, lastItem };

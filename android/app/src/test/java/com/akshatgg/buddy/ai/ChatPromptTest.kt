@@ -193,7 +193,7 @@ class ChatPromptTest {
         assertTrue(system.startsWith("You are Buddy"))
         assertTrue(system.contains("JSON only"))
         assertTrue(system.contains("all eight fields"))
-        assertEquals(listOf("write", "fix", "answer", "box", "screen", "send", "code", "message", "call", "open", "calls", "notifs"), TestShared.shared.chatKinds)
+        assertEquals(listOf("write", "fix", "answer", "box", "screen", "send", "code", "message", "call", "open", "calls", "notifs", "do"), TestShared.shared.chatKinds)
     }
 
     @Test fun aCallKeepsWhoAndHowAndNoText() {

@@ -8,6 +8,7 @@
 //            {"event": "keys", "kind": "flags", "keyCode": 61, "flags": 524608, "t": 81234567}   (while watchKeys is on)
 //            {"event": "keys", "kind": "other"}
 //            {"event": "tag", "pid": 123}   (while watchTyping is on: "@buddy …" was typed there, then a pause)
+//            {"event": "esc"} / {"event": "took_over"}   (while watchStop is on: a real Esc, or a real key or click)
 //
 // Commands run one at a time on a background queue; the main thread only runs
 // the run loop, so NSWorkspace notifications keep arriving while a command
@@ -1253,6 +1254,26 @@ func handle(_ msg: [String: Any]) {
             result = try waSend(args)
         case "waCall":
             result = try waCall(args)
+        case "axTree":
+            result = try axTree(args)
+        case "axAct":
+            result = try axAct(args)
+        case "menu":
+            result = try menu(args)
+        case "click":
+            result = try click(args)
+        case "drag":
+            result = try drag(args)
+        case "scroll":
+            result = try scroll(args)
+        case "keys":
+            result = try keys(args)
+        case "typeText":
+            result = try typeText(args)
+        case "screenshotScreen":
+            result = try screenshotScreen(args)
+        case "watchStop":
+            result = try watchStop(args)
         default:
             throw HelperError(code: "bad_request", message: "unknown command")
         }
@@ -1264,6 +1285,540 @@ func handle(_ msg: [String: Any]) {
         logLine("\(msg["cmd"] as? String ?? "a command") failed: \(error.localizedDescription)")
         send(["id": id, "ok": false, "error": ["code": "failed", "message": "Something went wrong. Try again."]])
     }
+}
+
+// MARK: - the computer agent's hands (docs/superpowers/specs/2026-10-18-computer-agent-design.md §6.5)
+//
+// The tree of the front window, acts on its elements by the ids of the last tree, the menu bar, the mouse, keys and
+// text, a picture of the whole screen without Buddy's own windows, and a listen-only tap that says when the person
+// presses Esc or takes over. Nothing here logs what it reads. Every event the helper posts carries buddyEventMark, so
+// that the stop tap knows its own.
+
+let buddyEventMark: Int64 = 0x42554459 // "BUDY"
+let axTreeLock = NSLock()
+var axTreeGen = 0
+var axTreePid: pid_t = 0
+var axTreeRefs: [String: AXUIElement] = [:]
+let flattenRoles: Set<String> = ["AXGroup", "AXScrollArea", "AXSplitGroup", "AXLayoutArea", "AXUnknown"]
+
+func markOwn(_ event: CGEvent?) {
+    event?.setIntegerValueField(.eventSourceUserData, value: buddyEventMark)
+}
+
+final class DictBox: @unchecked Sendable {
+    var value: Result<[String: Any], Error>?
+}
+
+/// The strict check for the agent's typing: true for a password field, and when the focused field cannot be told at
+/// all it refuses (focus_unknown), unlike focusedIsSecure above, which stays lenient for Fix and paste.
+func strictFocusSecure(_ pid: pid_t) throws -> Bool {
+    let app = AXUIElementCreateApplication(pid)
+    AXUIElementSetMessagingTimeout(app, 1.0)
+    var value: CFTypeRef?
+    let status = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &value)
+    switch status {
+    case .success:
+        guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return false }
+        return axIsSecure(value as! AXUIElement)
+    case .noValue, .attributeUnsupported:
+        return false // nothing has the focus: not a password field
+    default:
+        throw HelperError(code: "focus_unknown", message: "I can't tell where the cursor is, so I didn't type.")
+    }
+}
+
+func axFrame(_ e: AXUIElement) -> CGRect? {
+    guard let p = axAttr(e, kAXPositionAttribute), let s = axAttr(e, kAXSizeAttribute),
+          CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID() else { return nil }
+    var point = CGPoint.zero
+    var size = CGSize.zero
+    AXValueGetValue(p as! AXValue, .cgPoint, &point)
+    AXValueGetValue(s as! AXValue, .cgSize, &size)
+    return CGRect(origin: point, size: size)
+}
+
+func axValueText(_ e: AXUIElement) -> String? {
+    guard let v = axAttr(e, kAXValueAttribute) else { return nil }
+    if let s = v as? String { return s.isEmpty ? nil : s }
+    if let n = v as? NSNumber { return n.stringValue }
+    return nil
+}
+
+func axIsSecure(_ e: AXUIElement) -> Bool {
+    axString(e, kAXRoleAttribute) == "AXSecureTextField" || axString(e, kAXSubroleAttribute) == "AXSecureTextField"
+}
+
+func sameTitle(_ a: String, _ b: String) -> Bool {
+    let norm = { (s: String) in s.replacingOccurrences(of: "…", with: "").replacingOccurrences(of: "...", with: "")
+        .trimmingCharacters(in: .whitespaces).lowercased() }
+    return !a.isEmpty && norm(a) == norm(b)
+}
+
+func axTree(_ args: [String: Any]) throws -> [String: Any] {
+    let pid = try pidArg(args)
+    try needAccessibility()
+    let maxNodes = min(max(args["maxNodes"] as? Int ?? 600, 1), 2000)
+    let maxDepth = min(max(args["maxDepth"] as? Int ?? 25, 1), 40)
+    let app = AXUIElementCreateApplication(pid)
+    guard let window = axElement(app, kAXFocusedWindowAttribute) ?? axElement(app, kAXMainWindowAttribute) else {
+        axTreeLock.lock()
+        axTreeGen += 1
+        axTreeRefs = [:]
+        axTreeLock.unlock()
+        return ["gen": axTreeGen, "title": "", "nodes": [], "focused": NSNull(), "secureFocused": false, "truncated": false]
+    }
+    let focusedElement = axElement(app, kAXFocusedUIElementAttribute)
+    let deadline = Date().addingTimeInterval(5)
+    var truncated = false
+    let windowFrame = axFrame(window)
+    var displayIds = [CGDirectDisplayID](repeating: 0, count: 16)
+    var displayCount: UInt32 = 0
+    CGGetActiveDisplayList(16, &displayIds, &displayCount)
+    let displayRects = displayIds.prefix(Int(displayCount)).map { CGDisplayBounds($0) }
+    var refs: [String: AXUIElement] = [:]
+    var nodes: [[String: Any]] = []
+    var focusedId: String?
+    func walk(_ e: AXUIElement, _ depth: Int) {
+        if nodes.count >= maxNodes || depth > maxDepth || truncated { return }
+        if Date() > deadline { truncated = true; return }
+        let role = axString(e, kAXRoleAttribute)
+        let name = [axString(e, kAXTitleAttribute), axString(e, kAXDescriptionAttribute), axString(e, "AXPlaceholderValue"),
+                    axString(e, kAXHelpAttribute)].first { !$0.isEmpty } ?? ""
+        let frame = axFrame(e)
+        let visible = frame.map { f in
+            f.width > 0 && f.height > 0 && (windowFrame.map { f.intersects($0) } ?? true)
+                && (displayRects.isEmpty || displayRects.contains { f.intersects($0) })
+        } ?? true
+        if !visible { return }
+        var childDepth = depth
+        if !role.isEmpty && !(name.isEmpty && flattenRoles.contains(role)) {
+            let id = "e\(nodes.count + 1)"
+            refs[id] = e
+            let secure = axIsSecure(e)
+            var node: [String: Any] = ["id": id, "role": role, "subrole": axString(e, kAXSubroleAttribute),
+                                       "name": String(name.prefix(200)), "depth": depth]
+            if secure { node["secure"] = true } else if let value = axValueText(e) { node["value"] = String(value.prefix(300)) }
+            if let enabled = axAttr(e, kAXEnabledAttribute) as? Bool, !enabled { node["disabled"] = true }
+            if let selected = axAttr(e, kAXSelectedAttribute) as? Bool, selected { node["selected"] = true }
+            if let f = frame { node["frame"] = ["x": f.minX, "y": f.minY, "width": f.width, "height": f.height] }
+            if let focusedElement, CFEqual(focusedElement, e) { focusedId = id }
+            nodes.append(node)
+            childDepth = depth + 1
+        }
+        for kid in axKids(e) { walk(kid, childDepth) }
+    }
+    walk(window, 0)
+    axTreeLock.lock()
+    axTreeGen += 1
+    let gen = axTreeGen
+    axTreeRefs = refs
+    axTreePid = pid
+    axTreeLock.unlock()
+    let secureFocused = focusedElement.map(axIsSecure) ?? false
+    return ["gen": gen, "title": axString(window, kAXTitleAttribute), "nodes": nodes,
+            "focused": focusedId ?? NSNull(), "secureFocused": secureFocused, "truncated": truncated]
+}
+
+func axRef(_ args: [String: Any], pid: pid_t) throws -> AXUIElement {
+    guard let gen = args["gen"] as? Int, let id = args["id"] as? String else {
+        throw HelperError(code: "bad_request", message: "gen and id are required")
+    }
+    axTreeLock.lock()
+    defer { axTreeLock.unlock() }
+    guard pid == axTreePid else { throw HelperError(code: "stale_id", message: "That is a different app now. Look again.") }
+    guard gen == axTreeGen, let e = axTreeRefs[id] else {
+        throw HelperError(code: "stale_id", message: "That is not on the screen any more. Look again.")
+    }
+    return e
+}
+
+func postClick(_ point: CGPoint, right: Bool = false, count: Int = 1) {
+    let source = CGEventSource(stateID: .combinedSessionState)
+    let button: CGMouseButton = right ? .right : .left
+    let downType: CGEventType = right ? .rightMouseDown : .leftMouseDown
+    let upType: CGEventType = right ? .rightMouseUp : .leftMouseUp
+    let move = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: button)
+    markOwn(move)
+    move?.post(tap: .cghidEventTap)
+    for n in 1...max(1, min(count, 3)) {
+        let down = CGEvent(mouseEventSource: source, mouseType: downType, mouseCursorPosition: point, mouseButton: button)
+        let up = CGEvent(mouseEventSource: source, mouseType: upType, mouseCursorPosition: point, mouseButton: button)
+        down?.setIntegerValueField(.mouseEventClickState, value: Int64(n))
+        up?.setIntegerValueField(.mouseEventClickState, value: Int64(n))
+        markOwn(down)
+        markOwn(up)
+        down?.post(tap: .cghidEventTap)
+        usleep(30_000)
+        up?.post(tap: .cghidEventTap)
+        usleep(60_000)
+    }
+}
+
+func clickCentre(_ e: AXUIElement) throws {
+    guard let f = axFrame(e) else { throw HelperError(code: "no_frame", message: "I couldn't find where that is.") }
+    postClick(CGPoint(x: f.midX, y: f.midY))
+}
+
+func press(_ e: AXUIElement) throws {
+    if AXUIElementPerformAction(e, kAXPressAction as CFString) != .success { try clickCentre(e) }
+}
+
+func postKey(_ code: CGKeyCode, _ flags: CGEventFlags) {
+    let source = CGEventSource(stateID: .combinedSessionState)
+    let down = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true)
+    let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false)
+    down?.flags = flags
+    up?.flags = flags
+    markOwn(down)
+    markOwn(up)
+    down?.post(tap: .cghidEventTap)
+    up?.post(tap: .cghidEventTap)
+}
+
+func pick(_ e: AXUIElement, _ option: String) throws {
+    let role = axString(e, kAXRoleAttribute)
+    if ["AXPopUpButton", "AXComboBox", "AXMenuButton"].contains(role) {
+        try press(e)
+        usleep(300_000)
+        let menu = axFind(e) { axString($0, kAXRoleAttribute) == "AXMenu" } ?? e
+        guard let item = axFind(menu, { axString($0, kAXRoleAttribute) == "AXMenuItem" && sameTitle(axString($0, kAXTitleAttribute), option) }) else {
+            postKey(0x35, []) // Esc closes the menu that was opened
+            throw HelperError(code: "no_option", message: "There is no choice \"\(option)\" there.")
+        }
+        if AXUIElementPerformAction(item, kAXPressAction as CFString) != .success {
+            throw HelperError(code: "press_failed", message: "I couldn't choose \"\(option)\".")
+        }
+        return
+    }
+    if AXUIElementSetAttributeValue(e, kAXSelectedAttribute as CFString, kCFBooleanTrue) != .success { try press(e) }
+}
+
+func axAct(_ args: [String: Any]) throws -> [String: Any] {
+    let pid = try pidArg(args)
+    try needAccessibility()
+    let e = try axRef(args, pid: pid)
+    guard ensureFront(pid) != nil else { throw HelperError(code: "not_frontmost", message: "Could not switch to that app.") }
+    switch args["op"] as? String ?? "" {
+    case "press":
+        try press(e)
+    case "setValue":
+        if axIsSecure(e) { throw HelperError(code: "secure_field", message: "I don't type into password fields.") }
+        guard let text = args["value"] as? String else { throw HelperError(code: "bad_request", message: "value is required") }
+        if AXUIElementSetAttributeValue(e, kAXValueAttribute as CFString, text as CFTypeRef) != .success {
+            throw HelperError(code: "not_settable", message: "I couldn't type there.")
+        }
+    case "focus":
+        if AXUIElementSetAttributeValue(e, kAXFocusedAttribute as CFString, kCFBooleanTrue) != .success {
+            throw HelperError(code: "focus_failed", message: "I couldn't put the cursor there.")
+        }
+    case "toggle":
+        let want = args["value"] as? Bool ?? true
+        let isOn = (axAttr(e, kAXValueAttribute) as? NSNumber)?.intValue == 1
+        if isOn != want { try press(e) }
+    case "pick":
+        guard let option = args["value"] as? String else { throw HelperError(code: "bad_request", message: "value is required") }
+        try pick(e, option)
+    default:
+        throw HelperError(code: "bad_request", message: "op must be press, setValue, focus, toggle or pick")
+    }
+    return ["ok": true]
+}
+
+func menu(_ args: [String: Any]) throws -> [String: Any] {
+    let pid = try pidArg(args)
+    try needAccessibility()
+    guard let path = args["path"] as? [String], !path.isEmpty, path.count <= 6 else {
+        throw HelperError(code: "bad_request", message: "path must be 1 to 6 menu titles")
+    }
+    guard ensureFront(pid) != nil else { throw HelperError(code: "not_frontmost", message: "Could not switch to that app.") }
+    guard var current = axElement(AXUIElementCreateApplication(pid), kAXMenuBarAttribute) else {
+        throw HelperError(code: "no_menu", message: "This app has no menu bar.")
+    }
+    for (i, title) in path.enumerated() {
+        let items = axKids(current).flatMap { kid -> [AXUIElement] in
+            axString(kid, kAXRoleAttribute) == "AXMenu" ? axKids(kid) : [kid]
+        }
+        guard let item = items.first(where: { sameTitle(axString($0, kAXTitleAttribute), title) }) else {
+            throw HelperError(code: "no_menu_item", message: "There is no menu item \"\(title)\".")
+        }
+        if i == path.count - 1 {
+            if let enabled = axAttr(item, kAXEnabledAttribute) as? Bool, !enabled {
+                throw HelperError(code: "disabled", message: "\"\(title)\" can't be used right now.")
+            }
+            if AXUIElementPerformAction(item, kAXPressAction as CFString) != .success {
+                throw HelperError(code: "press_failed", message: "I couldn't use \"\(title)\".")
+            }
+        } else {
+            current = item
+        }
+    }
+    return ["ok": true]
+}
+
+func pointArg(_ value: Any?) throws -> CGPoint {
+    guard let p = value as? [String: Any], let x = (p["x"] as? NSNumber)?.doubleValue, let y = (p["y"] as? NSNumber)?.doubleValue else {
+        throw HelperError(code: "bad_request", message: "a point needs x and y")
+    }
+    return CGPoint(x: x, y: y)
+}
+
+func click(_ args: [String: Any]) throws -> [String: Any] {
+    try needAccessibility()
+    let point = try pointArg(args)
+    var hit: AXUIElement?
+    if AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit) == .success,
+       let hit, axIsSecure(hit) {
+        throw HelperError(code: "secure_field", message: "I don't click into password fields.")
+    }
+    postClick(point, right: args["right"] as? Bool == true, count: args["count"] as? Int ?? 1)
+    return ["ok": true]
+}
+
+func drag(_ args: [String: Any]) throws -> [String: Any] {
+    try needAccessibility()
+    let from = try pointArg(args["from"])
+    let to = try pointArg(args["to"])
+    let source = CGEventSource(stateID: .combinedSessionState)
+    let down = CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: from, mouseButton: .left)
+    markOwn(down)
+    down?.post(tap: .cghidEventTap)
+    usleep(60_000)
+    for n in 1...10 {
+        let t = CGFloat(n) / 10
+        let p = CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t)
+        let moved = CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged, mouseCursorPosition: p, mouseButton: .left)
+        markOwn(moved)
+        moved?.post(tap: .cghidEventTap)
+        usleep(20_000)
+    }
+    let up = CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: to, mouseButton: .left)
+    markOwn(up)
+    up?.post(tap: .cghidEventTap)
+    return ["ok": true]
+}
+
+func scroll(_ args: [String: Any]) throws -> [String: Any] {
+    try needAccessibility()
+    let point = try pointArg(args)
+    let lines: Int32 = 5
+    let dir = args["dir"] as? String ?? "down"
+    let dy: Int32 = dir == "up" ? lines : dir == "down" ? -lines : 0
+    let dx: Int32 = dir == "left" ? lines : dir == "right" ? -lines : 0
+    let source = CGEventSource(stateID: .combinedSessionState)
+    let move = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)
+    markOwn(move)
+    move?.post(tap: .cghidEventTap)
+    let wheel = CGEvent(scrollWheelEvent2Source: source, units: .line, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0)
+    markOwn(wheel)
+    wheel?.post(tap: .cghidEventTap)
+    return ["ok": true]
+}
+
+let namedKeys: [String: CGKeyCode] = [
+    "enter": 0x24, "return": 0x24, "tab": 0x30, "space": 0x31, "delete": 0x33, "backspace": 0x33, "esc": 0x35,
+    "escape": 0x35, "forwarddelete": 0x75, "home": 0x73, "end": 0x77, "pageup": 0x74, "pagedown": 0x79, "left": 0x7B,
+    "right": 0x7C, "down": 0x7D, "up": 0x7E, "f1": 0x7A, "f2": 0x78, "f3": 0x63, "f4": 0x76, "f5": 0x60, "f6": 0x61,
+    "f7": 0x62, "f8": 0x64, "f9": 0x65, "f10": 0x6D, "f11": 0x67, "f12": 0x6F,
+]
+// Where an American keyboard has each character: only used when the person's own layout has no key for it.
+let usKeys: [String: CGKeyCode] = [
+    "a": 0x00, "s": 0x01, "d": 0x02, "f": 0x03, "h": 0x04, "g": 0x05, "z": 0x06, "x": 0x07, "c": 0x08, "v": 0x09,
+    "b": 0x0B, "q": 0x0C, "w": 0x0D, "e": 0x0E, "r": 0x0F, "y": 0x10, "t": 0x11, "1": 0x12, "2": 0x13, "3": 0x14,
+    "4": 0x15, "6": 0x16, "5": 0x17, "=": 0x18, "9": 0x19, "7": 0x1A, "-": 0x1B, "8": 0x1C, "0": 0x1D, "]": 0x1E,
+    "o": 0x1F, "u": 0x20, "[": 0x21, "i": 0x22, "p": 0x23, "l": 0x25, "j": 0x26, "'": 0x27, "k": 0x28, ";": 0x29,
+    "\\": 0x2A, ",": 0x2B, "/": 0x2C, "n": 0x2D, "m": 0x2E, ".": 0x2F, "`": 0x32,
+]
+let comboModifiers: [String: CGEventFlags] = [
+    "cmd": .maskCommand, "command": .maskCommand, "ctrl": .maskControl, "control": .maskControl, "alt": .maskAlternate,
+    "option": .maskAlternate, "opt": .maskAlternate, "shift": .maskShift, "fn": .maskSecondaryFn,
+]
+
+/// The key that types `char` in the person's layout (or the shortcut layout), as keyCode(_:_:) looks a letter up.
+func layoutKeyCode(_ char: String, command: Bool) -> CGKeyCode? {
+    let lookUp = { () -> CGKeyCode? in
+        let layouts: [() -> Unmanaged<TISInputSource>?] = [
+            TISCopyCurrentKeyboardLayoutInputSource, TISCopyCurrentASCIICapableKeyboardLayoutInputSource,
+        ]
+        for copy in layouts {
+            guard let source = copy()?.takeRetainedValue() else { continue }
+            if let code = keyCode(typing: char, in: source, command: command) { return code }
+        }
+        return nil
+    }
+    return Thread.isMainThread ? lookUp() : DispatchQueue.main.sync(execute: lookUp)
+}
+
+func keys(_ args: [String: Any]) throws -> [String: Any] {
+    let pid = try pidArg(args)
+    try needAccessibility()
+    guard let combo = args["combo"] as? String, !combo.isEmpty, combo.count <= 40 else {
+        throw HelperError(code: "bad_request", message: "combo is required")
+    }
+    var flags: CGEventFlags = []
+    var code: CGKeyCode?
+    for part in combo.lowercased().split(separator: "+").map({ $0.trimmingCharacters(in: .whitespaces) }) {
+        if let flag = comboModifiers[part] { flags.insert(flag); continue }
+        guard code == nil else { throw HelperError(code: "bad_request", message: "One key at a time.") }
+        code = namedKeys[part] ?? (part.count == 1 ? (layoutKeyCode(part, command: flags.contains(.maskCommand)) ?? usKeys[part]) : nil)
+        if code == nil { throw HelperError(code: "bad_request", message: "Unknown key: \(part)") }
+    }
+    guard let key = code else { throw HelperError(code: "bad_request", message: "No key in the combo.") }
+    guard ensureFront(pid) != nil else { throw HelperError(code: "not_frontmost", message: "Could not switch to that app.") }
+    if try strictFocusSecure(pid) && !(flags.isEmpty && [0x24, 0x30, 0x35].contains(key)) {
+        throw HelperError(code: "secure_field", message: "I don't type into password fields.")
+    }
+    postKey(key, flags)
+    return ["ok": true]
+}
+
+func typeText(_ args: [String: Any]) throws -> [String: Any] {
+    let pid = try pidArg(args)
+    try needAccessibility()
+    guard let text = args["text"] as? String, !text.isEmpty, text.count <= 4000 else {
+        throw HelperError(code: "bad_request", message: "text is required")
+    }
+    guard ensureFront(pid) != nil else { throw HelperError(code: "not_frontmost", message: "Could not switch to that app.") }
+    let source = CGEventSource(stateID: .combinedSessionState)
+    let clean = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        .replacingOccurrences(of: "\t", with: " ")
+    for (n, line) in clean.components(separatedBy: "\n").enumerated() {
+        if try strictFocusSecure(pid) { throw HelperError(code: "secure_field", message: "I don't type into password fields.") }
+        if n > 0 { postKey(0x24, .maskShift) } // Shift+Return: a new line, which a chat app does not take as Send
+        // Chunks of at most 20 UTF-16 units, never splitting a character.
+        var chunks: [[UInt16]] = []
+        var current: [UInt16] = []
+        for ch in line {
+            let units = Array(String(ch).utf16)
+            if current.count + units.count > 20 { chunks.append(current); current = [] }
+            current += units
+        }
+        if !current.isEmpty { chunks.append(current) }
+        for chunk in chunks {
+            if try strictFocusSecure(pid) { throw HelperError(code: "secure_field", message: "I don't type into password fields.") }
+            let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true)
+            let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
+            chunk.withUnsafeBufferPointer { p in
+                down?.keyboardSetUnicodeString(stringLength: p.count, unicodeString: p.baseAddress)
+                up?.keyboardSetUnicodeString(stringLength: p.count, unicodeString: p.baseAddress)
+            }
+            markOwn(down)
+            markOwn(up)
+            down?.post(tap: .cghidEventTap)
+            up?.post(tap: .cghidEventTap)
+            usleep(12_000)
+        }
+    }
+    return ["ok": true]
+}
+
+func captureScreen(pid: pid_t?, maxEdge: Int) async throws -> [String: Any] {
+    let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+    var display = content.displays.first
+    if let pid, let windowId = frontWindowId(pid), let window = content.windows.first(where: { $0.windowID == windowId }) {
+        display = content.displays.first(where: { $0.frame.intersects(window.frame) }) ?? display
+    }
+    guard let display else { throw HelperError(code: "no_window", message: "No screen to capture.") }
+    let own = content.applications.filter { $0.processID == ownerPid || $0.processID == getpid() }
+    let filter = SCContentFilter(display: display, excludingApplications: own, exceptingWindows: [])
+    let scale = CGFloat(filter.pointPixelScale)
+    var width = display.frame.width * scale
+    var height = display.frame.height * scale
+    let longEdge = max(width, height)
+    if longEdge > CGFloat(maxEdge) {
+        width *= CGFloat(maxEdge) / longEdge
+        height *= CGFloat(maxEdge) / longEdge
+    }
+    let config = SCStreamConfiguration()
+    config.width = Int(width)
+    config.height = Int(height)
+    config.showsCursor = false
+    let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+    guard let jpeg = NSBitmapImageRep(cgImage: image).representation(using: .jpeg, properties: [.compressionFactor: 0.7]) else {
+        throw HelperError(code: "capture_failed", message: "Could not encode the screenshot.")
+    }
+    return ["image": jpeg.base64EncodedString(), "width": Int(width), "height": Int(height),
+            "origin": ["x": display.frame.minX, "y": display.frame.minY],
+            "pointsPerPixel": display.frame.width / CGFloat(Int(width))]
+}
+
+func screenshotScreen(_ args: [String: Any]) throws -> [String: Any] {
+    if !CGPreflightScreenCaptureAccess() {
+        throw HelperError(code: "no_screen_recording", message: "Buddy needs Screen Recording permission to see your screen. Open Settings (⚙︎) to allow it.")
+    }
+    let pid = (args["pid"] as? Int).map { pid_t($0) }
+    let maxEdge = min(max(args["maxEdge"] as? Int ?? 1280, 320), 1568)
+    let box = DictBox()
+    let done = DispatchSemaphore(value: 0)
+    Task {
+        do { box.value = .success(try await captureScreen(pid: pid, maxEdge: maxEdge)) } catch { box.value = .failure(error) }
+        done.signal()
+    }
+    done.wait()
+    switch box.value {
+    case .success(let value): return value
+    case .failure(let error as HelperError): throw error
+    case .failure(let error):
+        logLine("the screen capture failed: \(error.localizedDescription)")
+        throw HelperError(code: "capture_failed", message: "Could not take the screenshot. Try again.")
+    case nil: throw HelperError(code: "capture_failed", message: "No screenshot.")
+    }
+}
+
+var stopTap: CFMachPort?
+
+func ownWindowAt(_ point: CGPoint) -> Bool {
+    guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return false }
+    for info in list {
+        guard let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+              let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary), rect.contains(point),
+              (info[kCGWindowAlpha as String] as? Double ?? 1) > 0 else { continue }
+        let owner = info[kCGWindowOwnerPID as String] as? Int ?? 0
+        return owner == Int(ownerPid) || owner == Int(getpid())
+    }
+    return false
+}
+
+func onStopEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
+    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        if let tap = stopTap { CGEvent.tapEnable(tap: tap, enable: true) }
+        return Unmanaged.passUnretained(event)
+    }
+    if event.getIntegerValueField(.eventSourceUserData) == buddyEventMark { return Unmanaged.passUnretained(event) }
+    if type == .keyDown {
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        if event.getIntegerValueField(.keyboardEventKeycode) == 0x35 { send(["event": "esc"]) }
+        else if front != ownerPid && front != getpid() { send(["event": "took_over"]) }
+    } else if (type == .leftMouseDown || type == .rightMouseDown) && !ownWindowAt(event.location) {
+        send(["event": "took_over"])
+    }
+    return Unmanaged.passUnretained(event)
+}
+
+func watchStop(_ args: [String: Any]) throws -> [String: Any] {
+    let on = args["on"] as? Bool == true
+    if on { try needAccessibility() }
+    let change = { () -> Bool in
+        if on {
+            if stopTap != nil { return true }
+            let mask = CGEventMask(1 << CGEventType.keyDown.rawValue) | CGEventMask(1 << CGEventType.leftMouseDown.rawValue)
+                | CGEventMask(1 << CGEventType.rightMouseDown.rawValue)
+            guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
+                                              eventsOfInterest: mask, callback: onStopEvent, userInfo: nil) else { return false }
+            CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            stopTap = tap
+            return true
+        }
+        if let tap = stopTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+            stopTap = nil
+        }
+        return true
+    }
+    let ok = Thread.isMainThread ? change() : DispatchQueue.main.sync(execute: change)
+    if !ok { throw HelperError(code: "no_accessibility", message: "Buddy needs Accessibility permission to hear Esc.") }
+    return ["on": on]
 }
 
 // MARK: - start

@@ -201,6 +201,12 @@ test('reading the selection, pasting and pressing keys wait on the person\'s app
     waFind: 15_000,
     waSend: 20_000,
     waCall: 20_000,
+    axTree: 8_000,
+    axAct: 6_000,
+    menu: 6_000,
+    keys: 6_000,
+    typeText: 30_000,
+    screenshotScreen: 10_000,
     default: 5_000,
   });
 });

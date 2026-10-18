@@ -85,6 +85,7 @@ test('a call, an app to open, the phone\'s calls or its notifications say where 
   assert.deepStrictEqual(answerItem(chat({ kind: 'open', app: 'YouTube' }).chat), line(ELSEWHERE.open));
   assert.deepStrictEqual(answerItem(chat({ kind: 'calls', what: 'missed' }).chat), line(ELSEWHERE.calls));
   assert.deepStrictEqual(answerItem(chat({ kind: 'notifs', app: '' }).chat), line(ELSEWHERE.notifs));
+  assert.deepStrictEqual(answerItem(chat({ kind: 'do', say: 'Theek hai!', text: 'Turn on dark mode.' }).chat), line(ELSEWHERE.do));
 });
 
 test('a box answer leaves the buddy idle, not happy', async () => {

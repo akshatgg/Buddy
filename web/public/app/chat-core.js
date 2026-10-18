@@ -51,6 +51,7 @@ export function answerItem(reply) {
   if (reply.kind === 'open') return item(ELSEWHERE.open);
   if (reply.kind === 'calls') return item(ELSEWHERE.calls);
   if (reply.kind === 'notifs') return item(ELSEWHERE.notifs);
+  if (reply.kind === 'do') return item(ELSEWHERE.do); // a job on a computer (the Mac's agent): not on the phone
   if (!reply.say && !reply.text && !reply.notes.length) return item(NO_ANSWER);
   return item(reply.say, reply.text, reply.notes);
 }

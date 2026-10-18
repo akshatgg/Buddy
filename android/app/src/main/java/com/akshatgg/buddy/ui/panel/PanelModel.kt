@@ -108,6 +108,7 @@ private const val RESUME_MS = 5 * 60_000L // a panel only hidden comes back on t
 private const val HISTORY = 6
 private const val COPIED = "Copied — long-press the box and tap Paste"
 internal const val READY = "Your answer is ready. Open me to see it."
+private const val ON_THE_MAC = "I can use apps for you on the Mac for now." // shared/prompts.js ELSEWHERE.do
 private const val NO_SEND = "I can't press Send on Android. Press Send yourself."
 private const val NO_TYPE = "Turn on \"Buddy can type for you\" in Settings to let me read your box."
 private const val NO_BOX = "Tap in the box you are writing in, then open me again."
@@ -671,6 +672,10 @@ class PanelModel(
 
     /** The final answer: what it shows, and what Buddy does in the app. */
     private suspend fun finish(c: Chat, reply: ChatReply, from: From, sent: String): Outcome {
+        if (reply.kind == "do") { // a job on a computer: the phone does not run jobs (yet)
+            add(c) { BuddySaid(it, ON_THE_MAC, "", emptyList(), emptyList()) }
+            return Outcome.ANSWERED
+        }
         if (reply.kind == "message") return message(c, reply)
         if (reply.kind == "open") return openApp(c, reply)
         if (reply.kind == "call" && reply.how == "phone") return phoneCall(c, reply)

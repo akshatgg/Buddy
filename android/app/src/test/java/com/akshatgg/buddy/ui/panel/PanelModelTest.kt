@@ -299,6 +299,14 @@ class PanelModelTest {
         assertEquals(listOf(ChatTurn("you", "boss ko mail"), ChatTurn("buddy", "Ye lo!\n\nDear Sir, I need leave.")), asked.last().history)
     }
 
+    @Test fun aJobForTheComputerIsOnlyALineOnThePhone() = runTest {
+        answers(written("Turn on dark mode.", kind = "do", say = "Theek hai!"))
+        val m = model()
+        m.say("dark mode on karo")
+        advanceUntilIdle()
+        assertEquals(BuddySaid(2, "I can use apps for you on the Mac for now.", "", emptyList(), emptyList()), m.last())
+    }
+
     @Test fun anAnswerOnlyCopiesAndASendIsThePersonsToDo() = runTest {
         answers(written("It means tomorrow.", kind = "answer"), written("", kind = "send"))
         val m = model()

@@ -45,6 +45,8 @@ const ACTION_TYPES = {
 };
 const MAC_ABILITIES = Object.freeze(Object.keys(ACTION_TYPES));
 
+// The AI's own flag can only raise risk, so any truthy value counts (except the words for no).
+const isRisky = (v) => Boolean(v) && !(typeof v === 'string' && ['false', 'no', '0'].includes(v.trim().toLowerCase()));
 const cut = (value, max) => String(value).trim().slice(0, max);
 const isNum = (v) => (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)));
 
@@ -99,7 +101,7 @@ function parseStep(text, { abilities = MAC_ABILITIES } = {}) {
     ok: true,
     say: typeof j.say === 'string' ? cut(j.say, STEP_LIMITS.say) : '',
     thought: typeof j.thought === 'string' ? cut(j.thought, STEP_LIMITS.thought) : '',
-    risky: j.risky === true || j.risky === 1 || (typeof j.risky === 'string' && j.risky.trim().toLowerCase() === 'true'),
+    risky: isRisky(j.risky),
     action,
   };
 }

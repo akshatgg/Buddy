@@ -18,7 +18,7 @@ test('fences and words around the JSON are forgiven', () => {
 });
 
 test('say is cut to 60 characters and thought to 200; risky only when true', () => {
-  const step = parseStep(JSON.stringify({ say: 'x'.repeat(100), thought: 'y'.repeat(300), risky: 'yes', action: { type: 'look' } }));
+  const step = parseStep(JSON.stringify({ say: 'x'.repeat(100), thought: 'y'.repeat(300), risky: 'no', action: { type: 'look' } }));
   assert.strictEqual(step.say.length, STEP_LIMITS.say);
   assert.strictEqual(step.thought.length, STEP_LIMITS.thought);
   assert.strictEqual(step.risky, false);
@@ -63,8 +63,8 @@ test('describe gives a short line for the log', () => {
   assert.strictEqual(describe({ type: 'menu', path: ['File', 'Export…'] }), 'menu "File > Export…"');
 });
 
-test('risky as the text "true" or the number 1 counts as risky', () => {
-  for (const risky of ['true', 'TRUE', 1]) {
+test('risky as any truthy value counts as risky', () => {
+  for (const risky of ['true', 'TRUE', 'yes', 1, true]) {
     assert.strictEqual(parseStep(JSON.stringify({ risky, action: { type: 'look' } })).risky, true, String(risky));
   }
   assert.strictEqual(parseStep(JSON.stringify({ risky: 'false', action: { type: 'look' } })).risky, false);

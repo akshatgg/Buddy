@@ -81,8 +81,6 @@ function normPath(path) {
 const isSecretPath = (path) => SECRET_PATHS.test(unquote(path)) || SECRET_PATHS.test(normPath(path) || '');
 
 const webLink = (arg) => /^https?:\/\/[^\s'"]+$/i.test(arg);
-// A folder: no flag, no scheme (tel:, slack://) and no file extension (.pdf, .pkg): "~/Downloads", ".".
-const folderLike = (arg) => !arg.startsWith('-') && !/^[a-z][a-z0-9+.-]*:/i.test(arg) && !/\.[A-Za-z0-9]{1,8}$/.test(arg.replace(/\/+$/, ''));
 const PATH_WORD = /^[\w@%+,.:/~ -]+$/;
 const PLAIN_WORD = /^[\w .,:@%+-]+$/;
 const GLOB = /[*?[\]]/;
@@ -176,7 +174,6 @@ function checkArgs(cmd, args) {
       }
       return '';
     }
-    if (args.length === 1 && PATH_WORD.test(args[0].text) && folderLike(args[0].text)) return '';
     return bad('open can start apps, calls or installers');
   }
   return bad();
@@ -224,6 +221,7 @@ function comfortSetting(action, name, role) {
 function settingsNever(action, name) {
   const p = plain(name);
   if (/ buddy /.test(p)) return never("I don't change my own permissions");
+  if (/ firewall /.test(p)) return never("I don't change the firewall");
   if (/ file ?vault /.test(p) && (action.on === false || / turn off /.test(p))) return never("I don't turn off FileVault");
   if (/ gatekeeper | anywhere /.test(p)) return never("I don't change what apps may open");
   return null;
@@ -290,9 +288,8 @@ function filesRisk(action, c) {
   if (['copy', 'move', 'rename'].includes(action.op) && c.exists) return ask('it replaces a file', `Replace "${base(action.to || '')}"?`);
   if (action.op === 'write' && c.exists) return ask('it replaces a file', `Replace "${base(action.path)}"?`);
   if (['copy', 'move'].includes(action.op) && action.to) {
-    const from = normPath(action.path);
     const to = normPath(action.to);
-    if (from && underHome(from) && to && !underHome(to)) return ask('it leaves your home folder', `Put "${base(action.path)}" outside your home folder?`);
+    if (to && !underHome(to)) return ask('it leaves your home folder', `Put "${base(action.path)}" outside your home folder?`);
   }
   return safe();
 }

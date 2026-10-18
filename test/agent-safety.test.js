@@ -23,7 +23,8 @@ test('deleting, overwriting and risky words ask, with a question written by the 
   const trash = riskOf({ type: 'files', op: 'trash', path: '/Users/a/Downloads/x.pdf' }, ctx());
   assert.deepStrictEqual([trash.risk, trash.question], ['ask', 'Move "x.pdf" to the Trash?']);
   assert.strictEqual(risk({ type: 'files', op: 'move', path: '/a/x', to: '/b/x' }, { exists: true }), 'ask');
-  assert.strictEqual(risk({ type: 'files', op: 'move', path: '/a/x', to: '/b/x' }, { exists: false }), 'safe');
+  assert.strictEqual(risk({ type: 'files', op: 'move', path: '/a/x', to: '/b/x' }, { exists: false }), 'ask', 'destination outside home');
+  assert.strictEqual(risk({ type: 'files', op: 'move', path: '~/a/x', to: '~/b/x' }, { exists: false }), 'safe');
   assert.strictEqual(risk({ type: 'files', op: 'write', path: '/a/x.txt', text: 'hi' }, { exists: true }), 'ask');
   const buy = riskOf({ type: 'click', id: 'e4' }, ctx({ app: CHROME, target: { role: 'button', name: 'Place order' } }));
   assert.deepStrictEqual([buy.risk, buy.question], ['ask', 'Click "Place order" in Google Chrome?']);
@@ -52,8 +53,9 @@ test('settings: comfort settings need no question; other changes ask; moving aro
   for (const name of ['Dark', 'Wi-Fi', 'Bluetooth', 'Output volume', 'Brightness', 'Do Not Disturb']) {
     assert.strictEqual(risk({ type: 'toggle', id: 'e2', on: true }, { app: SETTINGS, target: { role: 'switch', name } }), 'safe', name);
   }
-  const fw = riskOf({ type: 'toggle', id: 'e2', on: false }, ctx({ app: SETTINGS, target: { role: 'switch', name: 'Firewall' } }));
-  assert.deepStrictEqual([fw.risk, fw.question], ['ask', 'Change "Firewall" in System Settings?']);
+  const sec = riskOf({ type: 'toggle', id: 'e2', on: false }, ctx({ app: SETTINGS, target: { role: 'switch', name: 'Stage Manager' } }));
+  assert.deepStrictEqual([sec.risk, sec.question], ['ask', 'Change "Stage Manager" in System Settings?']);
+  assert.strictEqual(risk({ type: 'toggle', id: 'e2', on: false }, { app: SETTINGS, target: { role: 'switch', name: 'Firewall' } }), 'never');
   assert.strictEqual(risk({ type: 'click', id: 'e9' }, { app: SETTINGS, target: { role: 'row', name: 'Privacy & Security' } }), 'safe');
   assert.strictEqual(risk({ type: 'pick', id: 'e3', option: 'Dark' }, { app: SETTINGS, target: { role: 'popup', name: 'Appearance' } }), 'safe');
 });
@@ -124,7 +126,7 @@ test('commands: read-only ones are safe, sudo and disk wiping never, everything 
 test('commands: every part is checked, after & and |& too; secret files are never read; open only a web link or a folder', () => {
   for (const c of [
     'ls & rm -rf ~/Documents', 'ls |& rm x', 'pwd; brew install x', 'open tel:+911234', 'open slack://open', 'open -a Safari',
-    'open ~/Downloads/report.pdf', 'open', 'grep -r password ~', 'grep -ri token ~/code', 'grep --recursive key ~', 'cat ~/notes/*',
+    'open ~/Downloads/report.pdf', 'open ~/Downloads', 'open .', 'open', 'grep -r password ~', 'grep -ri token ~/code', 'grep --recursive key ~', 'cat ~/notes/*',
   ]) {
     assert.strictEqual(commandRisk(c).risk, 'ask', c);
   }
@@ -134,7 +136,7 @@ test('commands: every part is checked, after & and |& too; secret files are neve
   ]) {
     assert.strictEqual(commandRisk(c).risk, 'never', c);
   }
-  for (const c of ['open ~/Downloads', 'open .', 'open https://example.com https://example.org', 'grep -i invoice ~/notes.txt', 'ls & pwd']) {
+  for (const c of ['open https://example.com https://example.org', 'grep -i invoice ~/notes.txt', 'ls & pwd']) {
     assert.strictEqual(commandRisk(c).risk, 'safe', c);
   }
   assert.strictEqual(riskOf({ type: 'run', command: 'cat ~/.ssh/id_rsa' }, ctx()).reason, 'that file holds keys or passwords');

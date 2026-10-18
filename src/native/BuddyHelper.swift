@@ -1314,10 +1314,17 @@ final class DictBox: @unchecked Sendable {
 func strictFocusSecure(_ pid: pid_t) throws -> Bool {
     let app = AXUIElementCreateApplication(pid)
     AXUIElementSetMessagingTimeout(app, 1.0)
-    guard let element = axElement(app, kAXFocusedUIElementAttribute) else {
+    var value: CFTypeRef?
+    let status = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &value)
+    switch status {
+    case .success:
+        guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return false }
+        return axIsSecure(value as! AXUIElement)
+    case .noValue, .attributeUnsupported:
+        return false // nothing has the focus: not a password field
+    default:
         throw HelperError(code: "focus_unknown", message: "I can't tell where the cursor is, so I didn't type.")
     }
-    return axIsSecure(element)
 }
 
 func axFrame(_ e: AXUIElement) -> CGRect? {
@@ -1418,7 +1425,7 @@ func axRef(_ args: [String: Any], pid: pid_t) throws -> AXUIElement {
     }
     axTreeLock.lock()
     defer { axTreeLock.unlock() }
-    guard pid == axTreePid else { throw HelperError(code: "stale", message: "That is a different app now. Look again.") }
+    guard pid == axTreePid else { throw HelperError(code: "stale_id", message: "That is a different app now. Look again.") }
     guard gen == axTreeGen, let e = axTreeRefs[id] else {
         throw HelperError(code: "stale_id", message: "That is not on the screen any more. Look again.")
     }
@@ -1502,7 +1509,7 @@ func axAct(_ args: [String: Any]) throws -> [String: Any] {
         }
     case "focus":
         if AXUIElementSetAttributeValue(e, kAXFocusedAttribute as CFString, kCFBooleanTrue) != .success {
-            return ["ok": false, "error": "focus_failed"]
+            throw HelperError(code: "focus_failed", message: "I couldn't put the cursor there.")
         }
     case "toggle":
         let want = args["value"] as? Bool ?? true
@@ -1539,7 +1546,7 @@ func menu(_ args: [String: Any]) throws -> [String: Any] {
                 throw HelperError(code: "disabled", message: "\"\(title)\" can't be used right now.")
             }
             if AXUIElementPerformAction(item, kAXPressAction as CFString) != .success {
-                return ["ok": false, "error": "press_failed"]
+                throw HelperError(code: "press_failed", message: "I couldn't use \"\(title)\".")
             }
         } else {
             current = item

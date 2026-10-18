@@ -5,7 +5,7 @@
  * points, the origin at the primary screen's top-left), so they can be tested without Electron.
  */
 
-const { PANEL, SPEECH, clampToArea } = require('./geometry');
+const { PANEL, SPEECH, SPEECH_BUTTONS, clampToArea } = require('./geometry');
 
 const WING = 44; // the black wing on each side of the notch, where an eye is
 const WING_HOVER = 56; // the wing while the pointer is over it
@@ -26,7 +26,7 @@ function panelUnderNotch(notch, area, size = PANEL) {
 }
 
 /** The speech bubble under the notch: as the panel goes there, at the speech bubble's size. */
-const speechUnderNotch = (notch, area) => panelUnderNotch(notch, area, SPEECH);
+const speechUnderNotch = (notch, area, withButtons = false) => panelUnderNotch(notch, area, withButtons ? SPEECH_BUTTONS : SPEECH);
 
 const near = (a, b) => Math.abs(a - b) <= 1;
 

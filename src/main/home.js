@@ -87,7 +87,7 @@ function createHome({ floating, notch, bubble, store, helper, screen, platform =
     },
     panelAt,
     /** A hands-free answer in the speech bubble (bubble-window.js speak), where the panel would go. Null keeps the words up. */
-    speak: (text) => bubble.speak(text, panelAt()),
+    speak: (text, buttons = []) => bubble.speak(text, panelAt(), buttons),
     /** Buddy stopped speaking: the speech bubble goes a few seconds later. */
     speakDone: () => bubble.release(),
     where: () => where,

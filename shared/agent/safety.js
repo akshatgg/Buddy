@@ -40,8 +40,17 @@ const INSTALLER_FILES = /\.(pkg|mpkg|dmg|app|command|sh|tool|scpt|terminal|workf
 const TERMINAL_APPS = [
   'com.apple.Terminal', 'com.googlecode.iterm2', 'dev.warp.Warp-Stable', 'dev.warp.Warp', 'com.apple.ScriptEditor2', 'com.mitchellh.ghostty',
   'net.kovidgoyal.kitty', 'com.microsoft.VSCode', 'com.todesktop.230313mzl4w4u92', 'org.alacritty', 'co.zeit.hyper', 'org.tabby',
+  'com.github.wez.wezterm', 'com.apple.Automator', 'com.apple.shortcuts',
 ];
-const TERMINAL_NAMES = /^(terminal|iterm2?|warp|script editor|ghostty|kitty|visual studio code|code|cursor|alacritty|hyper|tabby)$/i;
+const TERMINAL_PREFIXES = ['com.jetbrains.'];
+const TERMINAL_NAMES = /^(terminal|iterm2?|warp|script editor|ghostty|kitty|visual studio code|code|cursor|alacritty|hyper|tabby|wezterm|automator|shortcuts|intellij idea.*|pycharm.*|webstorm|goland|clion|rider|phpstorm|rubymine|datagrip|android studio)$/i;
+// Every key name a step may press (the hands refuse any other); an unknown name asks.
+const KEY_NAMES = Object.freeze([
+  ...'abcdefghijklmnopqrstuvwxyz0123456789'.split(''), ...Array.from({ length: 20 }, (_, i) => `f${i + 1}`),
+  'enter', 'return', 'kp_enter', 'tab', 'space', 'escape', 'esc', 'backspace', 'delete', 'up', 'down', 'left', 'right', 'home', 'end',
+  'pageup', 'pagedown', 'page up', 'page down', '-', '=', '[', ']', '\\', ';', "'", ',', '.', '/', '`',
+]);
+const KEY_MODIFIERS = ['cmd', 'command', 'ctrl', 'control', 'alt', 'option', 'opt', 'shift', 'fn'];
 const TERMINAL_KEYS = ['up', 'down', 'left', 'right', 'escape', 'esc', 'pageup', 'pagedown', 'page up', 'page down'];
 const PASSWORD_PAGES = /bitwarden|1password|lastpass|dashlane|passwords\.google|google password manager|password manager/i;
 const SAFE_TYPES = ['open_app', 'open_settings', 'look', 'scroll', 'focus', 'wait', 'handover', 'ask_user', 'done', 'stuck'];
@@ -199,6 +208,16 @@ function checkArgs(cmd, args) {
   return bad();
 }
 
+/** The words of a read-only command that are file paths (not flags, numbers or search words). */
+function relativeArgs(cmd, args) {
+  const texts = args.map((a) => a.text);
+  const isPath = (w) => !w.startsWith('-') && !/^https?:/i.test(w) && !/^\d+$/.test(w);
+  if (FLAG_CMDS[cmd]?.paths) return texts.filter(isPath);
+  if (cmd === 'find') { const i = texts.findIndex((w) => w.startsWith('-')); return (i < 0 ? texts : texts.slice(0, i)); }
+  if (cmd === 'grep') { const rest = texts.filter((w) => !w.startsWith('-')); return rest.slice(1); }
+  return [];
+}
+
 /**
  * A shell command (spec §7.2(1)): an allow-list. Safe only when the whole command is plain words (no $ { } ` \ < > ( ),
  * no unquoted wildcards or "X=" assignments), split on ; && || | |& & and line breaks into parts that are each one of a
@@ -218,6 +237,7 @@ function commandRisk(command) {
     if (first.quoted || !/^[a-z_]+$/.test(first.text) || !(Object.hasOwn(FLAG_CMDS, first.text) || ['mdfind', 'find', 'grep', 'open'].includes(first.text))) return complex;
     const why = checkArgs(first.text, args);
     if (why) return { risk: 'ask', reason: why };
+    if (relativeArgs(first.text, args).some((a) => relative(a))) return { risk: 'ask', reason: 'it uses a path I cannot check' };
     if (args.some((a) => !a.text.startsWith('-') && !/^https?:/i.test(a.text) && hiddenPath(a.text))) return { risk: 'ask', reason: 'it looks in a hidden or system folder' };
   }
   return { risk: 'safe', reason: '' };
@@ -228,7 +248,7 @@ function messaging(c) {
 }
 
 const inSettings = (c) => SETTINGS_APPS.includes(c.app?.id);
-const inTerminal = (c) => (Boolean(c.app) && (TERMINAL_APPS.includes(c.app.id) || TERMINAL_NAMES.test(c.app.name || '')))
+const inTerminal = (c) => (Boolean(c.app) && (TERMINAL_APPS.includes(c.app.id) || TERMINAL_PREFIXES.some((x) => String(c.app.id || '').startsWith(x)) || TERMINAL_NAMES.test(c.app.name || '')))
   || /terminal/i.test(`${c.target?.role || ''} ${c.target?.subrole || ''} ${c.target?.description || ''}`);
 
 /** A comfort setting (spec §15): the right kind of control, a comfort name, and no risk word ("Reset Bluetooth…" asks). */
@@ -295,11 +315,14 @@ function writeTargetRisk(path) {
   return null;
 }
 
+const relative = (p) => normPath(p) === null;
+
 function filesRisk(action, c) {
   for (const p of [action.path, action.to]) {
     if (p && isSecretPath(p)) return never('that file holds keys or passwords');
   }
   for (const p of [action.path, action.to]) {
+    if (p && relative(p)) return ask('it is not clear where this is', `Use "${short(p)}"?`);
     if (p && hiddenPath(p)) return ask('it is a hidden or system folder', `Use "${short(p)}"?`);
   }
   if (action.op === 'trash') return ask('it deletes', `Move "${base(action.path)}" to the Trash?`);
@@ -335,7 +358,8 @@ function keysRisk(action, c) {
   const parts = action.combo.toLowerCase().split('+').map((p) => p.trim());
   const key = parts.at(-1);
   const mods = parts.slice(0, -1);
-  const enter = key === 'enter' || key === 'return' || (mods.includes('ctrl') && (key === 'j' || key === 'm'));
+  if (!KEY_NAMES.includes(key) || !mods.every((m) => KEY_MODIFIERS.includes(m))) return ask('that key is not known', `Press ${short(action.combo)} in ${c.app?.name || 'this app'}?`);
+  const enter = key === 'enter' || key === 'return' || key === 'kp_enter' || (mods.includes('ctrl') && (key === 'j' || key === 'm'));
   const app = c.app?.name || 'this app';
   if (enter && messaging(c)) return ask('it sends', `Send this in ${app}?`);
   if (inTerminal(c)) {
@@ -417,7 +441,7 @@ function riskOf(action, ctx = {}) {
   const r = baseRisk(action, c);
   if (r.risk === 'safe') {
     const key = action.type === 'keys' ? action.combo.toLowerCase().split('+').pop().trim() : '';
-    const keyAct = ['enter', 'return', 'space'].includes(key) || (action.type === 'keys' && /ctrl\+[jm]$/i.test(action.combo));
+    const keyAct = ['enter', 'return', 'kp_enter', 'space'].includes(key) || (action.type === 'keys' && /ctrl\+[jm]$/i.test(action.combo));
     if ((CONTEXT_CHECKED.includes(action.type) || keyAct) && (hasWord(c.dialog, RISK_WORDS) || hasWord(c.title, RISK_WORDS))) {
       return ask('the window mentions something risky', `Go ahead in ${c.app?.name || 'this app'}?`);
     }
@@ -426,4 +450,4 @@ function riskOf(action, ctx = {}) {
   return r;
 }
 
-module.exports = { riskOf, commandRisk, isPasswordApp, RISK_WORDS, COMFORT_WORDS, COMFORT_NAMES, COMFORT_ROLES, READ_ONLY_COMMANDS };
+module.exports = { KEY_NAMES, KEY_MODIFIERS, riskOf, commandRisk, isPasswordApp, RISK_WORDS, COMFORT_WORDS, COMFORT_NAMES, COMFORT_ROLES, READ_ONLY_COMMANDS };

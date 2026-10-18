@@ -327,3 +327,35 @@ test('lookalike letters are folded; mixed alphabets ask', () => {
   assert.strictEqual(risk({ type: 'click', id: 'e1' }, { target: { role: 'button', name: 'Ѕhаre it' } }), 'ask');
   assert.strictEqual(risk({ type: 'click', id: 'e1' }, { target: { role: 'button', name: 'Cаncel' } }), 'ask', 'mixed alphabets');
 });
+
+// ---- review round 4 ----
+const { KEY_NAMES } = require('../shared/agent/safety');
+
+test('more terminal-like apps: WezTerm, Automator, Shortcuts, JetBrains', () => {
+  for (const app of [{ name: 'WezTerm', id: 'com.github.wez.wezterm' }, { name: 'Automator', id: 'com.apple.Automator' }, { name: 'Shortcuts', id: 'com.apple.shortcuts' }, { name: 'PyCharm', id: 'com.jetbrains.pycharm' }, { name: 'X', id: 'com.jetbrains.intellij' }, { name: 'WebStorm', id: 'x' }]) {
+    assert.strictEqual(risk({ type: 'keys', combo: 'enter' }, { app }), 'ask', app.name);
+    assert.strictEqual(risk({ type: 'type', text: 'rm x' }, { app }), 'ask', app.name);
+  }
+});
+
+test('relative paths ask, in files and in shell commands', () => {
+  for (const op of ['read', 'list', 'write', 'new_folder']) {
+    assert.strictEqual(risk({ type: 'files', op, path: 'Library/Containers/x/token.json', text: 'x' }), 'ask', op);
+  }
+  assert.strictEqual(risk({ type: 'files', op: 'read', path: 'notes.txt' }), 'ask');
+  assert.strictEqual(risk({ type: 'files', op: 'copy', path: '~/a.txt', to: 'b.txt' }), 'ask');
+  for (const c of ['cat Library/Containers/x/token.json', 'ls Downloads', 'ls .', 'head -n 5 notes.txt', 'find Library -name x', 'grep x notes.txt', 'du -sh Library']) notSafe(commandRisk(c));
+  assert.strictEqual(commandRisk('grep -i invoice ~/notes.txt').risk, 'safe');
+  assert.strictEqual(commandRisk('ls').risk, 'safe');
+});
+
+test('key names: unknown names and modifiers ask; kp_enter, ctrl+j and ctrl+m are Enter', () => {
+  assert.ok(KEY_NAMES.includes('kp_enter') && KEY_NAMES.includes('a') && KEY_NAMES.includes('f12'));
+  for (const combo of ['cmd+flarb', 'enter+x', 'hyper+a', 'cmd+Ж', 'cmd+']) assert.strictEqual(risk({ type: 'keys', combo }), 'ask', combo);
+  assert.strictEqual(risk({ type: 'keys', combo: 'cmd+t' }), 'safe');
+  for (const combo of ['kp_enter', 'enter', 'return', 'ctrl+j', 'ctrl+m']) {
+    assert.strictEqual(risk({ type: 'keys', combo }, { app: SLACK }), 'ask', combo);
+    assert.strictEqual(risk({ type: 'keys', combo }, { app: TERM }), 'ask', combo);
+    assert.strictEqual(risk({ type: 'keys', combo }, { dialog: 'Hello' }), 'ask', combo);
+  }
+});

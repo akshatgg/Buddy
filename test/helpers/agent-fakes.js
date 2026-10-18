@@ -46,7 +46,7 @@ function fakeHands({ screens, start, moves = {}, exists = [], fail = [] }) {
     },
     async act(action, observation, options = {}) {
       // Same contract as the real hands: it works out its own risk and wants the exact question approved.
-      const r = riskOf(action, await this.riskContext(action, observation, options));
+      const r = riskOf(await this.canonical(action), await this.riskContext(action, observation, options));
       if (r.risk === 'never') return { ok: false, code: 'refused', note: `I won't do that: ${r.reason}.` };
       if (r.risk === 'ask' && options.approved !== r.question) return { ok: false, code: 'needs_approval', note: 'I need a yes first.', question: r.question };
       actOptions.push(options);

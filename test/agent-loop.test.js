@@ -67,7 +67,7 @@ test('stale element ids and click_at without a screenshot are refused without ac
 test('look asks for a screenshot on the next step; a poor tree gets one by itself; none for a blind model', async () => {
   const s = job({ replies: [step('', { type: 'look' }), step('', { type: 'done', summary: 'ok' })] });
   await s.j.run();
-  assert.deepStrictEqual(s.hands.looks, [false, true]);
+  assert.deepStrictEqual(s.hands.looks, [false, false, true]);
   const poor = job({ screens: { canvas: { elements: [el('e1', 'webarea', '')] } }, start: 'canvas', replies: [step('', { type: 'done', summary: 'ok' })] });
   await poor.j.run();
   assert.deepStrictEqual(poor.hands.looks, [false, true]);
@@ -259,4 +259,42 @@ test('helper and hands codes become failures or refusals the AI can read', async
     await s.j.run();
     assert.strictEqual(s.b.inputs[1].log[0], `1. click e1 → ${kind}: note ${code}`, code);
   }
+});
+
+test('a password app is never photographed, even when the AI asked to look', async () => {
+  const s = job({ screens: { pw: { app: { name: '1Password', id: 'com.1password.1password' }, elements: [] } }, start: 'pw', replies: [] });
+  await s.j.run();
+  assert.deepStrictEqual(s.hands.looks, [false]);
+});
+
+test('wait honours the stop at once', async () => {
+  const s = job({ replies: [step('', { type: 'wait', ms: 3000 })] });
+  const slow = createAgentJob({ goal: 'x', brain: s.b, hands: s.hands, gate: s.g, show: () => {}, limits: LIMITS, sleep: () => new Promise(() => {}) });
+  setTimeout(() => slow.stop('esc'), 10);
+  const r = await slow.run();
+  assert.strictEqual(r.end, 'stopped');
+});
+
+test('an error shows a fixed line and the code, never the error message', async () => {
+  const err = Object.assign(new Error('secret screen text'), { code: 'no_key' });
+  const r = await job({ replies: [err] }).j.run();
+  assert.strictEqual(r.line, 'Something went wrong (no_key).');
+  assert.ok(!r.line.includes('secret'));
+  const plain = await job({ replies: [new Error('secret')] }).j.run();
+  assert.strictEqual(plain.line, 'Something went wrong.');
+});
+
+test('the question asked is for the canonical action the hands resolved', async () => {
+  const s = job({ start: 'files', answers: ['yes'], replies: [step('', { type: 'files', op: 'trash', path: '/Users/a/link.pdf' }), step('', { type: 'done', summary: 'ok' })] });
+  s.hands.canonical = async (a) => ({ ...a, path: '/Users/a/real.pdf' });
+  await s.j.run();
+  assert.deepStrictEqual(s.g.asked, [['ask', 'Move "real.pdf" to the Trash?']]);
+});
+
+test('the time limit is checked after a step, before the next', async () => {
+  let t = 0;
+  const times = [0, 0, 0, 100_000];
+  const s = job({ replies: [step('A…', { type: 'scroll', dir: 'down' }), step('', { type: 'done', summary: 'ok' })], now: () => (t < times.length ? times[t++] : 100_000) });
+  const r = await s.j.run();
+  assert.strictEqual(r.end, 'limit');
 });

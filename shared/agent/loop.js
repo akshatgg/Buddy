@@ -135,10 +135,12 @@ function createAgentJob({
           if (!go) { stop('person'); return end('stopped'); }
         }
         if (calls >= limits.maxSteps || now() - started > limits.maxMs) return end('limit');
-        let observation = await hands.observe({ screenshot: vision && wantShot && shots < limits.maxShots });
+        // Look without a screenshot first: a password app is found before any picture of it is taken.
+        let observation = await hands.observe({ screenshot: false });
         // A password app (spec §7.4): the job stops here, and the AI never sees what is in it.
         if (isPasswordApp(observation.app)) return { ...end('stuck'), line: LOOP_LINES.passwordApp };
-        if (!observation.screen && vision && shots < limits.maxShots && observation.treeQuality !== 'good' && !observation.secureFocused) {
+        const canShot = vision && shots < limits.maxShots && !observation.secureFocused;
+        if (canShot && (wantShot || observation.treeQuality !== 'good')) {
           observation = await hands.observe({ screenshot: true });
           if (isPasswordApp(observation.app)) return { ...end('stuck'), line: LOOP_LINES.passwordApp };
         }
@@ -159,12 +161,18 @@ function createAgentJob({
         }
         bad = 0;
         const { action } = step;
+        if (action.type !== 'done' && action.type !== 'stuck' && now() - started > limits.maxMs) return end('limit');
         const record = (result, text) => steps.push({ say: step.say, action, result, line: `${describe(action)} → ${text || result}` });
         if (step.say && action.type !== 'done' && action.type !== 'stuck') show({ kind: 'step', text: step.say });
         if (action.type === 'done') return end('done', action.summary);
         if (action.type === 'stuck') return end('stuck', action.reason);
         if (action.type === 'look') { wantShot = true; record('ok'); continue; }
-        if (action.type === 'wait') { await sleep(action.ms); record('ok'); continue; }
+        if (action.type === 'wait') {
+          await Promise.race([sleep(action.ms), new Promise((resolve) => { signal.addEventListener('abort', resolve, { once: true }); })]);
+          if (stopped) return end('stopped');
+          record('ok');
+          continue;
+        }
         if (action.type === 'ask_user') {
           const answer = await gate.askUser(action.question, { signal });
           if (stopped) return end('stopped');
@@ -189,12 +197,15 @@ function createAgentJob({
         const key = `${sig(observation)}\n${JSON.stringify(action)}`;
         const seen = (repeats.get(key) || 0) + 1;
         repeats.set(key, seen);
+        if (now() - started > limits.maxMs) return end('limit');
         if (fails >= MAX_FAILS) return end('stuck', LOOP_LINES.failing);
         if (seen >= MAX_REPEATS) return end('stuck', LOOP_LINES.sameThing);
       }
     } catch (err) {
       if (stopped) return end('stopped');
-      return { ...end('error', err?.message || 'Something went wrong.'), error: err };
+      // A fixed plain line and the error code; the error's own message is never shown.
+      const code = typeof err?.code === 'string' && /^[a-z_]{2,30}$/i.test(err.code) ? err.code : '';
+      return { ...end('error', code ? `Something went wrong (${code}).` : 'Something went wrong.'), error: err };
     }
   }
 

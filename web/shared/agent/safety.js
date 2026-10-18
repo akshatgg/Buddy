@@ -13,7 +13,7 @@ const RISK_WORDS = [
   'install', 'update now', 'restart', 'shut down', 'log out', 'sign out', 'reset', 'format', 'allow', 'unlock',
   'reply', 'place order', 'accept', 'agree', 'book', 'book now', 'reserve', 'discard', 'replace', 'unsubscribe',
   'bhejo', 'bhejein', 'bhej', 'bhej do', 'bhugtan', 'bhugtaan', 'hatao', 'hata do', 'mitao', 'mita do', 'delete karo',
-  'kharido', 'pay karo',
+  'kharido', 'pay karo', 'place your order', 'cannot be undone', "can't be undone", 'permanently', 'permanent', "don't save", 'dont save',
   'भेजें', 'भेजो', 'हटाएं', 'मिटाएं', 'खरीदें', 'भुगतान', 'पुष्टि करें', 'स्वीकार',
 ];
 // Comfort settings (spec §15): no question. A name with one of these words anywhere, or exactly one of COMFORT_NAMES
@@ -28,15 +28,21 @@ const INSTALL_APPS = ['com.apple.installer', 'com.apple.AppStore'];
 const MESSAGING_APPS = [
   'com.apple.mail', 'com.apple.MobileSMS', 'net.whatsapp.WhatsApp', 'com.tinyspeck.slackmacgap', 'ru.keepcoder.Telegram',
   'com.hnc.Discord', 'com.microsoft.teams2', 'com.microsoft.Outlook', 'org.whispersystems.signal-desktop', 'com.facebook.archon',
+  'com.tencent.xinWeChat', 'jp.naver.line.mac', 'com.viber.osx', 'com.skype.skype', 'us.zoom.xos',
 ];
-const MESSAGING_TITLES = ['gmail', 'outlook', 'whatsapp', 'slack', 'telegram', 'discord', 'messenger', 'linkedin', 'twitter', 'instagram', 'facebook', 'teams', 'mail'];
+const MESSAGING_NAMES = /^(wechat|line|viber|skype|zoom|zoom\.us|google chat)$/i;
+const MESSAGING_TITLES = ['gmail', 'outlook', 'whatsapp', 'slack', 'telegram', 'discord', 'messenger', 'linkedin', 'twitter', 'instagram', 'facebook', 'teams', 'mail', 'wechat', 'viber', 'skype', 'zoom', 'google chat'];
 const PAY_TITLES = ['bank', 'banking', 'checkout', 'payment', 'pay', 'upi', 'wallet', 'billing', 'card'];
 const PASSWORD_APPS = ['com.1password.1password', 'com.agilebits.onepassword7', 'com.bitwarden.desktop', 'com.apple.keychainaccess', 'com.apple.Passwords', 'com.lastpass.LastPass', 'org.keepassxc.keepassxc'];
 const PASSWORD_NAMES = /1password|bitwarden|keychain access|lastpass|dashlane|keepass|^passwords$/i;
-const SECRET_PATHS = /(^|[/\s])(\.ssh|\.gnupg|\.aws|\.netrc|\.pgpass|\.git-credentials|\.npmrc|\.kube|\.env(\.[\w-]+)?|id_rsa[\w.]*|id_ed25519[\w.]*|id_ecdsa[\w.]*|logins\.json|key4\.db)([/\s]|$)|\.docker\/config\.json|\.config\/gh\/hosts\.yml|keychains?|login data|web data|cookies/i;
-const INSTALLER_FILES = /\.(pkg|mpkg|dmg|app|command|sh|tool|scpt|terminal|workflow|mobileconfig|prefpane|fileloc|webloc|jar|kext)$/i;
-const TERMINAL_APPS = ['com.apple.Terminal', 'com.googlecode.iterm2', 'dev.warp.Warp-Stable', 'dev.warp.Warp', 'com.apple.ScriptEditor2'];
-const TERMINAL_NAMES = /^(terminal|iterm2?|warp|script editor)$/i;
+const SECRET_PATHS = /(^|[/\s])(\.ssh|\.gnupg|\.aws|\.netrc|\.pgpass|\.git-credentials|\.npmrc|\.kube|\.buddy-release|\.claude|\.vercel|\.config\/gcloud|\.env(\.[\w-]+)?|id_rsa[\w.]*|id_ed25519[\w.]*|id_ecdsa[\w.]*|logins\.json|key4\.db)([/\s]|$)|\.docker\/config\.json|\.config\/gh\/hosts\.yml|keychains?|login data|web data|cookies/i;
+const INSTALLER_FILES = /\.(pkg|mpkg|dmg|app|command|sh|tool|scpt|terminal|workflow|mobileconfig|prefpane|fileloc|webloc|jar|kext|scptd|inetloc|saver|qlgenerator|plugin|bundle)$/i;
+const TERMINAL_APPS = [
+  'com.apple.Terminal', 'com.googlecode.iterm2', 'dev.warp.Warp-Stable', 'dev.warp.Warp', 'com.apple.ScriptEditor2', 'com.mitchellh.ghostty',
+  'net.kovidgoyal.kitty', 'com.microsoft.VSCode', 'com.todesktop.230313mzl4w4u92', 'org.alacritty', 'co.zeit.hyper', 'org.tabby',
+];
+const TERMINAL_NAMES = /^(terminal|iterm2?|warp|script editor|ghostty|kitty|visual studio code|code|cursor|alacritty|hyper|tabby)$/i;
+const TERMINAL_KEYS = ['up', 'down', 'left', 'right', 'escape', 'esc', 'pageup', 'pagedown', 'page up', 'page down'];
 const PASSWORD_PAGES = /bitwarden|1password|lastpass|dashlane|passwords\.google|google password manager|password manager/i;
 const SAFE_TYPES = ['open_app', 'open_settings', 'look', 'scroll', 'focus', 'wait', 'handover', 'ask_user', 'done', 'stuck'];
 const DOWNLOAD_LINKS = /\.(dmg|pkg|mpkg|exe|msi|apk|zip)(\?|#|$)/i;
@@ -50,7 +56,13 @@ const NEVER_COMMANDS = [
 ];
 
 // Case and Latin accents ignored, Devanagari kept; words are compared whole.
-const plain = (text) => ` ${String(text || '').normalize('NFD').toLowerCase().replace(/[\u0300-\u036f]/g, '').replace(/[^\u0900-\u097Fa-z0-9]+/g, ' ').trim()} `;
+const LOOKALIKES = {
+  а: 'a', е: 'e', о: 'o', р: 'p', с: 'c', у: 'y', х: 'x', і: 'i', ј: 'j', ѕ: 's', ԁ: 'd', к: 'k', н: 'h', т: 't', в: 'b',
+  α: 'a', ο: 'o', ν: 'v', ρ: 'p', ι: 'i', κ: 'k', τ: 't', υ: 'u', χ: 'x', ε: 'e',
+};
+const fold = (text) => String(text || '').normalize('NFKC').toLowerCase().replace(/[\u0370-\u03ff\u0400-\u04ff]/g, (ch) => LOOKALIKES[ch] || ch);
+const mixedScript = (text) => /[a-z]/i.test(String(text || '')) && /[\u0370-\u03ff\u0400-\u04ff]/.test(String(text || ''));
+const plain = (text) => ` ${fold(text).normalize('NFD').toLowerCase().replace(/[\u0300-\u036f]/g, '').replace(/[^\u0900-\u097Fa-z0-9]+/g, ' ').trim()} `;
 const hasWord = (text, words) => { const p = plain(text); return words.some((w) => p.includes(plain(w))); };
 const base = (path) => String(path).replace(/\/+$/, '').split('/').pop() || String(path);
 const short = (text, max = 80) => (String(text).length > max ? `${String(text).slice(0, max - 1)}…` : String(text));
@@ -67,7 +79,9 @@ const unquote = (text) => String(text).replace(/["'\\]/g, '');
 /** A path made comparable: lower case, "~" and /Users/<name> become "~", "." and ".." resolved. Relative paths: null. */
 function normPath(path) {
   let p = String(path || '').trim().toLowerCase();
+  p = p.replace(/^\/system\/volumes\/data(?=\/|$)/, '').replace(/^\/volumes\/macintosh hd(?=\/|$)/, '');
   if (p === '~' || p.startsWith('~/')) p = `/users/~${p.slice(1)}`;
+  if (p === '') p = '/';
   if (!p.startsWith('/')) return null;
   const out = [];
   for (const seg of p.split('/')) {
@@ -77,6 +91,12 @@ function normPath(path) {
   const full = `/${out.join('/')}`;
   const home = /^\/users\/[^/]+(\/.*)?$/.exec(full);
   return home ? `~${home[1] || ''}` : full;
+}
+/** Any part starting with "." (raw or resolved), or anything under ~/Library: reading or writing it asks. */
+function hiddenPath(path) {
+  const dotted = (p) => String(p || '').split('/').some((seg) => seg.startsWith('.') && seg !== '.' && seg !== '..');
+  const n = normPath(path);
+  return dotted(unquote(path)) || dotted(n) || Boolean(n && /^~\/library(\/|$)/.test(n));
 }
 const isSecretPath = (path) => SECRET_PATHS.test(unquote(path)) || SECRET_PATHS.test(normPath(path) || '');
 
@@ -198,17 +218,18 @@ function commandRisk(command) {
     if (first.quoted || !/^[a-z_]+$/.test(first.text) || !(Object.hasOwn(FLAG_CMDS, first.text) || ['mdfind', 'find', 'grep', 'open'].includes(first.text))) return complex;
     const why = checkArgs(first.text, args);
     if (why) return { risk: 'ask', reason: why };
-    if (args.some((a) => a.text.includes('..') ? isSecretPath(a.text) : false)) return { risk: 'never', reason: 'that file holds keys or passwords' };
+    if (args.some((a) => !a.text.startsWith('-') && !/^https?:/i.test(a.text) && hiddenPath(a.text))) return { risk: 'ask', reason: 'it looks in a hidden or system folder' };
   }
   return { risk: 'safe', reason: '' };
 }
 
 function messaging(c) {
-  return MESSAGING_APPS.includes(c.app?.id) || hasWord(c.title, MESSAGING_TITLES);
+  return MESSAGING_APPS.includes(c.app?.id) || MESSAGING_NAMES.test(c.app?.name || '') || hasWord(c.title, MESSAGING_TITLES);
 }
 
 const inSettings = (c) => SETTINGS_APPS.includes(c.app?.id);
-const inTerminal = (c) => Boolean(c.app) && (TERMINAL_APPS.includes(c.app.id) || TERMINAL_NAMES.test(c.app.name || ''));
+const inTerminal = (c) => (Boolean(c.app) && (TERMINAL_APPS.includes(c.app.id) || TERMINAL_NAMES.test(c.app.name || '')))
+  || /terminal/i.test(`${c.target?.role || ''} ${c.target?.subrole || ''} ${c.target?.description || ''}`);
 
 /** A comfort setting (spec §15): the right kind of control, a comfort name, and no risk word ("Reset Bluetooth…" asks). */
 function comfortSetting(action, name, role) {
@@ -239,6 +260,7 @@ function elementRisk(action, c, target) {
     const n = settingsNever(action, name);
     if (n) return n;
   }
+  if (mixedScript(name) || mixedScript(action.option)) return ask('the label mixes alphabets', `Click "${short(name || action.option)}" in ${app}?`);
   if (name && hasWord(name, RISK_WORDS)) return ask(`"${name}" can't be undone`, `Click "${short(name)}" in ${app}?`);
   if (action.type === 'pick' && action.option && hasWord(action.option, RISK_WORDS)) {
     return ask(`"${action.option}" can't be undone`, `Pick "${short(action.option)}" in ${app}?`);
@@ -277,6 +299,9 @@ function filesRisk(action, c) {
   for (const p of [action.path, action.to]) {
     if (p && isSecretPath(p)) return never('that file holds keys or passwords');
   }
+  for (const p of [action.path, action.to]) {
+    if (p && hiddenPath(p)) return ask('it is a hidden or system folder', `Use "${short(p)}"?`);
+  }
   if (action.op === 'trash') return ask('it deletes', `Move "${base(action.path)}" to the Trash?`);
   const writes = ['copy', 'move', 'rename', 'write', 'new_folder'].includes(action.op);
   if (writes) {
@@ -302,7 +327,7 @@ function urlRisk(url) {
   if (parsed.protocol === 'tel:' || parsed.protocol === 'facetime:' || parsed.protocol === 'facetime-audio:') return ask('it calls', `Call ${short(decodeURIComponent(parsed.pathname))}?`);
   if (parsed.protocol === 'sms:') return ask('it texts', `Text ${short(decodeURIComponent(parsed.pathname))}?`);
   if (!SAFE_SCHEMES.includes(parsed.protocol)) return ask('it opens another app', `Open this link: ${short(url)}?`);
-  if (DOWNLOAD_LINKS.test(parsed.pathname) || INSTALLER_FILES.test(parsed.pathname)) return ask('it downloads an installer', `Download ${short(base(parsed.pathname))}?`);
+  if (/download/i.test(parsed.search) || DOWNLOAD_LINKS.test(parsed.pathname) || INSTALLER_FILES.test(parsed.pathname)) return ask('it downloads an installer', `Download ${short(base(parsed.pathname))}?`);
   return safe();
 }
 
@@ -310,9 +335,13 @@ function keysRisk(action, c) {
   const parts = action.combo.toLowerCase().split('+').map((p) => p.trim());
   const key = parts.at(-1);
   const mods = parts.slice(0, -1);
-  const enter = key === 'enter' || key === 'return';
-  if (enter && messaging(c)) return ask('it sends', `Send this in ${c.app?.name || 'this app'}?`);
-  if (enter && inTerminal(c)) return ask('it runs a command', `Run this in ${c.app?.name || 'the terminal'}?`);
+  const enter = key === 'enter' || key === 'return' || (mods.includes('ctrl') && (key === 'j' || key === 'm'));
+  const app = c.app?.name || 'this app';
+  if (enter && messaging(c)) return ask('it sends', `Send this in ${app}?`);
+  if (inTerminal(c)) {
+    if (enter) return ask('it runs a command', c.line ? `Run "${short(c.line)}" in ${app}?` : `Run this in ${app}?`);
+    if (!TERMINAL_KEYS.includes(key)) return ask('keys in a terminal can run things', `Press ${short(action.combo)} in ${app}?`);
+  }
   if ((key === 'backspace' || key === 'delete') && mods.includes('cmd')) return ask('it deletes', 'Move the selected items to the Trash?');
   if ((enter || key === 'space') && c.dialog) return ask('a dialog is open', 'Answer the dialog?');
   if (enter || key === 'space') {
@@ -388,7 +417,7 @@ function riskOf(action, ctx = {}) {
   const r = baseRisk(action, c);
   if (r.risk === 'safe') {
     const key = action.type === 'keys' ? action.combo.toLowerCase().split('+').pop().trim() : '';
-    const keyAct = ['enter', 'return', 'space'].includes(key);
+    const keyAct = ['enter', 'return', 'space'].includes(key) || (action.type === 'keys' && /ctrl\+[jm]$/i.test(action.combo));
     if ((CONTEXT_CHECKED.includes(action.type) || keyAct) && (hasWord(c.dialog, RISK_WORDS) || hasWord(c.title, RISK_WORDS))) {
       return ask('the window mentions something risky', `Go ahead in ${c.app?.name || 'this app'}?`);
     }

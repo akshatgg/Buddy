@@ -260,3 +260,70 @@ test('never: Buddy permissions, FileVault, Gatekeeper, password manager pages, k
   assert.strictEqual(risk({ type: 'keys', combo: 'cmd+v' }, { secure: true }), 'never');
   assert.strictEqual(risk({ type: 'keys', combo: 'a' }, { secure: true }), 'never');
 });
+
+// ---- review round 3 ----
+test('hidden folders and ~/Library: reading or writing asks; Buddy and Claude secrets are never', () => {
+  assert.strictEqual(commandRisk('cat ~/.buddy-release/buddy-release-passwords.txt').risk, 'never');
+  assert.strictEqual(commandRisk('cat ~/.claude/.credentials.json').risk, 'never');
+  assert.strictEqual(commandRisk('cat ~/.config/gcloud/credentials.db').risk, 'never');
+  assert.strictEqual(commandRisk('cat ~/.vercel/auth.json').risk, 'never');
+  notSafe(commandRisk('cat ~/.zsh_history'));
+  notSafe(commandRisk('cat ~/Library/Containers/x/token.json'));
+  notSafe(commandRisk('ls ~/projects/buddy/.git/hooks'));
+  assert.strictEqual(risk({ type: 'files', op: 'read', path: '~/.buddy-release/x' }), 'never');
+  assert.strictEqual(risk({ type: 'files', op: 'read', path: '~/.claude/.credentials.json' }), 'never');
+  for (const path of ['~/.config/foo/x', '~/.zsh_history', '~/Library/Containers/x/token.json', '~/projects/buddy/.git/hooks/pre-commit', '~/projects/a/.vscode/tasks.json', '/Users/a/Documents/.hidden/x']) {
+    for (const op of ['read', 'write', 'list']) assert.strictEqual(risk({ type: 'files', op, path, text: 'x' }), 'ask', `${op} ${path}`);
+  }
+});
+
+test('terminals: most keys ask, ctrl+j and ctrl+m are Enter, the question shows the command', () => {
+  for (const combo of ['ctrl+c', 'cmd+v', 'tab', 'a', 'ctrl+j', 'ctrl+m', 'enter']) assert.strictEqual(risk({ type: 'keys', combo }, { app: TERM }), 'ask', combo);
+  for (const combo of ['up', 'down', 'left', 'right', 'escape', 'pagedown']) assert.strictEqual(risk({ type: 'keys', combo }, { app: TERM }), 'safe', combo);
+  assert.strictEqual(riskOf({ type: 'keys', combo: 'enter' }, ctx({ app: TERM, line: 'rm -rf x' })).question, 'Run "rm -rf x" in Terminal?');
+  assert.strictEqual(risk({ type: 'keys', combo: 'ctrl+j' }, { app: SLACK }), 'ask');
+  assert.strictEqual(risk({ type: 'keys', combo: 'ctrl+m' }, { app: MAIL }), 'ask');
+});
+
+test('more terminals and editors; a focused terminal element counts', () => {
+  for (const id of ['com.mitchellh.ghostty', 'net.kovidgoyal.kitty', 'com.microsoft.VSCode', 'com.todesktop.230313mzl4w4u92', 'org.alacritty', 'co.zeit.hyper', 'org.tabby']) {
+    assert.strictEqual(risk({ type: 'keys', combo: 'enter' }, { app: { name: 'X', id } }), 'ask', id);
+    assert.strictEqual(risk({ type: 'type', text: 'rm x' }, { app: { name: 'X', id } }), 'ask', id);
+  }
+  assert.strictEqual(risk({ type: 'keys', combo: 'enter' }, { app: CHROME, target: { role: 'textarea', subrole: 'terminal', name: '' } }), 'ask');
+  assert.strictEqual(risk({ type: 'type', text: 'rm x', id: 'e1' }, { app: CHROME, target: { role: 'text', description: 'Terminal input', name: '' } }), 'ask');
+});
+
+test('Volumes and data-volume paths are rewritten before the checks', () => {
+  assert.strictEqual(risk({ type: 'files', op: 'read', path: '/Volumes/Macintosh HD/Users/a/.ssh/id_rsa' }), 'never');
+  assert.strictEqual(risk({ type: 'files', op: 'read', path: '/System/Volumes/Data/Users/a/.ssh/id_rsa' }), 'never');
+  assert.strictEqual(risk({ type: 'files', op: 'write', path: '/volumes/macintosh hd/Library/x', text: 'x' }), 'ask');
+  assert.strictEqual(risk({ type: 'files', op: 'write', path: '/System/Volumes/Data/Library/LaunchAgents/x', text: 'x' }), 'ask');
+});
+
+test('more messaging apps', () => {
+  for (const app of [{ name: 'WeChat', id: 'com.tencent.xinWeChat' }, { name: 'LINE', id: 'jp.naver.line.mac' }, { name: 'Viber', id: 'com.viber.osx' }, { name: 'Skype', id: 'com.skype.skype' }, { name: 'zoom.us', id: 'us.zoom.xos' }, { name: 'Chrome', id: 'com.google.Chrome', title: 'Google Chat' }]) {
+    assert.strictEqual(risk({ type: 'keys', combo: 'enter' }, { app, title: app.title || '' }), 'ask', app.name);
+  }
+});
+
+test('more opener extensions; download links with a query ask', () => {
+  for (const ext of ['scptd', 'inetloc', 'saver', 'qlgenerator', 'plugin', 'bundle']) assert.strictEqual(risk({ type: 'open_file', path: `~/Downloads/x.${ext}` }), 'ask', ext);
+  assert.strictEqual(risk({ type: 'open_url', url: 'https://drive.google.com/uc?export=download&id=1' }), 'ask');
+  assert.strictEqual(risk({ type: 'open_url', url: 'https://x.com/get?download=1' }), 'ask');
+  assert.strictEqual(risk({ type: 'open_url', url: 'https://x.com/page?q=cats' }), 'safe');
+});
+
+test('phrases: place your order, cannot be undone, permanently, Don\'t Save', () => {
+  for (const name of ['Place your order', "Don't Save", 'Dont Save']) assert.strictEqual(risk({ type: 'click', id: 'e1' }, { target: { role: 'button', name } }), 'ask', name);
+  for (const dialog of ['This cannot be undone.', "This can't be undone", 'Files will be permanently removed']) {
+    assert.strictEqual(risk({ type: 'click', id: 'e1' }, { dialog, target: { role: 'button', name: 'Continue' } }), 'ask', dialog);
+    assert.strictEqual(risk({ type: 'keys', combo: 'enter' }, { dialog }), 'ask', dialog);
+  }
+});
+
+test('lookalike letters are folded; mixed alphabets ask', () => {
+  for (const name of ['Sеnd', 'Dеlete', 'Рay now', 'ЅEND', 'Dеlеtе', 'Ρay now']) assert.strictEqual(risk({ type: 'click', id: 'e1' }, { target: { role: 'button', name } }), 'ask', name);
+  assert.strictEqual(risk({ type: 'click', id: 'e1' }, { target: { role: 'button', name: 'Ѕhаre it' } }), 'ask');
+  assert.strictEqual(risk({ type: 'click', id: 'e1' }, { target: { role: 'button', name: 'Cаncel' } }), 'ask', 'mixed alphabets');
+});

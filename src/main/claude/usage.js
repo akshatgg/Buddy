@@ -18,7 +18,7 @@
  */
 
 const WORKERS_KEPT = 20; // the newest ended workers kept for a session
-const RUNNING_KEPT = 20; // and the newest running ones: the older ones are taken as stopped (a real end still replaces that)
+const RUNNING_KEPT = 100; // and the newest running ones: the older ones are taken as stopped (a real end still replaces that)
 const TASK_CHARS = 120;
 const TYPE_CHARS = 40;
 const ACTIVITY_CHARS = 80;
@@ -89,8 +89,10 @@ function trim(t, at) {
   const all = [...t.workers.values()];
   const live = all.filter((w) => w.status === 'running');
   for (const w of live.slice(0, Math.max(0, live.length - RUNNING_KEPT))) finishGuess(w, at);
+  // Real ends go first: a worker only guessed stopped can still get its real end.
   const ended = all.filter((w) => w.status !== 'running');
-  for (const w of ended.slice(0, Math.max(0, ended.length - WORKERS_KEPT))) {
+  const order = [...ended.filter((w) => !w.expired), ...ended.filter((w) => w.expired)];
+  for (const w of order.slice(0, Math.max(0, ended.length - WORKERS_KEPT))) {
     t.workers.delete(w.id);
     if (w.agentId && t.byAgent.get(w.agentId) === w.id) t.byAgent.delete(w.agentId);
   }
@@ -241,7 +243,7 @@ function ownEnd(t, id, entry, handbacks) {
     for (const b of content) if (b?.type === 'tool_use' && b.name === 'SubagentHandback' && typeof b.id === 'string') handbacks.add(b.id);
     over = entry.message?.stop_reason === 'end_turn' && !content.some((b) => b?.type === 'tool_use');
   } else if (entry.type === 'user') {
-    over = content.some((b) => b?.type === 'tool_result' && handbacks.has(b.tool_use_id));
+    over = content.some((b) => b?.type === 'tool_result' && b.is_error !== true && handbacks.has(b.tool_use_id));
   }
   if (!over) return null;
   finish(worker, 'done', at ?? worker.endedAt, 0);

@@ -309,8 +309,8 @@ function createLive({ configDirs, fs = require('node:fs').promises, now = Date.n
       s.pid = j.pid;
       // A parked session goes on in a background job: the panel shows that one's file, not the old file that stopped.
       const parked = typeof j.parkedJobId === 'string' ? background.get(j.parkedJobId) : null;
-      s.parked = typeof j.parkedJobId === 'string' && !parked; // parked and nowhere to follow: its workers are over
-      const live = parked && /^[\w-]{1,100}$/.test(parked.sessionId) ? parked : null;
+      const live = parked && parked.cwd === j.cwd && parked.dir === j.dir && /^[\w-]{1,100}$/.test(parked.sessionId) ? parked : null; // the same project and config folder only
+      s.parked = typeof j.parkedJobId === 'string' && !live; // parked and nowhere to follow: its workers are over
       const transcript = checkTranscript(path.join(j.dir, 'projects', projectFolder((live ?? j).cwd), `${(live ?? j).sessionId}.jsonl`), configDirs());
       if (live && transcript && transcript !== s.transcript) {
         s.transcript = transcript;

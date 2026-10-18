@@ -219,14 +219,15 @@ test('a SendMessage that could not resume, or only queued its words, leaves the 
 
 test(`no more than ${RUNNING_KEPT} workers show as running: the oldest are taken as stopped, until a real end says otherwise`, () => {
   const t = newTally();
-  for (let i = 0; i < 25; i += 1) {
+  const total = RUNNING_KEPT + 5;
+  for (let i = 0; i < total; i += 1) {
     tally(t, agent(`toolu_${i}`, { description: `job ${i}` }));
     tally(t, launched(`toolu_${i}`, `a${i}`));
   }
   assert.strictEqual(running(t).length, RUNNING_KEPT);
   const w = viewOf(t).workers;
   assert.deepStrictEqual(w.slice(0, 5).map((x) => x.status), Array(5).fill('stopped'));
-  assert.deepStrictEqual(w.slice(5).map((x) => x.status), Array(20).fill('running'));
+  assert.deepStrictEqual(w.slice(5).map((x) => x.status), Array(RUNNING_KEPT).fill('running'));
   assert.strictEqual(tally(t, asEnqueue('toolu_2', 'completed', 8, AT, 'a2')), true);
   assert.strictEqual(viewOf(t).workers[2].status, 'done');
   assert.strictEqual(running(t).length, RUNNING_KEPT);
@@ -300,4 +301,29 @@ test("a running worker's activity is one line cut to 80 characters; an ended wor
   assert.strictEqual(workerActivity(t, 'nobody', 'x'), false);
   tally(t, notification('w1', 'completed', 1));
   assert.strictEqual(workerActivity(t, 'w1', 'late'), false);
+});
+
+test('trimming ended workers drops real ends first, never one that was only guessed stopped', () => {
+  const t = newTally();
+  tally(t, agent('g', { description: 'Guessed' }));
+  expire(t, ['g'], 5000);
+  for (let i = 0; i < WORKERS_KEPT + 3; i += 1) {
+    tally(t, agent(`w${i}`, { description: `job ${i}` }));
+    tally(t, result(`w${i}`, { status: 'completed' }));
+  }
+  const ids = viewOf(t).workers.map((w) => w.id);
+  assert.ok(ids.includes('g'), 'the guess stays');
+  assert.strictEqual(ids.length, WORKERS_KEPT);
+  assert.ok(!ids.includes('w0') && ids.includes('w22'));
+  assert.strictEqual(tally(t, notification('g', 'completed', 4)), true, 'and its real end still lands');
+});
+
+test('a SubagentHandback that answered with an error does not end the worker', () => {
+  const t = newTally();
+  tally(t, agent('w1', { description: 'One' }));
+  const handbacks = new Set();
+  ownEnd(t, 'w1', { type: 'assistant', timestamp: AT, message: { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'hb', name: 'SubagentHandback', input: {} }] } }, handbacks);
+  const failed = { type: 'user', timestamp: AT, message: { content: [{ type: 'tool_result', tool_use_id: 'hb', is_error: true, content: 'no' }] } };
+  assert.strictEqual(ownEnd(t, 'w1', failed, handbacks), null);
+  assert.strictEqual(viewOf(t).workers[0].status, 'running');
 });

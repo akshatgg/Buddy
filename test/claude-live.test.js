@@ -516,3 +516,28 @@ test("a continued-in line to a file that is not there yet: the old file's runnin
   await live.refresh('old');
   assert.deepStrictEqual(live.view('old').items.map((i) => i.text), ['now here']);
 });
+
+test('a follow that is not safe is refused: another folder\'s background job, a continued-in id that is a path', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-live-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const cwd = '/Users/a/projects/shop';
+  const folder = path.join(dir, 'projects', projectFolder(cwd));
+  fs.mkdirSync(path.join(dir, 'sessions'));
+  fs.mkdirSync(folder, { recursive: true });
+  const write = (name, lines) => fs.writeFileSync(path.join(folder, name), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  write('old.jsonl', [user('old question')]);
+  write('other.jsonl', [user('somebody else')]);
+  fs.writeFileSync(path.join(dir, 'sessions', '1.json'), JSON.stringify({ pid: process.pid, sessionId: 'old', cwd, kind: 'interactive', status: 'idle', parkedJobId: 'J' }));
+  fs.writeFileSync(path.join(dir, 'sessions', '2.json'), JSON.stringify({ pid: process.pid, sessionId: 'other', cwd: '/Users/a/projects/blog', kind: 'bg', jobId: 'J', status: 'busy' }));
+  const live = createLive({ configDirs: () => [dir], now: () => Date.parse(T0) + 1000, ttys: async () => ({}) });
+  await live.discover();
+  await live.refresh('old');
+  assert.deepStrictEqual(live.view('old').items.map((i) => i.text), ['old question'], 'a job of another project is not followed');
+
+  write('trick.jsonl', [user('before'), { type: 'continued-in', continuedInSessionId: '../x' }]);
+  fs.writeFileSync(path.join(dir, 'sessions', '1.json'), JSON.stringify({ pid: process.pid, sessionId: 'trick', cwd, kind: 'interactive', status: 'idle' }));
+  const live2 = createLive({ configDirs: () => [dir], now: () => Date.parse(T0) + 1000, ttys: async () => ({}) });
+  await live2.discover();
+  await live2.refresh('trick');
+  assert.deepStrictEqual(live2.view('trick').items.map((i) => i.text), ['before']);
+});

@@ -46,7 +46,8 @@ const SETTINGS_PAGES = {
   keyboard: 'com.apple.Keyboard-Settings.extension', general: 'com.apple.systempreferences.GeneralSettings',
   desktop: 'com.apple.Wallpaper-Settings.extension',
 };
-const OPEN_SCHEMES = ['http:', 'https:', 'mailto:', 'tel:', 'sms:', 'facetime:', 'facetime-audio:', 'x-apple.systempreferences:'];
+const DRAIN_MS = 100;
+const FIND_LINES = 30;
 
 function roleName(node) {
   if (node.secure || node.subrole === 'AXSecureTextField') return 'password-field';
@@ -80,7 +81,7 @@ function lastLine(el) {
 }
 
 function createMacHands({
-  helper, apps, shell, fsp: files = fsp, spawn, home,
+  helper, apps, shell, fsp: files = fsp, spawn, home, runTimeoutMs = RUN_TIMEOUT_MS,
   sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }), now = Date.now,
 }) {
   let map = null; // the last screenshot's { origin, pointsPerPixel }
@@ -95,42 +96,75 @@ function createMacHands({
     return from ? path.join(path.dirname(resolvePath(from)), s) : path.join(home, s);
   };
 
-  /** The real place of a path: symlinks resolved, a not-yet-existing tail kept; a path in the real home folder is "~/…". */
-  async function realOf(p) {
-    const deep = async (q) => {
-      try { return await files.realpath(q); } catch (err) {
-        const up = path.dirname(q);
-        if (err?.code !== 'ENOENT' || up === q) return q;
-        return path.join(await deep(up), path.basename(q));
+  /** The disk path with every link followed, also a dangling one (its target, even if missing); a missing tail is kept. */
+  async function deepReal(q, hops = 0) {
+    try { return await files.realpath(q); } catch (err) {
+      if (err?.code !== 'ENOENT' && err?.code !== 'ENOTDIR') return q;
+      let link = null;
+      try { if ((await files.lstat(q)).isSymbolicLink()) link = await files.readlink(q); } catch { /* not a link */ }
+      if (link !== null) {
+        if (hops > 20) return q;
+        return deepReal(path.resolve(path.dirname(q), link), hops + 1);
       }
-    };
-    const real = await deep(resolvePath(p));
-    const realHome = await deep(home);
-    if (real === realHome) return '~';
-    return real.startsWith(`${realHome}/`) ? `~/${real.slice(realHome.length + 1)}` : real;
+      const up = path.dirname(q);
+      if (up === q) return q;
+      return path.join(await deepReal(up, hops + 1), path.basename(q));
+    }
+  }
+
+  /** `real` is where the step acts; `view` is the same place as the safety core should see it ("~/…" in the real home, /tmp for the system's temp folders). */
+  async function realOf(p, from = null) {
+    const real = await deepReal(resolvePath(p, from));
+    const realHome = await deepReal(home);
+    let view = real;
+    if (real === realHome) view = '~';
+    else if (real.startsWith(`${realHome}/`)) view = `~/${real.slice(realHome.length + 1)}`;
+    else if (/^\/private\/tmp(\/|$)/.test(real)) view = real.slice('/private'.length);
+    else if (/^\/private\/var\/folders(\/|$)/.test(real)) view = `/tmp/var-folders${real.slice('/private/var/folders'.length)}`;
+    return { real, view };
+  }
+
+  const FILE_KEYS = ['path', 'to'];
+  /** The action with its file paths made real, the way act will use them: { view, real }. `view` is for riskOf. */
+  async function resolveFiles(action) {
+    const view = { ...action };
+    const real = { ...action };
+    if (action.type !== 'files' && action.type !== 'open_file') return { view, real };
+    for (const key of FILE_KEYS) {
+      if (typeof action[key] !== 'string') continue;
+      const r = await realOf(action[key].trim(), key === 'to' && action.op === 'rename' ? action.path : null);
+      view[key] = r.view;
+      real[key] = r.real;
+    }
+    return { view, real };
   }
 
   /**
-   * The action with its file paths made real (symlinks and other disk names resolved), for the safety check. A relative
+   * The action with its file paths made real (links and other disk names resolved), for the loop's riskOf. A relative
    * path is left as it is: the core asks about those. The loop calls riskOf on this, not on what the AI wrote.
    */
   async function canonical(action) {
     if (action.type !== 'files' && action.type !== 'open_file') return action;
     const out = { ...action };
-    for (const key of ['path', 'to']) {
-      if (typeof out[key] === 'string' && !relative(out[key].trim())) out[key] = await realOf(out[key]);
+    for (const key of FILE_KEYS) {
+      if (typeof out[key] === 'string' && !relative(out[key].trim())) out[key] = (await realOf(out[key])).view;
     }
     return out;
   }
 
   /** The context shared/agent/safety.js's riskOf reads, from the last look: app, window title, dialog, line, target. */
-  async function riskContext(action, observation, { exists = false } = {}) {
+  async function riskContext(action, observation) {
     const el = action.id ? (observation.elements || []).find((e) => e.id === action.id)
       : (action.type === 'click_at' ? await elementAt(action.x, action.y, observation) : null);
     const target = el ? { role: el.role, subrole: el.subrole || '', name: el.name || '', description: el.description || '' } : null;
+    let overwrites = false;
+    if (action.type === 'files' && ['copy', 'move', 'rename', 'write'].includes(action.op)) {
+      const dest = action.op === 'write' ? action.path : action.to;
+      overwrites = Boolean(dest) && await exists(dest, { from: action.op === 'rename' ? action.path : null });
+    }
     return {
       app: observation.app, title: observation.window?.title || '', target, dialog: observation.dialog || '',
-      line: observation.line || '', secure: observation.secureFocused === true, exists,
+      line: observation.line || '', secure: observation.secureFocused === true, exists: overwrites,
     };
   }
 
@@ -190,30 +224,60 @@ function createMacHands({
     }
   }
 
-  /** A shell command in the home folder. The job's `signal` kills it (spawn's own abort), so Stop never waits for it. */
-  function runCommand(command, signal) {
+  /**
+   * Runs a program in its own process group, no shell unless `file` is the shell itself. The job's `signal` and the
+   * timeout kill the whole group (grandchildren too); it resolves on exit plus a short drain, never waiting on a pipe a
+   * grandchild still holds.
+   */
+  function capture(file, args, { signal, lines = 0 } = {}) {
     return new Promise((resolve) => {
       let out = '';
-      const stopped = () => failed('stopped', 'Stopped.');
-      if (signal?.aborted) { resolve(stopped()); return; }
-      const child = spawn('/bin/zsh', ['-lc', command], { cwd: home, env: process.env, timeout: RUN_TIMEOUT_MS, signal });
+      let done = false;
+      let child = null;
+      let timer = null;
+      let drain = null;
+      const killGroup = () => {
+        if (!child?.pid) return;
+        try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone */ } }
+      };
+      const text = () => {
+        const t = lines ? out.split('\n').slice(0, lines).join('\n') : out;
+        return t.slice(-RUN_OUTPUT);
+      };
+      const finish = (result) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        clearTimeout(drain);
+        signal?.removeEventListener('abort', onAbort);
+        killGroup();
+        resolve(result);
+      };
+      const onAbort = () => finish(failed('stopped', 'Stopped.'));
+      if (signal?.aborted) { resolve(failed('stopped', 'Stopped.')); return; }
+      const env = { PATH: process.env.PATH, HOME: home, LANG: process.env.LANG || 'en_US.UTF-8', TERM: process.env.TERM || 'xterm-256color', USER: process.env.USER };
+      try {
+        child = spawn(file, args, { cwd: home, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      } catch (err) { resolve(failed('run_failed', err.message)); return; }
+      signal?.addEventListener('abort', onAbort, { once: true });
+      timer = setTimeout(() => finish(failed('timeout', 'It took too long, so I stopped it.')), runTimeoutMs);
       const take = (d) => { if (out.length < RUN_BUFFER) out += d; };
       child.stdout.on('data', take);
       child.stderr.on('data', take);
-      child.on('error', (err) => resolve(err.name === 'AbortError' ? stopped() : failed('run_failed', err.message)));
-      child.on('close', (code) => {
-        if (signal?.aborted) { resolve(stopped()); return; }
-        resolve(code === 0
-          ? { ok: true, note: 'done', output: out.slice(-RUN_OUTPUT) }
-          : { ok: false, code: 'exit', note: `exit code ${code}`, output: out.slice(-RUN_OUTPUT) });
-      });
+      child.on('error', (err) => finish(failed('run_failed', err.message)));
+      const result = (code) => (code === 0
+        ? { ok: true, note: 'done', output: text() }
+        : { ok: false, code: 'exit', note: `exit code ${code}`, output: text() });
+      child.on('exit', (code) => { drain = setTimeout(() => finish(result(code)), DRAIN_MS); });
+      child.on('close', (code) => finish(result(code)));
     });
   }
+  const runCommand = (command, signal) => capture('/bin/zsh', ['-lc', command], { signal });
 
   /** `from`: for a rename, the file it renames, whose folder a relative new name is in. */
   async function exists(p, { from = null } = {}) {
     const s = String(p || '').trim();
-    try { await files.stat(resolvePath(s, from && relative(s) ? from : null)); return true; } catch { return false; }
+    try { await files.lstat(resolvePath(s, from && relative(s) ? from : null)); return true; } catch { return false; }
   }
 
   async function filesAct(a, signal) {
@@ -226,7 +290,7 @@ function createMacHands({
         return { ok: true, note: `${names.length} items`, output: names.slice(0, LIST_MAX).join('\n') };
       }
       case 'find': {
-        const r = await runCommand(`mdfind -onlyin ${JSON.stringify(p)} -name ${JSON.stringify(a.text || path.basename(p))} | head -30`, signal);
+        const r = await capture('mdfind', ['-onlyin', p, '-name', String(a.text || path.basename(p))], { signal, lines: FIND_LINES });
         return r.ok ? { ok: true, note: 'found', output: r.output } : r;
       }
       case 'read': {
@@ -240,7 +304,12 @@ function createMacHands({
       case 'copy': await files.cp(p, to, { recursive: true }); return { ok: true };
       case 'move':
       case 'rename': await files.rename(p, to); return { ok: true };
-      case 'write': await files.writeFile(p, a.text || ''); return { ok: true };
+      case 'write': {
+        // 'wx' for a new file: a link made since the check can never create a file somewhere else.
+        const flag = (await files.lstat(p).then(() => true, () => false)) ? 'w' : 'wx';
+        await files.writeFile(p, a.text || '', { flag });
+        return { ok: true };
+      }
       case 'trash': await shell.trashItem(p); return { ok: true };
       default: return failed('bad_op', `Unknown file op ${a.op}.`);
     }
@@ -262,7 +331,7 @@ function createMacHands({
       case 'open_url': {
         let scheme;
         try { scheme = new URL(a.url).protocol; } catch { return failed('bad_url', 'That is not a link.'); }
-        if (!OPEN_SCHEMES.includes(scheme) && !/^[a-z][a-z0-9+.-]*:$/.test(scheme)) return failed('bad_url', 'That is not a link.');
+        if (scheme !== 'http:' && scheme !== 'https:') return failed('bad_url', 'I only open web links.');
         await shell.openExternal(a.url);
         await sleep(SETTLE_MS * 3);
         return { ok: true };
@@ -315,19 +384,19 @@ function createMacHands({
     }
   }
 
-  /** `signal`: the job's; a stop kills a command this act runs. */
-  async function act(action, observation, { signal } = {}) {
+  /**
+   * `signal`: the job's; a stop kills a command this act runs. `approved`: the loop sets it after the person said yes to
+   * an "ask" step; act checks risk itself and refuses a "never" step always and an "ask" step without `approved`.
+   * File paths are resolved (home, the rename's folder) and realpath'd; act uses the real path it checked.
+   */
+  async function act(action, observation, { signal, approved = false } = {}) {
     if (isPasswordApp(observation.app)) return failed('password_app', "I don't touch password apps.");
     try {
-      if (action.type === 'files' || action.type === 'open_file') {
-        // Realpath before acting: a link into a place the core would ask about or refuse is not followed.
-        const real = await canonical(action);
-        const ctx = { app: observation.app };
-        const was = riskOf(action, ctx).risk;
-        const now = riskOf(real, ctx).risk;
-        if (now === 'never' || (now === 'ask' && was === 'safe')) return failed('path_changed', 'That path leads somewhere else, so I stopped.');
-      }
-      const result = await doAct(action, observation, signal);
+      const { view, real } = await resolveFiles(action);
+      const r = riskOf(view, await riskContext(real, observation));
+      if (r.risk === 'never') return failed('refused', `I won't do that: ${r.reason}.`);
+      if (r.risk === 'ask' && approved !== true) return failed('needs_approval', `I need a yes first: ${r.reason}.`);
+      const result = await doAct(real, observation, signal);
       if (result.ok && !['run', 'files', 'open_app', 'open_settings', 'open_url'].includes(action.type)) await sleep(SETTLE_MS);
       return result;
     } catch (err) {

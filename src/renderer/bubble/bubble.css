@@ -8,3 +8,11 @@ body.speech #text {
   white-space: normal; font-weight: 500; cursor: pointer; overflow: hidden;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4;
 }
+
+#box { display: flex; flex-direction: column; align-items: stretch; gap: 6px; max-width: 100%; }
+#buttons { display: flex; gap: 6px; justify-content: flex-end; }
+#buttons button {
+  font: inherit; font-weight: 600; padding: 4px 12px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--accent, #3b82f6); color: #fff; cursor: pointer;
+}
+#buttons button.quiet { background: var(--card); color: inherit; }

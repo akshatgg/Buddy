@@ -62,7 +62,7 @@ function setup({ notches = [ENTRY], displays = [PRIMARY], home = 'notch', platfo
   };
   const bubble = {
     say: (text, bounds, area) => calls.push(['bubble.say', text, bounds, area]),
-    speak: (text, at) => calls.push(['bubble.speak', text, at]),
+    speak: (text, at, buttons) => calls.push(['bubble.speak', text, at, ...(buttons && buttons.length ? [buttons] : [])]),
     release: () => calls.push(['bubble.release']),
   };
   const settings = { home };
@@ -353,4 +353,10 @@ test('a hands-free answer goes into the speech bubble, beside the floating buddy
   await s.home.refresh();
   s.home.speak(null);
   assert.deepStrictEqual(s.calls.at(-1), ['bubble.speak', null, { kind: 'below', notch: NOTCH, area: PRIMARY.workArea }]);
+});
+
+test('the speech bubble can carry buttons (a job\'s Stop, Yes / No)', () => {
+  const s = setup();
+  s.home.speak('Deleting…', ['stop']);
+  assert.deepStrictEqual(s.calls.at(-1), ['bubble.speak', 'Deleting…', { kind: 'beside', buddy: BUDDY, area: PRIMARY.workArea }, ['stop']]);
 });

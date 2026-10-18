@@ -275,7 +275,7 @@ async function start(options = {}) {
     bubble: (text) => buddy.say(text),
     // A hands-free answer while the panel is hidden (actions.js quiet chat): its words in the speech bubble, held while
     // Buddy speaks (null keeps what is up), and gone a few seconds after.
-    speech: (text) => buddy.speak(text),
+    speech: (text, buttons) => buddy.speak(text, buttons),
     speechDone: () => buddy.speakDone(),
     status(value) { // Claude Code's status beside Buddy in the notch (claude/watch.js), and the session a click opens
       claudeSession = value?.session ?? null;

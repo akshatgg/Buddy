@@ -44,7 +44,8 @@ function rankOf(provider, model) {
   return 'weak';
 }
 
-const limitsFor = (rank) => ({ ...(Object.hasOwn(RANKS, rank) ? RANKS[rank] : RANKS.weak) });
+// A model that cannot see the screen gets no screenshots (spec §8).
+const limitsFor = (rank, { vision = true } = {}) => ({ ...(Object.hasOwn(RANKS, rank) ? RANKS[rank] : RANKS.weak), ...(vision ? {} : { maxShots: 0 }) });
 const atLeastOk = (rank) => rank === 'ok' || rank === 'hard' || rank === 'best';
 
 function warningFor({ label, rank, vision }) {

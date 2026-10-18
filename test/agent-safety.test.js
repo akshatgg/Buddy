@@ -145,3 +145,116 @@ test('click_at with nothing found under it asks inside a dialog, else is safe', 
   assert.strictEqual(risk({ type: 'click_at', x: 1, y: 2 }), 'safe');
   assert.strictEqual(risk({ type: 'click_at', x: 1, y: 2 }, { target: { role: 'button', name: 'Delete' } }), 'ask');
 });
+
+// ---- review round: bypasses ----
+const TERM = { name: 'Terminal', id: 'com.apple.Terminal' };
+const SLACK = { name: 'Slack', id: 'com.tinyspeck.slackmacgap' };
+const notSafe = (r) => assert.notStrictEqual(r.risk, 'safe');
+
+test('commands: expansion tricks and unknown forms are never safe', () => {
+  for (const c of [
+    'cat ~/.{ssh,}/id_{rsa,}', 'cat ~/.s${U}sh/id_r${U}sa', 'sort -o ~/x ~/y', 'sort --compress-program=sh x', 'find ~ -fprint ~/x',
+    'find ~ -fprintf ~/x %p', 'find ~ -fls ~/x', 'find ~ -okdir rm {} ;', 'find ~ -exec rm {} ;', 'find ~ -delete', 'grep -r x ~',
+    'grep -d recurse x ~', 'PATH=/tmp ls', 'FOO=1 pwd', '/bin/ls', 'ls *', 'ls ~/[a]*', 'ls ?', 'cat `whoami`', 'echo hi > x', 'cat < ~/x',
+    'ls "unterminated', 'env', 'ls -z', 'date -s 1', 'head -c 5 x', 'mdfind -live x', 'open -a Safari', 'ls ~/Library/../.ssh',
+  ]) notSafe(commandRisk(c));
+  assert.strictEqual(commandRisk('cat ~/Documents/../.ssh/id_rsa').risk, 'never');
+  assert.strictEqual(commandRisk('cat ~/.SSH/ID_RSA').risk, 'never');
+  assert.strictEqual(commandRisk('cat ~/.git-credentials').risk, 'never');
+  assert.strictEqual(commandRisk('cat ~/.docker/config.json').risk, 'never');
+  assert.strictEqual(commandRisk('cat ~/.config/gh/hosts.yml').risk, 'never');
+  assert.strictEqual(commandRisk('cat ~/.npmrc').risk, 'never');
+  assert.strictEqual(commandRisk('/usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off').risk, 'never');
+  assert.strictEqual(commandRisk('fdesetup disable').risk, 'never');
+  assert.notStrictEqual(commandRisk('open https://x.com/a.pkg').risk, 'safe');
+  assert.notStrictEqual(commandRisk('open slack://open').risk, 'safe');
+  assert.strictEqual(commandRisk('cal').risk, 'safe');
+  assert.strictEqual(commandRisk('head -n 5 ~/notes.txt').risk, 'safe');
+});
+
+test('files: both path and to are checked for secrets, whatever the op', () => {
+  for (const op of ['copy', 'move', 'rename', 'write', 'read']) {
+    assert.strictEqual(risk({ type: 'files', op, path: '/a/x', to: '/Users/a/.ssh/authorized_keys' }), 'never', op);
+    assert.strictEqual(risk({ type: 'files', op, path: '/Users/a/.aws/credentials', to: '/tmp/x' }), 'never', op);
+  }
+  assert.strictEqual(risk({ type: 'files', op: 'read', path: '~/Documents/../.ssh/id_rsa' }), 'never');
+  assert.strictEqual(risk({ type: 'files', op: 'read', path: '~/.SSH/ID_RSA' }), 'never');
+  for (const path of ['~/.git-credentials', '~/.npmrc', '~/.docker/config.json', '~/.kube/config', '~/.config/gh/hosts.yml', '~/.pgpass', '~/.netrc', '~/Library/Keychains/login.keychain-db', '~/Library/Application Support/Firefox/Profiles/x/logins.json', '~/Library/Application Support/Google/Chrome/Default/Login Data']) {
+    assert.strictEqual(risk({ type: 'files', op: 'read', path }), 'never', path);
+  }
+});
+
+test('files: writes that run at login or change the system ask; paths are normalised', () => {
+  for (const path of ['~/Library/LaunchAgents/x.plist', '~/.zprofile', '~/.zshrc', '/users/a/library/launchagents/x', '/Users/a/Documents/../.zshrc', '/library/x', '/Library/LaunchDaemons/x', '/SYSTEM/x', 'relative/x', '/Applications/x', '~/../../etc/hosts']) {
+    assert.strictEqual(risk({ type: 'files', op: 'write', path, text: 'x' }), 'ask', path);
+  }
+  assert.strictEqual(risk({ type: 'files', op: 'copy', path: '~/Desktop/a.txt', to: '/tmp/a.txt' }), 'ask');
+  assert.strictEqual(risk({ type: 'files', op: 'move', path: '~/a.txt', to: '/Volumes/x/a.txt' }), 'ask');
+  assert.strictEqual(risk({ type: 'files', op: 'write', path: '~/Documents/note.txt', text: 'x' }), 'safe');
+});
+
+test('terminals: typed text and Enter go through the command check', () => {
+  for (const app of [TERM, { name: 'iTerm2', id: 'com.googlecode.iterm2' }, { name: 'Warp', id: 'dev.warp.Warp-Stable' }, { name: 'Script Editor', id: 'com.apple.ScriptEditor2' }]) {
+    assert.strictEqual(risk({ type: 'type', text: 'rm -rf ~/Documents\n' }, { app }), 'ask', app.name);
+    assert.strictEqual(risk({ type: 'set_value', id: 'e1', text: 'brew install x' }, { app }), 'ask', app.name);
+    assert.strictEqual(risk({ type: 'keys', combo: 'enter' }, { app }), 'ask', app.name);
+    assert.strictEqual(risk({ type: 'keys', combo: 'return' }, { app }), 'ask', app.name);
+  }
+  assert.strictEqual(risk({ type: 'type', text: 'sudo ls' }, { app: TERM }), 'never');
+  assert.strictEqual(risk({ type: 'type', text: 'ls' }, { app: TERM }), 'safe');
+});
+
+test('typed line breaks in a messaging app ask', () => {
+  assert.strictEqual(risk({ type: 'type', text: 'hi\nthere' }, { app: SLACK }), 'ask');
+  assert.strictEqual(risk({ type: 'type', text: 'hi\r' }, { app: SLACK }), 'ask');
+  assert.strictEqual(risk({ type: 'type', text: 'hi' }, { app: SLACK }), 'safe');
+});
+
+test('dialog text and window title are checked; Enter or Space in a dialog asks', () => {
+  assert.strictEqual(risk({ type: 'click', id: 'e1' }, { dialog: 'Delete 3 files permanently?', target: { role: 'button', name: 'OK' } }), 'ask');
+  assert.strictEqual(risk({ type: 'click', id: 'e1' }, { title: 'Confirm purchase', target: { role: 'button', name: 'OK' } }), 'ask');
+  assert.strictEqual(risk({ type: 'click_at', x: 1, y: 2 }, { title: 'Delete account' }), 'ask');
+  assert.strictEqual(risk({ type: 'keys', combo: 'enter' }, { dialog: 'Are you sure?' }), 'ask');
+  assert.strictEqual(risk({ type: 'keys', combo: 'space' }, { dialog: 'Hello' }), 'ask');
+});
+
+test('open and open_file: installers and extensionless paths ask', () => {
+  for (const path of ['~/x.workflow', '~/x.mobileconfig', '~/x.prefPane', '~/x.fileloc', '~/x.jar', '~/x.kext', '~/Foo.app/', '~/x.pkg/', '~/x.dmg', '~/x.command', '~/x.sh', '~/x.tool', '~/x.scpt', '~/x.terminal', '~/x.webloc', '~/Downloads/thing', '~/Downloads/']) {
+    assert.strictEqual(risk({ type: 'open_file', path }), 'ask', path);
+  }
+  assert.strictEqual(risk({ type: 'open_file', path: '~/Documents/report.pdf' }), 'safe');
+});
+
+test('more risk words: English, Hinglish and Devanagari, ignoring case and accents', () => {
+  for (const name of ['Reply', 'Place Order', 'Accept', 'I agree', 'Book now', 'Reserve', 'Discard', 'Replace', 'Unsubscribe', 'Bhej do', 'hata do', 'Mita Do', 'delete karo', 'Pay karo', 'भेजें', 'भेजो', 'हटाएं', 'मिटाएं', 'खरीदें', 'भुगतान', 'पुष्टि करें', 'स्वीकार', 'SÉND', 'Dêlete']) {
+    assert.strictEqual(risk({ type: 'click', id: 'e1' }, { target: { role: 'button', name } }), 'ask', name);
+  }
+});
+
+test('unknown action types ask', () => {
+  assert.strictEqual(risk({ type: 'teleport' }), 'ask');
+  assert.strictEqual(risk({ type: 'handover', why: 'x' }), 'safe');
+});
+
+test('an unnamed button in a messaging app asks', () => {
+  assert.strictEqual(risk({ type: 'click', id: 'e1' }, { app: SLACK, target: { role: 'button', name: '' } }), 'ask');
+  assert.strictEqual(risk({ type: 'click', id: 'e1' }, { app: SLACK, target: { role: 'button', name: 'Emoji' } }), 'safe');
+});
+
+test('pick checks the option text', () => {
+  assert.strictEqual(risk({ type: 'pick', id: 'e1', option: 'Delete everything' }, { target: { role: 'popup', name: 'Action' } }), 'ask');
+  assert.strictEqual(risk({ type: 'pick', id: 'e1', option: 'Small' }, { target: { role: 'popup', name: 'Size' } }), 'safe');
+});
+
+test('never: Buddy permissions, FileVault, Gatekeeper, password manager pages, keys while secure', () => {
+  assert.strictEqual(risk({ type: 'toggle', id: 'e1', on: false }, { app: SETTINGS, target: { role: 'switch', name: 'Buddy' } }), 'never');
+  assert.strictEqual(risk({ type: 'click', id: 'e1' }, { app: SETTINGS, target: { role: 'checkbox', name: 'Buddy.app' } }), 'never');
+  assert.strictEqual(risk({ type: 'toggle', id: 'e1', on: false }, { app: SETTINGS, target: { role: 'switch', name: 'FileVault' } }), 'never');
+  assert.strictEqual(risk({ type: 'click', id: 'e1' }, { app: SETTINGS, target: { role: 'radio', name: 'Anywhere' } }), 'never');
+  assert.strictEqual(risk({ type: 'click', id: 'e1' }, { app: CHROME, title: 'Bitwarden Web Vault', target: { role: 'link', name: 'x' } }), 'never');
+  assert.strictEqual(risk({ type: 'click', id: 'e1' }, { app: CHROME, title: 'Google Password Manager', target: { role: 'link', name: 'x' } }), 'never');
+  assert.strictEqual(risk({ type: 'open_url', url: 'https://passwords.google.com/' }), 'never');
+  assert.strictEqual(risk({ type: 'open_url', url: 'https://vault.bitwarden.com/' }), 'never');
+  assert.strictEqual(risk({ type: 'keys', combo: 'cmd+v' }, { secure: true }), 'never');
+  assert.strictEqual(risk({ type: 'keys', combo: 'a' }, { secure: true }), 'never');
+});

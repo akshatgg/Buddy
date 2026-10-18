@@ -50,3 +50,8 @@ test('cost in US dollars from the token counts, by the model family', () => {
   assert.strictEqual(costOf('something-new', { inputTokens: 1_000_000, outputTokens: 0 }), 5, 'unknown: priced high');
   assert.strictEqual(costOf('claude-sonnet-5-5', {}), 0);
 });
+
+test('a model that cannot see the screen gets no screenshots', () => {
+  assert.deepStrictEqual(limitsFor('ok', { vision: false }), { maxSteps: 20, maxMs: 360000, maxShots: 0 });
+  assert.strictEqual(limitsFor('best', { vision: true }).maxShots, 15);
+});

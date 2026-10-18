@@ -99,7 +99,7 @@ function parseStep(text, { abilities = MAC_ABILITIES } = {}) {
     ok: true,
     say: typeof j.say === 'string' ? cut(j.say, STEP_LIMITS.say) : '',
     thought: typeof j.thought === 'string' ? cut(j.thought, STEP_LIMITS.thought) : '',
-    risky: j.risky === true,
+    risky: j.risky === true || j.risky === 1 || (typeof j.risky === 'string' && j.risky.trim().toLowerCase() === 'true'),
     action,
   };
 }

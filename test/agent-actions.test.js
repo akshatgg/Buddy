@@ -62,3 +62,10 @@ test('describe gives a short line for the log', () => {
   assert.strictEqual(describe({ type: 'click_at', x: 5, y: 6 }), 'click_at 5,6');
   assert.strictEqual(describe({ type: 'menu', path: ['File', 'Export…'] }), 'menu "File > Export…"');
 });
+
+test('risky as the text "true" or the number 1 counts as risky', () => {
+  for (const risky of ['true', 'TRUE', 1]) {
+    assert.strictEqual(parseStep(JSON.stringify({ risky, action: { type: 'look' } })).risky, true, String(risky));
+  }
+  assert.strictEqual(parseStep(JSON.stringify({ risky: 'false', action: { type: 'look' } })).risky, false);
+});

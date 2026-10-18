@@ -37,6 +37,16 @@ function fakeHelper({ tree = TREE, last = TEXTEDIT, fail = {} } = {}) {
   };
 }
 
+const Q = 'YES'; // in a test: "the person said yes to whatever act asks"
+function yesTo(h) {
+  const act = h.act;
+  return { ...h, async act(action, o, opts = {}) {
+    if (opts.approved !== Q) return act(action, o, opts);
+    const first = await act(action, o, { ...opts, approved: null });
+    return first.code === 'needs_approval' ? act(action, o, { ...opts, approved: first.question }) : first;
+  } };
+}
+
 function hands(over = {}) {
   const helper = over.helper || fakeHelper();
   const opened = [];
@@ -49,7 +59,7 @@ function hands(over = {}) {
   let t = 0;
   const now = () => { t += 1000; return t; }; // waits for an app to come to the front end in a few fake seconds
   const h = createMacHands({ helper, apps, shell, spawn, home: over.home || os.tmpdir(), sleep: async () => {}, now, ...over });
-  return { h, helper, opened };
+  return { h: yesTo(h), helper, opened };
 }
 
 test('observe: the app, the window, short roles, states, a password field without its value', async () => {
@@ -164,7 +174,7 @@ test('files: list, find by name, read, new folder, copy, move, write a new file,
   assert.strictEqual((await h.act({ type: 'files', op: 'write', path: '~/note.txt', text: 'hi' }, o)).ok, true);
   assert.strictEqual(fs.readFileSync(path.join(dir, 'note.txt'), 'utf8'), 'hi');
   assert.deepStrictEqual((await h.act({ type: 'files', op: 'trash', path: '~/note.txt' }, o)).code, 'needs_approval');
-  await h.act({ type: 'files', op: 'trash', path: '~/note.txt' }, o, { approved: true });
+  await h.act({ type: 'files', op: 'trash', path: '~/note.txt' }, o, { approved: Q });
   assert.deepStrictEqual(opened.at(-1), ['trash', path.join(fs.realpathSync(dir), 'note.txt')]);
   assert.strictEqual(await h.exists('~/Trip/b.txt'), true);
   assert.strictEqual(await h.exists('~/Trip/a.txt'), false);
@@ -175,7 +185,7 @@ test('run: a shell command in the home folder, its output, its exit code', async
   const o = await h.observe({});
   const ok = await h.act({ type: 'run', command: 'echo hi' }, o);
   assert.deepStrictEqual([ok.ok, ok.output.trim()], [true, 'hi']);
-  const bad = await h.act({ type: 'run', command: 'exit 3' }, o, { approved: true });
+  const bad = await h.act({ type: 'run', command: 'exit 3' }, o, { approved: Q });
   assert.deepStrictEqual([bad.ok, bad.note], [false, 'exit code 3']);
 });
 
@@ -185,7 +195,7 @@ test('run: stopping the job kills the command at once', async () => {
   const job = new AbortController();
   const started = Date.now();
   setTimeout(() => job.abort(), 50);
-  const r = await h.act({ type: 'run', command: 'sleep 5' }, o, { signal: job.signal, approved: true });
+  const r = await h.act({ type: 'run', command: 'sleep 5' }, o, { signal: job.signal, approved: Q });
   assert.deepStrictEqual([r.ok, r.code], [false, 'stopped']);
   assert.ok(Date.now() - started < 3000, 'did not wait for sleep 5');
 });
@@ -255,7 +265,7 @@ test('canonical: symlinks and disk names are resolved; relative paths are left f
   const { h } = hands({ home: dir });
   assert.strictEqual((await h.canonical({ type: 'files', op: 'write', path: '~/link/x.txt', text: 'a' })).path, '~/real/x.txt');
   assert.strictEqual((await h.canonical({ type: 'files', op: 'write', path: '~/etc/hosts', text: 'a' })).path, '/private/etc/hosts');
-  assert.strictEqual((await h.canonical({ type: 'files', op: 'rename', path: '~/a', to: 'b.txt' })).to, 'b.txt');
+  assert.strictEqual((await h.canonical({ type: 'files', op: 'rename', path: '~/a', to: 'b.txt' })).to, '~/b.txt');
   assert.strictEqual((await h.canonical({ type: 'click', id: 'e1' })).id, 'e1');
 });
 
@@ -263,7 +273,7 @@ test('keys with an unknown key or modifier name are refused', async () => {
   const { h, helper } = hands();
   const o = await h.observe({});
   for (const combo of ['cmd+banana', 'meta+t', 'cmd+', '']) {
-    assert.strictEqual((await h.act({ type: 'keys', combo }, o, { approved: true })).code, 'bad_key', combo);
+    assert.strictEqual((await h.act({ type: 'keys', combo }, o, { approved: Q })).code, 'bad_key', combo);
   }
   assert.strictEqual(helper.calls.some((c) => c[0] === 'keys'), false);
   assert.strictEqual((await h.act({ type: 'keys', combo: 'shift+cmd+4' }, o)).ok, true);
@@ -305,7 +315,7 @@ test('a link to a system folder or a secret file is refused or needs a yes, and 
   const { h } = hands({ home: dir });
   const o = await h.observe({});
   assert.strictEqual((await h.act({ type: 'files', op: 'write', path: '~/etc/hosts', text: 'a' }, o)).code, 'needs_approval');
-  const sec = await h.act({ type: 'files', op: 'read', path: '~/innocent.txt' }, o, { approved: true });
+  const sec = await h.act({ type: 'files', op: 'read', path: '~/innocent.txt' }, o, { approved: Q });
   assert.deepStrictEqual([sec.ok, sec.code], [false, 'refused']);
   assert.strictEqual(sec.output, undefined);
 });
@@ -316,7 +326,7 @@ test('a relative path is resolved before the check (a relative rename to a secre
   fs.writeFileSync(path.join(dir, '.ssh', 'a'), 'x');
   const { h } = hands({ home: dir });
   const o = await h.observe({});
-  const r = await h.act({ type: 'files', op: 'rename', path: '~/.ssh/a', to: 'id_rsa' }, o, { approved: true });
+  const r = await h.act({ type: 'files', op: 'rename', path: '~/.ssh/a', to: 'id_rsa' }, o, { approved: Q });
   assert.deepStrictEqual([r.ok, r.code], [false, 'refused']);
 });
 
@@ -329,7 +339,7 @@ test('a dangling link is followed to its missing target, and a write cannot go t
   assert.notStrictEqual(c.path, '~/dangle');
   assert.strictEqual(await h.exists('~/dangle'), true);
   const o = await h.observe({});
-  const r = await h.act({ type: 'files', op: 'write', path: '~/dangle', text: 'a' }, o, { approved: true });
+  const r = await h.act({ type: 'files', op: 'write', path: '~/dangle', text: 'a' }, o, { approved: Q });
   // the target is in the temp folder (not a system folder), checked as such; it is written there, not anywhere unchecked
   assert.strictEqual(r.ok, true);
   assert.strictEqual(fs.existsSync(outside), true);
@@ -340,17 +350,17 @@ test('act refuses a never step, and an ask step without approved', async () => {
   const dir = tmpHome();
   const { h } = hands({ home: dir });
   const o = await h.observe({});
-  assert.strictEqual((await h.act({ type: 'run', command: 'sudo ls' }, o, { approved: true })).code, 'refused');
+  assert.strictEqual((await h.act({ type: 'run', command: 'sudo ls' }, o, { approved: Q })).code, 'refused');
   assert.strictEqual((await h.act({ type: 'run', command: 'touch x' }, o)).code, 'needs_approval');
-  assert.strictEqual((await h.act({ type: 'run', command: 'touch x' }, o, { approved: true })).ok, true);
+  assert.strictEqual((await h.act({ type: 'run', command: 'touch x' }, o, { approved: Q })).ok, true);
   assert.strictEqual(fs.existsSync(path.join(dir, 'x')), true);
 });
 
 test('open_url only opens web links', async () => {
   const { h, opened } = hands();
   const o = await h.observe({});
-  for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'data:text/html,x', 'tel:123', 'zoommtg://x']) {
-    assert.strictEqual((await h.act({ type: 'open_url', url }, o, { approved: true })).ok, false, url);
+  for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'data:text/html,x', 'zoommtg://x']) {
+    assert.strictEqual((await h.act({ type: 'open_url', url }, o, { approved: Q })).ok, false, url);
   }
   assert.deepStrictEqual(opened, []);
 });
@@ -362,12 +372,12 @@ test('run: the whole process group is killed on stop, and the env is cut down', 
   const job = new AbortController();
   setTimeout(() => job.abort(), 300);
   const pidFile = path.join(dir, 'pid');
-  const r = await h.act({ type: 'run', command: `sleep 30 & echo $! > ${pidFile}; wait` }, o, { signal: job.signal, approved: true });
+  const r = await h.act({ type: 'run', command: `sleep 30 & echo $! > ${pidFile}; wait` }, o, { signal: job.signal, approved: Q });
   assert.strictEqual(r.code, 'stopped');
   const pid = Number(fs.readFileSync(pidFile, 'utf8'));
   await new Promise((resolve) => { setTimeout(resolve, 200); });
   assert.throws(() => process.kill(pid, 0), /ESRCH/);
-  const env = await h.act({ type: 'run', command: 'env' }, o, { approved: true });
+  const env = await h.act({ type: 'run', command: 'env' }, o, { approved: Q });
   const names = env.output.split('\n').map((l) => l.split('=')[0]).filter(Boolean);
   assert.ok(names.every((n) => ['PATH', 'HOME', 'LANG', 'TERM', 'USER', 'PWD', 'SHLVL', '_', 'OLDPWD', 'LC_CTYPE', 'LOGNAME'].includes(n)), names.join(','));
   assert.ok(!names.includes('HOME') || env.output.includes(`HOME=${dir}`));
@@ -377,10 +387,10 @@ test('run: a background grandchild holding the pipe does not hang, and a long co
   const { h } = hands({ runTimeoutMs: 300 });
   const o = await h.observe({});
   const t0 = Date.now();
-  const bg = await h.act({ type: 'run', command: 'sleep 20 & echo hi' }, o, { approved: true });
+  const bg = await h.act({ type: 'run', command: 'sleep 20 & echo hi' }, o, { approved: Q });
   assert.strictEqual(bg.output.trim(), 'hi');
   assert.ok(Date.now() - t0 < 2000);
-  const slow = await h.act({ type: 'run', command: 'sleep 20' }, o, { approved: true });
+  const slow = await h.act({ type: 'run', command: 'sleep 20' }, o, { approved: Q });
   assert.strictEqual(slow.code, 'timeout');
 });
 
@@ -395,4 +405,50 @@ test('riskContext sets exists for a write onto an existing file; /tmp files are 
   const w = await h.act({ type: 'files', op: 'write', path: tmpFile, text: 'z' }, o);
   assert.strictEqual(w.ok, true, w.note); // the temp folder is not a system folder
   fs.rmSync(tmpFile, { force: true });
+});
+
+test('approval is bound to the question: a different or true approval is not enough', async () => {
+  const dir = tmpHome();
+  const { h } = hands({ home: dir });
+  const o = await h.observe({});
+  const a = { type: 'run', command: 'touch x' };
+  const first = await h.act(a, o);
+  assert.deepStrictEqual([first.code, typeof first.question], ['needs_approval', 'string']);
+  for (const approved of [true, 'Run this command: touch y?', '']) {
+    assert.strictEqual((await h.act(a, o, { approved })).code, 'needs_approval');
+  }
+  assert.strictEqual(fs.existsSync(path.join(dir, 'x')), false);
+  assert.strictEqual((await h.act(a, o, { approved: first.question })).ok, true);
+  // the same approval does not cover another step
+  const other = await h.act({ type: 'run', command: 'touch z' }, o, { approved: first.question });
+  assert.strictEqual(other.code, 'needs_approval');
+});
+
+test('the AI risky flag raises a safe step to an ask', async () => {
+  const { h } = hands();
+  const o = await h.observe({});
+  assert.strictEqual((await h.act({ type: 'click', id: 'e2' }, o)).ok, true);
+  assert.strictEqual((await h.act({ type: 'click', id: 'e2' }, o, { risky: true })).code, 'needs_approval');
+});
+
+test('canonical gives the resolved view the act judges, relative paths included', async () => {
+  const dir = tmpHome();
+  const { h } = hands({ home: dir });
+  assert.strictEqual((await h.canonical({ type: 'files', op: 'read', path: 'a.txt' })).path, '~/a.txt');
+});
+
+test('open_url: mail and call links ask, file/javascript/data/unknown are refused', async () => {
+  const { h, opened } = hands();
+  const o = await h.observe({});
+  const r = await h.act({ type: 'open_url', url: 'tel:123' }, o);
+  assert.strictEqual(r.code, 'needs_approval');
+  assert.strictEqual((await h.act({ type: 'open_url', url: 'tel:123' }, o, { approved: Q })).ok, true);
+  assert.strictEqual((await h.act({ type: 'open_url', url: 'mailto:a@b.c' }, o)).ok, true);
+  assert.deepStrictEqual(opened.map((x) => x[1]), ['tel:123', 'mailto:a@b.c']);
+});
+
+test('files find: a query starting with a dash is refused', async () => {
+  const { h } = hands();
+  const o = await h.observe({});
+  assert.strictEqual((await h.act({ type: 'files', op: 'find', path: '~', text: '-onlyin' }, o)).code, 'bad_query');
 });

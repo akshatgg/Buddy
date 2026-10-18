@@ -46,6 +46,7 @@ const SETTINGS_PAGES = {
   keyboard: 'com.apple.Keyboard-Settings.extension', general: 'com.apple.systempreferences.GeneralSettings',
   desktop: 'com.apple.Wallpaper-Settings.extension',
 };
+const URL_SCHEMES = ['http:', 'https:', 'mailto:', 'tel:', 'sms:', 'facetime:', 'facetime-audio:'];
 const DRAIN_MS = 100;
 const FIND_LINES = 30;
 
@@ -139,21 +140,13 @@ function createMacHands({
     return { view, real };
   }
 
-  /**
-   * The action with its file paths made real (links and other disk names resolved), for the loop's riskOf. A relative
-   * path is left as it is: the core asks about those. The loop calls riskOf on this, not on what the AI wrote.
-   */
+  /** The action as act will judge it: file paths resolved and real (see resolveFiles). The loop calls riskOf on this. */
   async function canonical(action) {
-    if (action.type !== 'files' && action.type !== 'open_file') return action;
-    const out = { ...action };
-    for (const key of FILE_KEYS) {
-      if (typeof out[key] === 'string' && !relative(out[key].trim())) out[key] = (await realOf(out[key])).view;
-    }
-    return out;
+    return (await resolveFiles(action)).view;
   }
 
   /** The context shared/agent/safety.js's riskOf reads, from the last look: app, window title, dialog, line, target. */
-  async function riskContext(action, observation) {
+  async function riskContext(action, observation, { risky = false } = {}) {
     const el = action.id ? (observation.elements || []).find((e) => e.id === action.id)
       : (action.type === 'click_at' ? await elementAt(action.x, action.y, observation) : null);
     const target = el ? { role: el.role, subrole: el.subrole || '', name: el.name || '', description: el.description || '' } : null;
@@ -164,7 +157,7 @@ function createMacHands({
     }
     return {
       app: observation.app, title: observation.window?.title || '', target, dialog: observation.dialog || '',
-      line: observation.line || '', secure: observation.secureFocused === true, exists: overwrites,
+      line: observation.line || '', secure: observation.secureFocused === true, exists: overwrites, risky: risky === true,
     };
   }
 
@@ -234,10 +227,11 @@ function createMacHands({
       let out = '';
       let done = false;
       let child = null;
+      let exited = false;
       let timer = null;
       let drain = null;
       const killGroup = () => {
-        if (!child?.pid) return;
+        if (!child?.pid || exited) return;
         try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone */ } }
       };
       const text = () => {
@@ -268,7 +262,7 @@ function createMacHands({
       const result = (code) => (code === 0
         ? { ok: true, note: 'done', output: text() }
         : { ok: false, code: 'exit', note: `exit code ${code}`, output: text() });
-      child.on('exit', (code) => { drain = setTimeout(() => finish(result(code)), DRAIN_MS); });
+      child.on('exit', (code) => { exited = true; drain = setTimeout(() => finish(result(code)), DRAIN_MS); });
       child.on('close', (code) => finish(result(code)));
     });
   }
@@ -290,7 +284,9 @@ function createMacHands({
         return { ok: true, note: `${names.length} items`, output: names.slice(0, LIST_MAX).join('\n') };
       }
       case 'find': {
-        const r = await capture('mdfind', ['-onlyin', p, '-name', String(a.text || path.basename(p))], { signal, lines: FIND_LINES });
+        const query = String(a.text || path.basename(p));
+        if (query.startsWith('-')) return failed('bad_query', 'That search word is not allowed.');
+        const r = await capture('mdfind', ['-onlyin', p, '-name', query], { signal, lines: FIND_LINES });
         return r.ok ? { ok: true, note: 'found', output: r.output } : r;
       }
       case 'read': {
@@ -331,7 +327,7 @@ function createMacHands({
       case 'open_url': {
         let scheme;
         try { scheme = new URL(a.url).protocol; } catch { return failed('bad_url', 'That is not a link.'); }
-        if (scheme !== 'http:' && scheme !== 'https:') return failed('bad_url', 'I only open web links.');
+        if (!URL_SCHEMES.includes(scheme)) return failed('bad_url', 'I only open web, mail and call links.');
         await shell.openExternal(a.url);
         await sleep(SETTLE_MS * 3);
         return { ok: true };
@@ -385,17 +381,20 @@ function createMacHands({
   }
 
   /**
-   * `signal`: the job's; a stop kills a command this act runs. `approved`: the loop sets it after the person said yes to
-   * an "ask" step; act checks risk itself and refuses a "never" step always and an "ask" step without `approved`.
-   * File paths are resolved (home, the rename's folder) and realpath'd; act uses the real path it checked.
+   * `signal`: the job's; a stop kills a command this act runs. `risky`: the AI's own flag for this step.
+   * `approved`: the exact question the person said yes to (riskOf's `question`). act works out its own risk and goes on
+   * only when it is safe, or an "ask" whose question equals `approved`; a "never" is always refused. Approval is for
+   * one step and never carries over (`true` is not accepted).
    */
-  async function act(action, observation, { signal, approved = false } = {}) {
+  async function act(action, observation, { signal, approved = null, risky = false } = {}) {
     if (isPasswordApp(observation.app)) return failed('password_app', "I don't touch password apps.");
     try {
       const { view, real } = await resolveFiles(action);
-      const r = riskOf(view, await riskContext(real, observation));
+      const r = riskOf(view, await riskContext(real, observation, { risky }));
       if (r.risk === 'never') return failed('refused', `I won't do that: ${r.reason}.`);
-      if (r.risk === 'ask' && approved !== true) return failed('needs_approval', `I need a yes first: ${r.reason}.`);
+      if (r.risk === 'ask' && (typeof approved !== 'string' || approved !== r.question)) {
+        return { ok: false, code: 'needs_approval', note: `I need a yes first: ${r.question}`, question: r.question };
+      }
       const result = await doAct(real, observation, signal);
       if (result.ok && !['run', 'files', 'open_app', 'open_settings', 'open_url'].includes(action.type)) await sleep(SETTLE_MS);
       return result;

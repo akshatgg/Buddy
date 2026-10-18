@@ -49,19 +49,28 @@ function readItem(j) {
 const MODEL_CHARS = 80;
 const WORKER_ID_CHARS = 100;
 const TASK_CHARS = 120;
+const TYPE_CHARS = 40;
+const ACTIVITY_CHARS = 80;
 const count = (value) => (Number.isFinite(value) && value > 0 ? value : 0);
 const msOrNull = (value) => (Number.isFinite(value) ? value : null);
 
 /** The session's tokens and model (the Mac's live.js stats), or null. */
 function readStats(j) {
   if (!j || typeof j !== 'object' || Array.isArray(j)) return null;
-  return { model: text(j.model).slice(0, MODEL_CHARS) || null, input: count(j.input), output: count(j.output) };
+  return { model: text(j.model).slice(0, MODEL_CHARS) || null, input: count(j.input), output: count(j.output), context: count(j.context) };
 }
 
 /** One worker Claude started, or null when it is not one. */
 function readWorker(j) {
   if (!j || typeof j.id !== 'string' || !j.id || j.id.length > WORKER_ID_CHARS || !WORKER_STATUS.includes(j.status)) return null;
-  return { id: j.id, task: text(j.task).slice(0, TASK_CHARS) || 'A worker', status: j.status, startedAt: msOrNull(j.startedAt), endedAt: msOrNull(j.endedAt), tokens: count(j.tokens) };
+  const type = text(j.type);
+  return {
+    id: j.id,
+    type: type && type.length <= TYPE_CHARS ? type : null, // an old Mac sends none
+    task: text(j.task).slice(0, TASK_CHARS) || 'A worker',
+    activity: text(j.activity).replace(/\s+/g, ' ').slice(0, ACTIVITY_CHARS) || null,
+    status: j.status, startedAt: msOrNull(j.startedAt), endedAt: msOrNull(j.endedAt), tokens: count(j.tokens),
+  };
 }
 
 /** Only the first of each id: the lists are drawn by id. */

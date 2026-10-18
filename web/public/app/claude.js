@@ -165,21 +165,28 @@ export function startClaudeView({ api, onMic, onFull }) {
     return li;
   }
 
-  /** The workers (ClaudeCli.workerList): a line each, or one line that unfolds when there are many. */
+  /** The workers (ClaudeCli.workerList), as the Mac draws them: a row each for the running ones, the ended ones in one fold. */
   function workerRows(view) {
     const line = (w) => {
       const li = make('li', `cl-worker ${w.status}`);
-      li.append(make('span', 'cl-dot', w.status === 'running' ? '◌' : w.status === 'done' ? '●' : '✗'), make('p', '', w.text));
+      const body = make('div', 'cl-wbody');
+      body.append(make('p', 'cl-head', w.head || w.text));
+      if (w.activity) body.append(make('p', 'cl-act', w.activity));
+      if (w.tail) body.append(make('p', 'cl-tail', w.tail));
+      li.append(make('span', 'cl-dot', w.status === 'running' ? '◯' : w.status === 'done' ? '●' : '✗'), body);
       return li;
     };
-    if (!view.compact) return view.lines.map(line);
+    const rows = view.running.map(line);
+    if (view.more) rows.push(make('li', 'cl-worker cl-more', `+${view.more} more running`));
+    if (!view.ended.length) return rows;
+    if (view.unfolded) return [...rows, ...view.ended.map(line)];
     const li = make('li', 'cl-workers');
     foldable(li, 'workers:0', [make('span', 'cl-mark', '⏺'), document.createTextNode(view.summary)], () => {
       const inner = make('ol', 'cl-inner');
-      inner.append(...view.lines.map(line));
+      inner.append(...view.ended.map(line));
       return inner;
     });
-    return [li];
+    return [...rows, li];
   }
 
   /** An answer to a slash command, with a ⎿ as the terminal draws it. */

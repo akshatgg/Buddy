@@ -82,10 +82,32 @@ test("the computer sends the watched session's items; the watcher gets them; loo
     "a computer cannot send another's session");
 });
 
+test("a worker's type and activity are kept within their caps, one line; running workers come first under the limit", () => {
+  const base = { id: 'w0', task: 'job', status: 'running', startedAt: T, endedAt: null, tokens: 1 };
+  const [w] = cleanWorkers([{ ...base, type: 'general-purpose', activity: `  Read\n  ${'x'.repeat(300)}  ` }]);
+  assert.strictEqual(w.type, 'general-purpose');
+  assert.ok(w.activity.length <= 80 && w.activity.startsWith('Read x') && !w.activity.includes('\n'));
+  assert.deepStrictEqual(cleanWorkers([{ ...base, type: 'x'.repeat(41), activity: '   ' }]).map((x) => [x.type, x.activity]), [[null, null]]);
+  assert.strictEqual(cleanWorkers([{ ...base, type: '<b>hi</b>' }])[0].type, null, 'not a name');
+  assert.strictEqual(cleanWorkers([{ ...base, type: 'plugin:code-reviewer' }])[0].type, 'plugin:code-reviewer');
+  assert.deepStrictEqual(cleanWorkers([{ ...base, type: 7, activity: { a: 1 } }]).map((x) => [x.type, x.activity]), [[null, null]]);
+  // 5 running first in the list, 30 that ended after them: all 5 running stay, with the 15 newest ended.
+  const mixed = [
+    ...Array.from({ length: 5 }, (_, i) => ({ ...base, id: `run${i}` })),
+    ...Array.from({ length: 30 }, (_, i) => ({ ...base, id: `end${i}`, status: 'done', endedAt: T })),
+  ];
+  const kept = cleanWorkers(mixed);
+  assert.strictEqual(kept.length, 20);
+  assert.strictEqual(kept.filter((x) => x.status === 'running').length, 5);
+  assert.deepStrictEqual([kept[5].id, kept[19].id], ['end15', 'end29']);
+  assert.strictEqual(cleanWorkers(Array.from({ length: 30 }, (_, i) => ({ ...base, id: `r${i}` }))).length, 20);
+});
+
 test("the watched session's tokens and workers are cleaned, kept and handed to the watcher", () => {
-  const W = { id: 'toolu_01', task: 'Fix the login bug', status: 'running', startedAt: T - 5000, endedAt: null, tokens: 12_300 };
-  assert.deepStrictEqual(cleanStats({ model: 'claude-opus-5-5', input: 1_200_000.4, output: 34_000, extra: 1 }), { model: 'claude-opus-5-5', input: 1_200_000, output: 34_000 });
-  assert.deepStrictEqual(cleanStats({ model: '<img src=x onerror=1>', input: -5, output: 'many' }), { model: null, input: 0, output: 0 });
+  const W = { id: 'toolu_01', type: null, task: 'Fix the login bug', activity: null, status: 'running', startedAt: T - 5000, endedAt: null, tokens: 12_300 };
+  assert.deepStrictEqual(cleanStats({ model: 'claude-opus-5-5', input: 1_200_000.4, output: 34_000, extra: 1 }), { model: 'claude-opus-5-5', input: 1_200_000, output: 34_000, context: 0 });
+  assert.deepStrictEqual(cleanStats({ model: 'claude-opus-5-5', input: 5, output: 2, context: 301_124.6 }).context, 301_125);
+  assert.deepStrictEqual(cleanStats({ model: '<img src=x onerror=1>', input: -5, output: 'many' }), { model: null, input: 0, output: 0, context: 0 });
   assert.strictEqual(cleanStats('x'), null);
   assert.deepStrictEqual(cleanWorkers([
     { ...W, extra: 1 },
@@ -93,7 +115,7 @@ test("the watched session's tokens and workers are cleaned, kept and handed to t
     { ...W, id: 'toolu_02', status: 'dancing' },
     { id: 'toolu_03', task: '  two\nlines ', status: 'done', startedAt: 'x', endedAt: T, tokens: -1 },
     null,
-  ]), [W, { id: 'toolu_03', task: 'two lines', status: 'done', startedAt: null, endedAt: T, tokens: 0 }]);
+  ]), [W, { id: 'toolu_03', type: null, task: 'two lines', activity: null, status: 'done', startedAt: null, endedAt: T, tokens: 0 }]);
   const many = Array.from({ length: 30 }, (_, i) => ({ ...W, id: `w${i}`, task: 'x'.repeat(500) }));
   const kept = cleanWorkers(many);
   assert.strictEqual(kept.length, 20);
@@ -101,7 +123,7 @@ test("the watched session's tokens and workers are cleaned, kept and handed to t
   assert.ok(kept.every((w) => w.task.length <= 121));
 
   const watched = record({ watch: { sessionId: S1.id, at: T } });
-  const stats = { model: 'claude-opus-5-5', input: 10, output: 2 };
+  const stats = { model: 'claude-opus-5-5', input: 10, output: 2, context: 7 };
   const { next } = report(watched, { feed: { ...S1, items: ITEMS, stats, workers: [W] } }, T + 1000);
   assert.deepStrictEqual([next.feed.stats, next.feed.workers], [stats, [W]]);
   const { result } = phoneLook(next, S1.id, T + 2000);

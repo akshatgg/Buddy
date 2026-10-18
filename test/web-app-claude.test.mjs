@@ -202,8 +202,8 @@ test('sessions are grouped by computer, in the order the computers come', () => 
   assert.deepStrictEqual(byDevice([S1, S2, S3]), [{ device: 'MacBook Air', sessions: [S1, S3] }, { device: 'Office PC', sessions: [S2] }]);
 });
 
-const W = { id: 'toolu_01', task: 'Fix the login bug', status: 'running', startedAt: 1_000, endedAt: null, tokens: 12_300 };
-const STATS = { model: 'claude-opus-5-5', input: 1_200_000, output: 34_000 };
+const W = { id: 'toolu_01', type: null, task: 'Fix the login bug', activity: null, status: 'running', startedAt: 1_000, endedAt: null, tokens: 12_300 };
+const STATS = { model: 'claude-opus-5-5', input: 1_200_000, output: 34_000, context: 301_124 };
 
 test("a look reads the session's tokens and workers, leaving out what is odd", () => {
   const r = readLook({ online: true, sessions: [S1], feed: { ...S1, items: [], stats: { ...STATS, extra: 1 }, workers: [W, { id: 7 }, { ...W, id: 'x', status: 'dancing' }, W] } });
@@ -230,7 +230,7 @@ test('/help, /cost and /model are answered on the phone; an unknown / command go
   assert.deepStrictEqual(s.sent, []);
   const notes = s.claude.state.notes;
   assert.match(notes[0].text, /^\/model · pick the model/);
-  assert.match(notes[1].text, /^Tokens so far: 1\.2M in · 34k out\nModel: Opus 5\.5\nWorkers: 1 · 12\.3k tokens/);
+  assert.match(notes[1].text, /^Context now: 301k · Out so far: 34k\nModel: Opus 5\.5\nWorkers: 1 · 12\.3k tokens/);
   assert.strictEqual(notes[2].text, NO_SUCH_MODEL('gpt'));
   assert.strictEqual(notes[3].text, 'There is no effort level called huge. Try low, medium, high, xhigh or max.');
   assert.deepStrictEqual(await s.claude.send('/compact'), { ok: true });
@@ -316,12 +316,24 @@ test('screen says what the session shows: rows, workers, the working verb, the s
   const s = await opened();
   const view = screen(s.claude.state, 61_000);
   assert.deepStrictEqual(view.rows.map((r) => r.type), ['you', 'claude']);
-  assert.strictEqual(view.workers.lines.length, 1);
+  assert.strictEqual(view.workers.running.length, 1);
   assert.strictEqual(typeof view.working, 'string', 'S1 is working');
   assert.strictEqual(view.waiting, false);
-  assert.match(view.line, /Opus 5\.5 · 1\.2M in · 34k out/);
+  assert.match(view.line, /Opus 5\.5 · 301k context · 34k out/);
   assert.strictEqual(view.ticking, true);
   assert.deepStrictEqual(screen({ session: null, items: null, workers: [], stats: null }, 0).rows, []);
+});
+
+test("an old Mac sends no type, activity or context: the phone still reads its workers and shows tokens in", () => {
+  const old = { id: 'toolu_01', task: 'Fix it', status: 'running', startedAt: 1_000, endedAt: null, tokens: 5 };
+  const r = readLook({ online: true, sessions: [S1], feed: { ...S1, items: [], stats: { model: 'claude-opus-5-5', input: 1_200_000, output: 34_000 }, workers: [old] } });
+  assert.deepStrictEqual(r.feed.workers, [{ ...old, type: null, activity: null }]);
+  assert.strictEqual(r.feed.stats.context, 0);
+  const view = screen({ session: S1, items: [], workers: r.feed.workers, stats: r.feed.stats }, 61_000);
+  assert.match(view.line, /Opus 5\.5 · 1\.2M in · 34k out/);
+  assert.strictEqual(view.workers.running[0].head, 'Fix it');
+  const long = readLook({ online: true, sessions: [S1], feed: { ...S1, items: [], stats: null, workers: [{ ...old, type: 'Explore', activity: `Read ${'x'.repeat(300)}` }, { ...old, id: 'b', type: 'a'.repeat(60) }] } });
+  assert.deepStrictEqual([long.feed.workers[0].type, long.feed.workers[0].activity.length, long.feed.workers[1].type], ['Explore', 80, null]);
 });
 
 test('a look keeps the same caps as the server: a long model, task or worker id', () => {

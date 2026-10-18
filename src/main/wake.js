@@ -41,6 +41,7 @@ function shouldListen({ wakeOn, buddyOn, signedIn, voiceOn, mic, modelReady, loc
 function createWake({
   store, ear, model, lock, microphone, power, account, cloud, powerMonitor, actions, talkBack, testMs = TEST_MS, busy = () => false, onChange = null,
   myVoice = null, // "Only my voice" (my-voice.js): when on, a wake counts only when its phrase clip is the owner's
+  agent = null, // the computer agent's runner (agent/runner.js): a wake while a job runs stops it
   feel = null, // the face and the speech bubble (main.js): { listening(on), mood(name), bubble(text) }
 }) {
   let panel = false; // the panel's 🎤 records
@@ -138,6 +139,12 @@ function createWake({
   async function allowed(phrase) {
     if (clipping || testing) return false; // a test, or setting up Only my voice, never acts on what follows
     if (store.get('wakeOn') !== true) return false;
+    // A job is running (the computer agent): "Hey <name>" stops it at once, whatever follows and whosever voice it is
+    // (a stop is safe for anyone to ask; spec §10). Nothing is written down.
+    if (agent?.running()) {
+      agent.stop('voice');
+      return false;
+    }
     // Only my voice: anyone else gets silence -- not transcribed, not sent anywhere, not even the busy line.
     if (myVoice?.on() && !(await myVoice.allows(phrase))) return false;
     // A spoken turn or the chat is busy: nothing is sent to be written down, and the person is told, not ignored.

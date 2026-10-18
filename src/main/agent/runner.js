@@ -52,7 +52,7 @@ function createAgentRunner({
   /** A stop (or a locked screen) so far: checked after every await before anything more is asked or said. */
   const halted = () => {
     if (!job) return null;
-    if (!job.stopped && lock.locked()) job.stopped = 'locked';
+    if (!job.stopped && lock.locked()) stop('locked'); // a real stop: the loop, a waiting question and the voice end too
     return job.stopped;
   };
   const cancelWait = () => waiting?.done(null);

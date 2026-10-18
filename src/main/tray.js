@@ -29,7 +29,7 @@ function updateMenuState(state) {
  * `update` is a newer Buddy that is out ({ version, busy, progress }), or null. While it downloads after Update now
  * (busy), the item says how far it got and cannot be pressed again.
  */
-function buildMenuTemplate({ buddyOn, visible, isAdmin = false, update = null }, handlers) {
+function buildMenuTemplate({ buddyOn, visible, isAdmin = false, update = null, agentRunning = false }, handlers) {
   const updateItems = update
     ? [
       update.busy
@@ -39,6 +39,7 @@ function buildMenuTemplate({ buddyOn, visible, isAdmin = false, update = null },
     ]
     : [];
   return [
+    ...(agentRunning ? [{ label: 'Stop the job', click: () => handlers.stopJob() }, { type: 'separator' }] : []),
     ...updateItems,
     { label: visible ? 'Hide buddy' : 'Show buddy', enabled: buddyOn, click: () => handlers.setVisible(!visible) },
     // Only for the admin; the server refuses the admin's calls to anyone else whatever the menu shows.

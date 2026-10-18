@@ -5,10 +5,11 @@ const assert = require('node:assert');
 const path = require('node:path');
 const { createActions, COPIED } = require('../src/main/actions');
 const { BUBBLE_MAX } = require('../shared/voice-words');
+const { BuddyError } = require('../shared/errors');
 const { onPlatform } = require('./helpers/platform');
 
 const {
-  APP, MAIL, reply, settle, setup, failure, entries, chatOf, lastItem,
+  APP, MAIL, reply, settle, setup, failure, entries, chatOf, lastItem, fakeAgent,
 } = require('./helpers/actions-setup');
 const moods = (log) => entries(log, 'mood').map((e) => e[1]);
 const asked = (log) => entries(log, 'ask').map((e) => e[2]);
@@ -2913,4 +2914,96 @@ test('actions.mood goes through the same mood path as the chat\'s own', async ()
   const s = setup({ answers: [] });
   s.actions.mood('thinking');
   assert.deepStrictEqual(moods(s.log), ['thinking']);
+});
+
+test('do: the job goes to the agent; its end line and steps come back in the chat', async () => {
+  const log = [];
+  const agent = fakeAgent(log, [{ end: 'done', line: 'Dark mode is on.', steps: [{ say: 'Opening Appearance…', line: 'x', result: 'ok' }] }]);
+  const s = setup({ agent, answers: [reply({ kind: 'do', say: 'Theek hai!', text: 'Turn on dark mode.' })] });
+  await s.actions.open();
+  await s.actions.send('dark mode on karo');
+  assert.deepStrictEqual(log.find((l) => l[0] === 'agentStart')[1], { goal: 'Turn on dark mode.', spoken: false });
+  const items = chatOf(s);
+  assert.deepStrictEqual(items.at(-1), { id: items.at(-1).id, type: 'buddy', say: '', text: 'Dark mode is on.', notes: ['Opening Appearance…'], buttons: [] });
+  assert.strictEqual(s.log.find((l) => l[0] === 'ask')[2].canDo, true);
+});
+
+test('do without an agent (Windows): the line that says where it works', async () => {
+  const s = setup({ windows: true, answers: [reply({ kind: 'do', text: 'Turn on dark mode.' })] });
+  await s.actions.open();
+  await s.actions.send('dark mode on');
+  assert.strictEqual(lastItem(s).text, 'I can use apps for you on the Mac for now.');
+  assert.strictEqual(s.log.find((l) => l[0] === 'ask')[2].canDo, undefined);
+});
+
+test('do: an error from the agent shows with Open Settings when the fix is there', async () => {
+  const log = [];
+  const agent = fakeAgent(log, [new BuddyError('no_accessibility', 'Buddy needs Accessibility to use your Mac. Open Settings to allow it.')]);
+  const s = setup({ agent, answers: [reply({ kind: 'do', text: 'x' })] });
+  await s.actions.open();
+  await s.actions.send('do x');
+  assert.deepStrictEqual(lastItem(s).buttons, ['retry', 'settings']);
+  assert.strictEqual(entries(s.log, 'mood').at(-1)[1], 'sad');
+});
+
+test('open: an app not found becomes a job when there is an agent', async () => {
+  const log = [];
+  const agent = fakeAgent(log);
+  const s = setup({ agent, answers: [reply({ kind: 'open', app: 'Figma' })] });
+  await s.actions.open();
+  await s.actions.send('open figma');
+  assert.deepStrictEqual(log.find((l) => l[0] === 'agentStart')[1], { goal: 'Open the app "Figma".', spoken: false });
+});
+
+test('while a job asks, words typed in the chat answer it and the panel steps aside again; anything else waits', async () => {
+  const replies = [];
+  const agent = { running: () => true, reply: (t) => { replies.push(t); return t === 'yes'; }, start: async () => ({ end: 'done', line: '', steps: [] }), stop: () => {} };
+  const s = setup({ agent });
+  await s.actions.open();
+  const hidden = entries(s.log, 'hidePanel').length;
+  await s.actions.send('yes');
+  assert.deepStrictEqual(replies, ['yes']);
+  assert.deepStrictEqual(lastItem(s), { id: lastItem(s).id, type: 'you', text: 'yes' });
+  assert.strictEqual(entries(s.log, 'hidePanel').length, hidden + 1);
+  await assert.rejects(s.actions.send('make tea'), /I'm busy with a job\. Say stop first\./);
+  assert.strictEqual(entries(s.log, 'ask').length, 0, 'nothing went to the AI');
+});
+
+test('do by voice: its "Theek hai!" is said before the job and its end line after it; nothing is said twice', async () => {
+  let saidAtStart = null;
+  const started = [];
+  const agent = {
+    running: () => false, reply: () => false, stop: () => {},
+    async start(job) {
+      started.push(job);
+      saidAtStart = spokenOf(s).slice();
+      return { end: 'done', line: 'Dark mode is on.', steps: [] };
+    },
+  };
+  const s = setup({ agent, talk: {}, answers: [reply({ kind: 'do', say: 'Theek hai!', text: 'Turn on dark mode.' })] });
+  await s.actions.open();
+  await s.actions.send('dark mode on karo', { spoken: true });
+  await settle();
+  assert.deepStrictEqual(started, [{ goal: 'Turn on dark mode.', spoken: true }]);
+  assert.deepStrictEqual(saidAtStart, ['Theek hai!']);
+  assert.deepStrictEqual(spokenOf(s), ['Theek hai!', 'Dark mode is on.']);
+});
+
+test('do: the buddy is happy when the job is done, sad when it could not finish, idle after a stop or a no', async () => {
+  for (const [end, mood] of [['done', 'happy'], ['stuck', 'sad'], ['limit', 'sad'], ['stopped', 'idle'], ['declined', 'idle'], ['off', 'idle']]) {
+    const agent = fakeAgent([], [{ end, line: 'x', steps: [] }]);
+    const s = setup({ agent, answers: [reply({ kind: 'do', text: 'Turn on dark mode.' })] });
+    await s.actions.open();
+    await s.actions.send('dark mode on');
+    assert.strictEqual(entries(s.log, 'mood').at(-1)[1], mood, end);
+  }
+});
+
+test('do: a quiet spoken line while a job runs asks the runner to put its question back (reassert)', async () => {
+  const log = [];
+  const agent = { ...fakeAgent(log), running: () => s.log.some((l) => l[0] === 'say'), reply: () => false };
+  const s = setup({ agent, talk: {}, answers: [reply({ kind: 'do', say: 'Theek hai!', text: 'x' })] });
+  await s.actions.voice('do x');
+  await settle();
+  assert.ok(log.some((l) => l[0] === 'reassert'));
 });

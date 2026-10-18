@@ -62,7 +62,7 @@ function setup({ notches = [ENTRY], displays = [PRIMARY], home = 'notch', platfo
   };
   const bubble = {
     say: (text, bounds, area) => calls.push(['bubble.say', text, bounds, area]),
-    speak: (text, at, buttons) => calls.push(['bubble.speak', text, at, ...(buttons && buttons.length ? [buttons] : [])]),
+    speak: (text, at, buttons, token) => calls.push(['bubble.speak', text, at, ...(buttons && buttons.length ? [buttons] : []), ...(token ? [token] : [])]),
     release: () => calls.push(['bubble.release']),
   };
   const settings = { home };
@@ -359,4 +359,10 @@ test('the speech bubble can carry buttons (a job\'s Stop, Yes / No)', () => {
   const s = setup();
   s.home.speak('Deleting…', ['stop']);
   assert.deepStrictEqual(s.calls.at(-1), ['bubble.speak', 'Deleting…', { kind: 'beside', buddy: BUDDY, area: PRIMARY.workArea }, ['stop']]);
+});
+
+test('speak passes the question token to the bubble', () => {
+  const s = setup();
+  s.home.speak('Delete it?', ['yes', 'no'], 'tok-1');
+  assert.deepStrictEqual(s.calls.at(-1).slice(-2), [['yes', 'no'], 'tok-1']);
 });

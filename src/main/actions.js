@@ -52,6 +52,7 @@ const VOICE_TURNED_OFF = ['voice_off', 'blocked'];
 // out and a copy of Buddy that cannot sign in (Settings' start); and a permission the Mac has not given Buddy.
 const AI_ERRORS = ['no_key', 'bad_key', 'no_credit', 'bad_model', 'no_vision', 'need_key', 'free_off'];
 AI_ERRORS.push('no_claude', 'claude_signed_out', 'claude_limit'); // Claude Code as the brain (claude/run.js): fixed in Settings → AI too
+AI_ERRORS.push('free_no_agent'); // the free AI cannot run jobs: an own key in Settings → AI
 const ACCOUNT_ERRORS = ['signed_out', 'not_set_up'];
 const PERMISSION_ERRORS = ['no_accessibility', 'no_screen_recording'];
 // A Claude Code job (src/main/claude/job.js) in the chat: how many of its live lines are kept, and the lines the chat
@@ -109,6 +110,7 @@ const SHOWN = {
  * `apps` is apps.js's list of this Mac's apps and the way to open one; none on Windows. `talkBack` (talk-back.js) is Buddy's
  * voice: a chat started by voice is answered out loud, and a spoken yes presses the card asked about, through the same
  * act() as the button; none on Windows. `lock` says whether the screen is locked, and waits for the unlock.
+ * `agent` is the computer agent's runner (agent/runner.js); none on Windows.
  */
 function createActions({
   helper,
@@ -125,6 +127,7 @@ function createActions({
   jobs = null,
   apps = null,
   talkBack = null,
+  agent = null,
   lock = { locked: () => false, unlocked: async () => true },
   userName = () => '',
   now = Date.now,
@@ -161,7 +164,7 @@ function createActions({
   function newChat(app = null) {
     return {
       app, items: [], nextId: 1, selection: '', notice: '', noticeFix: '', busy: false, talking: 0, lastPut: null, resumed: false, live: false,
-      quiet: false, quietAt: 0, spoken: false, asking: null, followUps: 0, run: 0, speaking: false, listening: false, cancelWait: null, waitingFor: null, saying: 0, epoch: 0,
+      quiet: false, quietAt: 0, jobFelt: false, spoken: false, asking: null, followUps: 0, run: 0, speaking: false, listening: false, cancelWait: null, waitingFor: null, saying: 0, epoch: 0,
     };
   }
 
@@ -202,7 +205,10 @@ function createActions({
     return Promise.resolve().then(() => talkBack.say(text)).catch((err) => console.warn('[buddy] could not speak:', err.message))
       .finally(() => {
         c.saying -= 1;
-        if (bubbled) ui.speechDone?.();
+        if (bubbled) {
+          ui.speechDone?.();
+          if (agent?.running()) agent.reassert?.(); // a speak without buttons ended the held bubble: a question waiting goes back up
+        }
       });
   }
 
@@ -452,6 +458,7 @@ function createActions({
     if (system === 'darwin') asked.canMessage = true; // the Mac can message on WhatsApp; Windows cannot (yet)
     if (system === 'darwin') asked.canOpen = true; // the Mac opens apps
     if (system === 'darwin') asked.canCall = true; // the Mac makes WhatsApp calls (a phone call says it can't)
+    if (agent) asked.canDo = true; // the Mac runs jobs on this computer (the "do" kind)
     const sent = c.selection;
     const selection = sent ? { selection: sent } : {};
     let from = sent ? 'selection' : null; // where the text the answer works on came from
@@ -503,7 +510,7 @@ function createActions({
     }
     // The same for a call, an app to open, their calls or notifications: Buddy does these by itself, so only from
     // their own words.
-    if (second && ['call', 'open', 'calls', 'notifs'].includes(reply.kind)) {
+    if (second && ['call', 'open', 'calls', 'notifs', 'do'].includes(reply.kind)) {
       add(c, { type: 'buddy', say: SECOND_ASK, text: '', notes: [], buttons: [] });
       return true;
     }
@@ -548,6 +555,7 @@ function createActions({
       && (system === 'win32' || reply.kind === 'calls' || reply.kind === 'notifs' || (reply.kind === 'call' && reply.how === 'phone'))) {
       return elsewhere(c, reply);
     }
+    if (reply.kind === 'do') return startDo(c, reply);
     if (reply.kind === 'open') return startOpen(c, reply);
     if (reply.kind === 'call') return startCall(c, reply); // a phone call took the elsewhere line above
     if (reply.kind === 'code') return startCode(c, reply);
@@ -592,6 +600,7 @@ function createActions({
    * that short.
    */
   async function talk(c, you) {
+    c.jobFelt = false;
     const firstNew = c.nextId; // what the answer to this message adds to the chat has ids from here on
     ui.mood('thinking');
     c.busy = true;
@@ -601,7 +610,7 @@ function createActions({
       const jobBefore = job; // a "code" answer may start a Claude Code job
       const answered = await answer(c, you);
       const celebrated = (c.lastPut?.id ?? 0) >= firstNew; // a text of this answer's is in the app
-      if (c === chat && !celebrated) ui.mood(answered ? 'happy' : 'idle');
+      if (c === chat && !celebrated && !c.jobFelt) ui.mood(answered ? 'happy' : 'idle'); // a job's end set its own mood (startDo)
       if (c === chat && job && job !== jobBefore) ui.mood('thinking'); // the job it started: thinking until it ends
     } catch (err) {
       if (c !== chat) {
@@ -620,6 +629,18 @@ function createActions({
   /** The person's message. An empty one with text selected means "fix this". One at a time: the next waits. */
   async function send(message, { spoken = false, followUp = false } = {}) {
     const c = chat;
+    // A job is running (the computer agent): words now answer what it waits on (a yes or no, the AI's question, "go
+    // on"), and the panel steps aside again so the job goes on in the app. Anything else waits for the job.
+    if (agent?.running()) {
+      const words = String(message ?? '').trim();
+      if (words && agent.reply(words)) {
+        add(c, { type: 'you', text: words });
+        push(c);
+        ui.hidePanel();
+        return {};
+      }
+      throw new BuddyError('bad_request', "I'm busy with a job. Say stop first.");
+    }
     if (c.busy) throw new BuddyError('bad_request', 'Wait for my answer first.');
     let text = String(message ?? '').trim();
     if (!text && c.selection) text = 'Fix this.';
@@ -652,7 +673,7 @@ function createActions({
   /** Reads the answer to a spoken message aloud: its lines, then the card's question, or one more request to listen for. */
   async function speakAnswer(c, you, run) {
     const live = () => c === chat && c.run === run;
-    const added = c.items.slice(c.items.indexOf(you) + 1);
+    const added = c.items.slice(c.items.indexOf(you) + 1).filter((i) => !i.said); // a job's lines were said as it went (startDo)
     const card = [...added].reverse().find((i) => ((i.message || i.call) || plainSend(i)) && i.buttons?.length);
     const lines = spokenLines(added.filter((i) => i !== card));
     const shown = bubbleText(added.filter((i) => i !== card)); // the answer in the speech bubble (quiet chat)
@@ -873,6 +894,7 @@ function createActions({
     if (reply.say) add(c, { type: 'buddy', say: reply.say, text: '', notes: [], buttons: [] });
     const found = apps.find(reply.app);
     if (found.kind !== 'one') {
+      if (found.kind === 'none' && agent) return startDo(c, { say: '', text: `Open the app "${reply.app}".` });
       add(c, { type: 'buddy', say: '', text: found.line, notes: [], buttons: [] });
       return true;
     }
@@ -881,6 +903,48 @@ function createActions({
     if (problem) add(c, { type: 'buddy', say: '', text: `I couldn't open ${app.name}.`, notes: [], buttons: [] });
     else add(c, { type: 'event', text: `✅ Opened ${app.name}`, buttons: [] });
     return true;
+  }
+
+  /**
+   * A job on this Mac (the computer agent, agent/runner.js): the panel steps aside, the job shows its steps in the speech
+   * bubble, and its end line comes back in the chat with the steps that worked. A spoken job says its first line before
+   * the job and its end after it (speakAnswer leaves both, marked `said`); a typed one shows the end in the bubble, or
+   * brings the panel back when it was open. The buddy is happy when it is done, sad when it could not finish, idle
+   * otherwise. Errors (a permission, the AI) are thrown to talk(), which shows them (and the buddy is sad).
+   */
+  async function startDo(c, reply) {
+    if (!agent) {
+      add(c, { type: 'buddy', say: '', text: ELSEWHERE.do, notes: [], buttons: [] });
+      return true;
+    }
+    if (reply.say) add(c, { type: 'buddy', say: reply.say, text: '', notes: [], buttons: [], said: c.spoken });
+    push(c);
+    if (c.spoken && reply.say) await speak(c, reply.say); // "Theek hai!" now, not after the job
+    const wasOpen = ui.isPanelVisible();
+    if (wasOpen) ui.hidePanel();
+    let result;
+    try {
+      result = await agent.start({ goal: reply.text, spoken: c.spoken });
+    } catch (err) {
+      if (c === chat && wasOpen) await comeBack(c);
+      else if (c === chat && !c.spoken) {
+        ui.speech?.(bubbleLine(err instanceof BuddyError ? err.message : 'Something went wrong. Try again.'));
+        ui.speechDone?.();
+      }
+      throw err;
+    }
+    if (c !== chat) return false;
+    const notes = result.steps.filter((s) => s.result === 'ok' && s.say).map((s) => s.say).slice(-10);
+    add(c, { type: 'buddy', say: '', text: result.line, notes, buttons: [], said: c.spoken });
+    c.jobFelt = true;
+    ui.mood(result.end === 'done' ? 'happy' : result.end === 'stuck' || result.end === 'limit' ? 'sad' : 'idle');
+    if (c.spoken) await speak(c, result.line); // shown in the speech bubble too in a quiet chat (speak)
+    if (wasOpen) await comeBack(c);
+    else if (!c.spoken) {
+      ui.speech?.(bubbleLine(result.line)); // the line without buttons: the job's held bubble goes (bubble-window.js)
+      ui.speechDone?.();
+    }
+    return result.end === 'done';
   }
 
   /**

@@ -284,6 +284,7 @@ test('a screen that locks while permissions are checked: no question, no job', a
   const r = await s.runner.start({ goal: 'x' });
   assert.deepStrictEqual([r.end, r.line], ['stopped', 'The screen locked, so I stopped.']);
   assert.ok(!s.log.some((l) => l[0] === 'speech'));
+  assert.ok(s.log.some((l) => l[0] === 'stopVoice'), 'halted() found the lock and stopped the job for real (voice, waits)');
 });
 
 test('a spoken job: silence is not a no, it keeps waiting; a later spoken yes acts', async () => {

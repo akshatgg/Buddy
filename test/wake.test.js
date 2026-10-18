@@ -21,7 +21,7 @@ test('shouldListen: only when every rule holds', () => {
   assert.strictEqual(shouldListen({ ...ALL, mic: 'not-determined' }), false);
 });
 
-function setup(t, { name = 'Rahul', wakeOn = true, mic = 'granted', modelReady = true, missing = [], locked = false, signedIn = true, ensure = () => Promise.resolve(), voiceResult = {}, myVoice = null, listenResult = { audio: 'AAAA' } } = {}) {
+function setup(t, { name = 'Rahul', wakeOn = true, mic = 'granted', modelReady = true, missing = [], locked = false, signedIn = true, ensure = () => Promise.resolve(), voiceResult = {}, myVoice = null, listenResult = { audio: 'AAAA' }, agent = null } = {}) {
   if (!t.mock.timers._on) { t.mock.timers.enable({ apis: ['setTimeout'] }); t.mock.timers._on = true; }
   const data = { buddyName: name, wakeOn };
   const store = { get: (k) => data[k], set: (p) => Object.assign(data, p) };
@@ -53,6 +53,7 @@ function setup(t, { name = 'Rahul', wakeOn = true, mic = 'granted', modelReady =
     cloud: { last: () => ({ voiceOn: true, blocked: false }) },
     powerMonitor, actions, talkBack: { say: async (line) => { said.push(line); log.push(['say', line]); await talk.hold; talk.onSay?.(); return talk.sayResult; } },
     busy: () => state.busy,
+    agent,
     feel: { listening: (on) => log.push(['listening', on]), mood: (name) => log.push(['mood', name]), bubble: (text) => log.push(['bubble', text]) },
     onChange: (st) => changes.push(st),
     testMs: 10000,
@@ -555,4 +556,33 @@ test('an error of ours from the chat: sad, and its message in the bubble', async
   s.actions.voice = async () => { throw new BuddyError('bad_request', 'That message is too long.'); };
   await s.handlers.request({ audio: 'AAAA' });
   assert.deepStrictEqual(felt(s), ['mood thinking', 'mood sad', 'bubble That message is too long.']);
+});
+
+test('a wake while a job runs stops the job; nothing is written down and no busy line', async (t) => {
+  const stops = [];
+  const s = setup(t, { agent: { running: () => true, stop: (reason) => stops.push(reason) } });
+  s.wake.refresh();
+  let transcribed = 0;
+  s.actions.transcribe = async () => { transcribed += 1; return { text: 'stop' }; };
+  await s.handlers.request({ audio: 'AAAA' });
+  assert.deepStrictEqual(stops, ['voice']);
+  assert.strictEqual(transcribed, 0);
+  assert.deepStrictEqual(s.talk.said, []);
+});
+
+test('a wake while a job runs stops it even when Only my voice would not know the voice', async (t) => {
+  const stops = [];
+  const s = setup(t, { myVoice: { on: true, allow: () => false }, agent: { running: () => true, stop: (reason) => stops.push(reason) } });
+  s.wake.refresh();
+  await s.handlers.request({ audio: 'AAAA', phrase: 'x' });
+  assert.deepStrictEqual(stops, ['voice']);
+});
+
+test('a wake with no job running goes on as before', async (t) => {
+  const stops = [];
+  const s = setup(t, { agent: { running: () => false, stop: (reason) => stops.push(reason) } });
+  s.wake.refresh();
+  await s.handlers.request({ audio: 'AAAA' });
+  assert.deepStrictEqual(stops, []);
+  assert.ok(s.log.some((l) => l[0] === 'voice'));
 });

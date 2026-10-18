@@ -17,6 +17,7 @@ function handlers() {
     openAdmin: () => calls.push(['openAdmin']),
     setBuddyOn: (on) => calls.push(['setBuddyOn', on]),
     quit: () => calls.push(['quit']),
+    stopJob: () => calls.push(['stopJob']),
   };
 }
 
@@ -158,4 +159,12 @@ test('the menu offers Update now only while a newer Buddy is out', () => {
   assert.deepStrictEqual(updateMenuState({ status: 'ready', latest, pending: true }), { version: '1.3.0', busy: false, progress: null });
   assert.deepStrictEqual(updateMenuState({ status: 'downloading', latest, pending: true, progress: 0.5 }), { version: '1.3.0', busy: true, progress: 0.5 });
   assert.deepStrictEqual(updateMenuState({ status: 'downloading', latest, pending: false, progress: 0.5 }), { version: '1.3.0', busy: false, progress: 0.5 });
+});
+
+test('while a job runs the menu starts with Stop the job', () => {
+  const h = handlers();
+  const t = buildMenuTemplate({ buddyOn: true, visible: true, agentRunning: true }, h);
+  assert.strictEqual(t[0].label, 'Stop the job');
+  t[0].click();
+  assert.deepStrictEqual(h.calls.at(-1), ['stopJob']);
 });

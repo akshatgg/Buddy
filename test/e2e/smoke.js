@@ -332,6 +332,7 @@ async function waitFor(fn, what, ms = 8000) {
     const { start } = require('../../src/main/main.js');
     const ctx = await start({
       singleInstance: false,
+      noAgent: true, // no real computer agent, which would use the owner's apps
       animate: false,
       helper,
       clipboard,

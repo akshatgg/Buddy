@@ -56,8 +56,8 @@ export function readForm({ enabled, limitMode, daily, own, provider, model, agen
     form.dailyRequests = Number(daily);
     form.allowOwnKey = own;
   }
-  if (agentJobs !== undefined) form.agentJobsPerDay = Number(agentJobs);
-  if (agentCap !== undefined) form.agentSpendCap = Number(agentCap);
+  if (agentJobs !== undefined) form.agentJobsPerDay = Number(agentJobs === '' ? 5 : agentJobs); // blank means the default, not 0
+  if (agentCap !== undefined) form.agentSpendCap = Number(agentCap === '' ? 3 : agentCap);
   return form;
 }
 

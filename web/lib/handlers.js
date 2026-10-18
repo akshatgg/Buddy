@@ -151,6 +151,7 @@ async function config(req, deps) {
     blocked: user.blocked === true,
     isAdmin: isAdmin(who, deps),
     voiceOn: hasKey('groq'), // voice needs only the server's Groq key, whatever free mode is set to
+    agentVision: deps.providers?.getProvider(cfg.provider).isVisionModel(cfg.model) === true, // the desktop sends screenshots only if so
     agentRank: rankOf(cfg.provider, cfg.model), // how well the free AI can use a computer (shared/agent/limits.js)
     clawdLook: cfg.clawdLook, // where Clawd walks with the buddy while Claude Code works (the admin's choice)
     ...(deps.push ? { pushKey: deps.push.publicKey } : {}), // notifications on the phone (POST /api/push)
@@ -191,6 +192,7 @@ async function ask(req, deps) {
 
   const now = deps.now();
   const day = dayKey(now);
+  // The cap is checked before a step and the step's cost added after it, so the day can end a little over the cap.
   if (isAgent && agentFree.spentOf(await deps.db.updateSpend(day, (doc) => ({ next: undefined, result: doc }))) >= cfg.agentSpendCap) {
     throw new BuddyError('free_limit', "Buddy's free helper is used up for today. Add your own key in Settings to keep going.");
   }
@@ -213,6 +215,11 @@ async function ask(req, deps) {
       throw new BuddyError('free_limit', `You've used today's ${cfg.agentJobsPerDay} free jobs. They come back at midnight.`);
     }
     if (!step.ok && step.reason === 'steps') throw new BuddyError('free_limit', 'This job has used all its free steps.');
+    if (!step.ok && step.reason === 'no_job' && body.step > 1) {
+      // A job that began before midnight (India) has its record under the day before.
+      const before = await deps.db.updateAgentDay(`${who.uid}_${dayKey(new Date(now.getTime() - 24 * 3600 * 1000))}`, (doc) => ({ next: undefined, result: doc }));
+      if (before && Number.isInteger(before.jobs?.[body.jobId])) throw new BuddyError('bad_request', 'That job ran past midnight. Ask again.');
+    }
     if (!step.ok) throw new BuddyError('bad_request', 'That job is not valid.');
   }
 
@@ -230,6 +237,11 @@ async function ask(req, deps) {
     // Only the kind of failure is logged, never what the person sent.
     console.warn(`[ask] ${cfg.provider} failed: ${kindOf(err)}`);
     if (!isAgent || body.step === 1) await giveBack(who.uid, day, deps);
+    // The failed step is given back too: step 1 gives back its whole job, a later step only itself.
+    if (isAgent) {
+      await deps.db.updateAgentDay(`${who.uid}_${day}`, (doc) => agentFree.undoStep(doc, { jobId: body.jobId, step: body.step }))
+        .catch((e) => console.error(`[ask] could not give the job step back: ${kindOf(e)}`));
+    }
     throw new BuddyError('upstream', "Buddy couldn't answer. Try again.");
   }
   if (isAgent) {

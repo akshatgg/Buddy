@@ -192,7 +192,7 @@ test('config: the first call adds the user, and with nothing saved free mode is 
   const s = setup();
   assert.deepStrictEqual(await s.run(config, 'GET'), {
     status: 200,
-    body: { freeOn: false, limitMode: 'daily', limit: 30, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false, voiceOn: false, clawdLook: 'head', agentRank: 'ok' },
+    body: { freeOn: false, limitMode: 'daily', limit: 30, usedToday: 0, allowOwnKey: false, blocked: false, isAdmin: false, voiceOn: false, clawdLook: 'head', agentRank: 'ok', agentVision: true },
   });
   assert.deepStrictEqual(s.db.state.users.u1, userDoc());
 });
@@ -200,7 +200,7 @@ test('config: the first call adds the user, and with nothing saved free mode is 
 test("config: free mode on, today's count, and own keys allowed", async () => {
   const s = setup({ stored: freeDaily(5, { allowOwnKey: true }), users: { u1: userDoc({ usedDay: TODAY, usedCount: 3, lastActive: NOW }) } });
   assert.deepStrictEqual((await s.run(config, 'GET')).body, {
-    freeOn: true, limitMode: 'daily', limit: 5, usedToday: 3, allowOwnKey: true, blocked: false, isAdmin: false, voiceOn: false, clawdLook: 'head', agentRank: 'weak',
+    freeOn: true, limitMode: 'daily', limit: 5, usedToday: 3, allowOwnKey: true, blocked: false, isAdmin: false, voiceOn: false, clawdLook: 'head', agentRank: 'weak', agentVision: true,
   });
 });
 
@@ -594,7 +594,7 @@ test('admin settings: a change is saved and every user sees it; a refused one ch
   assert.deepStrictEqual(saved.body.config, expected);
   assert.deepStrictEqual(s.db.state.config, expected);
   assert.deepStrictEqual((await s.run(config, 'GET')).body, {
-    freeOn: true, limitMode: 'daily', limit: 10, usedToday: 0, allowOwnKey: true, blocked: false, isAdmin: false, voiceOn: false, clawdLook: 'head', agentRank: 'ok',
+    freeOn: true, limitMode: 'daily', limit: 10, usedToday: 0, allowOwnKey: true, blocked: false, isAdmin: false, voiceOn: false, clawdLook: 'head', agentRank: 'ok', agentVision: true,
   });
 
   assert.deepStrictEqual(await s.run(adminSettings, 'PUT', { token: 'admin', body: { dailyRequests: 0 } }),
@@ -745,4 +745,41 @@ test('chat: a "do" answer goes only to an app that says canDo; config says the f
   const now = await s.run(ask, 'POST', { body: { action: 'chat', message: 'dark mode on', canDo: true } });
   assert.strictEqual(now.body.chat.kind, 'do');
   assert.strictEqual((await s.run(config, 'GET')).body.agentRank, 'best');
+});
+
+test('agent: a provider failure on step 1 gives back the request and the job; on a later step only the step', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const s = setup({ stored: { ...FREE_SONNET, agentJobsPerDay: 1 }, fail: new Error('boom') });
+  const r = await s.run(ask, 'POST', { body: AGENT });
+  assert.strictEqual(r.body.error.code, 'upstream');
+  assert.strictEqual(Object.values(s.db.state.users)[0].usedCount, 0);
+  assert.deepStrictEqual(Object.values(s.db.state.agentDays)[0], { jobs: {}, count: 0 });
+  const ok = setup({ stored: FREE_SONNET });
+  await ok.run(ask, 'POST', { body: AGENT });
+  await ok.run(ask, 'POST', { body: { ...AGENT, step: 2 } });
+  const key = Object.keys(ok.db.state.agentDays)[0];
+  assert.strictEqual(ok.db.state.agentDays[key].jobs['job-12345678'], 2);
+  const bad = setup({ stored: FREE_SONNET, fail: new Error('boom'), agentDays: { [key]: { jobs: { 'job-12345678': 2 }, count: 1 } }, users: { u1: userDoc({ usedDay: TODAY, usedCount: 1 }) } });
+  await bad.run(ask, 'POST', { body: { ...AGENT, step: 3 } });
+  assert.deepStrictEqual(Object.values(bad.db.state.agentDays)[0], { jobs: { 'job-12345678': 2 }, count: 1 });
+  assert.strictEqual(bad.db.state.users.u1.usedCount, 1, 'a later step never counted a request, so none is given back');
+});
+
+test('agent: a job that ran past midnight gets a clear line', async () => {
+  const s = setup({ stored: FREE_SONNET, agentDays: { 'u1_2026-10-06': { jobs: { 'job-12345678': 4 }, count: 1 } } });
+  const r = await s.run(ask, 'POST', { body: { ...AGENT, step: 5 } });
+  assert.deepStrictEqual([r.status, r.body.error.message], [400, 'That job ran past midnight. Ask again.']);
+});
+
+test('agent: a repeated step 1 gives back its request, up to the give-back limit', async () => {
+  const s = setup({ stored: FREE_SONNET });
+  await s.run(ask, 'POST', { body: AGENT });
+  for (let i = 0; i < 12; i += 1) await s.run(ask, 'POST', { body: AGENT });
+  // the real job (1) + 12 repeats, of which only 10 are given back
+  assert.strictEqual(Object.values(s.db.state.users)[0].usedCount, 3);
+});
+
+test('config: agentVision says whether the free model can read screenshots', async () => {
+  assert.strictEqual((await setup({ stored: FREE_SONNET }).run(config, 'GET')).body.agentVision, true);
+  assert.strictEqual((await setup({ stored: FREE_SONNET, vision: false }).run(config, 'GET')).body.agentVision, false);
 });

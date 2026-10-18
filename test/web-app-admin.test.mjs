@@ -74,3 +74,8 @@ test('readForm: the agent limits are sent when given, as numbers', () => {
   assert.strictEqual(form.agentSpendCap, 2.5);
   assert.strictEqual('agentJobsPerDay' in core.readForm({ enabled: true, limitMode: 'unlimited', provider: 'a', model: 'm' }), false);
 });
+
+test('readForm: blank agent fields mean the defaults, not 0', () => {
+  const form = core.readForm({ enabled: true, limitMode: 'unlimited', provider: 'a', model: 'm', agentJobs: '', agentCap: '' });
+  assert.deepStrictEqual([form.agentJobsPerDay, form.agentSpendCap], [5, 3]);
+});

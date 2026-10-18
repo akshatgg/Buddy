@@ -20,6 +20,18 @@ function jobStep(doc, { jobId, step, jobsLimit, maxSteps }) {
   return { next: { jobs: { ...jobs, [jobId]: done + 1 }, count }, result: { ok: true } };
 }
 
+/** A step whose AI call failed gives itself back: step 1 takes the whole job back (count - 1), a later step just the one step. */
+function undoStep(doc, { jobId, step }) {
+  const jobs = doc && typeof doc.jobs === 'object' && doc.jobs ? { ...doc.jobs } : {};
+  const count = doc && Number.isInteger(doc.count) ? doc.count : 0;
+  if (jobs[jobId] !== step) return { next: undefined, result: false };
+  if (step === 1) {
+    delete jobs[jobId];
+    return { next: { jobs, count: Math.max(0, count - 1) }, result: true };
+  }
+  return { next: { jobs: { ...jobs, [jobId]: step - 1 }, count }, result: true };
+}
+
 const spentOf = (doc) => (doc && typeof doc.usd === 'number' && Number.isFinite(doc.usd) ? doc.usd : 0);
 
 function addSpend(doc, usd) {
@@ -27,4 +39,4 @@ function addSpend(doc, usd) {
   return { next: { usd: total }, result: total };
 }
 
-module.exports = { jobStep, addSpend, spentOf };
+module.exports = { jobStep, undoStep, addSpend, spentOf };

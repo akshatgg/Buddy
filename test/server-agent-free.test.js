@@ -30,3 +30,11 @@ test('spend adds up per day', () => {
   assert.strictEqual(spentOf({ usd: 1.5 }), 1.5);
   assert.strictEqual(spentOf({ usd: 'x' }), 0);
 });
+
+test('undoStep: step 1 takes the whole job back, a later step only itself', () => {
+  const { undoStep } = require('../web/lib/agent-free');
+  const doc = { jobs: { a: 1, b: 3 }, count: 2 };
+  assert.deepStrictEqual(undoStep(doc, { jobId: 'a', step: 1 }), { next: { jobs: { b: 3 }, count: 1 }, result: true });
+  assert.deepStrictEqual(undoStep(doc, { jobId: 'b', step: 3 }), { next: { jobs: { a: 1, b: 2 }, count: 2 }, result: true });
+  assert.deepStrictEqual(undoStep(doc, { jobId: 'b', step: 2 }), { next: undefined, result: false });
+});

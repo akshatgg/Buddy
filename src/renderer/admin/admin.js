@@ -87,8 +87,8 @@ function readForm() {
     form.dailyRequests = Number($('daily').value);
     form.allowOwnKey = $('own').checked;
   }
-  form.agentJobsPerDay = Number($('agent-jobs').value);
-  form.agentSpendCap = Number($('agent-cap').value);
+  form.agentJobsPerDay = Number($('agent-jobs').value || 5); // blank means the default, not 0
+  form.agentSpendCap = Number($('agent-cap').value || 3);
   return form;
 }
 

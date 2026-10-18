@@ -22,7 +22,7 @@ const UNREACHABLE = ['network', 'timeout', 'server']; // the server cannot be us
 // handle() also answers for a failure of its own). test/cloud.test.js checks that the two lists agree. An error
 // answer with any other code comes from something in front of the server, such as the hosting platform.
 const SERVER_CODES = [
-  'bad_request', 'free_no_vision', 'unauthenticated', 'blocked', 'free_off', 'not_admin', 'not_found',
+  'bad_request', 'free_no_vision', 'free_no_agent', 'unauthenticated', 'blocked', 'free_off', 'not_admin', 'not_found',
   'method_not_allowed', 'free_limit', 'upstream', 'server', 'voice_off', 'voice_busy', 'mac_offline', 'push_off',
 ];
 const REMOTE_TIMEOUT_MS = 10_000; // Claude mode on the phone: a report that takes longer is tried again later
@@ -33,6 +33,9 @@ const ASK_INPUTS = [
   'projects', // the names of their Claude Code project folders, for the chat's "code" kind
   'canMessage', // the app can message on WhatsApp (the Mac's), for the chat's "message" kind
   'canCall', 'canOpen', 'canSeeCalls', 'canReadNotifs', // the app can call, open apps, see the phone's calls and notifications
+  'canDo', // the app can run jobs on this computer (the chat's "do" kind)
+  // An agent step (shared/agent/prompt.js agentPrompt): the job and where it is.
+  'goal', 'log', 'lastOutput', 'note', 'screen', 'imageSize', 'maxSteps', 'jobId', 'platform',
 ];
 
 const serverProblem = () => new BuddyError('server', "Buddy's server had a problem. Try again.");
@@ -56,6 +59,7 @@ function readSettings(j) {
     isAdmin: j?.isAdmin === true,
     voiceOn: j?.voiceOn === true, // the server can write down what is said (it has a Groq key)
     clawdLook: j?.clawdLook === 'face' ? 'face' : 'head', // where Clawd walks with the buddy (the admin's choice)
+    agentRank: ['best', 'hard', 'ok', 'weak'].includes(j?.agentRank) ? j.agentRank : 'weak', // the free AI's rank for jobs
   };
 }
 

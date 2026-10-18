@@ -14,13 +14,15 @@ const prompts = require('../../shared/prompts');
 const providerRegistry = require('../../shared/providers');
 const { PROVIDER_ID: CLAUDE_ID, MODELS: CLAUDE_MODELS, DEFAULT_MODEL: CLAUDE_DEFAULT } = require('./claude/find');
 const { createRun, claudeError } = require('./claude/run');
+const { agentPrompt, AGENT_MAX_TOKENS } = require('../../shared/agent/prompt');
+const { rankOf, atLeastOk } = require('../../shared/agent/limits');
 
 const { MAX_TOKENS } = prompts;
 // How long a person waits for the AI (an answer, or a check of their key) before it is given up on.
 const AI_TIMEOUT_MS = 60_000;
 
 // What the server says when it will not answer for free; the settings are fetched again after each.
-const FREE_REFUSALS = ['free_limit', 'free_off', 'blocked'];
+const FREE_REFUSALS = ['free_limit', 'free_off', 'blocked', 'free_no_agent'];
 
 const signedOut = () => new BuddyError('signed_out', 'Sign in to use Buddy.');
 // With no finder (older callers, and tests of the other routes), Claude Code is simply not there.
@@ -60,12 +62,16 @@ function createAi({
     return out;
   }
 
+  /** The prompt of any action: an agent step's comes from shared/agent/prompt.js (prompts.js must not require it). */
+  const promptFor = (action, input) => (action === 'agent' ? agentPrompt(input) : prompts.buildPrompt(action, input));
+  const maxTokensFor = (action) => (action === 'agent' ? AGENT_MAX_TOKENS : MAX_TOKENS);
+
   /** Claude Code on this computer: one `claude -p` a request (claude/run.js). Every one of its models reads images. */
   async function askClaude(action, input, { signal } = {}) {
     const status = await claudeStatus();
     if (!status.installed) throw claudeError('no_claude');
     if (!status.loggedIn) throw claudeError('claude_signed_out');
-    const prompt = prompts.buildPrompt(action, input);
+    const prompt = promptFor(action, input);
     return parsed(action, await run.runPrompt({ ...prompt, model: modelFor(CLAUDE_ID), signal }));
   }
 
@@ -77,12 +83,12 @@ function createAi({
     const provider = providers.getProvider(providerId);
     const apiKey = secrets.get(providerId);
     if (!apiKey) throw new BuddyError('no_key', 'Add your API key in Settings first.');
-    const prompt = prompts.buildPrompt(action, input);
+    const prompt = promptFor(action, input);
     const model = modelFor(providerId);
     if (prompt.image && !provider.isVisionModel(model)) {
       throw new BuddyError('no_vision', "This model can't read screenshots. Pick another in Settings.");
     }
-    const out = await provider.complete({ apiKey, model, ...prompt, maxTokens: MAX_TOKENS, fetchImpl, signal });
+    const out = await provider.complete({ apiKey, model, ...prompt, maxTokens: maxTokensFor(action), fetchImpl, signal });
     return parsed(action, out);
   }
 
@@ -134,13 +140,35 @@ function createAi({
     // refuse (and the settings be fetched again), so the own key answers at once.
     const usedUp = free.limitMode === 'daily' && free.limit !== null && free.usedToday >= free.limit;
     if (usedUp && free.allowOwnKey && own) return askOwn(action, input, options);
-    prompts.buildPrompt(action, input); // input that is not valid is refused here, without a call to the server
+    // Free mode's AI ranks too low to use a computer (the server would answer free_no_agent): the person's own AI does
+    // the job when the admin allows it, without the round trip.
+    if (action === 'agent' && !atLeastOk(free.agentRank || 'weak') && free.allowOwnKey && own) return askOwn(action, input, options);
+    promptFor(action, input); // input that is not valid is refused here, without a call to the server
     try {
       return await cloud.ask(action, input, options);
     } catch (err) {
       if (!FREE_REFUSALS.includes(err.code)) throw err;
       return afterRefusal(err, free, own, action, input, options);
     }
+  }
+
+  /**
+   * Which AI an agent job would use (the same choice ask() makes), with its rank for using a computer and whether it
+   * reads screenshots: for the warning before a job and the job's limits (shared/agent/limits.js).
+   */
+  async function brainInfo() {
+    const free = account.isSignedIn() ? await cloud.settings() : null;
+    const own = await hasOwn();
+    const ownAllowed = Boolean(free?.allowOwnKey && own);
+    const usedUp = free && free.limitMode === 'daily' && free.limit !== null && free.usedToday >= free.limit;
+    const rank = free?.agentRank || 'weak';
+    const viaFree = Boolean(free && free.freeOn && !free.blocked && !((usedUp || !atLeastOk(rank)) && ownAllowed));
+    if (viaFree) return { route: 'free', provider: 'free', model: '', label: "Buddy's free AI", rank, vision: true };
+    const providerId = store.get('provider');
+    const model = modelFor(providerId);
+    if (providerId === CLAUDE_ID) return { route: 'claude-code', provider: CLAUDE_ID, model, label: 'Claude Code', rank: rankOf(CLAUDE_ID, model), vision: true };
+    const provider = providers.getProvider(providerId);
+    return { route: 'own', provider: providerId, model, label: provider.label || providerId, rank: rankOf(providerId, model), vision: provider.isVisionModel(model) };
   }
 
   /** Models for a provider: the live list for the saved key, else the fallback list. Claude Code's are its own names. */
@@ -153,7 +181,7 @@ function createAi({
     return live.length ? live : provider.fallbackModels;
   }
 
-  return { ask, listModels, modelFor };
+  return { ask, listModels, modelFor, brainInfo };
 }
 
 module.exports = { createAi, MAX_TOKENS, AI_TIMEOUT_MS };

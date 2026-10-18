@@ -438,3 +438,53 @@ test('without a finder (older callers), Claude Code picked is simply not install
   const s = setup({ picked: 'claude-code', claude: null });
   await assert.rejects(s.ai.ask('fix', { text: 'x' }), { code: 'no_claude' });
 });
+
+test('agent steps go by the same routes, with the step prompt and 600 tokens', async () => {
+  const input = { goal: 'Dark mode on', screen: 'App: Finder', step: 1, maxSteps: 30, jobId: 'job-12345678', platform: 'mac' };
+  const own = setup({ answer: '{"say":"","action":{"type":"look"}}' });
+  const out = await own.ai.ask('agent', input);
+  assert.strictEqual(out.text, '{"say":"","action":{"type":"look"}}');
+  assert.strictEqual(own.calls[0].maxTokens, 600);
+  assert.match(own.calls[0].system, /one step at a time/);
+  assert.match(own.calls[0].user, /^The job:/);
+  const free = setup({ free: FREE_ON });
+  await free.ai.ask('agent', input);
+  assert.deepStrictEqual(free.cloudCalls.filter((c) => c[0] === 'cloudAsk').map((c) => c[1]), ['agent']);
+  const claude = setup({ picked: 'claude-code', claude: { installed: true, loggedIn: true } });
+  await claude.ai.ask('agent', input);
+  assert.match(claude.runs[0].user, /^The job:/);
+});
+
+test('agent input that is not valid is refused before any call', async () => {
+  const s = setup({ free: FREE_ON });
+  await assert.rejects(s.ai.ask('agent', { goal: '', step: 1, maxSteps: 3, jobId: 'job-12345678' }), /Tell me what to do first/);
+  assert.deepStrictEqual(s.cloudCalls.filter((c) => c[0] === 'cloudAsk'), []);
+});
+
+test('brainInfo says which AI a job would use, its rank and whether it sees', async () => {
+  assert.deepStrictEqual(await setup({ model: 'gpt-4.1' }).ai.brainInfo(), { route: 'own', provider: 'openai', model: 'gpt-4.1', label: 'openai', rank: 'ok', vision: true });
+  assert.deepStrictEqual(await setup({ model: 'gpt-4.1-mini', vision: false }).ai.brainInfo(), { route: 'own', provider: 'openai', model: 'gpt-4.1-mini', label: 'openai', rank: 'weak', vision: false });
+  assert.deepStrictEqual(await setup({ free: { ...FREE_ON, agentRank: 'best' } }).ai.brainInfo(), { route: 'free', provider: 'free', model: '', label: "Buddy's free AI", rank: 'best', vision: true });
+  assert.deepStrictEqual(await setup({ picked: 'claude-code', claude: { installed: true, loggedIn: true }, alias: 'opus' }).ai.brainInfo(),
+    { route: 'claude-code', provider: 'claude-code', model: 'opus', label: 'Claude Code', rank: 'hard', vision: true });
+});
+
+test('free_no_agent from the server falls back to the own key when the admin allows it', async () => {
+  // The app thought the free AI was good enough (agentRank ok); the server says no: the own key answers.
+  const s = setup({ free: { ...FREE_ON, agentRank: 'ok', allowOwnKey: true }, freeAsk: () => { throw new BuddyError('free_no_agent', "The free AI can't use your computer. Add your own key in Settings."); } });
+  const out = await s.ai.ask('agent', { goal: 'x', screen: 'App: A', step: 1, maxSteps: 3, jobId: 'job-12345678', platform: 'mac' });
+  assert.strictEqual(out.text, 'Fixed text');
+  assert.strictEqual(s.cloudCalls.filter((c) => c[0] === 'cloudAsk').length, 1);
+});
+
+test('a weak free AI with own keys allowed: a job goes by the own key at once; not allowed: the free route, ranked weak', async () => {
+  const input = { goal: 'x', screen: 'App: A', step: 1, maxSteps: 3, jobId: 'job-12345678', platform: 'mac' };
+  const s = setup({ model: 'gpt-4.1', free: { ...FREE_ON, agentRank: 'weak', allowOwnKey: true } });
+  assert.deepStrictEqual(await s.ai.brainInfo(), { route: 'own', provider: 'openai', model: 'gpt-4.1', label: 'openai', rank: 'ok', vision: true });
+  assert.strictEqual((await s.ai.ask('agent', input)).text, 'Fixed text');
+  assert.deepStrictEqual(s.cloudCalls.filter((c) => c[0] === 'cloudAsk'), []);
+  const notAllowed = setup({ model: 'gpt-4.1', free: { ...FREE_ON, agentRank: 'weak', allowOwnKey: false } });
+  assert.deepStrictEqual(await notAllowed.ai.brainInfo(), { route: 'free', provider: 'free', model: '', label: "Buddy's free AI", rank: 'weak', vision: true });
+  const noKey = setup({ key: null, free: { ...FREE_ON, agentRank: 'weak', allowOwnKey: true } });
+  assert.strictEqual((await noKey.ai.brainInfo()).route, 'free');
+});

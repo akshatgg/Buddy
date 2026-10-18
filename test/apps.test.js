@@ -87,7 +87,7 @@ test('Spotlight\'s list: empty until mdfind answers, then kept for 10 minutes', 
   let t = 0;
   let calls = 0;
   const execFile = (file, args, options, cb) => { calls += 1; cb(null, '/Applications/A.app\n/Applications/B.app\n\n'); };
-  const spotlight = createSpotlight({ execFile, now: () => t });
+  const spotlight = createSpotlight({ execFile, now: () => t, exists: () => true });
   assert.deepStrictEqual(spotlight(), []);
   await new Promise((resolve) => { setImmediate(resolve); });
   assert.deepStrictEqual(spotlight(), ['/Applications/A.app', '/Applications/B.app']);
@@ -97,4 +97,53 @@ test('Spotlight\'s list: empty until mdfind answers, then kept for 10 minutes', 
   t += 6 * 60_000;
   spotlight();
   assert.strictEqual(calls, 2);
+});
+
+test('aliases: accents and a trailing "app" do not matter; no guesses for browser or camera', () => {
+  assert.strictEqual(aliasFor('Pr\u00e9f\u00e9rences'), 'System Settings');
+  assert.strictEqual(aliasFor('Chrome app'), 'Google Chrome');
+  assert.strictEqual(aliasFor('CHR\u00d4ME'), 'Google Chrome');
+  assert.strictEqual(aliasFor('browser'), null);
+  assert.strictEqual(aliasFor('camera'), null);
+});
+
+test('Spotlight: asks mdfind with a timeout and a buffer; an error keeps the old list', async () => {
+  let t = 0;
+  const seen = [];
+  let fail = false;
+  const execFile = (file, args, options, cb) => {
+    seen.push([file, options]);
+    if (fail) cb(new Error('x'), ''); else cb(null, '/Applications/A.app\n');
+  };
+  const spotlight = createSpotlight({ execFile, now: () => t, exists: () => true });
+  spotlight();
+  assert.strictEqual(seen[0][0], 'mdfind');
+  assert.strictEqual(seen[0][1].timeout, 10_000);
+  assert.strictEqual(seen[0][1].maxBuffer, 4 * 1024 * 1024);
+  fail = true;
+  t += 11 * 60_000;
+  assert.deepStrictEqual(spotlight(), ['/Applications/A.app']);
+  assert.deepStrictEqual(spotlight(), ['/Applications/A.app']);
+  assert.strictEqual(seen.length, 2);
+});
+
+test('Spotlight: no nested, backup, cache or bin apps; no non-bundles; none of Buddy\'s own', () => {
+  const out = [
+    '/Applications/Good.app', '/Applications/Good.app/Contents/Helpers/Inner.app', '/a/node_modules/x/Y.app',
+    '/Users/a/Library/Application Support/Z/Z.app', '/Users/a/Library/Caches/C.app', '/Users/a/.Trash/T.app',
+    '/Applications/Folder.app', '/Applications/Buddy.app', '/Applications/Buddy Beta.app',
+  ].join('\n');
+  const exists = (p) => !p.includes('Folder.app');
+  const spotlight = createSpotlight({ execFile: (f, a, o, cb) => cb(null, out), now: () => 0, exists });
+  spotlight();
+  assert.deepStrictEqual(spotlight(), ['/Applications/Good.app']);
+});
+
+test('CoreServices: only Finder, Screen Sharing and Archive Utility; Buddy\'s own bundle is never listed', () => {
+  const entries = (names) => names.map((name) => ({ name, isDirectory: () => true }));
+  const readdir = (dir) => (dir === '/System/Library/CoreServices'
+    ? entries(['Finder.app', 'Dock.app', 'Screen Sharing.app', 'Archive Utility.app', 'Folder'])
+    : entries(['Buddy.app', 'Safari.app']));
+  const apps = createApps({ dirs: ['/System/Library/CoreServices', '/Applications'], openPath: async () => '', own: 'Buddy.app', readdir });
+  assert.deepStrictEqual(apps.list().map((x) => x.name), ['Finder', 'Screen Sharing', 'Archive Utility', 'Safari']);
 });

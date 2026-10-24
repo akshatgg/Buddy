@@ -1,0 +1,71 @@
+name: Feature request
+description: Suggest something Buddy should do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Buddy is one behaviour across four front ends. A request is much easier to
+        take when it's clear which of them it belongs to — and whether the rules
+        in `shared/` would have to change for it, since that affects all of them.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that Buddy doesn't let you do today?
+      placeholder: "When I fix English in a Hindi sentence, Buddy loses the Hindi and..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like
+      description: Describe the behaviour you want, not the implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Workarounds or alternatives
+      description: How do you handle this now? What do other tools do?
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where should it work?
+      multiple: true
+      options:
+        - Mac
+        - Windows
+        - Android
+        - iPhone (web app)
+        - The server
+        - Everywhere — it belongs in shared/
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Writing, fixing, or answering
+        - Languages (English, Hindi, Hinglish)
+        - Typing for me / Accessibility
+        - Talk and voice
+        - Claude Code sessions
+        - Memory
+        - The buddy itself (3D, feel, position)
+        - Sign-in, free mode or Admin
+        - Install or update
+
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you be willing to implement this?
+      options:
+        - "Yes, happy to open a PR"
+        - "Maybe, with some guidance"
+        - "No, just suggesting"

@@ -256,3 +256,17 @@ the robot (`art/render_icon.py`) and a small Swift tool sets it on the plate
 (`build/MakeIcon.swift`):
 
     npm run build:icon
+
+## License
+
+[MIT](LICENSE) © Akshat Gupta
+
+Use it, modify it, redistribute it, sell it — provided the copyright notice and
+license text stay with the code.
+
+Bundled dependencies keep their own licenses. The two that matter are
+`sherpa-onnx-node` and `vosk-browser`, both Apache-2.0 — compatible with MIT,
+but Apache-2.0 asks that their license text travel with the copy. The voice
+models are not in this repository (they are fetched by
+`tools/pack-voice-model.js` and published as release files), so the MIT license
+here covers the code, not the models.

@@ -7,7 +7,7 @@
   "type": "commonjs",
   "private": true,
   "author": "akshatgg",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "scripts": {
     "start": "npm run build:native && electron .",
     "build:native": "node tools/build-native.js",

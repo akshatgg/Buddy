@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "Buddy's server: free mode, the admin's switches and the users list (Vercel functions + Firestore).",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "node": "22.x"
   },

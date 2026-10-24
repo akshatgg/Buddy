@@ -1,0 +1,119 @@
+name: Bug report
+description: Something in Buddy broke or doesn't behave as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Buddy runs as a desktop app, an Android app, and an
+        iPhone web app against one server, so **which one** is usually the first
+        thing that matters.
+
+        **Security issues:** please don't file them here. Email akshatg9636@gmail.com.
+        Never paste an AI key, `cloud.json`, or anything from the keychain.
+
+  - type: input
+    id: version
+    attributes:
+      label: Buddy version
+      description: Menu bar → About, the APK filename, or the version shown in the iPhone app's Settings.
+      placeholder: "1.4.8"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where
+      options:
+        - Mac — Apple Silicon
+        - Mac — Intel
+        - Windows x64
+        - Android
+        - iPhone (web app in Safari)
+        - The server / website
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS or device
+      placeholder: "macOS 15.1 / Windows 11 23H2 / Pixel 7 on Android 14 / iPhone 13, iOS 18.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Sign-in and AI
+      description: Settings → AI shows which one is in use.
+      options:
+        - Signed in, free mode (server's key)
+        - Signed in, my own key
+        - Not signed in
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Buddy, select text in Mail
+        2. Press the shortcut
+        3. The bubble shows "..." and never fills in
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - The buddy itself (3D window, position, feel)
+        - Writing, fixing, or answering
+        - Typing for me / Accessibility
+        - Talk and voice
+        - Claude Code sessions
+        - Memory
+        - Sign-in, free mode or Admin
+        - Website
+        - Android app
+        - iPhone web app
+        - Install or update
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error output
+      description: |
+        Desktop: start from a checkout with `npm run debug` to see logged errors.
+        Android: `adb logcat`. Redact anything personal.
+      render: shell
+
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshot or recording
+      description: Drag a file in here. Please check nothing personal or secret is visible.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmation
+      options:
+        - label: I searched existing issues and this isn't a duplicate
+          required: true
+        - label: This is not a security issue, and I haven't pasted an AI key or cloud.json
+          required: true
